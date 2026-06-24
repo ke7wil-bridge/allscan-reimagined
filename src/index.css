@@ -2805,7 +2805,7 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title::after {
-    content: "CONNECTION STATUS - NODE 641890";
+    content: attr(data-lcars-title);
     font: 900 13px/36px Arial, Helvetica, sans-serif;
   }
 
@@ -2888,7 +2888,7 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title::after {
-    content: "DIGITAL BRIDGE STATUS - DMR / YSF / ZELLO / D-STAR";
+    content: attr(data-lcars-title);
     font: 900 13px/36px Arial, Helvetica, sans-serif;
   }
 

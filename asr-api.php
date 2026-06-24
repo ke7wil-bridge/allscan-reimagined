@@ -4,6 +4,8 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
+const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 2';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -84,6 +86,100 @@ function asr_require_post(): void {
     if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
         asr_error('POST required for this action.', 405);
     }
+}
+
+function asr_detect_callsign(string $node): string {
+    if ($node === '') return '';
+
+    $files = [
+        __DIR__ . '/astdb.txt',
+        '/etc/allscan/asdb.txt',
+        '/var/log/asterisk/astdb.txt',
+    ];
+    foreach ($files as $file) {
+        if (!is_readable($file)) continue;
+        $handle = fopen($file, 'r');
+        if (!$handle) continue;
+        while (($line = fgets($handle)) !== false) {
+            $parts = explode('|', trim($line));
+            if (($parts[0] ?? '') === $node && !empty($parts[1])) {
+                fclose($handle);
+                return strtoupper(trim((string) $parts[1]));
+            }
+        }
+        fclose($handle);
+    }
+    return '';
+}
+
+function asr_detect_bridges(): array {
+    $file = __DIR__ . '/bridge-live.json';
+    $payload = is_readable($file) ? json_decode((string) file_get_contents($file), true) : null;
+    if (!is_array($payload)) return [];
+
+    $definitions = [
+        'dmr' => ['DMR Bridge', 'Connected Clients'],
+        'ysf' => ['YSF Bridge', 'Linked Gateways'],
+        'zello' => ['Zello Bridge', 'Recent Talkers'],
+        'dstar' => ['D-Star Bridge', 'Linked Gateways'],
+    ];
+    $bridges = [];
+    foreach ($definitions as $id => [$title, $detailTitle]) {
+        if (!isset($payload[$id]) || !is_array($payload[$id]) || $payload[$id] === []) continue;
+        $bridges[] = ['id' => $id, 'node' => '', 'title' => $title, 'detailTitle' => $detailTitle];
+    }
+    return $bridges;
+}
+
+function asr_runtime_config(): array {
+    global $amicfg;
+
+    $stored = is_readable(ASR_RUNTIME_CONFIG)
+        ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+        : null;
+    if (!is_array($stored)) $stored = [];
+
+    $messages = [];
+    if (!isset($amicfg->node)) getAmiCfg($messages);
+    $node = preg_match('/^\d{3,10}$/', (string) ($stored['node'] ?? ''))
+        ? (string) $stored['node']
+        : (preg_match('/^\d{3,10}$/', (string) ($amicfg->node ?? '')) ? (string) $amicfg->node : '');
+    $callsign = strtoupper(trim((string) ($stored['callsign'] ?? '')));
+    if ($callsign === '') $callsign = asr_detect_callsign($node);
+
+    $replace = static fn (string $value): string => str_replace(
+        ['{CALLSIGN}', '{NODE}'],
+        [$callsign ?: 'AllScan', $node],
+        $value,
+    );
+
+    $allowedBridgeIds = ['dmr', 'ysf', 'zello', 'dstar'];
+    $storedBridges = is_array($stored['bridges'] ?? null) ? $stored['bridges'] : asr_detect_bridges();
+    $bridges = [];
+    foreach ($storedBridges as $bridge) {
+        if (!is_array($bridge) || !in_array($bridge['id'] ?? '', $allowedBridgeIds, true)) continue;
+        $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
+        $bridges[] = [
+            'id' => (string) $bridge['id'],
+            'node' => $bridgeNode,
+            'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
+            'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connections')), 0, 80),
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'node' => $node,
+        'callsign' => $callsign,
+        'headerTitle' => $replace((string) ($stored['headerTitle'] ?? '{CALLSIGN} | Node {NODE}')),
+        'browserTitle' => $replace((string) ($stored['browserTitle'] ?? '{CALLSIGN} - {NODE} | ASR')),
+        'brandByline' => $replace((string) ($stored['brandByline'] ?? ($callsign ? 'by {CALLSIGN}' : ''))),
+        'footerByline' => $replace((string) ($stored['footerByline'] ?? ($callsign ? 'customized by {CALLSIGN}' : ''))),
+        'headerLogo' => (string) ($stored['headerLogo'] ?? '/allscan/asr-logo-bright-r-tight.png'),
+        'footerLogo' => (string) ($stored['footerLogo'] ?? '/allscan/asr-logo-bright-r-tight.png'),
+        'versionLabel' => ASR_VERSION_LABEL,
+        'bridges' => $bridges,
+    ];
 }
 
 function asr_allscan_dir(): string {
@@ -268,6 +364,7 @@ function asr_drop_client(string $channel): array {
 $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
+if ($action === 'runtime-config') asr_json(asr_runtime_config());
 if ($action === 'favorites') {
     asr_require_read();
     asr_json(asr_favorites_payload((string) ($_GET['favsfile'] ?? '')));

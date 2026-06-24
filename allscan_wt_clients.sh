@@ -2,7 +2,25 @@
 set -u
 
 AST="/usr/sbin/asterisk"
-NODE_NUM="641890"
+CONFIG_FILE="/etc/allscan-reimagined/config.json"
+NODE_NUM=""
+
+if [ -r "$CONFIG_FILE" ] && command -v php >/dev/null 2>&1; then
+  NODE_NUM=$(php -r '
+    $config = json_decode((string) @file_get_contents($argv[1]), true);
+    $node = is_array($config) ? (string) ($config["node"] ?? "") : "";
+    if (preg_match("/^\\d{3,10}$/", $node)) echo $node;
+  ' "$CONFIG_FILE")
+fi
+
+if [ -z "$NODE_NUM" ] && [ -r /etc/asterisk/rpt.conf ]; then
+  NODE_NUM=$(sed -n 's/^\[\([0-9]\{5,10\}\)\]$/\1/p' /etc/asterisk/rpt.conf | head -1)
+fi
+
+if ! [[ "$NODE_NUM" =~ ^[0-9]{3,10}$ ]]; then
+  echo "Error: local node number could not be detected" >&2
+  exit 4
+fi
 
 if [ "$EUID" -ne 0 ]; then
   echo "Error: must run as root" >&2

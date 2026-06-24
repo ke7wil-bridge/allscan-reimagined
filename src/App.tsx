@@ -13,8 +13,6 @@ import {
   restartAsteriskCommand,
   type FavoritesFileOption,
   type FavoriteStats,
-  LOCAL_CALLSIGN,
-  LOCAL_NODE,
   sendNodeCommand,
   subscribeConnectionFeed,
   type BridgeCardView,
@@ -22,6 +20,7 @@ import {
   type DropClientEntry,
   type FavoriteNode,
   type LiveConnectionRow,
+  type RuntimeConfig,
 } from './lib/allscanLive'
 
 const FAVORITES_DISPLAY_CACHE_KEY = 'asrFavoritesDisplayCache.v2'
@@ -326,7 +325,7 @@ function formatUtc(date: Date) {
   })
 }
 
-function App() {
+function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
   const [connectedCount, setConnectedCount] = useState(0)
   const [directCount, setDirectCount] = useState(0)
@@ -381,8 +380,8 @@ function App() {
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
 
-  const browserTitle = useMemo(() => `${LOCAL_CALLSIGN} - ${LOCAL_NODE} | ASR`, [])
-  const titleText = useMemo(() => `${LOCAL_CALLSIGN} | Node ${LOCAL_NODE}`, [])
+  const browserTitle = config.browserTitle
+  const titleText = config.headerTitle
   const effectiveThemeSettings = normalizeThemeSettings(themeSettings)
   const visibleThemeOptions = useMemo(
     () => themeOptions.filter((option) => desktopThemeViewport || option.value !== 'lcars-frame'),
@@ -397,12 +396,12 @@ function App() {
       return undefined
     }
 
-    return {
-      '1997': toRowState(byId.get('ysf')),
-      '1998': toRowState(byId.get('dmr')),
-      '1999': toRowState(byId.get('zello')),
-    } as Record<string, LiveConnectionRow['state'] | undefined>
-  }, [bridgeState.cards])
+    return Object.fromEntries(
+      config.bridges
+        .filter((bridge) => bridge.node)
+        .map((bridge) => [bridge.node, toRowState(byId.get(bridge.id))]),
+    ) as Record<string, LiveConnectionRow['state'] | undefined>
+  }, [bridgeState.cards, config.bridges])
 
   useEffect(() => {
     document.title = browserTitle
@@ -410,11 +409,9 @@ function App() {
 
   function applyBridgeConnectionOverrides(next: { updatedLabel: string; cards: BridgeCardView[] }) {
     const rowsByNode = new Map(connectionRowsRef.current.map((row) => [row.node, row]))
-    const bridgeNodeById: Record<string, string> = {
-      dmr: '1998',
-      ysf: '1997',
-      zello: '1999',
-    }
+    const bridgeNodeById = Object.fromEntries(config.bridges.map((bridge) => [bridge.id, bridge.node]))
+    const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
+    const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
 
     return {
       ...next,
@@ -422,6 +419,9 @@ function App() {
         const row = rowsByNode.get(bridgeNodeById[card.id])
         if (row?.state === 'talking' && card.status !== 'Source/TX') {
           return { ...card, status: 'Source/TX' as const }
+        }
+        if (row && localIsTransmitting && card.status === 'Idle') {
+          return { ...card, status: 'Relay' as const }
         }
         return card
       }),
@@ -518,10 +518,10 @@ function App() {
   const sortedConnectionRows = useMemo(() => {
     const pinnedRows = rows
       .map((row, index) => ({ row, index }))
-      .filter((item) => item.index === 0 || item.row.node === LOCAL_NODE)
+      .filter((item) => item.index === 0 || item.row.node === config.node)
     const items = rows
       .map((row, index) => ({ row, index }))
-      .filter((item) => item.index !== 0 && item.row.node !== LOCAL_NODE)
+      .filter((item) => item.index !== 0 && item.row.node !== config.node)
     const dir = connectionSort.direction === 'asc' ? 1 : -1
     const key = connectionSort.key
 
@@ -543,15 +543,15 @@ function App() {
     })
 
     return [...pinnedRows, ...items].map((item) => item.row)
-  }, [rows, connectionSort])
+  }, [rows, connectionSort, config.node])
 
   const faviconStatus = useMemo<'idle' | 'ptt' | 'cos' | 'both'>(() => {
-    const localRow = rows.find((row) => row.node === LOCAL_NODE) || rows[0]
+    const localRow = rows.find((row) => row.node === config.node) || rows[0]
     if (localRow?.state === 'talking') return 'ptt'
     if (localRow?.state === 'relay') return 'cos'
     if (localRow?.state === 'both') return 'both'
     return 'idle'
-  }, [rows])
+  }, [rows, config.node])
 
   useEffect(() => {
     const favicon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')
@@ -656,7 +656,7 @@ function App() {
     if (!authStatus.canWrite) return
     setMenuOpen(false)
     setOpenSubmenu(null)
-    void restartAsteriskCommand()
+    void restartAsteriskCommand(config.node)
       .then((message) => appendNodeMessage(message || 'Restart Asterisk command sent.'))
       .catch((error) => {
         const message = error instanceof Error ? error.message : 'Restart Asterisk failed.'
@@ -675,6 +675,11 @@ function App() {
   }
 
   useEffect(() => {
+    if (config.bridges.length === 0) {
+      setBridgeState({ updatedLabel: '--:--:--', cards: [] })
+      return
+    }
+
     let cancelled = false
 
     const refreshAuthStatus = async () => {
@@ -697,7 +702,14 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!config.node) {
+      appendNodeMessage('No local node number was detected. Run the Reimagined setup again.')
+      return
+    }
+
     const stop = subscribeConnectionFeed(
+      config.node,
+      config.bridges.map((bridge) => bridge.node),
       (snapshot) => {
         connectionRowsRef.current = snapshot.rows
         setRows(snapshot.rows)
@@ -714,7 +726,7 @@ function App() {
     )
 
     return stop
-  }, [])
+  }, [config.node])
 
   useEffect(() => {
     let cancelled = false
@@ -744,7 +756,7 @@ function App() {
 
     const refreshBridgeCards = async () => {
       try {
-        const next = await fetchBridgeCards()
+        const next = await fetchBridgeCards(config)
         if (!cancelled) setBridgeState(applyBridgeConnectionOverrides(next))
       } catch {
         if (!cancelled) setNodeMessage('Bridge status refresh failed.')
@@ -757,7 +769,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [config])
 
   useEffect(() => {
     let cancelled = false
@@ -900,7 +912,7 @@ function App() {
     const connectedClients = connectionRowsRef.current
       .filter((row, index) => {
         if (index === 0 || row.state === 'message') return false
-        if (['1997', '1998', '1999'].includes(row.node)) return false
+        if (config.bridges.some((bridge) => bridge.node === row.node)) return false
         return !/^\d+$/.test(row.node)
       })
 
@@ -946,6 +958,7 @@ function App() {
     try {
       setBusy(true)
       const message = await sendNodeCommand({
+        localNode: config.node,
         node,
         action,
         permanent,
@@ -1006,14 +1019,14 @@ function App() {
                   <span className="allscan-wordmark-silver allscan-wordmark-can">can</span>
                 </strong>
                 <span className="allscan-tagline font-georgia">Reimagined</span>
-                <small className="allscan-brand-version">v1.0.0 Beta</small>
-                <span className="allscan-byline">by KE7WIL</span>
+                <small className="allscan-brand-version">{config.versionLabel}</small>
+                {config.brandByline ? <span className="allscan-byline">{config.brandByline}</span> : null}
               </div>
             </a>
           </div>
 
           <div className="allscan-header-center">
-            <img className="allscan-header-ke7wil-logo" src={asset('asr-logo-bright-r-tight.png')} alt="ASR logo" />
+            <img className="allscan-header-ke7wil-logo" src={config.headerLogo} alt="Header logo" />
             <h1 className="allscan-title">{titleText}</h1>
             <div className="allscan-cpu">
               <span className="allscan-meta-label">CPU Temp:</span>
@@ -1136,7 +1149,7 @@ function App() {
                   {authStatus.isAdmin ? <a role="menuitem" href="/allscan/cfg/" onClick={() => setMenuOpen(false)}>Cfgs</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Users</a> : null}
                   {authStatus.loggedIn ? <a role="menuitem" href="/allscan/user/settings/" onClick={() => setMenuOpen(false)}>Settings</a> : null}
-                  <a role="menuitem" href={`http://stats.allstarlink.org/stats/${LOCAL_NODE}`} onClick={() => setMenuOpen(false)}>Node Stats</a>
+                  <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Stats</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {authStatus.loggedIn ? (
                     <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
@@ -1423,7 +1436,7 @@ function App() {
           </section>
 
           <section className="allscan-main-section allscan-connection-section">
-            <h2 className="allscan-section-title">
+            <h2 className="allscan-section-title" data-lcars-title={`CONNECTION STATUS - NODE ${config.node}`}>
               Connection Status
             </h2>
 
@@ -1455,7 +1468,7 @@ function App() {
                   </thead>
                   <tbody>
                     {sortedConnectionRows.map((row) => {
-                      const isLocalRow = row.node === LOCAL_NODE
+                      const isLocalRow = row.node === config.node
                       const displayState = isLocalRow
                         ? row.state
                         : row.state === 'talking'
@@ -1529,15 +1542,21 @@ function App() {
             </div>
           </section>
 
-          <section className="allscan-main-section allscan-bridge-section">
-            <h2 className="allscan-section-title">
+          {bridgeState.cards.length ? <section className="allscan-main-section allscan-bridge-section">
+            <h2
+              className="allscan-section-title"
+              data-lcars-title={`DIGITAL BRIDGE STATUS - ${bridgeState.cards.map((card) => card.id.toUpperCase()).join(' / ')}`}
+            >
               Digital Bridge Status
             </h2>
             <p className="allscan-section-subtitle">
               LAST ACTIVITY: {bridgeState.updatedLabel}
             </p>
 
-            <div className="allscan-bridge-grid">
+            <div
+              className="allscan-bridge-grid"
+              style={{ gridTemplateColumns: `repeat(${bridgeState.cards.length}, minmax(0, 1fr))` }}
+            >
               {bridgeState.cards.map((card) => (
                 <article
                   key={card.id}
@@ -1584,12 +1603,12 @@ function App() {
                 </article>
               ))}
             </div>
-          </section>
+          </section> : null}
 
           <footer className="allscan-footer">
             <div className="allscan-footer-copy">
-              <img className="allscan-footer-micro-logo" src={asset('asr-logo-bright-r-tight.png')} alt="ASR logo" />
-              <div className="allscan-footer-byline">customized by KE7WIL</div>
+              <img className="allscan-footer-micro-logo" src={config.footerLogo} alt="Footer logo" />
+              {config.footerByline ? <div className="allscan-footer-byline">{config.footerByline}</div> : null}
               <div className="allscan-footer-credit">
                 Based on AllScan by <strong>David Gleason, NR9V</strong>
               </div>

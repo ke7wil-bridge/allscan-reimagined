@@ -23,6 +23,7 @@ dist-ssr
 *.zip
 deploy-*/
 dist-ke7wil-test/
+release/
 
 # Local backups and temporary files
 backups/

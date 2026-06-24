@@ -1,73 +1,56 @@
-# React + TypeScript + Vite
+# AllScan Reimagined
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+AllScan Reimagined is a configurable interface and security layer for David Gleason's AllScan. It installs the current official AllScan backend first, then adds the Reimagined interface without copying user accounts or credentials between nodes.
 
-Currently, two official plugins are available:
+## Installation behavior
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The installer:
 
-## React Compiler
+1. Reports the installed and latest official AllScan versions.
+2. Backs up the existing AllScan web directory and private database.
+3. Runs the official AllScan installer/updater when required.
+4. Preserves existing users, passwords, permissions, Favorites, and node settings.
+5. Detects the primary node number, callsign, and known bridge services.
+6. Lets the owner choose the header, browser title, bylines, and optional logo.
+7. Shows bridge cards only for configured or detected bridges.
+8. Applies Apache, session, file-permission, and endpoint hardening.
+9. Installs an integrity service that restores the Reimagined overlay after official AllScan updates.
+10. Verifies the page and runtime configuration before reporting success.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Personal configuration
 
-## Expanding the ESLint configuration
+Node-specific settings are stored outside the web root:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+/etc/allscan-reimagined/config.json
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Uploaded logos are stored in:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+/var/lib/allscan-reimagined/
 ```
+
+Rerun personalization without reinstalling:
+
+```bash
+sudo /opt/allscan-reimagined/current/scripts/asr-configure.sh --force
+sudo /usr/local/sbin/allscan-reimagined-reapply
+```
+
+## Accounts and secrets
+
+AllScan's account database remains local to each node at `/etc/allscan/allscan.db`. It is never included in this repository or an installation package. No AMI password, API token, login, private key, or node-specific credential belongs in this repository.
+
+## Building a release
+
+```bash
+pnpm install
+./build-release.sh
+```
+
+The release archive and SHA-256 checksum are written under `release/`.
+
+## Upstream project
+
+AllScan Reimagined is based on [AllScan by David Gleason, NR9V](https://github.com/davidgsd/AllScan).

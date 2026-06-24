@@ -1,7 +1,40 @@
-export const LOCAL_NODE = '641890'
-export const LOCAL_CALLSIGN = 'KE7WIL'
 const ALLSCAN_BASE = '/allscan'
 const ASR_API = `${ALLSCAN_BASE}/asr-api.php`
+
+export type BridgeId = 'dmr' | 'ysf' | 'zello' | 'dstar'
+
+export type RuntimeBridgeConfig = {
+  id: BridgeId
+  node: string
+  title: string
+  detailTitle: string
+}
+
+export type RuntimeConfig = {
+  node: string
+  callsign: string
+  headerTitle: string
+  browserTitle: string
+  brandByline: string
+  footerByline: string
+  headerLogo: string
+  footerLogo: string
+  versionLabel: string
+  bridges: RuntimeBridgeConfig[]
+}
+
+export const defaultRuntimeConfig: RuntimeConfig = {
+  node: '',
+  callsign: '',
+  headerTitle: 'AllScan Reimagined',
+  browserTitle: 'AllScan Reimagined',
+  brandByline: '',
+  footerByline: '',
+  headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
+  footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
+  versionLabel: 'v1.0.0 Beta 2',
+  bridges: [],
+}
 
 export type RowState = 'idle' | 'talking' | 'relay' | 'both' | 'normal' | 'message'
 
@@ -90,6 +123,21 @@ export type AuthStatus = {
   canModify: boolean
   canWrite: boolean
   isAdmin: boolean
+}
+
+export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
+  const response = await fetch(`${ASR_API}?action=runtime-config`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as Partial<RuntimeConfig> & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Runtime configuration could not be loaded.')
+
+  return {
+    ...defaultRuntimeConfig,
+    ...payload,
+    bridges: Array.isArray(payload.bridges) ? payload.bridges : [],
+  }
 }
 
 type FeedNode = {
@@ -212,7 +260,7 @@ function liveBridgeRowState(keyed: string, mode: string): RowState {
   return 'normal'
 }
 
-function buildSnapshot(payload: FeedPayload): ConnectionSnapshot {
+function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): ConnectionSnapshot {
   const nodeKey = Object.keys(payload)[0]
   if (!nodeKey) return { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
 
@@ -223,7 +271,7 @@ function buildSnapshot(payload: FeedPayload): ConnectionSnapshot {
   const linkedNodeCounts: Record<string, number> = {}
   const firstExternalNode = nodeData.remote_nodes.find((row) => {
     const node = String(row.node)
-    return node !== '1' && row.info !== 'NO CONNECTION' && node !== '1997' && node !== '1998' && node !== '1999'
+    return node !== '1' && row.info !== 'NO CONNECTION' && !bridgeNodes.has(node)
   })
 
   let hasNoConnectionRow = false
@@ -301,14 +349,17 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
 }
 
 export function subscribeConnectionFeed(
+  localNode: string,
+  configuredBridgeNodes: string[],
   onSnapshot: (snapshot: ConnectionSnapshot) => void,
   onMessage: (message: string) => void,
 ) {
+  const bridgeNodes = new Set(configuredBridgeNodes.filter(Boolean))
   let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
-  const source = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${LOCAL_NODE}`)
+  const source = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${encodeURIComponent(localNode)}`)
 
   source.addEventListener('nodes', (event) => {
-    const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload)
+    const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload, bridgeNodes)
     snapshot = next
     onSnapshot(next)
   })
@@ -459,18 +510,22 @@ function normalizeBridgeRoles(bridge: BridgeLiveResponse): BridgeLiveResponse {
   return next
 }
 
-function isLocalBridgeCaller(value?: string) {
-  return /KE7WIL\s*\|\s*Node\s*641890|Node\s*641890|641890/i.test(String(value || ''))
+function isLocalBridgeCaller(value: string | undefined, config: RuntimeConfig) {
+  const text = String(value || '')
+  return Boolean(config.node && (text.includes(config.node) || (config.callsign && text.toUpperCase().includes(config.callsign.toUpperCase()))))
 }
 
-function cleanBridgeCaller(value?: string) {
-  return String(value || '')
-    .replace(/\s*\|\s*Node\s*641890\b/gi, '')
-    .replace(/\s+Node\s*641890\b/gi, '')
-    .trim()
+function cleanBridgeCaller(value: string | undefined, config: RuntimeConfig) {
+  let caller = String(value || '')
+  if (config.node) {
+    caller = caller
+      .replace(new RegExp(`\\s*\\|\\s*Node\\s*${config.node}\\b`, 'gi'), '')
+      .replace(new RegExp(`\\s+Node\\s*${config.node}\\b`, 'gi'), '')
+  }
+  return caller.trim()
 }
 
-function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Source/TX' | 'Relay') {
+function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Source/TX' | 'Relay', config: RuntimeConfig) {
   if (!entry || status === 'Idle') return '-'
 
   const candidates = status === 'Relay'
@@ -479,9 +534,9 @@ function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Sour
 
   const caller = candidates
     .map((value) => String(value || '').trim())
-    .find((value) => value && value !== '-' && (status !== 'Relay' || !isLocalBridgeCaller(value)))
+    .find((value) => value && value !== '-' && (status !== 'Relay' || !isLocalBridgeCaller(value, config)))
 
-  return cleanBridgeCaller(caller) || '-'
+  return cleanBridgeCaller(caller, config) || '-'
 }
 
 type BridgeClientMode = 'dmr' | 'ysf' | 'zello' | 'dstar'
@@ -562,7 +617,7 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
     .filter((item) => Boolean(zelloRecentTalkerName(item)))
 }
 
-export async function fetchBridgeCards(): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
+export async function fetchBridgeCards(config: RuntimeConfig): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
   const [bridgeResponse, clientsResponse] = await Promise.all([
     fetch(`${ALLSCAN_BASE}/bridge-live.json`),
     fetch(`${ALLSCAN_BASE}/connected-clients.json`),
@@ -571,49 +626,32 @@ export async function fetchBridgeCards(): Promise<{ updatedLabel: string; cards:
   const bridge = normalizeBridgeRoles((await bridgeResponse.json()) as BridgeLiveResponse)
   const clients = (await clientsResponse.json()) as ConnectedClientsResponse
 
-  const dmrStatus = mapBridgeStatus(bridge.dmr)
-  const ysfStatus = mapBridgeStatus(bridge.ysf)
-  const zelloStatus = mapBridgeStatus(bridge.zello)
-  const dstarStatus = mapBridgeStatus(bridge.dstar)
+  const entries: Record<BridgeId, BridgeEntry | undefined> = {
+    dmr: bridge.dmr,
+    ysf: bridge.ysf,
+    zello: bridge.zello,
+    dstar: bridge.dstar,
+  }
+  const clientRows: Record<BridgeId, unknown> = {
+    dmr: clients.dmr,
+    ysf: clients.ysf,
+    zello: liveZelloRecentTalkers(bridge.zello),
+    dstar: [],
+  }
 
-  const cards: BridgeCardView[] = [
-    {
-      id: 'dmr',
-      title: 'DMR Bridge',
-      status: dmrStatus,
-      lastCaller: bridgeLastCaller(bridge.dmr, dmrStatus),
-      warning: bridge.dmr?.warning || '-',
-      detailTitle: 'Connected DMR Clients',
-      detailRows: formatBridgeDetailRows(clients.dmr, 'None', 'dmr'),
-    },
-    {
-      id: 'ysf',
-      title: 'YSF Bridge',
-      status: ysfStatus,
-      lastCaller: bridgeLastCaller(bridge.ysf, ysfStatus),
-      warning: bridge.ysf?.warning || '-',
-      detailTitle: 'Linked YSF Gateways',
-      detailRows: formatBridgeDetailRows(clients.ysf, 'None', 'ysf'),
-    },
-    {
-      id: 'zello',
-      title: 'Zello Bridge',
-      status: zelloStatus,
-      lastCaller: bridgeLastCaller(bridge.zello, zelloStatus),
-      warning: bridge.zello?.warning || '-',
-      detailTitle: 'Recent Talkers',
-      detailRows: formatBridgeDetailRows(liveZelloRecentTalkers(bridge.zello), 'None', 'zello'),
-    },
-    {
-      id: 'dstar',
-      title: 'D-Star Bridge',
-      status: dstarStatus,
-      lastCaller: bridgeLastCaller(bridge.dstar, dstarStatus),
-      warning: bridge.dstar?.warning || '-',
-      detailTitle: 'Linked D-Star Gateways',
-      detailRows: formatBridgeDetailRows([], 'None', 'dstar'),
-    },
-  ]
+  const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
+    const entry = entries[bridgeConfig.id]
+    const status = mapBridgeStatus(entry)
+    return {
+      id: bridgeConfig.id,
+      title: bridgeConfig.title,
+      status,
+      lastCaller: bridgeLastCaller(entry, status, config),
+      warning: entry?.warning || '-',
+      detailTitle: bridgeConfig.detailTitle,
+      detailRows: formatBridgeDetailRows(clientRows[bridgeConfig.id], 'None', bridgeConfig.id),
+    }
+  })
 
   const updatedLabel = bridge.updated
     ? bridge.updated.replace(/^\d{4}-\d{2}-\d{2}\s+/, '').replace(/\s+Local$/i, '')
@@ -672,6 +710,7 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
 }
 
 export async function sendNodeCommand(args: {
+  localNode: string
   node: string
   action: string
   permanent: boolean
@@ -707,7 +746,7 @@ export async function sendNodeCommand(args: {
       body: new URLSearchParams({
         button: 'dtmf',
         cmd: node,
-        localnode: LOCAL_NODE,
+        localnode: args.localNode,
       }).toString(),
     })
 
@@ -722,7 +761,7 @@ export async function sendNodeCommand(args: {
       remotenode: node,
       perm: String(args.permanent),
       button: args.action,
-      localnode: LOCAL_NODE,
+      localnode: args.localNode,
       autodisc: String(args.connectedCount > 0 ? args.autodisc : false),
     }).toString(),
   })
@@ -731,13 +770,13 @@ export async function sendNodeCommand(args: {
   return (await response.text()).trim()
 }
 
-export async function restartAsteriskCommand() {
+export async function restartAsteriskCommand(localNode: string) {
   const response = await fetch(`${ALLSCAN_BASE}/astapi/cmd.php`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       button: 'restart',
-      localnode: LOCAL_NODE,
+      localnode: localNode,
     }).toString(),
   })
 
