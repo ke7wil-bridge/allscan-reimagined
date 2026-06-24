@@ -10,6 +10,15 @@ OFFICIAL_INSTALLER_URL="https://raw.githubusercontent.com/davidgsd/AllScan/main/
 CHANGES_STARTED=0
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
+restore_runtime_backup() {
+  [ -d "$BACKUP_DIR/runtime" ] || return 0
+  mkdir -p "$ALLSCAN_DIR"
+  for runtime_file in bridge-live.json connected-clients.json zello-status-data.json; do
+    [ -f "$BACKUP_DIR/runtime/$runtime_file" ] && cp -p "$BACKUP_DIR/runtime/$runtime_file" "$ALLSCAN_DIR/$runtime_file"
+  done
+  [ -d "$BACKUP_DIR/runtime/img" ] && cp -a "$BACKUP_DIR/runtime/img" "$ALLSCAN_DIR/img"
+}
+
 rollback_on_error() {
   status=$?
   set +e
@@ -18,6 +27,7 @@ rollback_on_error() {
     echo "Installation failed. Restoring the previous AllScan installation..." >&2
     [ -d "$ALLSCAN_DIR" ] && mv "$ALLSCAN_DIR" "$BACKUP_DIR/failed-allscan"
     tar -xzf "$BACKUP_DIR/allscan-webroot.tar.gz" -C "$WEB_ROOT"
+    restore_runtime_backup
     if [ -f "$BACKUP_DIR/allscan.db" ]; then
       install -o "$WEB_GROUP" -g "$WEB_GROUP" -m 660 "$BACKUP_DIR/allscan.db" /etc/allscan/allscan.db
     fi
@@ -81,12 +91,22 @@ echo
 mkdir -p "$BACKUP_DIR"
 if [ -d "$ALLSCAN_DIR" ]; then
   echo "[1/8] Backing up the existing AllScan installation..."
-  tar -czf "$BACKUP_DIR/allscan-webroot.tar.gz" -C "$WEB_ROOT" allscan
   mkdir -p "$BACKUP_DIR/runtime"
   for runtime_file in bridge-live.json connected-clients.json zello-status-data.json; do
     [ -f "$ALLSCAN_DIR/$runtime_file" ] && cp -p "$ALLSCAN_DIR/$runtime_file" "$BACKUP_DIR/runtime/"
   done
   [ -d "$ALLSCAN_DIR/img" ] && cp -a "$ALLSCAN_DIR/img" "$BACKUP_DIR/runtime/img"
+  COPYFILE_DISABLE=1 tar \
+    --exclude='allscan/bridge-live.json' \
+    --exclude='allscan/connected-clients.json' \
+    --exclude='allscan/zello-status-data.json' \
+    --exclude='allscan/astdb.txt' \
+    --exclude='allscan/backup-*' \
+    --exclude='allscan/*.bak' \
+    --exclude='allscan/*.bak.*' \
+    --exclude='allscan/._*' \
+    --exclude='allscan/.DS_Store' \
+    -czf "$BACKUP_DIR/allscan-webroot.tar.gz" -C "$WEB_ROOT" allscan
 fi
 if [ -f /etc/allscan/allscan.db ]; then
   install -o root -g root -m 600 /etc/allscan/allscan.db "$BACKUP_DIR/allscan.db"
