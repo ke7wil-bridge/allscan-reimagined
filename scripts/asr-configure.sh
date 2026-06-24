@@ -33,8 +33,35 @@ if [ -s "$CONFIG_FILE" ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 detect_node() {
+  local node
+
+  if [ -r "$CONFIG_FILE" ]; then
+    node=$(php -r '
+      $data = json_decode((string) @file_get_contents($argv[1]), true);
+      $node = is_array($data) ? (string) ($data["node"] ?? "") : "";
+      if (preg_match("/^[0-9]{3,10}$/", $node)) echo $node;
+    ' "$CONFIG_FILE" 2>/dev/null || true)
+    [ -n "$node" ] && { printf '%s\n' "$node"; return 0; }
+  fi
+
+  if [ -r "$ALLSCAN_DIR/include/common.php" ]; then
+    node=$(php -r '
+      chdir($argv[1]);
+      require_once "include/common.php";
+      $msg = [];
+      asInit($msg);
+      $db = dbInit();
+      checkTables($db, $msg);
+      $cfgModel = new CfgModel($db);
+      if (getAmiCfg($msg) && isset($amicfg->node) && preg_match("/^[0-9]{3,10}$/", (string) $amicfg->node)) {
+        echo $amicfg->node;
+      }
+    ' "$ALLSCAN_DIR" 2>/dev/null || true)
+    [ -n "$node" ] && { printf '%s\n' "$node"; return 0; }
+  fi
+
   [ -r /etc/asterisk/rpt.conf ] || return 0
-  sed -n 's/^\[\([0-9]\{5,10\}\)\]$/\1/p' /etc/asterisk/rpt.conf | head -1
+  sed -n 's/^[[:space:]]*\[\([0-9]\{5,10\}\)\][[:space:]]*$/\1/p' /etc/asterisk/rpt.conf | head -1
 }
 
 node_db_files() {
@@ -95,8 +122,15 @@ prompt() {
 }
 
 detected_node=$(detect_node)
-[ -n "$detected_node" ] || { echo "No 5+ digit AllStar node was found in rpt.conf." >&2; exit 1; }
-detected_call=$(detect_callsign "$detected_node")
+if [ -z "$detected_node" ]; then
+  if [ "$NON_INTERACTIVE" -eq 1 ] || [ ! -t 0 ]; then
+    echo "No AllStar node was detected. Re-run interactively or create $CONFIG_FILE first." >&2
+    exit 1
+  fi
+  echo "No AllStar node was detected automatically; you can enter it below."
+fi
+detected_call=""
+[ -n "$detected_node" ] && detected_call=$(detect_callsign "$detected_node")
 
 echo
 echo "=== AllScan Reimagined Personalization ==="
