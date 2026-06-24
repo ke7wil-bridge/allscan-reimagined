@@ -101,10 +101,19 @@ if [ -f /etc/allscan/allscan.db ]; then
   cp -p /etc/allscan/allscan.db "/etc/allscan/allscan.db.pre-v101-$STAMP"
 fi
 
-chown -R "root:$WEB_GROUP" "$STAGE_DIR"
-find "$STAGE_DIR" -type d -exec chmod 775 {} +
-find "$STAGE_DIR" -type f -exec chmod 664 {} +
-chmod 775 "$STAGE_DIR/AllScanInstallUpdate.php" "$STAGE_DIR/allscan_wt_clients.sh"
+chown -R root:root "$STAGE_DIR"
+find "$STAGE_DIR" -type d -exec chmod 755 {} +
+find "$STAGE_DIR" -type f -exec chmod 644 {} +
+chmod 755 "$STAGE_DIR/AllScanInstallUpdate.php" "$STAGE_DIR/allscan_wt_clients.sh"
+
+for runtime_file in "$STAGE_DIR"/favorites*.ini \
+  "$STAGE_DIR/bridge-live.json" \
+  "$STAGE_DIR/connected-clients.json" \
+  "$STAGE_DIR/zello-status-data.json"; do
+  [ -f "$runtime_file" ] || continue
+  chown "root:$WEB_GROUP" "$runtime_file"
+  chmod 664 "$runtime_file"
+done
 
 install -o root -g root -m 755 \
   "$STAGE_DIR/allscan_wt_clients.sh" \

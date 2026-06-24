@@ -81,11 +81,6 @@ export type FavoriteStats = {
   txPct?: number
 }
 
-export type NodeMessagesPayload = {
-  latestLine: string
-  rawText: string
-}
-
 export type AuthStatus = {
   loggedIn: boolean
   username: string
@@ -664,17 +659,6 @@ export async function fetchFavoriteStats(node: string): Promise<FavoriteStats | 
     wt: String(stats.wt ?? '0') === '1',
     status: String(payload.data?.status || '').trim(),
   }
-}
-
-export async function fetchNodeMessages(): Promise<NodeMessagesPayload> {
-  const response = await fetch(`${ASR_API}?action=node-messages`, {
-    credentials: 'same-origin',
-    cache: 'no-store',
-  })
-
-  const payload = (await response.json()) as NodeMessagesPayload & { ok?: boolean; error?: string }
-  if (payload.ok === false) throw new Error(payload.error || 'Node messages could not be loaded.')
-  return payload
 }
 
 export async function fetchAuthStatus(): Promise<AuthStatus> {

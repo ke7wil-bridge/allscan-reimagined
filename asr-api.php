@@ -3,16 +3,14 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
-const ASR_LOCAL_NODE = '641890';
 const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
-const ASR_MESSAGE_CACHE = '/tmp/allscan-reimagined-node-message.json';
 
 require_once __DIR__ . '/include/common.php';
 
 $msg = [];
 asInit($msg);
 $db = dbInit();
-$userCnt = checkTables($db, $msg);
+checkTables($db, $msg);
 $cfgModel = new CfgModel($db);
 $userModel = new UserModel($db);
 $user = $userModel->validate();
@@ -105,8 +103,11 @@ function asr_safe_favorites_file(string $requested = ''): string {
 
     if ($requested === '') return $default;
 
-    $real = realpath($requested);
     $dir = asr_allscan_dir();
+    $candidate = str_contains($requested, DIRECTORY_SEPARATOR)
+        ? $requested
+        : $dir . DIRECTORY_SEPARATOR . basename($requested);
+    $real = realpath($candidate);
     $allowedPrefix = $dir . DIRECTORY_SEPARATOR;
     if (!$real || strncmp($real, $allowedPrefix, strlen($allowedPrefix)) !== 0 || !preg_match('/\/favorites[^\/]*\.ini$/', $real)) {
         return $default;
@@ -184,34 +185,16 @@ function asr_favorites_payload(string $requested = ''): array {
     }
 
     $files = array_map(static fn (string $file): array => [
-        'value' => $file,
-        'label' => $file,
+        'value' => basename($file),
+        'label' => basename($file),
         'selected' => $file === $selected,
     ], asr_favorites_files());
 
-    return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => $selected];
-}
-
-function asr_write_node_message(string $line): void {
-    @file_put_contents(ASR_MESSAGE_CACHE, json_encode([
-        'latestLine' => trim($line),
-        'rawText' => trim($line),
-        'time' => time(),
-    ], JSON_UNESCAPED_SLASHES));
-}
-
-function asr_node_messages(): array {
-    $payload = is_readable(ASR_MESSAGE_CACHE) ? json_decode((string) file_get_contents(ASR_MESSAGE_CACHE), true) : null;
-    if (!is_array($payload)) return ['ok' => true, 'latestLine' => '', 'rawText' => ''];
-    if (time() - (int) ($payload['time'] ?? 0) > 300) return ['ok' => true, 'latestLine' => '', 'rawText' => ''];
-    return [
-        'ok' => true,
-        'latestLine' => (string) ($payload['latestLine'] ?? ''),
-        'rawText' => (string) ($payload['rawText'] ?? ''),
-    ];
+    return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => basename($selected)];
 }
 
 function asr_favorite_action(string $action, string $node, string $requested): array {
+    if (!in_array($action, ['addfav', 'delfav'], true)) asr_error('Invalid Favorites action.');
     if (!preg_match('/^[A-Za-z0-9*#]{3,8}$/', $node)) asr_error('Invalid node.');
     $file = asr_safe_favorites_file($requested);
     if (!is_writable($file)) asr_error('Favorites file is not writable.', 500);
@@ -231,7 +214,6 @@ function asr_favorite_action(string $action, string $node, string $requested): a
             $next[] = $line;
         }
         file_put_contents($file, rtrim(implode(PHP_EOL, $next)) . PHP_EOL);
-        asr_write_node_message("Deleted {$node} from Favorites.");
         return ['ok' => true, 'message' => "Deleted {$node} from Favorites."];
     }
 
@@ -240,7 +222,6 @@ function asr_favorite_action(string $action, string $node, string $requested): a
             'cmd[] = "rpt cmd %node% ilink 3 ' . $node . '"' . PHP_EOL;
         file_put_contents($file, rtrim($contents) . PHP_EOL . $entry);
     }
-    asr_write_node_message("Added {$node} to Favorites.");
     return ['ok' => true, 'message' => "Added {$node} to Favorites."];
 }
 
@@ -281,7 +262,6 @@ function asr_drop_client(string $channel): array {
     }
 
     $message = "Dropped {$channel}.";
-    asr_write_node_message($message);
     return ['ok' => true, 'message' => $message, 'channel' => $channel];
 }
 
@@ -291,10 +271,6 @@ if ($action === 'auth-status') asr_json(asr_auth_payload());
 if ($action === 'favorites') {
     asr_require_read();
     asr_json(asr_favorites_payload((string) ($_GET['favsfile'] ?? '')));
-}
-if ($action === 'node-messages') {
-    asr_require_read();
-    asr_json(asr_node_messages());
 }
 if ($action === 'favorite-command') {
     asr_require_post();
