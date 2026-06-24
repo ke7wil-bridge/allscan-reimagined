@@ -96,6 +96,7 @@ if [ -d "$ALLSCAN_DIR" ]; then
     [ -f "$ALLSCAN_DIR/$runtime_file" ] && cp -p "$ALLSCAN_DIR/$runtime_file" "$BACKUP_DIR/runtime/"
   done
   [ -d "$ALLSCAN_DIR/img" ] && cp -a "$ALLSCAN_DIR/img" "$BACKUP_DIR/runtime/img"
+  tar_status=0
   COPYFILE_DISABLE=1 tar --ignore-failed-read --warning=no-file-changed \
     --exclude='allscan/bridge-live.json' \
     --exclude='allscan/connected-clients.json' \
@@ -106,7 +107,11 @@ if [ -d "$ALLSCAN_DIR" ]; then
     --exclude='allscan/*.bak.*' \
     --exclude='allscan/._*' \
     --exclude='allscan/.DS_Store' \
-    -czf "$BACKUP_DIR/allscan-webroot.tar.gz" -C "$WEB_ROOT" allscan
+    -czf "$BACKUP_DIR/allscan-webroot.tar.gz" -C "$WEB_ROOT" allscan || tar_status=$?
+  if [ "$tar_status" -ne 0 ]; then
+    [ -s "$BACKUP_DIR/allscan-webroot.tar.gz" ] || fail "AllScan webroot backup failed."
+    echo "Backup completed with live-file warnings; continuing with preserved runtime files."
+  fi
 fi
 if [ -f /etc/allscan/allscan.db ]; then
   install -o root -g root -m 600 /etc/allscan/allscan.db "$BACKUP_DIR/allscan.db"
