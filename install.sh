@@ -96,7 +96,7 @@ if [ -d "$ALLSCAN_DIR" ]; then
     [ -f "$ALLSCAN_DIR/$runtime_file" ] && cp -p "$ALLSCAN_DIR/$runtime_file" "$BACKUP_DIR/runtime/"
   done
   [ -d "$ALLSCAN_DIR/img" ] && cp -a "$ALLSCAN_DIR/img" "$BACKUP_DIR/runtime/img"
-  COPYFILE_DISABLE=1 tar \
+  COPYFILE_DISABLE=1 tar --ignore-failed-read --warning=no-file-changed \
     --exclude='allscan/bridge-live.json' \
     --exclude='allscan/connected-clients.json' \
     --exclude='allscan/zello-status-data.json' \
