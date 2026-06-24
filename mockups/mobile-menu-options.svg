@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050">
+  <defs>
+    <style>
+      .bg { fill: #101112; }
+      .panel { fill: #08090b; stroke: #3e4248; stroke-width: 3; }
+      .header { fill: #151618; stroke: #35383d; stroke-width: 3; }
+      .control { fill: #1d1f23; stroke: #545861; stroke-width: 3; }
+      .control-active { fill: #252a31; stroke: #8ec5ff; stroke-width: 4; }
+      .text { fill: #edf4f8; font-family: Inter, Segoe UI, Arial, sans-serif; font-weight: 800; }
+      .muted { fill: #aeb8c0; font-family: Inter, Segoe UI, Arial, sans-serif; font-weight: 700; }
+      .accent { fill: #62c7ff; font-family: Georgia, serif; font-style: italic; font-weight: 800; }
+      .green { fill: #84e29a; }
+      .line { stroke: #34383f; stroke-width: 2; }
+      .phone { fill: #050607; stroke: #565b63; stroke-width: 4; }
+      .screen { fill: #121315; }
+      .title { fill: #fff; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 34px; font-weight: 900; }
+      .label { fill: #dfe8ee; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 24px; font-weight: 900; }
+      .small { fill: #dfe8ee; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 18px; font-weight: 800; }
+      .tiny { fill: #b8c2ca; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 15px; font-weight: 700; }
+      .pill-green { fill: #143a21; stroke: #3a8c4a; stroke-width: 2; }
+      .pill-red { fill: #5f1010; stroke: #b65555; stroke-width: 2; }
+      .pill-amber { fill: #5d4611; stroke: #b38b24; stroke-width: 2; }
+      .blue { fill: #12364a; stroke: #3f83a8; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1050"/>
+  <text x="60" y="60" class="title">Mobile Menu Mockups</text>
+  <text x="60" y="92" class="muted" font-size="20">Two directions, each shown in portrait and landscape. ST:ASL is hidden on mobile.</text>
+
+  <!-- Option A title -->
+  <text x="60" y="145" class="label">Option A: Bottom Sheet</text>
+  <text x="60" y="172" class="tiny">Portrait stacks the menu. Landscape uses the wider screen as a compact command sheet.</text>
+
+  <!-- Option A portrait phone -->
+  <rect x="60" y="205" width="330" height="690" rx="34" class="phone"/>
+  <rect x="78" y="225" width="294" height="650" rx="22" class="screen"/>
+  <rect x="78" y="225" width="294" height="86" rx="22" class="header"/>
+  <text x="100" y="262" class="text" font-size="26">All⚡can</text>
+  <text x="104" y="287" class="accent" font-size="15">REIMAGINED</text>
+  <text x="210" y="264" class="text" font-size="17">KE7WIL</text>
+  <rect x="315" y="243" width="38" height="38" rx="9" class="control-active"/>
+  <text x="326" y="270" class="text" font-size="24">☰</text>
+  <text x="127" y="352" class="label" font-size="25">Node Controls</text>
+  <rect x="96" y="384" width="258" height="94" rx="10" class="panel"/>
+  <rect x="112" y="402" width="86" height="26" rx="6" class="control"/>
+  <rect x="206" y="402" width="66" height="26" rx="6" class="control"/>
+  <rect x="280" y="402" width="58" height="26" rx="6" class="control"/>
+  <rect x="112" y="438" width="226" height="23" rx="6" class="control"/>
+
+  <rect x="78" y="545" width="294" height="330" rx="22" fill="#0a0b0d" stroke="#4c525a" stroke-width="3"/>
+  <text x="105" y="587" class="label" font-size="26">Menu</text>
+  <rect x="105" y="612" width="240" height="54" rx="12" class="control-active"/>
+  <text x="126" y="647" class="text" font-size="21">Resources</text>
+  <text x="316" y="647" class="muted" font-size="24">›</text>
+  <rect x="105" y="680" width="240" height="54" rx="12" class="control"/>
+  <text x="126" y="715" class="text" font-size="21">Admin</text>
+  <text x="316" y="715" class="muted" font-size="24">›</text>
+  <rect x="105" y="748" width="240" height="54" rx="12" class="control"/>
+  <text x="126" y="783" class="text" font-size="21">Theme</text>
+  <text x="316" y="783" class="muted" font-size="24">›</text>
+  <text x="126" y="835" class="muted" font-size="19">Close</text>
+
+  <!-- Option A landscape phone -->
+  <rect x="430" y="250" width="610" height="345" rx="34" class="phone"/>
+  <rect x="450" y="270" width="570" height="305" rx="20" class="screen"/>
+  <rect x="450" y="270" width="570" height="72" rx="20" class="header"/>
+  <text x="472" y="306" class="text" font-size="24">All⚡can</text>
+  <text x="612" y="306" class="text" font-size="22">KE7WIL | Node 641890</text>
+  <rect x="958" y="286" width="38" height="38" rx="9" class="control-active"/>
+  <text x="969" y="313" class="text" font-size="24">☰</text>
+  <rect x="468" y="365" width="534" height="190" rx="18" class="panel"/>
+  <text x="492" y="405" class="label" font-size="24">Menu</text>
+  <rect x="492" y="426" width="150" height="42" rx="10" class="control-active"/>
+  <text x="515" y="453" class="text" font-size="18">Resources</text>
+  <rect x="660" y="426" width="130" height="42" rx="10" class="control"/>
+  <text x="700" y="453" class="text" font-size="18">Admin</text>
+  <rect x="808" y="426" width="130" height="42" rx="10" class="control"/>
+  <text x="850" y="453" class="text" font-size="18">Theme</text>
+  <line x1="492" y1="489" x2="978" y2="489" class="line"/>
+  <text x="492" y="522" class="small">AllScan.info</text>
+  <text x="640" y="522" class="small">Updates</text>
+  <text x="760" y="522" class="small">AllStarLink.org</text>
+  <text x="492" y="548" class="small">Keyed Nodes</text>
+  <text x="640" y="548" class="small">ASL Forum</text>
+  <text x="760" y="548" class="small">AllScan FB</text>
+  <text x="900" y="548" class="small">eHam</text>
+
+  <!-- Option B title -->
+  <text x="60" y="955" class="label">Option B: Header Drawer</text>
+  <text x="60" y="982" class="tiny">Stays attached to the header. Simple and compact, but less thumb-friendly than a bottom sheet.</text>
+
+  <!-- Option B portrait phone -->
+  <rect x="1080" y="205" width="330" height="690" rx="34" class="phone"/>
+  <rect x="1098" y="225" width="294" height="650" rx="22" class="screen"/>
+  <rect x="1098" y="225" width="294" height="86" rx="22" class="header"/>
+  <text x="1120" y="262" class="text" font-size="26">All⚡can</text>
+  <text x="1124" y="287" class="accent" font-size="15">REIMAGINED</text>
+  <text x="1230" y="264" class="text" font-size="17">KE7WIL</text>
+  <rect x="1335" y="243" width="38" height="38" rx="9" class="control-active"/>
+  <text x="1346" y="270" class="text" font-size="24">☰</text>
+  <rect x="1098" y="311" width="294" height="230" rx="0" class="panel"/>
+  <rect x="1122" y="338" width="246" height="44" rx="9" class="control-active"/>
+  <text x="1140" y="366" class="text" font-size="20">Resources</text>
+  <rect x="1122" y="395" width="246" height="44" rx="9" class="control"/>
+  <text x="1140" y="423" class="text" font-size="20">Admin</text>
+  <rect x="1122" y="452" width="246" height="44" rx="9" class="control"/>
+  <text x="1140" y="480" class="text" font-size="20">Theme</text>
+  <text x="1140" y="526" class="muted" font-size="17">Tap a row to replace this drawer</text>
+  <text x="1148" y="600" class="label" font-size="25">Node Controls</text>
+  <rect x="1116" y="632" width="258" height="94" rx="10" class="panel"/>
+
+  <!-- Option B landscape phone -->
+  <rect x="430" y="660" width="610" height="240" rx="34" class="phone"/>
+  <rect x="450" y="680" width="570" height="200" rx="20" class="screen"/>
+  <rect x="450" y="680" width="570" height="64" rx="20" class="header"/>
+  <text x="472" y="718" class="text" font-size="24">All⚡can</text>
+  <text x="612" y="718" class="text" font-size="22">KE7WIL | Node 641890</text>
+  <rect x="958" y="694" width="38" height="38" rx="9" class="control-active"/>
+  <text x="969" y="721" class="text" font-size="24">☰</text>
+  <rect x="450" y="744" width="570" height="136" rx="0" class="panel"/>
+  <rect x="472" y="764" width="150" height="38" rx="9" class="control-active"/>
+  <text x="495" y="789" class="text" font-size="18">Resources</text>
+  <rect x="638" y="764" width="130" height="38" rx="9" class="control"/>
+  <text x="678" y="789" class="text" font-size="18">Admin</text>
+  <rect x="784" y="764" width="130" height="38" rx="9" class="control"/>
+  <text x="826" y="789" class="text" font-size="18">Theme</text>
+  <line x1="472" y1="821" x2="998" y2="821" class="line"/>
+  <text x="472" y="852" class="small">AllScan.info</text>
+  <text x="620" y="852" class="small">Updates</text>
+  <text x="740" y="852" class="small">AllStarLink.org</text>
+  <text x="900" y="852" class="small">Keyed</text>
+
+  <!-- Notes -->
+  <rect x="1080" y="925" width="460" height="88" rx="14" class="panel"/>
+  <text x="1104" y="958" class="small">My vote: Option A</text>
+  <text x="1104" y="984" class="tiny">It avoids cut-off menus, adapts better to portrait/landscape,</text>
+  <text x="1104" y="1006" class="tiny">and feels less cramped on a phone.</text>
+</svg>

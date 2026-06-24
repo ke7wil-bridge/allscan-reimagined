@@ -1,0 +1,762 @@
+export const LOCAL_NODE = '641890'
+export const LOCAL_CALLSIGN = 'KE7WIL'
+const ALLSCAN_BASE = '/allscan'
+const ASR_API = `${ALLSCAN_BASE}/asr-api.php`
+
+export type RowState = 'idle' | 'talking' | 'relay' | 'both' | 'normal' | 'message'
+
+export type LiveConnectionRow = {
+  node: string
+  info: string
+  received: string
+  direction: string
+  connected: string
+  mode: string
+  state: RowState
+  sourceIndex?: number
+  linkedNodes?: string[]
+}
+
+export type ConnectionSnapshot = {
+  rows: LiveConnectionRow[]
+  connectedCount: number
+  directCount: number
+  adjacentCount: number
+  linkedNodes: string[]
+  keyedNodes: string[]
+  linkedNodeCounts: Record<string, number>
+}
+
+export type FavoriteNode = {
+  index: string
+  node: string
+  label: string
+  name: string
+  desc: string
+  location: string
+  rx: string
+  lcnt: string
+  href: string
+}
+
+export type FavoritesFileOption = {
+  value: string
+  label: string
+  selected: boolean
+}
+
+export type FavoritesPayload = {
+  rows: FavoriteNode[]
+  files: FavoritesFileOption[]
+  selectedFile: string
+}
+
+export type BridgeCardView = {
+  id: string
+  title: string
+  status: 'Idle' | 'Source/TX' | 'Relay'
+  lastCaller: string
+  warning: string
+  detailTitle: string
+  detailRows: BridgeDetailItem[]
+}
+
+export type BridgeDetailItem = {
+  key: string
+  label: string
+  meta: string
+  empty?: boolean
+}
+
+export type FavoriteStats = {
+  node: string
+  busyPct: string
+  linkCnt: number
+  active: boolean
+  keyed: boolean
+  keyups: number
+  txtime: number
+  wt: boolean
+  status: string
+  txPct?: number
+}
+
+export type NodeMessagesPayload = {
+  latestLine: string
+  rawText: string
+}
+
+export type AuthStatus = {
+  loggedIn: boolean
+  username: string
+  permission: number
+  publicPermission: number
+  canRead: boolean
+  canModify: boolean
+  canWrite: boolean
+  isAdmin: boolean
+}
+
+type FeedNode = {
+  node: string | number
+  info: string
+  link: string
+  ip: string
+  direction: string
+  keyed: string
+  mode: string
+  elapsed: string
+  last_keyed: string
+  cos_keyed: number
+  tx_keyed: number
+  lnodes: string[]
+  num_links?: string | number
+  num_alinks?: string | number
+}
+
+type FeedPayload = Record<
+  string,
+  {
+    node: string
+    info: string
+    remote_nodes: FeedNode[]
+  }
+>
+
+type BridgeLiveResponse = {
+  updated?: string
+  updated_epoch?: number
+  dmr?: BridgeEntry
+  ysf?: BridgeEntry
+  zello?: BridgeEntry
+  dstar?: BridgeEntry
+}
+
+type BridgeEntry = {
+  active?: boolean
+  role?: string
+  state?: string
+  active_start_epoch?: number
+  warning?: string
+  caller?: string
+  current_user?: string
+  last_user?: string
+  recent_users?: Array<Record<string, unknown> & { name?: string }>
+}
+
+type ConnectedClientsResponse = {
+  dmr?: Array<Record<string, unknown>>
+  ysf?: Array<Record<string, unknown>>
+  zello?: Array<Record<string, unknown>>
+}
+
+export const actionOptions = [
+  { value: 'dropclient', label: 'Drop Client' },
+  { value: 'monitor', label: 'Monitor' },
+  { value: 'localmon', label: 'Local Monitor' },
+  { value: 'dtmf', label: 'Send DTMF' },
+  { value: 'addfav', label: 'Add Favorite' },
+  { value: 'delfav', label: 'Delete Favorite' },
+] as const
+
+const parser = new DOMParser()
+
+function htmlToText(html: string) {
+  const doc = parser.parseFromString(html, 'text/html')
+  return (doc.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function htmlToMessageText(html: string) {
+  const withBreaks = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li)>/gi, '\n')
+  const doc = parser.parseFromString(withBreaks, 'text/html')
+  return (doc.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+function toModeLabel(mode: string) {
+  if (mode === 'R') return 'Receive Only'
+  if (mode === 'T') return 'Transceive'
+  if (mode === 'C') return 'Connecting'
+  return mode || ''
+}
+
+function buildLocalRow(node: string, remoteNodes: FeedNode[]): LiveConnectionRow {
+  let cosKeyed = 0
+  let txKeyed = 0
+
+  for (const row of remoteNodes) {
+    if (row.cos_keyed === 1) cosKeyed = 1
+    if (row.tx_keyed === 1) txKeyed = 1
+  }
+
+  if (cosKeyed === 0 && txKeyed === 0) {
+    return { node, info: 'Idle', received: '', direction: '', connected: '', mode: '', state: 'idle' }
+  }
+  if (cosKeyed === 0 && txKeyed === 1) {
+    return { node, info: 'PTT-Keyed', received: '', direction: '', connected: '', mode: '', state: 'talking' }
+  }
+  if (cosKeyed === 1 && txKeyed === 0) {
+    return { node, info: 'COS-Detected', received: '', direction: '', connected: '', mode: '', state: 'relay' }
+  }
+  return { node, info: 'COS-Detected, PTT-Keyed', received: '', direction: '', connected: '', mode: '', state: 'both' }
+}
+
+function liveBridgeRowState(keyed: string, mode: string): RowState {
+  if (keyed === 'yes') return 'talking'
+  if (mode === 'C') return 'relay'
+
+  return 'normal'
+}
+
+function buildSnapshot(payload: FeedPayload): ConnectionSnapshot {
+  const nodeKey = Object.keys(payload)[0]
+  if (!nodeKey) return { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+
+  const nodeData = payload[nodeKey]
+  const remoteRows: LiveConnectionRow[] = []
+  const linkedNodes = new Set<string>()
+  const keyedNodes = new Set<string>()
+  const linkedNodeCounts: Record<string, number> = {}
+  const firstExternalNode = nodeData.remote_nodes.find((row) => {
+    const node = String(row.node)
+    return node !== '1' && row.info !== 'NO CONNECTION' && node !== '1997' && node !== '1998' && node !== '1999'
+  })
+
+  let hasNoConnectionRow = false
+
+  for (let index = 0; index < nodeData.remote_nodes.length; index += 1) {
+    const row = nodeData.remote_nodes[index]
+    const linkedList = (row.lnodes || []).map(String)
+    linkedList.forEach((linkedNode) => linkedNodes.add(linkedNode))
+    const node = String(row.node)
+    if (linkedList.length > 0 && node !== '1') linkedNodeCounts[node] = linkedList.length
+    if (linkedList.length > 0 && node === '1' && firstExternalNode) linkedNodeCounts[String(firstExternalNode.node)] = linkedList.length
+    if (row.keyed === 'yes') keyedNodes.add(String(row.node))
+    if (row.info === 'NO CONNECTION') {
+      hasNoConnectionRow = true
+      continue
+    }
+    if (String(row.node) === '1') continue
+
+    const info = row.info ? htmlToText(row.info) : row.ip
+
+    remoteRows.push({
+      node,
+      info,
+      received: row.last_keyed || '',
+      direction: row.direction || '',
+      connected: row.elapsed || '',
+      mode: toModeLabel(row.mode),
+      state: liveBridgeRowState(row.keyed, row.mode),
+      sourceIndex: index,
+      linkedNodes: linkedList,
+    })
+  }
+
+  const detailRows = remoteRows.length
+    ? remoteRows
+    : hasNoConnectionRow
+      ? [{ node: '', info: 'No Connections', received: '', direction: '', connected: '', mode: '', state: 'message' as const }]
+      : remoteRows
+
+  const localStatus = nodeData.remote_nodes.find((row) => String(row.node) === '1')
+  const officialDirectCount = Number(localStatus?.num_alinks)
+  const officialAdjacentCount = Number(localStatus?.num_links)
+  const hasOfficialDirectCount = String(localStatus?.num_alinks ?? '').trim() !== '' && Number.isFinite(officialDirectCount)
+  const hasOfficialAdjacentCount = String(localStatus?.num_links ?? '').trim() !== '' && Number.isFinite(officialAdjacentCount)
+
+  return {
+    rows: [buildLocalRow(nodeKey, nodeData.remote_nodes), ...detailRows],
+    connectedCount: remoteRows.length,
+    directCount: hasOfficialDirectCount ? officialDirectCount : remoteRows.length,
+    adjacentCount: hasOfficialAdjacentCount ? officialAdjacentCount : linkedNodes.size,
+    linkedNodes: Array.from(linkedNodes),
+    keyedNodes: Array.from(keyedNodes),
+    linkedNodeCounts,
+  }
+}
+
+function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload): ConnectionSnapshot {
+  const nodeKey = Object.keys(payload)[0]
+  if (!nodeKey || snapshot.rows.length === 0) return snapshot
+
+  const remoteNodes = payload[nodeKey].remote_nodes
+  const nextRows = snapshot.rows.map((row, rowIndex) => {
+    if (rowIndex === 0 || row.sourceIndex === undefined) return row
+    const update = remoteNodes[row.sourceIndex]
+    if (!update) return row
+
+    return {
+      ...row,
+      received: update.last_keyed || row.received,
+      connected: update.elapsed || row.connected,
+    }
+  })
+
+  return { ...snapshot, rows: nextRows }
+}
+
+export function subscribeConnectionFeed(
+  onSnapshot: (snapshot: ConnectionSnapshot) => void,
+  onMessage: (message: string) => void,
+) {
+  let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+  const source = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${LOCAL_NODE}`)
+
+  source.addEventListener('nodes', (event) => {
+    const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload)
+    snapshot = next
+    onSnapshot(next)
+  })
+
+  source.addEventListener('nodetimes', (event) => {
+    snapshot = patchSnapshotTimes(snapshot, JSON.parse((event as MessageEvent).data) as FeedPayload)
+    onSnapshot(snapshot)
+  })
+
+  source.addEventListener('connection', (event) => {
+    const data = JSON.parse((event as MessageEvent).data) as { status?: string }
+    if (data.status) onMessage(htmlToMessageText(data.status))
+  })
+
+  source.addEventListener('errMsg', (event) => {
+    const data = JSON.parse((event as MessageEvent).data) as { status?: string }
+    if (data.status) onMessage(`ERROR: ${htmlToMessageText(data.status)}`)
+  })
+
+  source.onerror = () => {
+    // EventSource reconnects automatically; keep transport noise out of Node Messages.
+  }
+
+  return () => source.close()
+}
+
+export async function fetchCpuTemp() {
+  const response = await fetch(`${ALLSCAN_BASE}/api/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'f=getCpuTemp',
+  })
+  const payload = (await response.json()) as { data?: { data?: string } }
+  const raw = payload.data?.data || ''
+  const text = htmlToText(raw)
+  const bgMatch = raw.match(/background-color\s*:\s*([^;"']+)/i)
+  const match = text.match(/CPU Temp:\s*(.+?)\s*@/)
+  return {
+    value: match?.[1]?.trim() || text.replace(/^CPU Temp:\s*/i, '').trim(),
+    bgColor: bgMatch?.[1]?.trim() || '#59461c',
+  }
+}
+
+export async function fetchFavorites(favsfile = ''): Promise<FavoritesPayload> {
+  const url = new URL(ASR_API, window.location.origin)
+  url.searchParams.set('action', 'favorites')
+  if (favsfile) url.searchParams.set('favsfile', favsfile)
+
+  const response = await fetch(url.toString(), {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as FavoritesPayload & { ok?: boolean; error?: string }
+  if (payload.ok === false) throw new Error(payload.error || 'Favorites list could not be loaded.')
+  return {
+    rows: payload.rows || [],
+    files: payload.files || [],
+    selectedFile: payload.selectedFile || '',
+  }
+}
+
+export type DropClientEntry = {
+  label: string
+  channel: string
+  callerId?: string
+  ip?: string
+}
+
+export async function fetchDropClients() {
+  const response = await fetch(`${ASR_API}?action=drop-clients`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    clients?: DropClientEntry[]
+  }
+
+  if (!payload.ok) throw new Error(payload.error || 'Could not load clients.')
+  return payload.clients || []
+}
+
+export async function dropClientChannel(channel: string) {
+  const body = new URLSearchParams({ channel })
+  const response = await fetch(`${ASR_API}?action=drop-client`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    message?: string
+  }
+
+  if (!payload.ok) throw new Error(payload.error || 'Drop failed.')
+  return payload.message || `Drop command sent for ${channel}.`
+}
+
+function rawBridgeRole(entry?: BridgeEntry): 'idle' | 'source' | 'relay' {
+  if (!entry) return 'idle'
+  const role = String(entry.role || entry.state || 'idle').toLowerCase()
+  if (role === 'tx' || role === 'transmit' || role === 'source' || role === 'source/tx' || role === 'tx active') {
+    return 'source'
+  }
+  if (role === 'relay' || role === 'rx') return 'relay'
+  return 'idle'
+}
+
+function mapBridgeStatus(entry?: BridgeEntry): 'Idle' | 'Source/TX' | 'Relay' {
+  const role = rawBridgeRole(entry)
+  if (role === 'source') return 'Source/TX'
+  if (role === 'relay') return 'Relay'
+  return 'Idle'
+}
+
+function markBridgeRelay(entry: BridgeEntry | undefined, peer: BridgeEntry | undefined) {
+  if (!entry) return
+  entry.active = true
+  entry.role = 'relay'
+  entry.state = 'Relay'
+  if (!Number(entry.active_start_epoch || 0)) {
+    entry.active_start_epoch = Number(peer?.active_start_epoch || 0) || Math.floor(Date.now() / 1000)
+  }
+}
+
+function normalizeBridgeRoles(bridge: BridgeLiveResponse): BridgeLiveResponse {
+  if (!bridge.dmr || !bridge.zello) return bridge
+
+  const next: BridgeLiveResponse = {
+    ...bridge,
+    dmr: { ...bridge.dmr },
+    ysf: bridge.ysf ? { ...bridge.ysf } : bridge.ysf,
+    zello: { ...bridge.zello },
+    dstar: bridge.dstar ? { ...bridge.dstar } : bridge.dstar,
+  }
+  const dmrRole = rawBridgeRole(next.dmr)
+  const zelloRole = rawBridgeRole(next.zello)
+
+  if (dmrRole === 'source') markBridgeRelay(next.zello, next.dmr)
+  if (zelloRole === 'source') markBridgeRelay(next.dmr, next.zello)
+
+  return next
+}
+
+function isLocalBridgeCaller(value?: string) {
+  return /KE7WIL\s*\|\s*Node\s*641890|Node\s*641890|641890/i.test(String(value || ''))
+}
+
+function cleanBridgeCaller(value?: string) {
+  return String(value || '')
+    .replace(/\s*\|\s*Node\s*641890\b/gi, '')
+    .replace(/\s+Node\s*641890\b/gi, '')
+    .trim()
+}
+
+function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Source/TX' | 'Relay') {
+  if (!entry || status === 'Idle') return '-'
+
+  const candidates = status === 'Relay'
+    ? [entry.last_user, entry.caller, entry.current_user]
+    : [entry.current_user, entry.caller, entry.last_user]
+
+  const caller = candidates
+    .map((value) => String(value || '').trim())
+    .find((value) => value && value !== '-' && (status !== 'Relay' || !isLocalBridgeCaller(value)))
+
+  return cleanBridgeCaller(caller) || '-'
+}
+
+type BridgeClientMode = 'dmr' | 'ysf' | 'zello' | 'dstar'
+
+function relativeBridgeTime(epoch: number) {
+  if (!epoch) return ''
+  const diff = Math.max(0, Math.floor(Date.now() / 1000 - epoch))
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+function bridgeClientEpoch(record: Record<string, unknown>, mode: BridgeClientMode) {
+  const value = mode === 'zello'
+    ? record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch || record.last_seen_epoch || record.last_seen || record.timestamp
+    : record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
+  return Number(value || 0) || 0
+}
+
+function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeClientMode): BridgeDetailItem[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [{ key: `${mode}-empty`, label: fallback, meta: '', empty: true }]
+  }
+
+  const rows = value
+    .slice(0, 8)
+    .map((item, index) => {
+      const record = typeof item === 'string'
+        ? { name: item }
+        : item && typeof item === 'object'
+          ? item as Record<string, unknown>
+          : null
+      if (!record) return null
+
+      const user = String(record.callsign || record.call || record.station || record.username || record.name || record.user || '-').trim() || '-'
+      const id = String(record.dmrid || record.dmr_id || record.id || '').trim()
+      const label = mode === 'dmr' && id ? `${user} · ${id}` : user
+      const age = relativeBridgeTime(bridgeClientEpoch(record, mode))
+      return {
+        key: `${mode}-${label}-${index}`,
+        label,
+        meta: age ? `Last TX ${age}` : 'No recent TX',
+      }
+    })
+    .filter((item): item is BridgeDetailItem => Boolean(item))
+
+  return rows.length
+    ? rows
+    : [{ key: `${mode}-empty`, label: fallback, meta: '', empty: true }]
+}
+
+const ZELLO_RECENT_TALKERS_MAX_AGE = 3600
+
+function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
+  return Number(
+    item.last_tx_epoch ||
+      item.tx_epoch ||
+      item.last_talk_epoch ||
+      item.last_seen_epoch ||
+      item.last_seen ||
+      item.timestamp ||
+      0,
+  )
+}
+
+function zelloRecentTalkerName(item: Record<string, unknown>) {
+  return String(item.name || item.callsign || item.username || item.user || '').trim()
+}
+
+function liveZelloRecentTalkers(entry?: BridgeEntry) {
+  const now = Date.now() / 1000
+  return (entry?.recent_users || [])
+    .filter((item) => {
+      const epoch = zelloRecentTalkerEpoch(item)
+      return epoch > 0 && now - epoch <= ZELLO_RECENT_TALKERS_MAX_AGE
+    })
+    .filter((item) => Boolean(zelloRecentTalkerName(item)))
+}
+
+export async function fetchBridgeCards(): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
+  const [bridgeResponse, clientsResponse] = await Promise.all([
+    fetch(`${ALLSCAN_BASE}/bridge-live.json`),
+    fetch(`${ALLSCAN_BASE}/connected-clients.json`),
+  ])
+
+  const bridge = normalizeBridgeRoles((await bridgeResponse.json()) as BridgeLiveResponse)
+  const clients = (await clientsResponse.json()) as ConnectedClientsResponse
+
+  const dmrStatus = mapBridgeStatus(bridge.dmr)
+  const ysfStatus = mapBridgeStatus(bridge.ysf)
+  const zelloStatus = mapBridgeStatus(bridge.zello)
+  const dstarStatus = mapBridgeStatus(bridge.dstar)
+
+  const cards: BridgeCardView[] = [
+    {
+      id: 'dmr',
+      title: 'DMR Bridge',
+      status: dmrStatus,
+      lastCaller: bridgeLastCaller(bridge.dmr, dmrStatus),
+      warning: bridge.dmr?.warning || '-',
+      detailTitle: 'Connected DMR Clients',
+      detailRows: formatBridgeDetailRows(clients.dmr, 'None', 'dmr'),
+    },
+    {
+      id: 'ysf',
+      title: 'YSF Bridge',
+      status: ysfStatus,
+      lastCaller: bridgeLastCaller(bridge.ysf, ysfStatus),
+      warning: bridge.ysf?.warning || '-',
+      detailTitle: 'Linked YSF Gateways',
+      detailRows: formatBridgeDetailRows(clients.ysf, 'None', 'ysf'),
+    },
+    {
+      id: 'zello',
+      title: 'Zello Bridge',
+      status: zelloStatus,
+      lastCaller: bridgeLastCaller(bridge.zello, zelloStatus),
+      warning: bridge.zello?.warning || '-',
+      detailTitle: 'Recent Talkers',
+      detailRows: formatBridgeDetailRows(liveZelloRecentTalkers(bridge.zello), 'None', 'zello'),
+    },
+    {
+      id: 'dstar',
+      title: 'D-Star Bridge',
+      status: dstarStatus,
+      lastCaller: bridgeLastCaller(bridge.dstar, dstarStatus),
+      warning: bridge.dstar?.warning || '-',
+      detailTitle: 'Linked D-Star Gateways',
+      detailRows: formatBridgeDetailRows([], 'None', 'dstar'),
+    },
+  ]
+
+  const updatedLabel = bridge.updated
+    ? bridge.updated.replace(/^\d{4}-\d{2}-\d{2}\s+/, '').replace(/\s+Local$/i, '')
+    : '--:--:--'
+
+  return { updatedLabel, cards }
+}
+
+export async function fetchFavoriteStats(node: string): Promise<FavoriteStats | null> {
+  const response = await fetch(`${ALLSCAN_BASE}/stats/stats.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ node }).toString(),
+  })
+
+  const payload = (await response.json()) as {
+    data?: {
+      status?: string
+      stats?: {
+        node?: string | number
+        busyPct?: string | number
+        linkCnt?: string | number
+        active?: string | number
+        keyed?: string | number
+        keyups?: string | number
+        txtime?: string | number
+        wt?: string | number
+      }
+    }
+  }
+
+  const stats = payload.data?.stats
+  if (!stats) throw new Error(payload.data?.status || 'No stats returned.')
+
+  return {
+    node: String(stats.node || node),
+    busyPct: String(stats.busyPct ?? '').trim(),
+    linkCnt: Number(stats.linkCnt ?? 0),
+    active: String(stats.active ?? '0') === '1',
+    keyed: String(stats.keyed ?? '0') === '1',
+    keyups: Number(stats.keyups ?? 0),
+    txtime: Number(stats.txtime ?? 0),
+    wt: String(stats.wt ?? '0') === '1',
+    status: String(payload.data?.status || '').trim(),
+  }
+}
+
+export async function fetchNodeMessages(): Promise<NodeMessagesPayload> {
+  const response = await fetch(`${ASR_API}?action=node-messages`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+
+  const payload = (await response.json()) as NodeMessagesPayload & { ok?: boolean; error?: string }
+  if (payload.ok === false) throw new Error(payload.error || 'Node messages could not be loaded.')
+  return payload
+}
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const response = await fetch(`${ASR_API}?action=auth-status`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')
+  return payload
+}
+
+export async function sendNodeCommand(args: {
+  node: string
+  action: string
+  permanent: boolean
+  autodisc: boolean
+  connectedCount: number
+  favsfile?: string
+}) {
+  const node = args.node.trim()
+  if (!node) throw new Error('Enter a node number first.')
+
+  if (args.action === 'addfav' || args.action === 'delfav') {
+    const response = await fetch(`${ASR_API}?action=favorite-command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'favorite-command',
+        favoriteAction: args.action,
+        node,
+        favsfile: args.favsfile || '',
+      }).toString(),
+    })
+
+    if (!response.ok) throw new Error(`Favorite request failed (${response.status}).`)
+    const payload = (await response.json()) as { ok?: boolean; error?: string; message?: string }
+    if (!payload.ok) throw new Error(payload.error || `Favorite request failed (${response.status}).`)
+    return payload.message || (args.action === 'addfav' ? `Added ${node} to Favorites.` : `Deleted ${node} from Favorites.`)
+  }
+
+  if (args.action === 'dtmf') {
+    const response = await fetch(`${ALLSCAN_BASE}/astapi/cmd.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        button: 'dtmf',
+        cmd: node,
+        localnode: LOCAL_NODE,
+      }).toString(),
+    })
+
+    if (!response.ok) throw new Error(`DTMF request failed (${response.status}).`)
+    return (await response.text()).trim()
+  }
+
+  const response = await fetch(`${ALLSCAN_BASE}/astapi/connect.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      remotenode: node,
+      perm: String(args.permanent),
+      button: args.action,
+      localnode: LOCAL_NODE,
+      autodisc: String(args.connectedCount > 0 ? args.autodisc : false),
+    }).toString(),
+  })
+
+  if (!response.ok) throw new Error(`Node command failed (${response.status}).`)
+  return (await response.text()).trim()
+}
+
+export async function restartAsteriskCommand() {
+  const response = await fetch(`${ALLSCAN_BASE}/astapi/cmd.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      button: 'restart',
+      localnode: LOCAL_NODE,
+    }).toString(),
+  })
+
+  if (!response.ok) throw new Error(`Restart Asterisk failed (${response.status}).`)
+  return (await response.text()).trim()
+}

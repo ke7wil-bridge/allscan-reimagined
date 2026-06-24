@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200">
+  <defs>
+    <style>
+      .bg { fill: #101112; }
+      .phone { fill: #050607; stroke: #565b63; stroke-width: 4; }
+      .screen { fill: #121315; }
+      .header { fill: #151618; stroke: #35383d; stroke-width: 3; }
+      .panel { fill: #08090b; stroke: #3e4248; stroke-width: 3; }
+      .sheet { fill: #090a0c; stroke: #606772; stroke-width: 3; }
+      .control { fill: #1d1f23; stroke: #545861; stroke-width: 3; }
+      .active { fill: #263140; stroke: #8ec5ff; stroke-width: 4; }
+      .row { fill: #16181c; stroke: #343942; stroke-width: 2; }
+      .row2 { fill: #101216; stroke: #30343c; stroke-width: 2; }
+      .danger { fill: #341416; stroke: #9d5555; stroke-width: 2; }
+      .text { fill: #edf4f8; font-family: Inter, Segoe UI, Arial, sans-serif; font-weight: 850; }
+      .muted { fill: #aeb8c0; font-family: Inter, Segoe UI, Arial, sans-serif; font-weight: 700; }
+      .accent { fill: #62c7ff; font-family: Georgia, serif; font-style: italic; font-weight: 800; }
+      .title { fill: #ffffff; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 34px; font-weight: 950; }
+      .label { fill: #dfe8ee; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 24px; font-weight: 900; }
+      .small { fill: #dfe8ee; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 18px; font-weight: 800; }
+      .tiny { fill: #b8c2ca; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 15px; font-weight: 700; }
+      .line { stroke: #34383f; stroke-width: 2; }
+      .pill { fill: #12364a; stroke: #3f83a8; stroke-width: 2; }
+      .check { fill: #80e894; font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 17px; font-weight: 900; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1800" height="1200"/>
+  <text x="60" y="58" class="title">Mobile Menu Long-Submenu Mockups</text>
+  <text x="60" y="88" class="muted" font-size="20">Showing real long menu states. The goal is no clipped floating menus and no required page scroll just to reach menu options.</text>
+
+  <!-- Portrait: Main menu -->
+  <text x="60" y="145" class="label">Portrait: Main Sheet</text>
+  <rect x="60" y="175" width="330" height="760" rx="34" class="phone"/>
+  <rect x="78" y="195" width="294" height="720" rx="22" class="screen"/>
+  <rect x="78" y="195" width="294" height="82" rx="22" class="header"/>
+  <text x="99" y="231" class="text" font-size="25">All⚡can</text>
+  <text x="102" y="256" class="accent" font-size="15">REIMAGINED</text>
+  <text x="210" y="234" class="text" font-size="17">KE7WIL</text>
+  <rect x="315" y="213" width="38" height="38" rx="9" class="active"/>
+  <text x="326" y="240" class="text" font-size="24">☰</text>
+  <text x="125" y="336" class="label" font-size="25">Node Controls</text>
+  <rect x="96" y="368" width="258" height="94" rx="10" class="panel"/>
+  <rect x="78" y="550" width="294" height="365" rx="22" class="sheet"/>
+  <text x="106" y="592" class="label" font-size="26">Menu</text>
+  <text x="302" y="592" class="muted" font-size="16">Close</text>
+  <rect x="105" y="620" width="240" height="56" rx="12" class="active"/>
+  <text x="126" y="656" class="text" font-size="21">Resources</text>
+  <text x="316" y="656" class="muted" font-size="24">›</text>
+  <rect x="105" y="690" width="240" height="56" rx="12" class="control"/>
+  <text x="126" y="726" class="text" font-size="21">Admin</text>
+  <text x="316" y="726" class="muted" font-size="24">›</text>
+  <rect x="105" y="760" width="240" height="56" rx="12" class="control"/>
+  <text x="126" y="796" class="text" font-size="21">Theme</text>
+  <text x="316" y="796" class="muted" font-size="24">›</text>
+  <text x="106" y="858" class="tiny">Tap category, sheet replaces itself.</text>
+
+  <!-- Portrait: Resources submenu -->
+  <text x="455" y="145" class="label">Portrait: Resources Open</text>
+  <rect x="455" y="175" width="330" height="760" rx="34" class="phone"/>
+  <rect x="473" y="195" width="294" height="720" rx="22" class="screen"/>
+  <rect x="473" y="195" width="294" height="82" rx="22" class="header"/>
+  <text x="494" y="231" class="text" font-size="25">All⚡can</text>
+  <rect x="710" y="213" width="38" height="38" rx="9" class="active"/>
+  <text x="721" y="240" class="text" font-size="24">☰</text>
+  <rect x="473" y="405" width="294" height="510" rx="22" class="sheet"/>
+  <text x="500" y="445" class="label" font-size="24">‹ Resources</text>
+  <text x="696" y="445" class="muted" font-size="16">Close</text>
+  <line x1="500" y1="462" x2="740" y2="462" class="line"/>
+  <g font-size="19">
+    <rect x="500" y="480" width="240" height="40" rx="9" class="row"/><text x="516" y="507" class="text">AllScan.info</text>
+    <rect x="500" y="528" width="240" height="40" rx="9" class="row2"/><text x="516" y="555" class="text">Updates</text>
+    <rect x="500" y="576" width="240" height="40" rx="9" class="row"/><text x="516" y="603" class="text">AllStarLink.org</text>
+    <rect x="500" y="624" width="240" height="40" rx="9" class="row2"/><text x="516" y="651" class="text">Keyed Nodes</text>
+    <rect x="500" y="672" width="240" height="40" rx="9" class="row"/><text x="516" y="699" class="text">ASL Forum</text>
+    <rect x="500" y="720" width="240" height="40" rx="9" class="row2"/><text x="516" y="747" class="text">AllScan FB</text>
+    <rect x="500" y="768" width="240" height="40" rx="9" class="row"/><text x="516" y="795" class="text">eHam.net</text>
+  </g>
+  <text x="500" y="858" class="tiny">Everything fits without page scroll.</text>
+
+  <!-- Portrait: Admin submenu -->
+  <text x="850" y="145" class="label">Portrait: Admin Open</text>
+  <rect x="850" y="175" width="330" height="760" rx="34" class="phone"/>
+  <rect x="868" y="195" width="294" height="720" rx="22" class="screen"/>
+  <rect x="868" y="195" width="294" height="82" rx="22" class="header"/>
+  <text x="889" y="231" class="text" font-size="25">All⚡can</text>
+  <rect x="1105" y="213" width="38" height="38" rx="9" class="active"/>
+  <text x="1116" y="240" class="text" font-size="24">☰</text>
+  <rect x="868" y="405" width="294" height="510" rx="22" class="sheet"/>
+  <text x="895" y="445" class="label" font-size="24">‹ Admin</text>
+  <text x="1091" y="445" class="muted" font-size="16">Close</text>
+  <line x1="895" y1="462" x2="1135" y2="462" class="line"/>
+  <g font-size="19">
+    <rect x="895" y="480" width="240" height="39" rx="9" class="row"/><text x="911" y="506" class="text">Cfgs</text>
+    <rect x="895" y="526" width="240" height="39" rx="9" class="row2"/><text x="911" y="552" class="text">Login / Users</text>
+    <rect x="895" y="572" width="240" height="39" rx="9" class="row"/><text x="911" y="598" class="text">Settings</text>
+    <rect x="895" y="618" width="240" height="39" rx="9" class="row2"/><text x="911" y="644" class="text">Node Stats</text>
+    <rect x="895" y="664" width="240" height="39" rx="9" class="danger"/><text x="911" y="690" class="text">Restart Asterisk</text>
+    <rect x="895" y="710" width="240" height="39" rx="9" class="row2"/><text x="911" y="736" class="text">Logout</text>
+  </g>
+  <text x="895" y="802" class="tiny">Destructive action can be styled distinct.</text>
+
+  <!-- Portrait: Theme submenu -->
+  <text x="1245" y="145" class="label">Portrait: Theme Open</text>
+  <rect x="1245" y="175" width="330" height="760" rx="34" class="phone"/>
+  <rect x="1263" y="195" width="294" height="720" rx="22" class="screen"/>
+  <rect x="1263" y="195" width="294" height="82" rx="22" class="header"/>
+  <text x="1284" y="231" class="text" font-size="25">All⚡can</text>
+  <rect x="1500" y="213" width="38" height="38" rx="9" class="active"/>
+  <text x="1511" y="240" class="text" font-size="24">☰</text>
+  <rect x="1263" y="465" width="294" height="450" rx="22" class="sheet"/>
+  <text x="1290" y="505" class="label" font-size="24">‹ Theme</text>
+  <text x="1486" y="505" class="muted" font-size="16">Close</text>
+  <line x1="1290" y1="522" x2="1530" y2="522" class="line"/>
+  <g font-size="19">
+    <rect x="1290" y="540" width="240" height="42" rx="9" class="active"/><text x="1306" y="568" class="text">Dark Side</text><text x="1502" y="568" class="check">✓</text>
+    <rect x="1290" y="590" width="240" height="42" rx="9" class="row2"/><text x="1306" y="618" class="text">Bright Side</text>
+    <rect x="1290" y="640" width="240" height="42" rx="9" class="row"/><text x="1306" y="668" class="text">Deep Ocean</text>
+    <rect x="1290" y="690" width="240" height="42" rx="9" class="row2"/><text x="1306" y="718" class="text">Matrix</text>
+  </g>
+  <text x="1290" y="785" class="tiny">ST:ASL intentionally hidden on mobile.</text>
+
+  <!-- Landscape: Long Resources -->
+  <text x="60" y="1005" class="label">Landscape: Resources Open</text>
+  <rect x="60" y="1030" width="670" height="150" rx="34" class="phone"/>
+  <rect x="80" y="1050" width="630" height="110" rx="20" class="screen"/>
+  <rect x="80" y="1050" width="630" height="48" rx="18" class="header"/>
+  <text x="102" y="1081" class="text" font-size="22">All⚡can</text>
+  <text x="244" y="1081" class="text" font-size="20">KE7WIL | Node 641890</text>
+  <rect x="652" y="1058" width="36" height="34" rx="8" class="active"/>
+  <text x="662" y="1082" class="text" font-size="22">☰</text>
+  <rect x="80" y="1098" width="630" height="62" rx="0" class="sheet"/>
+  <text x="102" y="1123" class="text" font-size="17">‹ Resources</text>
+  <text x="102" y="1148" class="tiny">AllScan.info</text>
+  <text x="208" y="1148" class="tiny">Updates</text>
+  <text x="300" y="1148" class="tiny">AllStarLink.org</text>
+  <text x="432" y="1148" class="tiny">Keyed Nodes</text>
+  <text x="548" y="1148" class="tiny">ASL Forum</text>
+  <text x="642" y="1148" class="tiny">FB</text>
+
+  <!-- Landscape: Admin -->
+  <text x="790" y="1005" class="label">Landscape: Admin Open</text>
+  <rect x="790" y="1030" width="670" height="150" rx="34" class="phone"/>
+  <rect x="810" y="1050" width="630" height="110" rx="20" class="screen"/>
+  <rect x="810" y="1050" width="630" height="48" rx="18" class="header"/>
+  <text x="832" y="1081" class="text" font-size="22">All⚡can</text>
+  <text x="974" y="1081" class="text" font-size="20">KE7WIL | Node 641890</text>
+  <rect x="1382" y="1058" width="36" height="34" rx="8" class="active"/>
+  <text x="1392" y="1082" class="text" font-size="22">☰</text>
+  <rect x="810" y="1098" width="630" height="62" rx="0" class="sheet"/>
+  <text x="832" y="1123" class="text" font-size="17">‹ Admin</text>
+  <text x="832" y="1148" class="tiny">Cfgs</text>
+  <text x="884" y="1148" class="tiny">Users</text>
+  <text x="946" y="1148" class="tiny">Settings</text>
+  <text x="1032" y="1148" class="tiny">Node Stats</text>
+  <text x="1138" y="1148" class="tiny">Restart Asterisk</text>
+  <text x="1300" y="1148" class="tiny">Logout</text>
+
+  <!-- Notes -->
+  <rect x="60" y="945" width="1515" height="40" rx="12" class="panel"/>
+  <text x="84" y="971" class="small">Recommended behavior: portrait submenus replace the sheet; landscape submenus flatten into one compact row. No floating submenu goes off-screen.</text>
+</svg>
