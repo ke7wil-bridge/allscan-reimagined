@@ -380,6 +380,22 @@ body {
   font-weight: 850;
 }
 
+.allscan-submenu button.allscan-menu-disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.allscan-submenu button.allscan-menu-disabled:hover {
+  background: transparent;
+}
+
+.allscan-submenu button.allscan-menu-disabled small {
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.82;
+  text-transform: uppercase;
+}
+
 .allscan-menu-desktop {
   display: inline-flex;
   align-items: center;
@@ -1951,6 +1967,10 @@ html[data-asr-theme] .allscan-submenu a:hover,
 html[data-asr-theme] .allscan-submenu button:hover {
   background: var(--theme-hover);
   color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-submenu button.allscan-menu-disabled:hover {
+  background: transparent;
 }
 
 html[data-asr-theme] .allscan-controls-shell,

@@ -5,7 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 2';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 3';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -167,14 +167,17 @@ function asr_runtime_config(): array {
         ];
     }
 
+    $headerTitle = $replace((string) ($stored['headerTitle'] ?? '{CALLSIGN} | Node {NODE}'));
+    $browserTitle = $replace((string) ($stored['browserTitle'] ?? ($headerTitle . ' | ASR')));
+
     return [
         'ok' => true,
         'node' => $node,
         'callsign' => $callsign,
-        'headerTitle' => $replace((string) ($stored['headerTitle'] ?? '{CALLSIGN} | Node {NODE}')),
-        'browserTitle' => $replace((string) ($stored['browserTitle'] ?? '{CALLSIGN} - {NODE} | ASR')),
-        'brandByline' => $replace((string) ($stored['brandByline'] ?? ($callsign ? 'by {CALLSIGN}' : ''))),
-        'footerByline' => $replace((string) ($stored['footerByline'] ?? ($callsign ? 'customized by {CALLSIGN}' : ''))),
+        'headerTitle' => $headerTitle,
+        'browserTitle' => $browserTitle,
+        'brandByline' => $replace((string) ($stored['brandByline'] ?? 'by KE7WIL')),
+        'footerByline' => $replace((string) ($stored['footerByline'] ?? 'customized by KE7WIL')),
         'headerLogo' => (string) ($stored['headerLogo'] ?? '/allscan/asr-logo-bright-r-tight.png'),
         'footerLogo' => (string) ($stored['footerLogo'] ?? '/allscan/asr-logo-bright-r-tight.png'),
         'versionLabel' => ASR_VERSION_LABEL,

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.2"
+ASR_VERSION="1.0.0-beta.3"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
 RELEASE_DIR="/opt/allscan-reimagined/releases/$ASR_VERSION"
@@ -81,7 +81,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 2"
+echo "Reimagined release:        v1.0.0 Beta 3"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -161,7 +161,11 @@ chmod 755 "$RELEASE_DIR/bin/"*.sh "$RELEASE_DIR/scripts/"*.sh
 ln -sfn "$RELEASE_DIR" /opt/allscan-reimagined/current
 
 echo "[4/8] Detecting node identity, branding, and bridges..."
-"$RELEASE_DIR/scripts/asr-configure.sh"
+if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  "$RELEASE_DIR/scripts/asr-configure.sh" < /dev/tty
+else
+  "$RELEASE_DIR/scripts/asr-configure.sh"
+fi
 
 echo "[5/8] Applying the Reimagined interface and security protections..."
 "$RELEASE_DIR/scripts/asr-reapply.sh"
@@ -225,7 +229,7 @@ curl -fsS http://127.0.0.1/allscan/ | grep -q 'assets/index-'
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 2"
+echo "AllScan Reimagined:    v1.0.0 Beta 3"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Open:                    http://$(hostname -I | awk '{print $1}')/allscan/"

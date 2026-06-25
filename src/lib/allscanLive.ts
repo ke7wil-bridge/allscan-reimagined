@@ -28,11 +28,11 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   callsign: '',
   headerTitle: 'AllScan Reimagined',
   browserTitle: 'AllScan Reimagined',
-  brandByline: '',
-  footerByline: '',
+  brandByline: 'by KE7WIL',
+  footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 2',
+  versionLabel: 'v1.0.0 Beta 3',
   bridges: [],
 }
 

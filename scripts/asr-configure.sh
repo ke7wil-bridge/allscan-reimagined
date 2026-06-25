@@ -90,6 +90,21 @@ find_bridge_node() {
   done
 }
 
+existing_bridge_node() {
+  local id="$1"
+  [ -r "$CONFIG_FILE" ] || return 0
+  php -r '
+    $data = json_decode((string) @file_get_contents($argv[1]), true);
+    $id = $argv[2];
+    foreach ((array) ($data["bridges"] ?? []) as $bridge) {
+      if (($bridge["id"] ?? "") === $id && preg_match("/^[0-9]{3,10}$/", (string) ($bridge["node"] ?? ""))) {
+        echo $bridge["node"];
+        exit;
+      }
+    }
+  ' "$CONFIG_FILE" "$id" 2>/dev/null || true
+}
+
 service_list=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print tolower($1)}' || true)
 json_has_bridge() {
   local id="$1"
@@ -134,13 +149,19 @@ detected_call=""
 
 echo
 echo "=== AllScan Reimagined Personalization ==="
-node=$(prompt "Primary node number" "$detected_node")
+if [ -n "$detected_node" ]; then
+  node="$detected_node"
+  echo "Detected primary node: $node"
+else
+  node=$(prompt "Primary node number" "")
+fi
 [[ "$node" =~ ^[0-9]{3,10}$ ]] || { echo "Invalid node number." >&2; exit 1; }
-callsign=$(prompt "Callsign" "${detected_call:-NODE$node}")
+callsign="${detected_call:-NODE$node}"
+echo "Detected callsign: $callsign"
 header_title=$(prompt "Header title" "$callsign | Node $node")
-browser_title=$(prompt "Browser tab title" "$callsign - $node | ASR")
-brand_byline=$(prompt "Brand byline" "by $callsign")
-footer_byline=$(prompt "Footer byline" "customized by $callsign")
+browser_title="$header_title | ASR"
+brand_byline="by KE7WIL"
+footer_byline="customized by KE7WIL"
 
 logo_url="/allscan/asr-logo-bright-r-tight.png"
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ -t 0 ]; then
@@ -165,7 +186,8 @@ trap 'rm -f "$bridge_file"' EXIT
 add_bridge() {
   local id="$1" title="$2" detail="$3" expression="$4" bridge_node
   bridge_detected "$id" || return 0
-  bridge_node=$(find_bridge_node "$expression")
+  bridge_node=$(existing_bridge_node "$id")
+  [ -n "$bridge_node" ] || bridge_node=$(find_bridge_node "$expression")
   printf '%s\t%s\t%s\t%s\n' "$id" "$bridge_node" "$title" "$detail" >> "$bridge_file"
   printf 'Detected %-6s bridge%s\n' "${id^^}" "${bridge_node:+ on private node $bridge_node}"
 }

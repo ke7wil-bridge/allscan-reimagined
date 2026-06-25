@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.0.0-beta.2"
+VERSION="1.0.0-beta.3"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 OUT="$ROOT/release"
 STAGE="$OUT/allscan-reimagined-$VERSION"
@@ -29,6 +29,9 @@ install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 cp -a compat/. "$STAGE/payload/compat/"
 install -m 755 install.sh "$STAGE/install.sh"
+install -m 644 README.md "$STAGE/README.md"
+install -m 644 LICENSE "$STAGE/LICENSE"
+install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 COPYFILE_DISABLE=1 tar --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"

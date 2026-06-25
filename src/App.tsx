@@ -1137,7 +1137,8 @@ function App({ config }: { config: RuntimeConfig }) {
 
                 <div className={`allscan-submenu allscan-submenu-resources${openSubmenu === 'resources' ? ' is-open' : ''}`}>
                   <a role="menuitem" href="https://allscan.info/" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>AllScan.info</a>
-                  <a role="menuitem" href="https://github.com/davidgsd/AllScan#allscan" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>Updates</a>
+                  <a role="menuitem" href="https://github.com/ke7wil-bridge/allscan-reimagined#updates" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>Updates</a>
+                  <a role="menuitem" href="https://github.com/davidgsd/AllScan#allscan" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>Original AllScan</a>
                   <a role="menuitem" href="https://www.allstarlink.org/" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>AllStarLink.org</a>
                   <a role="menuitem" href="http://stats.allstarlink.org/stats/keyed" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>Keyed Nodes</a>
                   <a role="menuitem" href="https://community.allstarlink.org/" target="_blank" rel="noreferrer" onClick={() => setMenuOpen(false)}>ASL Forum</a>
@@ -1149,6 +1150,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <a role="menuitem" href="/allscan/cfg/" onClick={() => setMenuOpen(false)}>Cfgs</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Users</a> : null}
                   {authStatus.loggedIn ? <a role="menuitem" href="/allscan/user/settings/" onClick={() => setMenuOpen(false)}>Settings</a> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" className="allscan-menu-disabled" disabled>Reimagined Settings <small>Header, Logo, Bridges - Coming Soon</small></button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Stats</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {authStatus.loggedIn ? (
