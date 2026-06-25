@@ -6,6 +6,7 @@ html {
 body {
 	box-sizing:border-box;
 	width:100%;
+	min-height:100vh;
 	min-width:320px;
 	max-width:none;
 	margin:0;
@@ -89,6 +90,8 @@ body, textarea, input, select {
 
 form, fieldset {
 	display:inline-block;
+	box-sizing:border-box;
+	max-width:100%;
 }
 
 fieldset, #statmsg, .greenborder {
@@ -188,6 +191,39 @@ table {
 	box-shadow:0 12px 32px rgba(0,0,0,0.24);
 }
 
+.asr-settings-form {
+	display:grid;
+	gap:12px;
+	width:min(760px, calc(100vw - 24px));
+	margin:0 auto 18px;
+	text-align:left;
+}
+
+.asr-settings-form fieldset {
+	display:block;
+	width:100%;
+}
+
+.asr-settings-form label {
+	display:block;
+	margin:8px 0;
+	color:#d5dbe0;
+	font-size:13px;
+}
+
+.asr-settings-form input[type=text] {
+	width:min(520px, 100%);
+}
+
+.asr-settings-bridge {
+	display:grid;
+	grid-template-columns:72px 96px 1fr 1fr;
+	gap:8px;
+	align-items:end;
+	padding:8px 0;
+	border-top:1px solid rgba(255,255,255,0.12);
+}
+
 table tr th,
 table tr td {
 	border-color:rgba(255,255,255,0.18);
@@ -273,6 +309,7 @@ h5 {
 
 	table {
 		font-size:12px;
+		max-width:100%;
 	}
 
 	.asr-admin-menu-panel {
@@ -288,14 +325,18 @@ h5 {
 
 @media (max-width:700px) and (orientation:portrait) {
 	body.asr-admin-page-cfg,
-	body.asr-admin-page-users {
+	body.asr-admin-page-users,
+	body.asr-admin-page-reimagined-settings {
 		width:100vw;
 		max-width:100vw;
 		overflow-x:hidden;
+		-webkit-text-size-adjust:100%;
+		text-size-adjust:100%;
 	}
 
 	body.asr-admin-page-cfg > *:not(.asr-admin-header),
-	body.asr-admin-page-users > *:not(.asr-admin-header) {
+	body.asr-admin-page-users > *:not(.asr-admin-header),
+	body.asr-admin-page-reimagined-settings > *:not(.asr-admin-header) {
 		box-sizing:border-box;
 		max-width:calc(100vw - 12px);
 		margin-left:auto;
@@ -306,8 +347,10 @@ h5 {
 	body.asr-admin-page-users .greenborder,
 	body.asr-admin-page-cfg fieldset,
 	body.asr-admin-page-users fieldset,
+	body.asr-admin-page-reimagined-settings fieldset,
 	body.asr-admin-page-cfg form,
-	body.asr-admin-page-users form {
+	body.asr-admin-page-users form,
+	body.asr-admin-page-reimagined-settings form {
 		box-sizing:border-box;
 		max-width:calc(100vw - 16px);
 		margin-left:auto;
@@ -332,6 +375,10 @@ h5 {
 		margin-right:auto;
 		table-layout:fixed;
 		text-align:center;
+	}
+
+	body.asr-admin-page-users table {
+		font-size:10px;
 	}
 
 	body.asr-admin-page-cfg table tr th,
@@ -381,16 +428,32 @@ h5 {
 	body.asr-admin-page-users input[type=number],
 	body.asr-admin-page-users input[type=password],
 	body.asr-admin-page-users select,
-	body.asr-admin-page-users textarea {
+	body.asr-admin-page-users textarea,
+	body.asr-admin-page-reimagined-settings input[type=text],
+	body.asr-admin-page-reimagined-settings input[type=number],
+	body.asr-admin-page-reimagined-settings input[type=password],
+	body.asr-admin-page-reimagined-settings select,
+	body.asr-admin-page-reimagined-settings textarea {
 		width:100%;
 		max-width:calc(100vw - 48px);
 		min-width:0;
 	}
 
 	body.asr-admin-page-users ul,
-	body.asr-admin-page-cfg ul {
+	body.asr-admin-page-cfg ul,
+	body.asr-admin-page-reimagined-settings ul {
 		box-sizing:border-box;
 		max-width:calc(100vw - 22px);
 		padding-right:6px;
+	}
+
+	.asr-settings-form {
+		width:calc(100vw - 16px);
+		gap:10px;
+	}
+
+	.asr-settings-bridge {
+		grid-template-columns:1fr;
+		gap:3px;
 	}
 }

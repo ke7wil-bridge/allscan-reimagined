@@ -117,7 +117,7 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 	$cpuBg = asrAdminCpuBg($cpuTemp);
 	$nodeTitle = asrAdminTitle($title);
 	$runtime = asrAdminRuntimeConfig();
-	$versionLabel = htmlspecial($runtime['versionLabel'] ?? 'v1.0.0 Beta 4');
+	$versionLabel = htmlspecial($runtime['versionLabel'] ?? 'v1.0.0 Beta 5');
 	$brandByline = htmlspecial($runtime['brandByline'] ?? '');
 	$headerLogo = htmlattr($runtime['headerLogo'] ?? "$urlbase/asr-logo-bright-r-tight.png");
 	echo "<body$onload class=\"$bodyClass\">" . NL
@@ -146,7 +146,7 @@ function asrAdminRuntimeConfig() {
 	$file = '/etc/allscan-reimagined/config.json';
 	$data = is_readable($file) ? json_decode(file_get_contents($file), true) : [];
 	$runtime = is_array($data) ? $data : [];
-	$runtime['versionLabel'] = 'v1.0.0 Beta 4';
+	$runtime['versionLabel'] = 'v1.0.0 Beta 5';
 	if(empty($runtime['brandByline']))
 		$runtime['brandByline'] = 'by KE7WIL';
 	if(empty($runtime['footerByline']))
@@ -156,13 +156,13 @@ function asrAdminRuntimeConfig() {
 
 function asrAdminTitle($title) {
 	$runtime = asrAdminRuntimeConfig();
-	if(!empty($runtime['headerTitle']))
-		return $runtime['headerTitle'];
 	global $gCfg, $amicfg, $msg;
 	if(!isset($amicfg->node))
 		getAmiCfg($msg);
 	$call = trim($gCfg[call] ?? '');
 	$node = trim($amicfg->node ?? ($gCfg[nodenum] ?? ''));
+	if(!empty($runtime['headerTitle']))
+		return str_replace(['{CALLSIGN}', '{NODE}'], [$call ?: 'AllScan', $node], $runtime['headerTitle']);
 	if($call && $node)
 		return "$call | Node $node";
 	return $title;
@@ -170,13 +170,13 @@ function asrAdminTitle($title) {
 
 function asrAdminDocumentTitle($title) {
 	$runtime = asrAdminRuntimeConfig();
-	if(!empty($runtime['browserTitle']))
-		return $runtime['browserTitle'];
 	global $gCfg, $amicfg, $msg;
 	if(!isset($amicfg->node))
 		getAmiCfg($msg);
 	$call = trim($gCfg[call] ?? '');
 	$node = trim($amicfg->node ?? ($gCfg[nodenum] ?? ''));
+	if(!empty($runtime['browserTitle']))
+		return str_replace(['{CALLSIGN}', '{NODE}'], [$call ?: 'AllScan', $node], $runtime['browserTitle']);
 	if($call && $node)
 		return "$call - $node | ASR";
 	return $title;
@@ -191,6 +191,8 @@ function asrAdminBodyClass() {
 		$classes[] = 'asr-admin-page-users';
 	} elseif($subdir === 'user/settings') {
 		$classes[] = 'asr-admin-page-settings';
+	} elseif($subdir === 'asr/settings') {
+		$classes[] = 'asr-admin-page-reimagined-settings';
 	}
 	return implode(' ', $classes);
 }
@@ -252,7 +254,9 @@ function getHdrLinks() {
 			$url = "$urlbase/user/";
 			$title = 'Users';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$lnk[] = 'Reimagined Settings (Header, Logo, Bridges - Coming Soon)';
+			$url = "$urlbase/asr/settings/";
+			$title = 'Reimagined Settings';
+			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
 		}
 		// Show Settings & Logout links
 		$url = "$urlbase/user/settings/";

@@ -5,7 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 4';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5';
 
 require_once __DIR__ . '/include/common.php';
 
