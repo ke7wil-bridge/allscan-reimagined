@@ -117,7 +117,7 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 	$cpuBg = asrAdminCpuBg($cpuTemp);
 	$nodeTitle = asrAdminTitle($title);
 	$runtime = asrAdminRuntimeConfig();
-	$versionLabel = htmlspecial($runtime['versionLabel'] ?? 'v1.0.0 Beta 3');
+	$versionLabel = htmlspecial($runtime['versionLabel'] ?? 'v1.0.0 Beta 4');
 	$brandByline = htmlspecial($runtime['brandByline'] ?? '');
 	$headerLogo = htmlattr($runtime['headerLogo'] ?? "$urlbase/asr-logo-bright-r-tight.png");
 	echo "<body$onload class=\"$bodyClass\">" . NL
@@ -146,7 +146,7 @@ function asrAdminRuntimeConfig() {
 	$file = '/etc/allscan-reimagined/config.json';
 	$data = is_readable($file) ? json_decode(file_get_contents($file), true) : [];
 	$runtime = is_array($data) ? $data : [];
-	$runtime['versionLabel'] = 'v1.0.0 Beta 3';
+	$runtime['versionLabel'] = 'v1.0.0 Beta 4';
 	if(empty($runtime['brandByline']))
 		$runtime['brandByline'] = 'by KE7WIL';
 	if(empty($runtime['footerByline']))

@@ -8,16 +8,16 @@ AllScan Reimagined is customized by KE7WIL.
 
 Download the current release archive from the GitHub release page, then run the installer as root on the AllStar node.
 
-For v1.0.0 Beta 3:
+For v1.0.0 Beta 4:
 
 ```bash
 bash <<'ASR'
 set -e
 
-url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.3/allscan-reimagined-1.0.0-beta.3.tar.gz"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.3.tar.gz"
-stage="/tmp/allscan-reimagined-install-beta3"
-sum="d1f27151fa37daf2e4ed675010c451b9f20f34fdb8fe99c7638bd31f299dd29f"
+url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.4/allscan-reimagined-1.0.0-beta.4.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.4.tar.gz"
+stage="/tmp/allscan-reimagined-install-beta4"
+sum="5af5ce9ae06552b1ca86fc519abc376779a16e497208276ad810e8db314543bb"
 
 rm -rf "$stage"
 curl -fL "$url" -o "$pkg"
@@ -26,7 +26,7 @@ echo "$sum  $pkg" | sha256sum -c -
 mkdir -p "$stage"
 tar -xzf "$pkg" -C "$stage"
 
-cd "$stage/allscan-reimagined-1.0.0-beta.3"
+cd "$stage/allscan-reimagined-1.0.0-beta.4"
 ./install.sh
 ASR
 ```
@@ -42,6 +42,7 @@ It asks for:
 ```text
 Header title
 Optional PNG/JPEG/WebP logo path
+Bridge card node numbers when bridge services are detected
 ```
 
 The browser tab title is set automatically from the header title:
@@ -62,6 +63,8 @@ customized by KE7WIL
 ```
 
 The planned Reimagined Settings page will also support changing the header title and enabling or disabling bridge cards.
+
+If bridge services are detected, the installer reviews the bridge card node numbers before saving them. Press Enter/Return to accept a detected node number, type a corrected node number, or type `none` to hide that bridge card.
 
 ## Updates
 

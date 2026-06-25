@@ -188,8 +188,45 @@ add_bridge() {
   bridge_detected "$id" || return 0
   bridge_node=$(existing_bridge_node "$id")
   [ -n "$bridge_node" ] || bridge_node=$(find_bridge_node "$expression")
+  bridge_node=$(review_bridge_node "$id" "$title" "$bridge_node")
+  [ -n "$bridge_node" ] || { printf 'Hiding %-6s bridge card; no bridge node was assigned.\n' "${id^^}"; return 0; }
   printf '%s\t%s\t%s\t%s\n' "$id" "$bridge_node" "$title" "$detail" >> "$bridge_file"
-  printf 'Detected %-6s bridge%s\n' "${id^^}" "${bridge_node:+ on private node $bridge_node}"
+  printf 'Enabled %-7s bridge card on node %s\n' "${id^^}" "$bridge_node"
+}
+
+review_bridge_node() {
+  local id="$1" title="$2" default_node="$3" answer
+
+  if [ "$NON_INTERACTIVE" -eq 1 ] || [ ! -t 0 ]; then
+    printf '%s' "$default_node"
+    return
+  fi
+
+  if [ -n "$default_node" ]; then
+    while true; do
+      read -r -p "$title node [$default_node, type none to hide]: " answer
+      answer="${answer:-$default_node}"
+      case "$answer" in
+        none|NONE|None|no|NO|No|skip|SKIP|Skip) printf ''; return ;;
+      esac
+      if [[ "$answer" =~ ^[0-9]{3,10}$ ]]; then
+        printf '%s' "$answer"
+        return
+      fi
+      echo "Enter a 3-10 digit node number, or type none to hide this bridge card." >&2
+    done
+  fi
+
+  echo "$title was detected, but no bridge node number was found." >&2
+  while true; do
+    read -r -p "Enter $title node number, or press Enter/Return to hide this card: " answer
+    [ -z "$answer" ] && { printf ''; return; }
+    if [[ "$answer" =~ ^[0-9]{3,10}$ ]]; then
+      printf '%s' "$answer"
+      return
+    fi
+    echo "Enter a 3-10 digit node number, or press Enter/Return to hide this bridge card." >&2
+  done
 }
 
 echo
@@ -236,3 +273,11 @@ echo "Configuration saved: $CONFIG_FILE"
 echo "Node: $node"
 echo "Callsign: $callsign"
 echo "Header: $header_title"
+if [ -s "$bridge_file" ]; then
+  echo
+  echo "Bridge cards enabled:"
+  awk -F'\t' '{ printf "  %-7s %s\n", toupper($1), $2 }' "$bridge_file"
+else
+  echo
+  echo "Bridge cards enabled: none"
+fi

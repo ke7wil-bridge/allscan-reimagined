@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-VERSION="1.0.0-beta.3"
+VERSION="1.0.0-beta.4"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 OUT="$ROOT/release"
 STAGE="$OUT/allscan-reimagined-$VERSION"
