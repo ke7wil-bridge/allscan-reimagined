@@ -17,7 +17,7 @@ set -e
 url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.3/allscan-reimagined-1.0.0-beta.3.tar.gz"
 pkg="/tmp/allscan-reimagined-1.0.0-beta.3.tar.gz"
 stage="/tmp/allscan-reimagined-install-beta3"
-sum="REPLACE_WITH_RELEASE_SHA256"
+sum="d1f27151fa37daf2e4ed675010c451b9f20f34fdb8fe99c7638bd31f299dd29f"
 
 rm -rf "$stage"
 curl -fL "$url" -o "$pkg"
@@ -31,7 +31,7 @@ cd "$stage/allscan-reimagined-1.0.0-beta.3"
 ASR
 ```
 
-The release page provides the final SHA-256 checksum. Replace `REPLACE_WITH_RELEASE_SHA256` with the checksum from the release.
+This command verifies the release archive before installing.
 
 ## Setup Prompts
 
