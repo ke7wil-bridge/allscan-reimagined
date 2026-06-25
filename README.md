@@ -50,7 +50,7 @@ The browser tab title is set automatically from the header title:
 Header title | ASR
 ```
 
-Press Enter at the logo prompt to use the included ASR logo. To use a custom logo during installation, first upload a PNG, JPEG, or WebP image to the node, then enter its path.
+Press Enter/Return at the logo prompt to use the default ASR logo. To use a custom logo during installation, first upload a PNG, JPEG, or WebP image to the node, then enter its path.
 
 The Reimagined credit remains:
 

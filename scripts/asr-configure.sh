@@ -165,7 +165,7 @@ footer_byline="customized by KE7WIL"
 
 logo_url="/allscan/asr-logo-bright-r-tight.png"
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ -t 0 ]; then
-  read -r -p "Optional PNG/JPEG/WebP logo path [use included ASR logo]: " logo_path
+  read -r -p "Optional PNG/JPEG/WebP logo path [press Enter/Return to use the default ASR logo]: " logo_path
   if [ -n "${logo_path:-}" ]; then
     [ -f "$logo_path" ] || { echo "Logo file not found: $logo_path" >&2; exit 1; }
     case "${logo_path##*.}" in
