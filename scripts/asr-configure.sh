@@ -105,22 +105,6 @@ existing_bridge_node() {
   ' "$CONFIG_FILE" "$id" 2>/dev/null || true
 }
 
-existing_bridge_field() {
-  local id="$1" field="$2"
-  [ -r "$CONFIG_FILE" ] || return 0
-  php -r '
-    $data = json_decode((string) @file_get_contents($argv[1]), true);
-    $id = $argv[2];
-    $field = $argv[3];
-    foreach ((array) ($data["bridges"] ?? []) as $bridge) {
-      if (($bridge["id"] ?? "") === $id && isset($bridge[$field])) {
-        echo (string) $bridge[$field];
-        exit;
-      }
-    }
-  ' "$CONFIG_FILE" "$id" "$field" 2>/dev/null || true
-}
-
 service_list=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print tolower($1)}' || true)
 json_has_bridge() {
   local id="$1"
@@ -200,17 +184,13 @@ bridge_file=$(mktemp)
 trap 'rm -f "$bridge_file"' EXIT
 
 add_bridge() {
-  local id="$1" title="$2" detail="$3" expression="$4" bridge_node friendly_title friendly_detail
+  local id="$1" title="$2" detail="$3" expression="$4" bridge_node
   bridge_detected "$id" || return 0
   bridge_node=$(existing_bridge_node "$id")
   [ -n "$bridge_node" ] || bridge_node=$(find_bridge_node "$expression")
   bridge_node=$(review_bridge_node "$id" "$title" "$bridge_node")
   [ -n "$bridge_node" ] || { printf 'Hiding %-6s bridge card; no bridge node was assigned.\n' "${id^^}"; return 0; }
-  friendly_title=$(existing_bridge_field "$id" title)
-  friendly_detail=$(existing_bridge_field "$id" detailTitle)
-  friendly_title=$(prompt "$title display name" "${friendly_title:-$title}")
-  friendly_detail=$(prompt "$title detail label" "${friendly_detail:-$detail}")
-  printf '%s\t%s\t%s\t%s\n' "$id" "$bridge_node" "$friendly_title" "$friendly_detail" >> "$bridge_file"
+  printf '%s\t%s\t%s\t%s\n' "$id" "$bridge_node" "$title" "$detail" >> "$bridge_file"
   printf 'Enabled %-7s bridge card on node %s\n' "${id^^}" "$bridge_node"
 }
 

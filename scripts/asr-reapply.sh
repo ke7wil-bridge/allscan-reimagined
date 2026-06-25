@@ -34,8 +34,6 @@ if [ -d "$compat_dir" ]; then
   install -o root -g root -m 644 "$compat_dir/include/common.php" "$ALLSCAN_DIR/include/common.php"
   install -o root -g root -m 644 "$compat_dir/include/UserModel.php" "$ALLSCAN_DIR/include/UserModel.php"
   install -o root -g root -m 644 "$compat_dir/user/settings/index.php" "$ALLSCAN_DIR/user/settings/index.php"
-  install -d -o root -g root -m 755 "$ALLSCAN_DIR/asr/settings"
-  install -o root -g root -m 644 "$compat_dir/asr/settings/index.php" "$ALLSCAN_DIR/asr/settings/index.php"
   install -o root -g root -m 644 "$compat_dir/css/asr-admin.css" "$ALLSCAN_DIR/css/asr-admin.css"
 else
   logger -t allscan-reimagined "No verified admin/security compatibility layer for AllScan ${backend_version:-unknown}; upstream files left unchanged"
