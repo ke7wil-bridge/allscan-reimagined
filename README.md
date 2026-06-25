@@ -50,7 +50,9 @@ The browser tab title is set automatically from the header title:
 Header title | ASR
 ```
 
-Press Enter/Return at the logo prompt to use the default ASR logo. To use a custom logo during installation, first upload a PNG, JPEG, or WebP image to the node, then enter its path.
+Press Enter/Return at the logo prompt to use the default ASR logo. That is the recommended choice for beta testing.
+
+Custom logo support is prepared for PNG, JPEG, and WebP images. The current beta accepts a logo file path on the node. A friendlier Reimagined Settings page for uploading a logo from your desktop is planned for the Admin menu.
 
 The Reimagined credit remains:
 
@@ -59,7 +61,7 @@ by KE7WIL
 customized by KE7WIL
 ```
 
-Logo upload and Reimagined settings pages are planned for the Admin menu.
+The planned Reimagined Settings page will also support changing the header title and enabling or disabling bridge cards.
 
 ## Updates
 
