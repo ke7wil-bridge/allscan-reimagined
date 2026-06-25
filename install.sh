@@ -123,12 +123,13 @@ if [ "$current_version" != "$latest_version" ]; then
   echo "Official AllScan will be installed or upgraded: $current_version -> $latest_version"
   [ -t 0 ] || fail "The official AllScan update requires an interactive terminal."
   if ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
-    official_installer="/tmp/AllScanInstallUpdate-$(date +%s).php"
+    official_installer_dir=$(mktemp -d /tmp/allscan-official-installer.XXXXXX)
+    official_installer="$official_installer_dir/AllScanInstallUpdate.php"
     curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"
     chmod 755 "$official_installer"
     echo "The official installer will explain and confirm its own update steps."
     "$official_installer"
-    rm -f "$official_installer"
+    rm -rf "$official_installer_dir"
   else
     fail "Official AllScan installation/update was declined."
   fi
