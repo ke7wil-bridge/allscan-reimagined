@@ -99,6 +99,14 @@ fieldset, #statmsg, .greenborder {
 	color:#eaf4f8;
 }
 
+.greenborder {
+	box-sizing:border-box;
+	display:inline-block;
+	max-width:calc(100vw - 24px);
+	margin:0.35em auto;
+	padding:0 8px 8px;
+}
+
 fieldset {
 	padding:10px 12px;
 }
@@ -182,6 +190,7 @@ table {
 	clear:both;
 	border-collapse:separate;
 	border-spacing:0;
+	border:1px solid rgba(255,255,255,0.18);
 	border-radius:8px;
 	overflow:hidden;
 	background:rgba(9, 9, 11, 0.96);
@@ -190,8 +199,19 @@ table {
 
 table tr th,
 table tr td {
-	border-color:rgba(255,255,255,0.18);
+	border:0 solid rgba(255,255,255,0.18);
+	border-right-width:1px;
+	border-bottom-width:1px;
 	padding:5px 8px;
+}
+
+table tr th:last-child,
+table tr td:last-child {
+	border-right-width:0;
+}
+
+table tbody tr:last-child td {
+	border-bottom-width:0;
 }
 
 table tr th {
@@ -202,6 +222,86 @@ table tr th {
 table.favs tbody tr:hover,
 table.grid tbody tr:hover {
 	background:rgba(255,255,255,0.1);
+}
+
+.asr-admin-selected-row,
+table.grid tbody tr.asr-admin-selected-row:hover {
+	background:rgba(85,199,255,0.16);
+}
+
+body.asr-admin-page-settings .asr-user-settings-form {
+	display:block;
+	width:100%;
+	max-width:26rem;
+	margin:0 auto 16px;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form fieldset {
+	display:block;
+	width:100%;
+	padding:18px 14px 14px;
+	text-align:left;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form table,
+body.asr-admin-page-settings .asr-user-settings-form tbody,
+body.asr-admin-page-settings .asr-user-settings-form tr,
+body.asr-admin-page-settings .asr-user-settings-form th,
+body.asr-admin-page-settings .asr-user-settings-form td {
+	display:block;
+	width:100%;
+	max-width:100%;
+	border:0;
+	background:transparent;
+	box-shadow:none;
+	text-align:left;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form table {
+	margin:0;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form tr {
+	display:grid;
+	grid-template-columns:minmax(7.5rem, max-content) minmax(0, 1fr);
+	align-items:center;
+	column-gap:10px;
+	margin-bottom:12px;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form th {
+	width:auto;
+	padding:0;
+	font-size:13px;
+	white-space:normal;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form td {
+	width:auto;
+	padding:0;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form input[type=text],
+body.asr-admin-page-settings .asr-user-settings-form input[type=password],
+body.asr-admin-page-settings .asr-user-settings-form select {
+	width:100%;
+	max-width:100%;
+	min-height:32px;
+	margin:0;
+}
+
+body.asr-admin-page-settings .asr-user-settings-form p {
+	max-width:100%;
+	margin-top:10px;
+	text-align:right;
+}
+
+body.asr-admin-page-settings .asr-settings-notes {
+	display:block;
+	max-width:42rem;
+	padding-left:0;
+	list-style:none;
+	line-height:1.25;
 }
 
 p {
@@ -288,14 +388,17 @@ h5 {
 
 @media (max-width:700px) and (orientation:portrait) {
 	body.asr-admin-page-cfg,
-	body.asr-admin-page-users {
+	body.asr-admin-page-users,
+	body.asr-admin-page-settings {
 		width:100vw;
 		max-width:100vw;
+		padding-top:0;
 		overflow-x:hidden;
 	}
 
 	body.asr-admin-page-cfg > *:not(.asr-admin-header),
-	body.asr-admin-page-users > *:not(.asr-admin-header) {
+	body.asr-admin-page-users > *:not(.asr-admin-header),
+	body.asr-admin-page-settings > *:not(.asr-admin-header) {
 		box-sizing:border-box;
 		max-width:calc(100vw - 12px);
 		margin-left:auto;
@@ -306,8 +409,10 @@ h5 {
 	body.asr-admin-page-users .greenborder,
 	body.asr-admin-page-cfg fieldset,
 	body.asr-admin-page-users fieldset,
+	body.asr-admin-page-settings fieldset,
 	body.asr-admin-page-cfg form,
-	body.asr-admin-page-users form {
+	body.asr-admin-page-users form,
+	body.asr-admin-page-settings form {
 		box-sizing:border-box;
 		max-width:calc(100vw - 16px);
 		margin-left:auto;
@@ -334,6 +439,71 @@ h5 {
 		text-align:center;
 	}
 
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type {
+		display:block;
+		border-radius:8px;
+		overflow:visible;
+		background:transparent;
+		box-shadow:none;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type thead {
+		display:none;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tbody {
+		display:grid;
+		gap:8px;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr {
+		display:grid;
+		grid-template-columns:minmax(2.8em, auto) minmax(0, 1fr) minmax(5.7em, auto);
+		gap:0;
+		background:rgba(9, 9, 11, 0.96);
+		border:1px solid rgba(255,255,255,0.18);
+		border-radius:8px;
+		box-shadow:0 12px 32px rgba(0,0,0,0.24);
+		overflow:hidden;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td {
+		display:block;
+		border-color:rgba(255,255,255,0.12);
+		text-align:left;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td::before {
+		display:block;
+		margin-bottom:2px;
+		color:#55c7ff;
+		font-size:10px;
+		font-weight:900;
+		letter-spacing:0.06em;
+		line-height:1.1;
+		text-transform:uppercase;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(1)::before {
+		content:"ID";
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(2)::before {
+		content:"Name";
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(3)::before {
+		content:"Value";
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(4)::before {
+		content:"Default Value";
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(5)::before {
+		content:"Last Updated";
+	}
+
 	body.asr-admin-page-cfg table tr th,
 	body.asr-admin-page-cfg table tr td {
 		padding:3px 4px;
@@ -352,17 +522,139 @@ h5 {
 
 	body.asr-admin-page-cfg table tr th:first-child,
 	body.asr-admin-page-cfg table tr td:first-child {
-		width:2.8em;
+		width:auto;
 	}
 
 	body.asr-admin-page-cfg table tr th:nth-child(2),
 	body.asr-admin-page-cfg table tr td:nth-child(2) {
-		width:22%;
+		width:auto;
 	}
 
 	body.asr-admin-page-cfg table tr th:last-child,
 	body.asr-admin-page-cfg table tr td:last-child {
-		width:5.7em;
+		width:auto;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(3),
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(4) {
+		grid-column:1 / -1;
+	}
+
+	body.asr-admin-page-cfg .greenborder:first-of-type table:first-of-type tr td:nth-child(5) {
+		grid-column:3;
+		grid-row:1;
+		text-align:right;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type {
+		display:block;
+		width:100%;
+		max-width:100%;
+		border-radius:8px;
+		overflow:visible;
+		background:transparent;
+		box-shadow:none;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type thead {
+		display:none;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tbody {
+		display:grid;
+		gap:8px;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr {
+		display:grid;
+		grid-template-columns:minmax(3em, auto) minmax(0, 1fr) minmax(3.8em, auto);
+		gap:0;
+		background:rgba(9, 9, 11, 0.96);
+		border:1px solid rgba(255,255,255,0.18);
+		border-radius:8px;
+		box-shadow:0 12px 32px rgba(0,0,0,0.24);
+		overflow:hidden;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr.asr-admin-selected-row {
+		background:rgba(85,199,255,0.16);
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td {
+		display:block;
+		width:auto;
+		border-color:rgba(255,255,255,0.12);
+		text-align:left;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td::before {
+		display:block;
+		margin-bottom:2px;
+		color:#55c7ff;
+		font-size:10px;
+		font-weight:900;
+		letter-spacing:0.06em;
+		line-height:1.1;
+		text-transform:uppercase;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(1)::before {
+		content:"ID";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(2)::before {
+		content:"Name";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(3)::before {
+		content:"Email";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(4)::before {
+		content:"Nodes";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(5)::before {
+		content:"Permission";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(6)::before {
+		content:"Timezone";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(7)::before {
+		content:"Location";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(8)::before {
+		display:none;
+		content:"";
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(1) {
+		grid-column:1;
+		grid-row:1;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(2),
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(3),
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(4),
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(5),
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(6),
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(7) {
+		grid-column:1 / -1;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(8) {
+		grid-column:3;
+		grid-row:1;
+		min-width:3.8em;
+		padding-right:8px;
+		text-align:center;
+	}
+
+	body.asr-admin-page-users .greenborder:first-of-type table:first-of-type tr td:nth-child(8) a {
+		display:inline-block;
 	}
 
 	body.asr-admin-page-users table tr th:nth-child(4),
@@ -385,6 +677,140 @@ h5 {
 		width:100%;
 		max-width:calc(100vw - 48px);
 		min-width:0;
+	}
+
+	body.asr-admin-page-settings h2 {
+		margin-top:0.85em;
+		margin-bottom:0.45em;
+		font-size:24px;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form {
+		display:block;
+		width:100%;
+		max-width:calc(100vw - 36px);
+		margin-bottom:16px;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form fieldset {
+		display:block;
+		width:100%;
+		max-width:24rem;
+		padding:18px 14px 14px;
+		text-align:left;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form table,
+	body.asr-admin-page-settings .asr-user-settings-form tbody,
+	body.asr-admin-page-settings .asr-user-settings-form tr,
+	body.asr-admin-page-settings .asr-user-settings-form th,
+	body.asr-admin-page-settings .asr-user-settings-form td {
+		display:block;
+		width:100%;
+		max-width:100%;
+		border:0;
+		background:transparent;
+		box-shadow:none;
+		text-align:left;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form table {
+		margin:0;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form tr {
+		display:grid;
+		grid-template-columns:minmax(7.5rem, max-content) minmax(0, 1fr);
+		align-items:center;
+		column-gap:10px;
+		margin-bottom:12px;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form th {
+		width:auto;
+		padding:0;
+		font-size:13px;
+		white-space:normal;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form td {
+		width:auto;
+		padding:0;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form input[type=text],
+	body.asr-admin-page-settings .asr-user-settings-form input[type=password],
+	body.asr-admin-page-settings .asr-user-settings-form select {
+		width:100%;
+		max-width:100%;
+		min-height:40px;
+		margin:0;
+		font-size:16px;
+	}
+
+	body.asr-admin-page-settings .asr-user-settings-form p {
+		max-width:100%;
+		margin-top:10px;
+		text-align:right;
+	}
+
+	body.asr-admin-page-settings .asr-settings-notes {
+		display:block;
+		max-width:min(21rem, calc(100vw - 56px));
+		padding-left:0;
+		list-style:none;
+		line-height:1.25;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-edit-form {
+		display:block;
+		width:100%;
+		max-width:calc(100vw - 32px);
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-edit-form fieldset {
+		display:block;
+		width:100%;
+		max-width:20rem;
+		padding:12px;
+		text-align:left;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-edit-form label {
+		display:grid;
+		grid-template-columns:1fr;
+		gap:6px;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-name-select {
+		display:block;
+		width:100%;
+		max-width:100%;
+		min-height:44px;
+		margin:0;
+		padding:10px 12px;
+		font-size:16px;
+		line-height:1.25;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-name-select option {
+		font-size:16px;
+		line-height:1.4;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-name-select.asr-select-expanded {
+		height:auto;
+		max-height:min(20rem, 56vh);
+		overflow:auto;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-name-select.asr-select-expanded option {
+		padding:8px 10px;
+	}
+
+	body.asr-admin-page-cfg .asr-cfg-edit-form p {
+		max-width:100%;
+		text-align:center;
 	}
 
 	body.asr-admin-page-users ul,

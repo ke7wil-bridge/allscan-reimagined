@@ -65,8 +65,7 @@ function asInit(&$msg) {
 
 function htmlInit($title) {
 	global $html, $urlbase;
-	$open = str_replace('<html ', '<html data-asr-theme="standard" data-asr-mode="dark" ', $html->htmlOpen($title));
-	echo $open
+	echo $html->htmlOpen($title)
 		.	"<link href=\"$urlbase/css/main.css\" rel=\"stylesheet\" type=\"text/css\">" . NL
 		.	asrAdminAssetCssLink()
 		.	"<link href=\"$urlbase/css/asr-admin.css\" rel=\"stylesheet\" type=\"text/css\">" . NL
