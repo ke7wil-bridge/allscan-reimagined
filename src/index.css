@@ -381,6 +381,10 @@ body {
 }
 
 .allscan-submenu button.allscan-menu-disabled {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
   cursor: default;
   opacity: 0.72;
 }
@@ -390,8 +394,10 @@ body {
 }
 
 .allscan-submenu button.allscan-menu-disabled small {
+  display: block;
   font-size: 10px;
   font-weight: 800;
+  line-height: 1.05;
   opacity: 0.82;
   text-transform: uppercase;
 }
@@ -1846,13 +1852,13 @@ html[data-asr-theme="matrix"]::before {
 }
 
 html[data-asr-theme="deep-ocean-animated"]::before {
-  background-image: url("/allscan/img/deep-blue-animated.gif");
+  background-image: url("/public/img/deep-blue-animated.gif");
   opacity: 0.52;
   filter: brightness(0.78) saturate(1.05) contrast(0.95);
 }
 
 html[data-asr-theme="matrix"]::before {
-  background-image: url("/allscan/img/matrix-rain.gif");
+  background-image: url("/public/img/matrix-rain.gif");
   background-repeat: repeat;
   opacity: 0.39;
   filter: brightness(1.18) saturate(1.1);
@@ -2930,7 +2936,7 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     width: 100%;
     max-width: none;
     margin: 0;
-    padding: 5px 0px;
+    padding: 5px 0;
     row-gap: 5px;
     border-radius: 0 0 28px 28px;
     background: #070507;
