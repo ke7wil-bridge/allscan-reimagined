@@ -417,7 +417,7 @@ function App({ config }: { config: RuntimeConfig }) {
       ...next,
       cards: next.cards.map((card) => {
         const row = rowsByNode.get(bridgeNodeById[card.id])
-        if (row?.state === 'talking' && card.status !== 'Source/TX') {
+        if (row?.state === 'talking' && card.status === 'Idle') {
           return { ...card, status: 'Source/TX' as const }
         }
         if (row && localIsTransmitting && card.status === 'Idle') {
@@ -1531,10 +1531,10 @@ function App({ config }: { config: RuntimeConfig }) {
                         </tr>
                       )
                     })}
-                    {connectedCount > 1 ? (
+                    {connectedCount > 0 ? (
                       <tr className="allscan-status-count-row border-b border-[rgba(255,255,255,.12)] text-[14px] leading-[19px] text-[#edf4f8]">
                         <td colSpan={6} className="px-4 py-[5px]">
-                          {connectedCount} nodes connected ({directCount} direct, {adjacentCount} adjacent)
+                          {connectedCount} total linked ({directCount} direct, {adjacentCount} adjacent)
                         </td>
                       </tr>
                     ) : null}

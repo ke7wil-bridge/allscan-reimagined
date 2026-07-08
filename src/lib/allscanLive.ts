@@ -313,15 +313,18 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
 
   const localStatus = nodeData.remote_nodes.find((row) => String(row.node) === '1')
   const officialDirectCount = Number(localStatus?.num_alinks)
-  const officialAdjacentCount = Number(localStatus?.num_links)
+  const officialTotalLinkedCount = Number(localStatus?.num_links)
   const hasOfficialDirectCount = String(localStatus?.num_alinks ?? '').trim() !== '' && Number.isFinite(officialDirectCount)
-  const hasOfficialAdjacentCount = String(localStatus?.num_links ?? '').trim() !== '' && Number.isFinite(officialAdjacentCount)
+  const hasOfficialTotalLinkedCount = String(localStatus?.num_links ?? '').trim() !== '' && Number.isFinite(officialTotalLinkedCount)
+  const directCount = hasOfficialDirectCount ? officialDirectCount : remoteRows.length
+  const connectedCount = hasOfficialTotalLinkedCount ? officialTotalLinkedCount : remoteRows.length
+  const adjacentCount = Math.max(connectedCount - directCount, 0)
 
   return {
     rows: [buildLocalRow(nodeKey, nodeData.remote_nodes), ...detailRows],
-    connectedCount: remoteRows.length,
-    directCount: hasOfficialDirectCount ? officialDirectCount : remoteRows.length,
-    adjacentCount: hasOfficialAdjacentCount ? officialAdjacentCount : linkedNodes.size,
+    connectedCount,
+    directCount,
+    adjacentCount,
     linkedNodes: Array.from(linkedNodes),
     keyedNodes: Array.from(keyedNodes),
     linkedNodeCounts,
@@ -527,14 +530,13 @@ function cleanBridgeCaller(value: string | undefined, config: RuntimeConfig) {
 
 function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Source/TX' | 'Relay', config: RuntimeConfig) {
   if (!entry || status === 'Idle') return '-'
+  if (status === 'Relay') return '-'
 
-  const candidates = status === 'Relay'
-    ? [entry.last_user, entry.caller, entry.current_user]
-    : [entry.current_user, entry.caller, entry.last_user]
+  const candidates = [entry.current_user, entry.caller, entry.last_user]
 
   const caller = candidates
     .map((value) => String(value || '').trim())
-    .find((value) => value && value !== '-' && (status !== 'Relay' || !isLocalBridgeCaller(value, config)))
+    .find((value) => value && value !== '-' && !isLocalBridgeCaller(value, config))
 
   return cleanBridgeCaller(caller, config) || '-'
 }
@@ -557,22 +559,32 @@ function bridgeClientEpoch(record: Record<string, unknown>, mode: BridgeClientMo
   return Number(value || 0) || 0
 }
 
+function bridgeClientName(record: Record<string, unknown>) {
+  return String(record.callsign || record.call || record.station || record.username || record.name || record.user || '-').trim() || '-'
+}
+
 function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeClientMode): BridgeDetailItem[] {
   if (!Array.isArray(value) || value.length === 0) {
     return [{ key: `${mode}-empty`, label: fallback, meta: '', empty: true }]
   }
 
   const rows = value
-    .slice(0, 8)
-    .map((item, index) => {
-      const record = typeof item === 'string'
+    .map((item) => typeof item === 'string'
         ? { name: item }
         : item && typeof item === 'object'
           ? item as Record<string, unknown>
-          : null
-      if (!record) return null
-
-      const user = String(record.callsign || record.call || record.station || record.username || record.name || record.user || '-').trim() || '-'
+          : null)
+    .filter((record): record is Record<string, unknown> => Boolean(record))
+    .sort((left, right) => {
+      const leftEpoch = bridgeClientEpoch(left, mode)
+      const rightEpoch = bridgeClientEpoch(right, mode)
+      if (leftEpoch && rightEpoch && leftEpoch !== rightEpoch) return rightEpoch - leftEpoch
+      if (leftEpoch && !rightEpoch) return -1
+      if (!leftEpoch && rightEpoch) return 1
+      return bridgeClientName(left).localeCompare(bridgeClientName(right), undefined, { sensitivity: 'base' })
+    })
+    .map((record, index) => {
+      const user = bridgeClientName(record)
       const id = String(record.dmrid || record.dmr_id || record.id || '').trim()
       const label = mode === 'dmr' && id ? `${user} · ${id}` : user
       const age = relativeBridgeTime(bridgeClientEpoch(record, mode))
@@ -582,7 +594,6 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
         meta: age ? `Last TX ${age}` : 'No recent TX',
       }
     })
-    .filter((item): item is BridgeDetailItem => Boolean(item))
 
   return rows.length
     ? rows
