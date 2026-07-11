@@ -1,7 +1,9 @@
 const ALLSCAN_BASE = '/allscan'
 const ASR_API = `${ALLSCAN_BASE}/asr-api.php`
+const CONNECTION_RECONNECT_INITIAL_MS = 2000
+const CONNECTION_RECONNECT_MAX_MS = 15000
 
-export type BridgeId = 'dmr' | 'ysf' | 'zello' | 'dstar'
+export type BridgeId = string
 
 export type RuntimeBridgeConfig = {
   id: BridgeId
@@ -32,7 +34,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 4',
+  versionLabel: 'v1.0.0 Beta 5 Test',
   bridges: [],
 }
 
@@ -173,7 +175,7 @@ type BridgeLiveResponse = {
   ysf?: BridgeEntry
   zello?: BridgeEntry
   dstar?: BridgeEntry
-}
+} & Record<string, BridgeEntry | string | number | undefined>
 
 type BridgeEntry = {
   active?: boolean
@@ -191,7 +193,7 @@ type ConnectedClientsResponse = {
   dmr?: Array<Record<string, unknown>>
   ysf?: Array<Record<string, unknown>>
   zello?: Array<Record<string, unknown>>
-}
+} & Record<string, Array<Record<string, unknown>> | undefined>
 
 export const actionOptions = [
   { value: 'dropclient', label: 'Drop Client' },
@@ -359,34 +361,70 @@ export function subscribeConnectionFeed(
 ) {
   const bridgeNodes = new Set(configuredBridgeNodes.filter(Boolean))
   let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
-  const source = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${encodeURIComponent(localNode)}`)
+  let source: EventSource | undefined
+  let reconnectTimer: number | undefined
+  let reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS
+  let stopped = false
 
-  source.addEventListener('nodes', (event) => {
-    const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload, bridgeNodes)
-    snapshot = next
-    onSnapshot(next)
-  })
-
-  source.addEventListener('nodetimes', (event) => {
-    snapshot = patchSnapshotTimes(snapshot, JSON.parse((event as MessageEvent).data) as FeedPayload)
-    onSnapshot(snapshot)
-  })
-
-  source.addEventListener('connection', (event) => {
-    const data = JSON.parse((event as MessageEvent).data) as { status?: string }
-    if (data.status) onMessage(htmlToMessageText(data.status))
-  })
-
-  source.addEventListener('errMsg', (event) => {
-    const data = JSON.parse((event as MessageEvent).data) as { status?: string }
-    if (data.status) onMessage(`ERROR: ${htmlToMessageText(data.status)}`)
-  })
-
-  source.onerror = () => {
-    // EventSource reconnects automatically; keep transport noise out of Node Messages.
+  const resetReconnectDelay = () => {
+    reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS
   }
 
-  return () => source.close()
+  const closeSource = () => {
+    source?.close()
+    source = undefined
+  }
+
+  const scheduleReconnect = () => {
+    if (stopped || reconnectTimer !== undefined) return
+    closeSource()
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = undefined
+      connect()
+    }, reconnectDelay)
+    reconnectDelay = Math.min(reconnectDelay * 2, CONNECTION_RECONNECT_MAX_MS)
+  }
+
+  const connect = () => {
+    if (stopped) return
+
+    const nextSource = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${encodeURIComponent(localNode)}`)
+    source = nextSource
+
+    nextSource.addEventListener('nodes', (event) => {
+      resetReconnectDelay()
+      const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload, bridgeNodes)
+      snapshot = next
+      onSnapshot(next)
+    })
+
+    nextSource.addEventListener('nodetimes', (event) => {
+      resetReconnectDelay()
+      snapshot = patchSnapshotTimes(snapshot, JSON.parse((event as MessageEvent).data) as FeedPayload)
+      onSnapshot(snapshot)
+    })
+
+    nextSource.addEventListener('connection', (event) => {
+      resetReconnectDelay()
+      const data = JSON.parse((event as MessageEvent).data) as { status?: string }
+      if (data.status) onMessage(htmlToMessageText(data.status))
+    })
+
+    nextSource.addEventListener('errMsg', (event) => {
+      const data = JSON.parse((event as MessageEvent).data) as { status?: string }
+      if (data.status) onMessage(`ERROR: ${htmlToMessageText(data.status)}`)
+    })
+
+    nextSource.onerror = scheduleReconnect
+  }
+
+  connect()
+
+  return () => {
+    stopped = true
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+    closeSource()
+  }
 }
 
 export async function fetchCpuTemp() {
@@ -541,7 +579,7 @@ function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Sour
   return cleanBridgeCaller(caller, config) || '-'
 }
 
-type BridgeClientMode = 'dmr' | 'ysf' | 'zello' | 'dstar'
+type BridgeClientMode = string
 
 function relativeBridgeTime(epoch: number) {
   if (!epoch) return ''
@@ -628,30 +666,26 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
     .filter((item) => Boolean(zelloRecentTalkerName(item)))
 }
 
-export async function fetchBridgeCards(config: RuntimeConfig): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
+export async function fetchBridgeCards(
+  config: RuntimeConfig,
+  signal?: AbortSignal,
+): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
   const [bridgeResponse, clientsResponse] = await Promise.all([
-    fetch(`${ALLSCAN_BASE}/bridge-live.json`),
-    fetch(`${ALLSCAN_BASE}/connected-clients.json`),
+    fetch(`${ALLSCAN_BASE}/bridge-live.json`, { cache: 'no-store', signal }),
+    fetch(`${ALLSCAN_BASE}/connected-clients.json`, { cache: 'no-store', signal }),
   ])
 
   const bridge = normalizeBridgeRoles((await bridgeResponse.json()) as BridgeLiveResponse)
   const clients = (await clientsResponse.json()) as ConnectedClientsResponse
 
-  const entries: Record<BridgeId, BridgeEntry | undefined> = {
-    dmr: bridge.dmr,
-    ysf: bridge.ysf,
-    zello: bridge.zello,
-    dstar: bridge.dstar,
-  }
-  const clientRows: Record<BridgeId, unknown> = {
-    dmr: clients.dmr,
-    ysf: clients.ysf,
-    zello: liveZelloRecentTalkers(bridge.zello),
-    dstar: [],
-  }
-
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
-    const entry = entries[bridgeConfig.id]
+    const entryValue = bridge[bridgeConfig.id]
+    const entry = entryValue && typeof entryValue === 'object' && !Array.isArray(entryValue)
+      ? entryValue as BridgeEntry
+      : undefined
+    const detailRows = bridgeConfig.id === 'zello'
+      ? liveZelloRecentTalkers(bridge.zello)
+      : clients[bridgeConfig.id] || []
     const status = mapBridgeStatus(entry)
     return {
       id: bridgeConfig.id,
@@ -660,7 +694,7 @@ export async function fetchBridgeCards(config: RuntimeConfig): Promise<{ updated
       lastCaller: bridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
       detailTitle: bridgeConfig.detailTitle,
-      detailRows: formatBridgeDetailRows(clientRows[bridgeConfig.id], 'None', bridgeConfig.id),
+      detailRows: formatBridgeDetailRows(detailRows, 'None', bridgeConfig.id),
     }
   })
 

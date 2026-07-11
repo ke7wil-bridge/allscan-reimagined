@@ -35,6 +35,10 @@ if [ -d "$compat_dir" ]; then
   install -o root -g root -m 644 "$compat_dir/include/UserModel.php" "$ALLSCAN_DIR/include/UserModel.php"
   install -o root -g root -m 644 "$compat_dir/user/settings/index.php" "$ALLSCAN_DIR/user/settings/index.php"
   install -o root -g root -m 644 "$compat_dir/css/asr-admin.css" "$ALLSCAN_DIR/css/asr-admin.css"
+  if [ -d "$compat_dir/astapi" ]; then
+    install -o root -g root -m 644 "$compat_dir/astapi/server.php" "$ALLSCAN_DIR/astapi/server.php"
+    install -o root -g root -m 644 "$compat_dir/astapi/AMI.php" "$ALLSCAN_DIR/astapi/AMI.php"
+  fi
 else
   logger -t allscan-reimagined "No verified admin/security compatibility layer for AllScan ${backend_version:-unknown}; upstream files left unchanged"
   echo "WARNING: No verified admin-page compatibility layer exists for AllScan ${backend_version:-unknown}."
@@ -60,6 +64,9 @@ find "$ALLSCAN_DIR" -type f -exec chmod 644 {} +
 
 [ -s "$ALLSCAN_DIR/bridge-live.json" ] || printf '%s\n' '{"updated":""}' > "$ALLSCAN_DIR/bridge-live.json"
 [ -s "$ALLSCAN_DIR/connected-clients.json" ] || printf '%s\n' '{}' > "$ALLSCAN_DIR/connected-clients.json"
+if [ -s /etc/allscan/favorites.ini ]; then
+  install -o root -g "$WEB_GROUP" -m 664 /etc/allscan/favorites.ini "$ALLSCAN_DIR/favorites.ini"
+fi
 
 for runtime_file in "$ALLSCAN_DIR"/favorites*.ini \
   "$ALLSCAN_DIR/bridge-live.json" \
@@ -76,6 +83,10 @@ done
 if [ -f /etc/allscan/allscan.db ]; then
   chown "$WEB_GROUP:$WEB_GROUP" /etc/allscan/allscan.db
   chmod 660 /etc/allscan/allscan.db
+fi
+if [ -f /etc/allscan/favorites.ini ]; then
+  chown "root:$WEB_GROUP" /etc/allscan/favorites.ini
+  chmod 664 /etc/allscan/favorites.ini
 fi
 
 if command -v apache2ctl >/dev/null 2>&1; then

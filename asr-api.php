@@ -3,9 +3,10 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+const ASR_ETC_FAVORITES = '/etc/allscan/favorites.ini';
 const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 4';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5 Test';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -122,10 +123,16 @@ function asr_detect_bridges(): array {
         'ysf' => ['YSF Bridge', 'Linked Gateways'],
         'zello' => ['Zello Bridge', 'Recent Talkers'],
         'dstar' => ['D-Star Bridge', 'Linked Gateways'],
+        'p25' => ['P25 Bridge', 'Linked Clients'],
+        'm17' => ['M17 Bridge', 'Linked Clients'],
+        'nxdn' => ['NXDN Bridge', 'Linked Clients'],
     ];
     $bridges = [];
-    foreach ($definitions as $id => [$title, $detailTitle]) {
+    foreach ($payload as $id => $value) {
+        if (in_array($id, ['updated', 'updated_epoch'], true)) continue;
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) $id)) continue;
         if (!isset($payload[$id]) || !is_array($payload[$id]) || $payload[$id] === []) continue;
+        [$title, $detailTitle] = $definitions[$id] ?? [ucfirst((string) $id) . ' Bridge', 'Linked Clients'];
         $bridges[] = ['id' => $id, 'node' => '', 'title' => $title, 'detailTitle' => $detailTitle];
     }
     return $bridges;
@@ -153,11 +160,10 @@ function asr_runtime_config(): array {
         $value,
     );
 
-    $allowedBridgeIds = ['dmr', 'ysf', 'zello', 'dstar'];
     $storedBridges = is_array($stored['bridges'] ?? null) ? $stored['bridges'] : asr_detect_bridges();
     $bridges = [];
     foreach ($storedBridges as $bridge) {
-        if (!is_array($bridge) || !in_array($bridge['id'] ?? '', $allowedBridgeIds, true)) continue;
+        if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
         $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
         $bridges[] = [
             'id' => (string) $bridge['id'],
@@ -191,28 +197,40 @@ function asr_allscan_dir(): string {
 
 function asr_favorites_files(): array {
     $dir = asr_allscan_dir();
-    $files = glob($dir . '/favorites*.ini') ?: [];
-    sort($files, SORT_NATURAL | SORT_FLAG_CASE);
+    $files = [];
+    if (file_exists(ASR_ETC_FAVORITES)) $files[] = ASR_ETC_FAVORITES;
+
+    $webFiles = glob($dir . '/favorites*.ini') ?: [];
+    sort($webFiles, SORT_NATURAL | SORT_FLAG_CASE);
+    foreach ($webFiles as $file) {
+        if (basename($file) === 'favorites.ini' && file_exists(ASR_ETC_FAVORITES)) continue;
+        $files[] = $file;
+    }
+
     return $files;
 }
 
 function asr_safe_favorites_file(string $requested = ''): string {
     $files = asr_favorites_files();
     $default = file_exists(ASR_DEFAULT_FAVORITES) ? ASR_DEFAULT_FAVORITES : ($files[0] ?? ASR_DEFAULT_FAVORITES);
+    if (file_exists(ASR_ETC_FAVORITES)) $default = ASR_ETC_FAVORITES;
 
     if ($requested === '') return $default;
 
     $dir = asr_allscan_dir();
-    $candidate = str_contains($requested, DIRECTORY_SEPARATOR)
-        ? $requested
-        : $dir . DIRECTORY_SEPARATOR . basename($requested);
-    $real = realpath($candidate);
-    $allowedPrefix = $dir . DIRECTORY_SEPARATOR;
-    if (!$real || strncmp($real, $allowedPrefix, strlen($allowedPrefix)) !== 0 || !preg_match('/\/favorites[^\/]*\.ini$/', $real)) {
-        return $default;
+    $candidates = str_contains($requested, DIRECTORY_SEPARATOR)
+        ? [$requested]
+        : [dirname(ASR_ETC_FAVORITES) . DIRECTORY_SEPARATOR . basename($requested), $dir . DIRECTORY_SEPARATOR . basename($requested)];
+
+    foreach ($candidates as $candidate) {
+        $real = realpath($candidate);
+        if (!$real || !preg_match('/\/favorites[^\/]*\.ini$/', $real)) continue;
+        $inWebRoot = strncmp($real, $dir . DIRECTORY_SEPARATOR, strlen($dir) + 1) === 0;
+        $inEtcAllScan = strncmp($real, '/etc/allscan/', strlen('/etc/allscan/')) === 0;
+        if ($inWebRoot || $inEtcAllScan) return $real;
     }
 
-    return $real;
+    return $default;
 }
 
 function asr_ini_values(string $contents, string $key): array {

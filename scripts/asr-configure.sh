@@ -122,8 +122,50 @@ bridge_detected() {
     ysf) grep -Eq 'ysf[^/]*\.service' <<<"$service_list" || json_has_bridge ysf ;;
     zello) grep -Eq 'zello[^/]*\.service' <<<"$service_list" || json_has_bridge zello ;;
     dstar) grep -Eq '(dstar|ircddb)[^/]*\.service' <<<"$service_list" || json_has_bridge dstar ;;
+    p25) grep -Eq 'p25[^/]*\.service' <<<"$service_list" || json_has_bridge p25 ;;
+    m17) grep -Eq 'm17[^/]*\.service' <<<"$service_list" || json_has_bridge m17 ;;
+    nxdn) grep -Eq 'nxdn[^/]*\.service' <<<"$service_list" || json_has_bridge nxdn ;;
     *) return 1 ;;
   esac
+}
+
+bridge_title_from_id() {
+  local id="$1"
+  case "$id" in
+    dmr) printf 'DMR Bridge' ;;
+    ysf) printf 'YSF Bridge' ;;
+    zello) printf 'Zello Bridge' ;;
+    dstar) printf 'D-Star Bridge' ;;
+    p25) printf 'P25 Bridge' ;;
+    m17) printf 'M17 Bridge' ;;
+    nxdn) printf 'NXDN Bridge' ;;
+    *)
+      printf '%s Bridge' "$(tr '[:lower:]' '[:upper:]' <<<"${id:0:1}")${id:1}"
+      ;;
+  esac
+}
+
+bridge_detail_from_id() {
+  local id="$1"
+  case "$id" in
+    dmr) printf 'Connected Clients' ;;
+    zello) printf 'Recent Talkers' ;;
+    *) printf 'Linked Clients' ;;
+  esac
+}
+
+json_bridge_ids() {
+  [ -r "$ALLSCAN_DIR/bridge-live.json" ] || return 0
+  php -r '
+    $data = json_decode((string) @file_get_contents($argv[1]), true);
+    if (!is_array($data)) exit;
+    foreach ($data as $id => $value) {
+      if (in_array($id, ["updated", "updated_epoch"], true)) continue;
+      if (!preg_match("/^[a-z][a-z0-9_-]{1,31}$/", (string) $id)) continue;
+      if (!is_array($value) || $value === []) continue;
+      echo $id, PHP_EOL;
+    }
+  ' "$ALLSCAN_DIR/bridge-live.json" 2>/dev/null || true
 }
 
 prompt() {
@@ -186,8 +228,13 @@ trap 'rm -f "$bridge_file"' EXIT
 add_bridge() {
   local id="$1" title="$2" detail="$3" expression="$4" bridge_node
   bridge_detected "$id" || return 0
+  add_bridge_card "$id" "$title" "$detail" "$expression"
+}
+
+add_bridge_card() {
+  local id="$1" title="$2" detail="$3" expression="$4" bridge_node
   bridge_node=$(existing_bridge_node "$id")
-  [ -n "$bridge_node" ] || bridge_node=$(find_bridge_node "$expression")
+  [ -n "$bridge_node" ] || [ -z "$expression" ] || bridge_node=$(find_bridge_node "$expression")
   bridge_node=$(review_bridge_node "$id" "$title" "$bridge_node")
   [ -n "$bridge_node" ] || { printf 'Hiding %-6s bridge card; no bridge node was assigned.\n' "${id^^}"; return 0; }
   printf '%s\t%s\t%s\t%s\n' "$id" "$bridge_node" "$title" "$detail" >> "$bridge_file"
@@ -235,7 +282,14 @@ add_bridge dmr "DMR Bridge" "Connected Clients" 'DMR|TGIF'
 add_bridge ysf "YSF Bridge" "Linked Gateways" 'YSF'
 add_bridge zello "Zello Bridge" "Recent Talkers" 'Zello'
 add_bridge dstar "D-Star Bridge" "Linked Gateways" 'D-Star|DSTAR|DStar'
-[ -s "$bridge_file" ] || echo "No supported bridges detected; bridge cards will be hidden."
+add_bridge p25 "P25 Bridge" "Linked Clients" 'P25'
+add_bridge m17 "M17 Bridge" "Linked Clients" 'M17'
+add_bridge nxdn "NXDN Bridge" "Linked Clients" 'NXDN'
+while IFS= read -r bridge_id; do
+  grep -q "^$bridge_id	" "$bridge_file" 2>/dev/null && continue
+  add_bridge_card "$bridge_id" "$(bridge_title_from_id "$bridge_id")" "$(bridge_detail_from_id "$bridge_id")" "$bridge_id"
+done < <(json_bridge_ids)
+[ -s "$bridge_file" ] || echo "No bridges detected; bridge cards will be hidden."
 
 mkdir -p "$CONFIG_DIR"
 export ASR_NODE="$node" ASR_CALLSIGN="$callsign" ASR_HEADER_TITLE="$header_title"

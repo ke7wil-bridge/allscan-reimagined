@@ -26,7 +26,9 @@ import {
 const FAVORITES_DISPLAY_CACHE_KEY = 'asrFavoritesDisplayCache.v2'
 const NODE_MESSAGE_LIVE_CACHE_KEY = 'asrNodeMessageState.liveOnly.v1'
 const NODE_MESSAGE_LIVE_TTL = 300000
-const BRIDGE_REFRESH_MS = 250
+const BRIDGE_REFRESH_MS = 2000
+const BRIDGE_REFRESH_TIMEOUT_MS = 5000
+const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 
 const loggedOutAuth: AuthStatus = {
@@ -675,17 +677,17 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   useEffect(() => {
-    if (config.bridges.length === 0) {
-      setBridgeState({ updatedLabel: '--:--:--', cards: [] })
-      return
-    }
-
     let cancelled = false
 
     const refreshAuthStatus = async () => {
       try {
         const next = await fetchAuthStatus()
-        if (!cancelled) setAuthStatus(next)
+        if (!cancelled) {
+          setAuthStatus(next)
+          if (!next.canRead && !next.loggedIn) {
+            window.location.assign('/allscan/user/')
+          }
+        }
       } catch {
         if (!cancelled) setAuthStatus(loggedOutAuth)
       }
@@ -753,21 +755,44 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     let cancelled = false
+    let timer: number | undefined
+    let failureNotified = false
+
+    if (config.bridges.length === 0) {
+      setBridgeState({ updatedLabel: '--:--:--', cards: [] })
+      return
+    }
 
     const refreshBridgeCards = async () => {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), BRIDGE_REFRESH_TIMEOUT_MS)
       try {
-        const next = await fetchBridgeCards(config)
-        if (!cancelled) setBridgeState(applyBridgeConnectionOverrides(next))
-      } catch {
-        if (!cancelled) setNodeMessage('Bridge status refresh failed.')
+        const next = await fetchBridgeCards(config, controller.signal)
+        if (!cancelled) {
+          setBridgeState(applyBridgeConnectionOverrides(next))
+          failureNotified = false
+        }
+      } catch (error) {
+        if (!cancelled && !failureNotified) {
+          const aborted = error instanceof DOMException && error.name === 'AbortError'
+          setNodeMessage(aborted ? 'Bridge status refresh timed out.' : 'Bridge status refresh failed.')
+          failureNotified = true
+        }
+      } finally {
+        window.clearTimeout(timeout)
+        if (!cancelled) {
+          timer = window.setTimeout(
+            refreshBridgeCards,
+            failureNotified ? BRIDGE_REFRESH_ERROR_BACKOFF_MS : BRIDGE_REFRESH_MS,
+          )
+        }
       }
     }
 
     void refreshBridgeCards()
-    const timer = window.setInterval(refreshBridgeCards, BRIDGE_REFRESH_MS)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [config])
 
@@ -1557,7 +1582,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
             <div
               className="allscan-bridge-grid"
-              style={{ gridTemplateColumns: `repeat(${bridgeState.cards.length}, minmax(0, 1fr))` }}
+              style={{ gridTemplateColumns: `repeat(${Math.min(bridgeState.cards.length, 4)}, minmax(0, 1fr))` }}
             >
               {bridgeState.cards.map((card) => (
                 <article

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.4"
+ASR_VERSION="1.0.0-beta.5-test"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
 RELEASE_DIR="/opt/allscan-reimagined/releases/$ASR_VERSION"
@@ -17,6 +17,10 @@ restore_runtime_backup() {
     [ -f "$BACKUP_DIR/runtime/$runtime_file" ] && cp -p "$BACKUP_DIR/runtime/$runtime_file" "$ALLSCAN_DIR/$runtime_file"
   done
   [ -d "$BACKUP_DIR/runtime/img" ] && cp -a "$BACKUP_DIR/runtime/img" "$ALLSCAN_DIR/img"
+  if [ -f "$BACKUP_DIR/runtime/etc-favorites.ini" ]; then
+    mkdir -p /etc/allscan
+    install -o root -g "$WEB_GROUP" -m 664 "$BACKUP_DIR/runtime/etc-favorites.ini" /etc/allscan/favorites.ini
+  fi
 }
 
 rollback_on_error() {
@@ -74,6 +78,9 @@ latest_version=$(curl -fsSL https://raw.githubusercontent.com/davidgsd/AllScan/m
   | sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' | head -1)
 latest_version="${latest_version:-unknown}"
 [ "$latest_version" != "unknown" ] || fail "The latest official AllScan version could not be verified."
+if [ "$current_version" != "$latest_version" ] && [ ! -t 0 ]; then
+  fail "The official AllScan update requires an interactive terminal. Run 'bash ./install.sh' directly in an interactive shell; do not run it through a heredoc or wrapper."
+fi
 
 echo
 echo "============================================================"
@@ -81,7 +88,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 4"
+echo "Reimagined release:        v1.0.0 Beta 5 Test"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -96,6 +103,7 @@ if [ -d "$ALLSCAN_DIR" ]; then
     [ -f "$ALLSCAN_DIR/$runtime_file" ] && cp -p "$ALLSCAN_DIR/$runtime_file" "$BACKUP_DIR/runtime/"
   done
   [ -d "$ALLSCAN_DIR/img" ] && cp -a "$ALLSCAN_DIR/img" "$BACKUP_DIR/runtime/img"
+  [ -f /etc/allscan/favorites.ini ] && cp -p /etc/allscan/favorites.ini "$BACKUP_DIR/runtime/etc-favorites.ini"
   tar_status=0
   COPYFILE_DISABLE=1 tar --ignore-failed-read --warning=no-file-changed \
     --exclude='allscan/bridge-live.json' \
@@ -121,14 +129,13 @@ CHANGES_STARTED=1
 echo "[2/8] Checking the official AllScan backend..."
 if [ "$current_version" != "$latest_version" ]; then
   echo "Official AllScan will be installed or upgraded: $current_version -> $latest_version"
-  [ -t 0 ] || fail "The official AllScan update requires an interactive terminal."
   if ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
     official_installer_dir=$(mktemp -d /tmp/allscan-official-installer.XXXXXX)
     official_installer="$official_installer_dir/AllScanInstallUpdate.php"
     curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"
     chmod 755 "$official_installer"
     echo "The official installer will explain and confirm its own update steps."
-    "$official_installer"
+    php "$official_installer"
     rm -rf "$official_installer_dir"
   else
     fail "Official AllScan installation/update was declined."
@@ -140,6 +147,38 @@ fi
 [ -d "$ALLSCAN_DIR" ] || fail "Official AllScan installation was not completed."
 installed_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' "$ALLSCAN_DIR/include/common.php" | head -1)
 [ "$installed_version" = "$latest_version" ] || fail "Official AllScan is still $installed_version; expected $latest_version."
+
+echo "Configuring ASR login requirement..."
+if php -r '
+  $_SERVER["DOCUMENT_ROOT"] = $argv[1];
+  $_SERVER["SCRIPT_NAME"] = "/allscan/asr-api.php";
+  chdir($argv[2]);
+  require_once "include/common.php";
+  $msg = [];
+  asInit($msg);
+  $db = dbInit();
+  checkTables($db, $msg);
+  $cfgModel = new CfgModel($db);
+  $userModel = new UserModel($db);
+  $admins = $userModel->getUsers(null, null, PERMISSION_ADMIN);
+  if (!is_array($admins) || count($admins) < 1) exit(2);
+  $now = time();
+  $current = $db->getRecord("cfg", "cfg_id=" . publicPermission);
+  if ($current) {
+    $db->updateRow("cfg", ["val", "updated"], [PERMISSION_NONE, $now], "cfg_id=" . publicPermission);
+  } else {
+    $db->insertRow("cfg", ["cfg_id", "val", "updated"], [publicPermission, PERMISSION_NONE, $now]);
+  }
+  if (isset($db->error)) {
+    fwrite(STDERR, $db->error . PHP_EOL);
+    exit(1);
+  }
+' "$WEB_ROOT" "$ALLSCAN_DIR"; then
+  echo "Public ASR access disabled; existing logged-in users will still open /allscan/ normally."
+else
+  echo "WARNING: No Admin/Superuser account was found. Public ASR access was left unchanged so the owner is not locked out."
+  echo "Create an Admin/Superuser in AllScan, then set Public Permission to None in Cfgs."
+fi
 
 if [ -d "$BACKUP_DIR/runtime" ]; then
   for runtime_file in bridge-live.json connected-clients.json zello-status-data.json; do
@@ -230,7 +269,7 @@ curl -fsS http://127.0.0.1/allscan/ | grep -q 'assets/index-'
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 4"
+echo "AllScan Reimagined:    v1.0.0 Beta 5 Test"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Open:                    http://$(hostname -I | awk '{print $1}')/allscan/"
