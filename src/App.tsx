@@ -7,10 +7,12 @@ import {
   fetchBridgeCards,
   fetchAuthStatus,
   fetchCpuTemp,
+  fetchDiagnosticsReport,
   fetchDropClients,
   fetchFavorites,
   fetchFavoriteStats,
   restartAsteriskCommand,
+  type DiagnosticsReport,
   type FavoritesFileOption,
   type FavoriteStats,
   sendNodeCommand,
@@ -361,6 +363,9 @@ function App({ config }: { config: RuntimeConfig }) {
   const [dropClientOpen, setDropClientOpen] = useState(false)
   const [dropClients, setDropClients] = useState<DropClientEntry[]>([])
   const [dropClientStatus, setDropClientStatus] = useState('No named client channels loaded yet.')
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [diagnosticsReport, setDiagnosticsReport] = useState<DiagnosticsReport | null>(null)
+  const [diagnosticsStatus, setDiagnosticsStatus] = useState('No diagnostics report loaded yet.')
   const [menuOpen, setMenuOpen] = useState(false)
   const [openSubmenu, setOpenSubmenu] = useState<HeaderMenuKey | null>(null)
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => readThemeSettings())
@@ -378,6 +383,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
+  const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
@@ -1029,6 +1035,69 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  async function loadDiagnosticsReport() {
+    if (!authStatus.isAdmin) {
+      setDiagnosticsStatus('Admin permission is required to generate a bug report.')
+      return
+    }
+
+    try {
+      setBusy(true)
+      setDiagnosticsStatus('Generating diagnostics report...')
+      const report = await fetchDiagnosticsReport()
+      setDiagnosticsReport(report)
+      setDiagnosticsStatus('Review this report before sending it.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Diagnostics report could not be generated.'
+      setDiagnosticsStatus(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openDiagnosticsReport() {
+    setMenuOpen(false)
+    setOpenSubmenu(null)
+    setDiagnosticsOpen(true)
+    void loadDiagnosticsReport()
+  }
+
+  async function copyDiagnosticsReport() {
+    const report = diagnosticsReport?.report || ''
+    if (!report) return
+
+    try {
+      await navigator.clipboard.writeText(report)
+      setDiagnosticsStatus('Diagnostics report copied.')
+      return
+    } catch {
+      const textarea = diagnosticsTextRef.current
+      if (!textarea) {
+        setDiagnosticsStatus('Copy failed. Select the report text and copy it manually.')
+        return
+      }
+
+      textarea.focus()
+      textarea.select()
+      try {
+        if (document.execCommand('copy')) {
+          setDiagnosticsStatus('Diagnostics report copied.')
+          return
+        }
+      } catch {
+        // Fall through to the manual-copy message below.
+      }
+      setDiagnosticsStatus('Copy failed. The report text is selected; press Ctrl+C or Cmd+C.')
+    }
+  }
+
+  function emailDiagnosticsReport() {
+    if (!diagnosticsReport?.report) return
+    const subject = encodeURIComponent(diagnosticsReport.subject || 'ASR Bug Report')
+    const body = encodeURIComponent(diagnosticsReport.report)
+    window.location.href = `mailto:${diagnosticsReport.email}?subject=${subject}&body=${body}`
+  }
+
   return (
     <div className="allscan-app min-h-screen bg-[#151515] text-[#eaf4f8]">
       <div className="w-full px-0 pb-6">
@@ -1178,6 +1247,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <button type="button" role="menuitem" className="allscan-menu-disabled" disabled>Reimagined Settings <small>Header, Logo, Bridges - Coming Soon</small></button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Stats</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={openDiagnosticsReport}>Report Bug</button> : null}
                   {authStatus.loggedIn ? (
                     <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
                   ) : (
@@ -1678,6 +1748,40 @@ function App({ config }: { config: RuntimeConfig }) {
                 Refresh
               </button>
               <button type="button" className="allscan-action-button" onClick={() => setDropClientOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {diagnosticsOpen ? (
+        <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>
+          <div className="allscan-drop-client-box allscan-diagnostics-box" onClick={(event) => event.stopPropagation()}>
+            <h3>Report Bug</h3>
+            <div className="allscan-drop-client-help">
+              This creates an admin-only diagnostics report for KE7WIL. Review it before emailing.
+            </div>
+            <div className="allscan-drop-client-status">{diagnosticsStatus}</div>
+            <textarea
+              ref={diagnosticsTextRef}
+              className="allscan-diagnostics-report"
+              readOnly
+              spellCheck={false}
+              value={diagnosticsReport?.report || ''}
+              aria-label="Diagnostics report"
+            />
+            <div className="allscan-drop-client-actions">
+              <button type="button" className="allscan-action-button" disabled={busy} onClick={() => void loadDiagnosticsReport()}>
+                Refresh
+              </button>
+              <button type="button" className="allscan-action-button" disabled={!diagnosticsReport?.report} onClick={() => void copyDiagnosticsReport()}>
+                Copy
+              </button>
+              <button type="button" className="allscan-action-button" disabled={!diagnosticsReport?.report} onClick={emailDiagnosticsReport}>
+                Email
+              </button>
+              <button type="button" className="allscan-action-button" onClick={() => setDiagnosticsOpen(false)}>
                 Close
               </button>
             </div>

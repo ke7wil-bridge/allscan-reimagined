@@ -824,6 +824,27 @@ body {
   text-align: center;
 }
 
+.allscan-diagnostics-box {
+  width: min(860px, 96vw);
+}
+
+.allscan-diagnostics-report {
+  width: 100%;
+  min-height: min(54vh, 520px);
+  max-height: 58vh;
+  resize: vertical;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.34);
+  color: rgb(234, 244, 248);
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
 .allscan-favorites-inner {
   padding: 3px 4px 8px;
   background: rgb(5, 5, 5);

@@ -469,6 +469,27 @@ export type DropClientEntry = {
   ip?: string
 }
 
+export type DiagnosticsReport = {
+  email: string
+  subject: string
+  report: string
+}
+
+export async function fetchDiagnosticsReport(): Promise<DiagnosticsReport> {
+  const response = await fetch(`${ASR_API}?action=diagnostics-report`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+
+  const payload = (await response.json()) as DiagnosticsReport & { ok?: boolean; error?: string }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Diagnostics report could not be generated.')
+  return {
+    email: payload.email || 'ke7wil@gmail.com',
+    subject: payload.subject || 'ASR Bug Report',
+    report: payload.report || '',
+  }
+}
+
 export async function fetchDropClients() {
   const response = await fetch(`${ASR_API}?action=drop-clients`, {
     credentials: 'same-origin',
