@@ -25,6 +25,7 @@ grep -Fq "ASR_VERSION=\"$VERSION\"" "$ROOT/install.sh" || {
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload/web" "$STAGE/payload/server" "$STAGE/payload/bin" "$STAGE/payload/scripts"
 mkdir -p "$STAGE/payload/compat"
+mkdir -p "$STAGE/docs"
 
 cd "$ROOT"
 ASR_BASE_PATH=/allscan/ pnpm run build
@@ -40,18 +41,25 @@ install -m 755 allscan_wt_clients.sh "$STAGE/payload/bin/allscan_wt_clients.sh"
 install -m 755 scripts/asr-configure.sh "$STAGE/payload/scripts/asr-configure.sh"
 install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
+install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"
+install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
+install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
+install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 cp -a compat/. "$STAGE/payload/compat/"
 find "$STAGE/payload/compat" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -delete
 install -m 755 install.sh "$STAGE/install.sh"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
+install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
+install -m 644 docs/beta-5-release-notes.md "$STAGE/docs/beta-5-release-notes.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi
-COPYFILE_DISABLE=1 tar --format ustar --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"
+COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname root \
+  --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"
 if command -v xattr >/dev/null 2>&1; then
   xattr -c "$PACKAGE" 2>/dev/null || true
 fi

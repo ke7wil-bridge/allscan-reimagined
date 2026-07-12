@@ -105,10 +105,14 @@ function adminMenu(current: MockRoute) {
       <div class="allscan-menu-panel asr-admin-menu-panel" role="menu">
         <div class="allscan-submenu is-open asr-admin-menu-list">
           ${item('/allscan/', 'Return to Main Page')}
-          ${item('/allscan/cfg/', 'Cfgs', 'cfg')}
-          ${item('/allscan/user/', 'Users', 'users')}
-          <span class="asr-admin-menu-current">Reimagined Settings (Header, Logo, Bridges - Coming Soon)</span>
           ${item('/allscan/user/settings/', 'Settings', 'settings')}
+          <span class="asr-admin-menu-current">Reimagined Settings</span>
+          ${item('/allscan/performance/', 'Performance Stats')}
+          ${item('/allscan/user/', 'Users', 'users')}
+          ${item('/allscan/cfg/', 'Configs', 'cfg')}
+          <a role="menuitem" href="http://stats.allstarlink.org/stats/641890">Node Status</a>
+          ${item('/allscan/lookup/', 'Lookup')}
+          ${item('/allscan/?reportBug=1', 'Report a Bug')}
           <a role="menuitem" href="/allscan/user/?logout=1">Logout</a>
         </div>
       </div>

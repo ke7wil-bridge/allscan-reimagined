@@ -1,13 +1,17 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.5-test"
+ASR_VERSION="1.0.0-beta.5"
+ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
 RELEASE_DIR="/opt/allscan-reimagined/releases/$ASR_VERSION"
 BACKUP_DIR="/root/allscan-reimagined-backups/$(date +%Y%m%d-%H%M%S)"
 OFFICIAL_INSTALLER_URL="https://raw.githubusercontent.com/davidgsd/AllScan/main/AllScanInstallUpdate.php"
 CHANGES_STARTED=0
+RELEASE_STAGE=""
+RELEASE_PREVIOUS=""
+RELEASE_REPLACED=0
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 restore_runtime_backup() {
@@ -26,6 +30,11 @@ restore_runtime_backup() {
 rollback_on_error() {
   status=$?
   set +e
+  [ -n "$RELEASE_STAGE" ] && rm -rf "$RELEASE_STAGE"
+  if [ "$RELEASE_REPLACED" -eq 1 ]; then
+    rm -rf "$RELEASE_DIR"
+    [ -d "$RELEASE_PREVIOUS" ] && mv "$RELEASE_PREVIOUS" "$RELEASE_DIR"
+  fi
   if [ "$CHANGES_STARTED" -eq 1 ] && [ -f "$BACKUP_DIR/allscan-webroot.tar.gz" ]; then
     echo
     echo "Installation failed. Restoring the previous AllScan installation..." >&2
@@ -49,8 +58,36 @@ ask() {
   [[ "$answer" =~ ^[Yy]$ ]]
 }
 
+prune_old_backups() {
+  local backup_root="/root/allscan-reimagined-backups" removed=0 remove_count index
+  local -a backups=()
+  [ -d "$backup_root" ] || return 0
+  while IFS= read -r backup; do
+    backups+=("$backup")
+  done < <(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+    | grep -E '^[0-9]{8}-[0-9]{6}$' | sort -r)
+  remove_count=$((${#backups[@]} - ASR_BACKUP_RETENTION))
+  [ "$remove_count" -gt 0 ] || return 0
+  if [ ! -t 0 ]; then
+    echo "Skipped rollback-backup pruning in a non-interactive shell; $remove_count old backup(s) remain."
+    return 0
+  fi
+  if ! ask "Remove $remove_count old rollback backup(s) and keep the newest $ASR_BACKUP_RETENTION? [Y/n]" y; then
+    echo "Old rollback backups were retained."
+    return 0
+  fi
+  for ((index=ASR_BACKUP_RETENTION; index<${#backups[@]}; index++)); do
+    rm -rf -- "$backup_root/${backups[$index]}"
+    removed=$((removed + 1))
+  done
+  if [ "$removed" -gt 0 ]; then
+    echo "Removed $removed old rollback backup(s); kept the newest $ASR_BACKUP_RETENTION."
+  fi
+}
+
 [ "${EUID:-$(id -u)}" -eq 0 ] || fail "Run this installer with sudo."
 [ -d "$PAYLOAD_DIR/web" ] || fail "Installer payload is incomplete."
+[[ "$ASR_BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]] || fail "ASR_BACKUP_RETENTION must be a positive integer."
 
 for command in curl php tar install find systemctl; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command not found: $command"
@@ -88,7 +125,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 5 Test"
+echo "Reimagined release:        v1.0.0 Beta 5"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -177,7 +214,7 @@ if php -r '
   echo "Public ASR access disabled; existing logged-in users will still open /allscan/ normally."
 else
   echo "WARNING: No Admin/Superuser account was found. Public ASR access was left unchanged so the owner is not locked out."
-  echo "Create an Admin/Superuser in AllScan, then set Public Permission to None in Cfgs."
+  echo "Create an Admin/Superuser in AllScan, then set Public Permission to None in Configs."
 fi
 
 if [ -d "$BACKUP_DIR/runtime" ]; then
@@ -192,12 +229,20 @@ if [ -d "$BACKUP_DIR/runtime" ]; then
 fi
 
 echo "[3/8] Installing the Reimagined master files outside the web root..."
-mkdir -p "$RELEASE_DIR"
-cp -a "$PAYLOAD_DIR/." "$RELEASE_DIR/"
-chown -R root:root "$RELEASE_DIR"
-find "$RELEASE_DIR" -type d -exec chmod 755 {} +
-find "$RELEASE_DIR" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_DIR/bin/"*.sh "$RELEASE_DIR/scripts/"*.sh
+RELEASE_STAGE="${RELEASE_DIR}.new.$$"
+rm -rf "$RELEASE_STAGE"
+mkdir -p "$RELEASE_STAGE"
+cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
+chown -R root:root "$RELEASE_STAGE"
+find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
+find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh"
+RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
+rm -rf "$RELEASE_PREVIOUS"
+[ -d "$RELEASE_DIR" ] && mv "$RELEASE_DIR" "$RELEASE_PREVIOUS"
+mv "$RELEASE_STAGE" "$RELEASE_DIR"
+RELEASE_STAGE=""
+RELEASE_REPLACED=1
 ln -sfn "$RELEASE_DIR" /opt/allscan-reimagined/current
 
 echo "[4/8] Detecting node identity, branding, and bridges..."
@@ -220,6 +265,8 @@ After=apache2.service
 
 [Service]
 Type=oneshot
+Nice=10
+IOSchedulingClass=idle
 ExecStart=/usr/local/sbin/allscan-reimagined-integrity-check
 EOF
 cat > /etc/systemd/system/allscan-reimagined-reapply.path <<EOF
@@ -239,7 +286,8 @@ Description=Periodic AllScan Reimagined integrity check
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=45s
 Unit=allscan-reimagined-reapply.service
 
 [Install]
@@ -266,14 +314,21 @@ printf '%s' "$auth_json" | php -r '
 '
 curl -fsS http://127.0.0.1/allscan/ | grep -q 'assets/index-'
 
+rm -rf "$RELEASE_PREVIOUS"
+RELEASE_PREVIOUS=""
+RELEASE_REPLACED=0
+CHANGES_STARTED=0
+trap - ERR
+if ! prune_old_backups; then
+  echo "WARNING: Old rollback backups could not be pruned automatically." >&2
+fi
+
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 5 Test"
+echo "AllScan Reimagined:    v1.0.0 Beta 5"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Open:                    http://$(hostname -I | awk '{print $1}')/allscan/"
 echo
 echo "Existing user accounts and passwords were not changed."
-CHANGES_STARTED=0
-trap - ERR

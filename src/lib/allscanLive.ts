@@ -1,7 +1,7 @@
 const ALLSCAN_BASE = '/allscan'
 const ASR_API = `${ALLSCAN_BASE}/asr-api.php`
 const CONNECTION_RECONNECT_INITIAL_MS = 2000
-const CONNECTION_RECONNECT_MAX_MS = 15000
+const CONNECTION_RECONNECT_MAX_MS = 30000
 
 export type BridgeId = string
 
@@ -22,6 +22,7 @@ export type RuntimeConfig = {
   headerLogo: string
   footerLogo: string
   versionLabel: string
+  lowPowerMode: boolean
   bridges: RuntimeBridgeConfig[]
 }
 
@@ -34,7 +35,8 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5 Test',
+  versionLabel: 'v1.0.0 Beta 5',
+  lowPowerMode: false,
   bridges: [],
 }
 
@@ -198,7 +200,7 @@ type ConnectedClientsResponse = {
 export const actionOptions = [
   { value: 'dropclient', label: 'Drop Client' },
   { value: 'monitor', label: 'Monitor' },
-  { value: 'localmon', label: 'Local Monitor' },
+  { value: 'localmonitor', label: 'Local Monitor' },
   { value: 'dtmf', label: 'Send DTMF' },
   { value: 'addfav', label: 'Add Favorite' },
   { value: 'delfav', label: 'Delete Favorite' },
@@ -365,6 +367,12 @@ export function subscribeConnectionFeed(
   let reconnectTimer: number | undefined
   let reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS
   let stopped = false
+  let leaderTimer: number | undefined
+  let isLeader = false
+  const sharedMode = typeof BroadcastChannel !== 'undefined' && typeof window.localStorage !== 'undefined'
+  const channel = sharedMode ? new BroadcastChannel(`asr-feed-${localNode}`) : undefined
+  const tabId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const leaderKey = `asrFeedLeader.${localNode}`
 
   const resetReconnectDelay = () => {
     reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS
@@ -376,13 +384,42 @@ export function subscribeConnectionFeed(
   }
 
   const scheduleReconnect = () => {
-    if (stopped || reconnectTimer !== undefined) return
+    if (stopped || !isLeader || reconnectTimer !== undefined) return
     closeSource()
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = undefined
       connect()
-    }, reconnectDelay)
+    }, reconnectDelay + Math.floor(Math.random() * 750))
     reconnectDelay = Math.min(reconnectDelay * 2, CONNECTION_RECONNECT_MAX_MS)
+  }
+
+  const deliver = (eventName: string, rawData: string, share = false) => {
+    if (share) channel?.postMessage({ eventName, rawData })
+    if (eventName === 'nodes') {
+      resetReconnectDelay()
+      const next = buildSnapshot(JSON.parse(rawData) as FeedPayload, bridgeNodes)
+      snapshot = next
+      onSnapshot(next)
+    } else if (eventName === 'nodetimes') {
+      resetReconnectDelay()
+      snapshot = patchSnapshotTimes(snapshot, JSON.parse(rawData) as FeedPayload)
+      onSnapshot(snapshot)
+    } else if (eventName === 'connection') {
+      resetReconnectDelay()
+      const data = JSON.parse(rawData) as { status?: string }
+      if (data.status) onMessage(htmlToMessageText(data.status))
+    } else if (eventName === 'errMsg') {
+      const data = JSON.parse(rawData) as { status?: string }
+      if (data.status) onMessage(`ERROR: ${htmlToMessageText(data.status)}`)
+    }
+  }
+
+  if (channel) {
+    channel.onmessage = (event: MessageEvent<{ eventName?: string; rawData?: string }>) => {
+      if (event.data?.eventName && typeof event.data.rawData === 'string') {
+        deliver(event.data.eventName, event.data.rawData)
+      }
+    }
   }
 
   const connect = () => {
@@ -392,55 +429,87 @@ export function subscribeConnectionFeed(
     source = nextSource
 
     nextSource.addEventListener('nodes', (event) => {
-      resetReconnectDelay()
-      const next = buildSnapshot(JSON.parse((event as MessageEvent).data) as FeedPayload, bridgeNodes)
-      snapshot = next
-      onSnapshot(next)
+      deliver('nodes', (event as MessageEvent).data, sharedMode)
     })
 
     nextSource.addEventListener('nodetimes', (event) => {
-      resetReconnectDelay()
-      snapshot = patchSnapshotTimes(snapshot, JSON.parse((event as MessageEvent).data) as FeedPayload)
-      onSnapshot(snapshot)
+      deliver('nodetimes', (event as MessageEvent).data, sharedMode)
     })
 
     nextSource.addEventListener('connection', (event) => {
-      resetReconnectDelay()
-      const data = JSON.parse((event as MessageEvent).data) as { status?: string }
-      if (data.status) onMessage(htmlToMessageText(data.status))
+      deliver('connection', (event as MessageEvent).data, sharedMode)
     })
 
     nextSource.addEventListener('errMsg', (event) => {
-      const data = JSON.parse((event as MessageEvent).data) as { status?: string }
-      if (data.status) onMessage(`ERROR: ${htmlToMessageText(data.status)}`)
+      deliver('errMsg', (event as MessageEvent).data, sharedMode)
     })
 
     nextSource.onerror = scheduleReconnect
   }
 
-  connect()
+  const releaseLease = () => {
+    if (!sharedMode) return
+    try {
+      const lease = JSON.parse(window.localStorage.getItem(leaderKey) || '{}') as { id?: string }
+      if (lease.id === tabId) window.localStorage.removeItem(leaderKey)
+    } catch {
+      // Ignore local storage cleanup failures.
+    }
+  }
+
+  const checkLeadership = () => {
+    if (!sharedMode || stopped) return
+    try {
+      const now = Date.now()
+      const lease = JSON.parse(window.localStorage.getItem(leaderKey) || '{}') as { id?: string; expires?: number }
+      const available = !lease.id || Number(lease.expires || 0) < now || lease.id === tabId
+      if (available) {
+        window.localStorage.setItem(leaderKey, JSON.stringify({ id: tabId, expires: now + 3500 }))
+      }
+      const confirmed = JSON.parse(window.localStorage.getItem(leaderKey) || '{}') as { id?: string }
+      if (confirmed.id === tabId) {
+        if (!isLeader) {
+          isLeader = true
+          connect()
+        }
+      } else if (isLeader) {
+        isLeader = false
+        if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+        reconnectTimer = undefined
+        closeSource()
+      }
+    } catch {
+      if (!isLeader) {
+        isLeader = true
+        connect()
+      }
+    }
+  }
+
+  if (sharedMode) {
+    checkLeadership()
+    leaderTimer = window.setInterval(checkLeadership, 1000)
+  } else {
+    isLeader = true
+    connect()
+  }
 
   return () => {
     stopped = true
     if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+    if (leaderTimer !== undefined) window.clearInterval(leaderTimer)
+    releaseLease()
+    channel?.close()
     closeSource()
   }
 }
 
 export async function fetchCpuTemp() {
-  const response = await fetch(`${ALLSCAN_BASE}/api/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'f=getCpuTemp',
-  })
-  const payload = (await response.json()) as { data?: { data?: string } }
-  const raw = payload.data?.data || ''
-  const text = htmlToText(raw)
-  const bgMatch = raw.match(/background-color\s*:\s*([^;"']+)/i)
-  const match = text.match(/CPU Temp:\s*(.+?)\s*@/)
+  const response = await fetch(`${ASR_API}?action=cpu-temp`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = (await response.json()) as { value?: string; bgColor?: string }
   return {
-    value: match?.[1]?.trim() || text.replace(/^CPU Temp:\s*/i, '').trim(),
-    bgColor: bgMatch?.[1]?.trim() || '#59461c',
+    value: payload.value || '',
+    bgColor: payload.bgColor || '#59461c',
   }
 }
 
@@ -572,11 +641,6 @@ function normalizeBridgeRoles(bridge: BridgeLiveResponse): BridgeLiveResponse {
   return next
 }
 
-function isLocalBridgeCaller(value: string | undefined, config: RuntimeConfig) {
-  const text = String(value || '')
-  return Boolean(config.node && (text.includes(config.node) || (config.callsign && text.toUpperCase().includes(config.callsign.toUpperCase()))))
-}
-
 function cleanBridgeCaller(value: string | undefined, config: RuntimeConfig) {
   let caller = String(value || '')
   if (config.node) {
@@ -595,7 +659,7 @@ function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Sour
 
   const caller = candidates
     .map((value) => String(value || '').trim())
-    .find((value) => value && value !== '-' && !isLocalBridgeCaller(value, config))
+    .find((value) => value && value !== '-')
 
   return cleanBridgeCaller(caller, config) || '-'
 }
@@ -613,13 +677,13 @@ function relativeBridgeTime(epoch: number) {
 
 function bridgeClientEpoch(record: Record<string, unknown>, mode: BridgeClientMode) {
   const value = mode === 'zello'
-    ? record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch || record.last_seen_epoch || record.last_seen || record.timestamp
+    ? record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
     : record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
   return Number(value || 0) || 0
 }
 
 function bridgeClientName(record: Record<string, unknown>) {
-  return String(record.callsign || record.call || record.station || record.username || record.name || record.user || '-').trim() || '-'
+  return String(record.callsign || record.call || record.station || record.username || record.name || record.current_user || record.display_name || record.displayName || record.user || '-').trim() || '-'
 }
 
 function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeClientMode): BridgeDetailItem[] {
@@ -659,16 +723,13 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
     : [{ key: `${mode}-empty`, label: fallback, meta: '', empty: true }]
 }
 
-const ZELLO_RECENT_TALKERS_MAX_AGE = 3600
+const ZELLO_RECENT_TALKERS_MAX_AGE = 180
 
 function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
   return Number(
     item.last_tx_epoch ||
       item.tx_epoch ||
       item.last_talk_epoch ||
-      item.last_seen_epoch ||
-      item.last_seen ||
-      item.timestamp ||
       0,
   )
 }
@@ -691,22 +752,20 @@ export async function fetchBridgeCards(
   config: RuntimeConfig,
   signal?: AbortSignal,
 ): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
-  const [bridgeResponse, clientsResponse] = await Promise.all([
-    fetch(`${ALLSCAN_BASE}/bridge-live.json`, { cache: 'no-store', signal }),
-    fetch(`${ALLSCAN_BASE}/connected-clients.json`, { cache: 'no-store', signal }),
-  ])
-
-  const bridge = normalizeBridgeRoles((await bridgeResponse.json()) as BridgeLiveResponse)
-  const clients = (await clientsResponse.json()) as ConnectedClientsResponse
+  const response = await fetch(`${ASR_API}?action=bridge-status`, { credentials: 'same-origin', cache: 'no-store', signal })
+  const payload = (await response.json()) as { bridge?: BridgeLiveResponse; clients?: ConnectedClientsResponse }
+  const bridge = normalizeBridgeRoles(payload.bridge || {})
+  const clients = payload.clients || {}
 
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
     const entryValue = bridge[bridgeConfig.id]
     const entry = entryValue && typeof entryValue === 'object' && !Array.isArray(entryValue)
       ? entryValue as BridgeEntry
       : undefined
-    const detailRows = bridgeConfig.id === 'zello'
+    const cachedDetailRows = clients[bridgeConfig.id] || []
+    const detailRows = bridgeConfig.id === 'zello' && cachedDetailRows.length === 0
       ? liveZelloRecentTalkers(bridge.zello)
-      : clients[bridgeConfig.id] || []
+      : cachedDetailRows
     const status = mapBridgeStatus(entry)
     return {
       id: bridgeConfig.id,

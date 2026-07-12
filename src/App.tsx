@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpDown, ChevronDown, ChevronLeft, Menu } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, ChevronLeft, Menu, Search } from 'lucide-react'
 import { headerStats } from './mockData'
 import {
   actionOptions,
@@ -60,18 +60,22 @@ const themeOptions = [
 type HeaderMenuKey = 'resources' | 'admin' | 'theme'
 
 const headerMenuGroups: Array<[HeaderMenuKey, string]> = [
-  ['resources', 'Resources'],
   ['admin', 'Admin'],
   ['theme', 'Theme'],
+  ['resources', 'Resources'],
 ]
 
 const headerMenuLabels = Object.fromEntries(headerMenuGroups) as Record<HeaderMenuKey, string>
 
-function applyThemeSettings(settings: ThemeSettings) {
+function applyThemeSettings(settings: ThemeSettings, lowPowerMode = false) {
   if (typeof document === 'undefined') return
   const normalized = normalizeThemeSettings(settings)
   let theme = normalized.theme
   let mode = normalized.mode || 'dark'
+  if (lowPowerMode && (theme === 'deep-ocean-animated' || theme === 'matrix')) {
+    theme = 'standard'
+    mode = 'dark'
+  }
   if (theme === 'lcars-frame' && window.innerWidth < 1200) {
     theme = 'standard'
     mode = 'dark'
@@ -80,6 +84,7 @@ function applyThemeSettings(settings: ThemeSettings) {
   document.documentElement.dataset.asrMode = mode
   document.body.dataset.asrTheme = theme
   document.body.dataset.asrMode = mode
+  document.documentElement.dataset.asrLowPower = lowPowerMode ? 'true' : 'false'
 }
 
 function normalizeThemeSettings(settings: ThemeSettings): Required<ThemeSettings> {
@@ -331,6 +336,7 @@ function formatUtc(date: Date) {
 
 function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
+  const [backgroundNodeState, setBackgroundNodeState] = useState<LiveConnectionRow['state'] | null>(null)
   const [connectedCount, setConnectedCount] = useState(0)
   const [directCount, setDirectCount] = useState(0)
   const [adjacentCount, setAdjacentCount] = useState(0)
@@ -343,7 +349,7 @@ function App({ config }: { config: RuntimeConfig }) {
     cards: [],
   })
   const [nodeMessage, setNodeMessage] = useState('Loading live status...')
-  const [nodeMessageLatest, setNodeMessageLatest] = useState('No recent messages')
+  const [nodeMessageLatest, setNodeMessageLatest] = useState(() => readLiveNodeMessageCache() || 'No recent messages')
   const [nodeMessageRaw, setNodeMessageRaw] = useState('')
   const [messagesOpen, setMessagesOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoriteNode[]>([])
@@ -384,6 +390,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
   const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
+  const reportBugParamHandled = useRef(false)
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
@@ -420,18 +427,23 @@ function App({ config }: { config: RuntimeConfig }) {
     const bridgeNodeById = Object.fromEntries(config.bridges.map((bridge) => [bridge.id, bridge.node]))
     const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
     const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
+    const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
+      ...card,
+      status,
+      lastCaller: status === 'Source/TX' ? card.lastCaller : '-',
+    })
 
     return {
       ...next,
       cards: next.cards.map((card) => {
         const row = rowsByNode.get(bridgeNodeById[card.id])
-        if (row?.state === 'talking' && card.status === 'Idle') {
-          return { ...card, status: 'Source/TX' as const }
+        if (row?.state === 'talking') {
+          return withStatus(card, 'Source/TX')
         }
-        if (row && localIsTransmitting && card.status === 'Idle') {
-          return { ...card, status: 'Relay' as const }
+        if (row) {
+          return withStatus(card, localIsTransmitting ? 'Relay' : 'Idle')
         }
-        return card
+        return withStatus(card, card.status)
       }),
     }
   }
@@ -477,12 +489,11 @@ function App({ config }: { config: RuntimeConfig }) {
       return { ...stats, txPct: stats.keyed ? 100 : 0 }
     }
 
-    let txDelta = stats.keyups - previous.keyups
+    const txDelta = stats.keyups - previous.keyups
     let timeDeltaTotal = stats.txtime - previous.txtime
     const elapsed = Math.max(0, now - previous.time)
 
     if (timeDeltaTotal > 2 * elapsed || txDelta > elapsed / 3) {
-      txDelta = 0
       timeDeltaTotal = 0
     }
 
@@ -554,12 +565,13 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [rows, connectionSort, config.node])
 
   const faviconStatus = useMemo<'idle' | 'ptt' | 'cos' | 'both'>(() => {
-    const localRow = rows.find((row) => row.node === config.node) || rows[0]
-    if (localRow?.state === 'talking') return 'ptt'
-    if (localRow?.state === 'relay') return 'cos'
-    if (localRow?.state === 'both') return 'both'
+    const localState = backgroundNodeState
+      || (rows.find((row) => row.node === config.node) || rows[0])?.state
+    if (localState === 'talking') return 'ptt'
+    if (localState === 'relay') return 'cos'
+    if (localState === 'both') return 'both'
     return 'idle'
-  }, [rows, config.node])
+  }, [rows, config.node, backgroundNodeState])
 
   useEffect(() => {
     const favicon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')
@@ -626,8 +638,8 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [faviconStatus])
 
   useEffect(() => {
-    applyThemeSettings(themeSettings)
-  }, [themeSettings])
+    applyThemeSettings(themeSettings, config.lowPowerMode)
+  }, [themeSettings, config.lowPowerMode])
 
   useEffect(() => {
     const handleResize = () => setDesktopThemeViewport(isDesktopThemeViewport())
@@ -635,6 +647,17 @@ function App({ config }: { config: RuntimeConfig }) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => {
+    if (reportBugParamHandled.current || !authStatus.isAdmin) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('reportBug') !== '1') return
+    reportBugParamHandled.current = true
+    window.history.replaceState(null, '', window.location.pathname)
+    openDiagnosticsReport()
+    // This effect intentionally reacts only when admin authorization becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus.isAdmin])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -701,7 +724,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
     void refreshAuthStatus()
     window.addEventListener('focus', refreshAuthStatus)
-    const timer = window.setInterval(refreshAuthStatus, 30000)
+    const timer = window.setInterval(refreshAuthStatus, 120000)
     return () => {
       cancelled = true
       window.removeEventListener('focus', refreshAuthStatus)
@@ -711,14 +734,22 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     if (!config.node) {
-      appendNodeMessage('No local node number was detected. Run the Reimagined setup again.')
-      return
+      const messageTimer = window.setTimeout(() => {
+        appendNodeMessage('No local node number was detected. Run the Reimagined setup again.')
+      }, 0)
+      return () => window.clearTimeout(messageTimer)
     }
 
     const stop = subscribeConnectionFeed(
       config.node,
       config.bridges.map((bridge) => bridge.node),
       (snapshot) => {
+        if (document.hidden) {
+          const localRow = snapshot.rows.find((row) => row.node === config.node) || snapshot.rows[0]
+          setBackgroundNodeState(localRow?.state || 'idle')
+          return
+        }
+        setBackgroundNodeState(null)
         connectionRowsRef.current = snapshot.rows
         setRows(snapshot.rows)
         setConnectedCount(snapshot.connectedCount)
@@ -734,7 +765,32 @@ function App({ config }: { config: RuntimeConfig }) {
     )
 
     return stop
+    // Bridge nodes are read when this node subscription is created; reconnecting
+    // is intentionally keyed to the primary node only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.node])
+
+  useEffect(() => {
+    const increment = (value: string) => {
+      if (!/^\d{2,}:\d{2}:\d{2}$/.test(value)) return value
+      const parts = value.split(':').map(Number)
+      const total = parts[0] * 3600 + parts[1] * 60 + parts[2] + 1
+      return `${String(Math.floor(total / 3600)).padStart(2, '0')}:${String(Math.floor(total / 60) % 60).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+    }
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      setRows((current) => {
+        const next = current.map((row, index) => index === 0 ? row : {
+          ...row,
+          received: row.state === 'talking' ? '00:00:00' : increment(row.received),
+          connected: increment(row.connected),
+        })
+        connectionRowsRef.current = next
+        return next
+      })
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -752,12 +808,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
 
     void refreshCpu()
-    const timer = window.setInterval(refreshCpu, 60000)
+    const timer = window.setInterval(refreshCpu, config.lowPowerMode ? 120000 : 60000)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [config.lowPowerMode])
 
   useEffect(() => {
     let cancelled = false
@@ -765,11 +821,14 @@ function App({ config }: { config: RuntimeConfig }) {
     let failureNotified = false
 
     if (config.bridges.length === 0) {
-      setBridgeState({ updatedLabel: '--:--:--', cards: [] })
-      return
+      const resetTimer = window.setTimeout(() => {
+        setBridgeState({ updatedLabel: '--:--:--', cards: [] })
+      }, 0)
+      return () => window.clearTimeout(resetTimer)
     }
 
     const refreshBridgeCards = async () => {
+      if (document.hidden) return
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), BRIDGE_REFRESH_TIMEOUT_MS)
       try {
@@ -789,17 +848,29 @@ function App({ config }: { config: RuntimeConfig }) {
         if (!cancelled) {
           timer = window.setTimeout(
             refreshBridgeCards,
-            failureNotified ? BRIDGE_REFRESH_ERROR_BACKOFF_MS : BRIDGE_REFRESH_MS,
+            failureNotified ? BRIDGE_REFRESH_ERROR_BACKOFF_MS : (config.lowPowerMode ? 5000 : BRIDGE_REFRESH_MS),
           )
         }
       }
     }
 
+    const refreshWhenVisible = () => {
+      if (document.hidden || cancelled) return
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = undefined
+      void refreshBridgeCards()
+    }
+
     void refreshBridgeCards()
+    document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
+    // applyBridgeConnectionOverrides reads the latest connection-row ref and
+    // must not restart bridge polling when connection rows change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config])
 
   useEffect(() => {
@@ -860,7 +931,6 @@ function App({ config }: { config: RuntimeConfig }) {
       // Ignore storage cleanup failures.
     }
 
-    setNodeMessageLatest(readLiveNodeMessageCache() || 'No recent messages')
     const armTimer = window.setTimeout(() => {
       nodeMessagesArmed.current = true
     }, 1500)
@@ -915,7 +985,8 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [favoritesOpen, sortedFavorites])
 
   useEffect(() => {
-    setFavoritesScanIndex(0)
+    const resetTimer = window.setTimeout(() => setFavoritesScanIndex(0), 0)
+    return () => window.clearTimeout(resetTimer)
   }, [favoritesOpen, favoriteSort, selectedFavoriteFile])
 
   function isNetworkedFavorite(node: string) {
@@ -1164,14 +1235,15 @@ function App({ config }: { config: RuntimeConfig }) {
               <button
                 type="button"
                 className="allscan-lcars-access-button allscan-lcars-access-aux"
-                aria-label="Aux"
+                aria-label="Lookup"
                 onClick={(event) => {
                   event.stopPropagation()
                   setMenuOpen(false)
                   setOpenSubmenu(null)
+                  window.location.href = '/allscan/lookup/'
                 }}
               >
-                Aux
+                Lookup
               </button>
             </div>
             <button
@@ -1195,6 +1267,18 @@ function App({ config }: { config: RuntimeConfig }) {
                 <Menu className="h-7 w-7" />
               </span>
             </button>
+            <a
+              className="allscan-lookup-main-button"
+              href="/allscan/lookup/"
+              title="Lookup callsigns, nodes, EchoLink, and map"
+              onClick={() => {
+                setMenuOpen(false)
+                setOpenSubmenu(null)
+              }}
+            >
+              <Search className="h-4 w-4" />
+              <span>Lookup</span>
+            </a>
             {menuOpen ? (
               <div className={`allscan-menu-panel${openSubmenu ? ' has-active-submenu' : ''}`} role="menu">
                 <div className="allscan-menu-proxy-list">
@@ -1213,6 +1297,37 @@ function App({ config }: { config: RuntimeConfig }) {
                       <ChevronDown className="allscan-menu-row-icon" />
                     </button>
                   ))}
+                  <a
+                    role="menuitem"
+                    className="allscan-menu-proxy-row allscan-menu-direct-row"
+                    href="/allscan/lookup/"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setOpenSubmenu(null)
+                    }}
+                  >
+                    <span>Lookup</span>
+                  </a>
+                  {authStatus.isAdmin ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="allscan-menu-proxy-row allscan-menu-report-row"
+                      onClick={openDiagnosticsReport}
+                    >
+                      <span>Report a Bug</span>
+                    </button>
+                  ) : null}
+                  {authStatus.loggedIn ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="allscan-menu-proxy-row allscan-menu-logout-row"
+                      onClick={() => void logoutAllScan()}
+                    >
+                      <span>Logout</span>
+                    </button>
+                  ) : null}
                 </div>
 
                 {openSubmenu ? (
@@ -1241,18 +1356,16 @@ function App({ config }: { config: RuntimeConfig }) {
                 </div>
 
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/cfg/" onClick={() => setMenuOpen(false)}>Cfgs</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Users</a> : null}
                   {authStatus.loggedIn ? <a role="menuitem" href="/allscan/user/settings/" onClick={() => setMenuOpen(false)}>Settings</a> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" className="allscan-menu-disabled" disabled>Reimagined Settings <small>Header, Logo, Bridges - Coming Soon</small></button> : null}
-                  <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Stats</a>
+                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/asr-settings/" onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/performance/" onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Users</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/cfg/" onClick={() => setMenuOpen(false)}>Configs</a> : null}
+                  <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={openDiagnosticsReport}>Report Bug</button> : null}
-                  {authStatus.loggedIn ? (
-                    <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
-                  ) : (
+                  {!authStatus.loggedIn ? (
                     <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Login</a>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className={`allscan-submenu allscan-submenu-theme${openSubmenu === 'theme' ? ' is-open' : ''}`}>
@@ -1689,7 +1802,9 @@ function App({ config }: { config: RuntimeConfig }) {
                           key={detail.key}
                           className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}
                         >
-                          <div className="allscan-bridge-client-user">{detail.label}</div>
+                          <div className="allscan-bridge-client-user">
+                            <span>{detail.label}</span>
+                          </div>
                           {detail.meta && (
                             <div className="allscan-bridge-client-meta">{detail.meta}</div>
                           )}
@@ -1719,7 +1834,7 @@ function App({ config }: { config: RuntimeConfig }) {
           <div className="allscan-drop-client-box" onClick={(event) => event.stopPropagation()}>
             <h3>Drop Client</h3>
             <div className="allscan-drop-client-help">
-              This targets one live named IAX, EchoLink, or Web client channel.
+              This targets one live named IAX or Web client channel.
             </div>
             <div className="allscan-drop-client-status">{dropClientStatus}</div>
             <div className="allscan-drop-client-list">
@@ -1758,7 +1873,7 @@ function App({ config }: { config: RuntimeConfig }) {
       {diagnosticsOpen ? (
         <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>
           <div className="allscan-drop-client-box allscan-diagnostics-box" onClick={(event) => event.stopPropagation()}>
-            <h3>Report Bug</h3>
+            <h3>Report a Bug</h3>
             <div className="allscan-drop-client-help">
               This creates an admin-only diagnostics report for KE7WIL. Review it before emailing.
             </div>

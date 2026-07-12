@@ -236,6 +236,8 @@ body {
 .allscan-menu-slot {
   position: relative;
   display: flex;
+  flex-direction: column;
+  gap: 8px;
   grid-column: 3;
   justify-content: flex-end;
   justify-self: end;
@@ -261,6 +263,31 @@ body {
 .allscan-menu-button:hover {
   border-color: rgba(255, 255, 255, 0.34);
   background: rgba(28, 28, 31, 0.98);
+}
+
+.allscan-lookup-main-button {
+  display: inline-flex;
+  min-width: 126px;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  background: rgba(22, 22, 24, 0.95);
+  color: #f0f6fb;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.allscan-lookup-main-button:hover,
+.allscan-lookup-main-button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(28, 28, 31, 0.98);
+  color: #f0f6fb;
+  text-decoration: none;
 }
 
 .allscan-menu-panel {
@@ -300,6 +327,7 @@ body {
   line-height: 1.15;
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .allscan-menu-proxy-row::before {
@@ -309,6 +337,18 @@ body {
   margin-right: 8px;
   text-align: center;
   opacity: 0.85;
+}
+
+.allscan-menu-direct-row::before {
+  content: "";
+}
+
+.allscan-menu-direct-row .allscan-menu-row-icon {
+  display: none;
+}
+
+.allscan-menu-panel .allscan-menu-direct-row {
+  display: none;
 }
 
 .allscan-menu-proxy-row:hover,
@@ -378,28 +418,6 @@ body {
   color: #70db8d;
   font-size: 11px;
   font-weight: 850;
-}
-
-.allscan-submenu button.allscan-menu-disabled {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 2px;
-  cursor: default;
-  opacity: 0.72;
-}
-
-.allscan-submenu button.allscan-menu-disabled:hover {
-  background: transparent;
-}
-
-.allscan-submenu button.allscan-menu-disabled small {
-  display: block;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.05;
-  opacity: 0.82;
-  text-transform: uppercase;
 }
 
 .allscan-menu-desktop {
@@ -619,6 +637,10 @@ body {
 }
 
 .allscan-bridge-client-user {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   color: #ececec;
   font-size: 13px;
   font-weight: 850;
@@ -708,19 +730,6 @@ body {
     max-width: calc(100vw - 34px);
     padding-left: 11px;
     padding-right: 11px;
-  }
-
-  .allscan-footer-logo-inline {
-    width: 38px;
-    height: 38px;
-  }
-
-  .allscan-footer-title {
-    font-size: 13px;
-  }
-
-  .allscan-footer-reimagined {
-    font-size: 12px;
   }
 
   .allscan-footer-byline,
@@ -972,13 +981,6 @@ body {
   background: hsl(0, 56%, 24%) !important;
   color: hsl(0, 100%, 76%) !important;
   box-shadow: inset 0 0 0 1px hsl(0, 100%, 76%) !important;
-  font-weight: 900 !important;
-}
-
-.allscan-fav-cell-source-linger {
-  background: hsl(0, 56%, 24%) !important;
-  color: hsl(0, 100%, 76%) !important;
-  box-shadow: inset 0 0 0 2px hsl(0, 100%, 76%) !important;
   font-weight: 900 !important;
 }
 
@@ -1282,18 +1284,6 @@ body {
   box-shadow: 0 0 0 1px rgba(85, 199, 255, 0.24);
 }
 
-.allscan-select-button {
-  @apply inline-flex h-[30px] items-center justify-between rounded-[6px] border px-[8px] text-[14px] leading-[1.1] transition;
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(28, 28, 30, 0.96);
-  color: rgb(234, 244, 248);
-  font-weight: 850;
-  line-height: normal;
-  padding-top: 3px;
-  padding-bottom: 3px;
-  box-shadow: none;
-}
-
 .allscan-checks-row {
   color: rgb(234, 244, 248);
   font-size: 13px;
@@ -1496,6 +1486,10 @@ body {
     font-size: 8px;
   }
 
+  .allscan-lookup-main-button {
+    display: none;
+  }
+
   .allscan-menu-button {
     width: auto;
     height: auto;
@@ -1530,6 +1524,10 @@ body {
 
   .allscan-menu-proxy-list {
     gap: 5px;
+  }
+
+  .allscan-menu-panel .allscan-menu-direct-row {
+    display: flex;
   }
 
   .allscan-menu-proxy-row,
@@ -1873,13 +1871,13 @@ html[data-asr-theme="matrix"]::before {
 }
 
 html[data-asr-theme="deep-ocean-animated"]::before {
-  background-image: url("/public/img/deep-blue-animated.gif");
+  background-image: url("/img/deep-blue-animated.gif");
   opacity: 0.52;
   filter: brightness(0.78) saturate(1.05) contrast(0.95);
 }
 
 html[data-asr-theme="matrix"]::before {
-  background-image: url("/public/img/matrix-rain.gif");
+  background-image: url("/img/matrix-rain.gif");
   background-repeat: repeat;
   opacity: 0.39;
   filter: brightness(1.18) saturate(1.1);
@@ -1994,10 +1992,6 @@ html[data-asr-theme] .allscan-submenu a:hover,
 html[data-asr-theme] .allscan-submenu button:hover {
   background: var(--theme-hover);
   color: var(--theme-text);
-}
-
-html[data-asr-theme] .allscan-submenu button.allscan-menu-disabled:hover {
-  background: transparent;
 }
 
 html[data-asr-theme] .allscan-controls-shell,
@@ -2493,6 +2487,10 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     align-items: flex-end;
     padding: 69px 0 10px 74px;
     transform: translateX(58px);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-lookup-main-button {
+    display: none;
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-menu-slot::before {

@@ -98,14 +98,14 @@ $form->submit = $form->fieldsetLegend = CHANGE_PASSWORD;
 echo htmlForm($form) . BR;
 
 h3("Form Notes:");
-echo '<ul class="left">
+echo '<ul class="left asr-settings-notes">
 	<li><b>Name</b>: Login username. Can be your first name, first &amp; last name/initials, your callsign,<br>
-	or other name. Must be 2-24 alphanumeric characters. May contain spaces 
-	<li><b>Email</b>: Optional. Not currently used but email features may be supported in the future
-	<li><b>Location</b>: Optional. Your location eg. "Chicago, IL" or "Nottingham, UK"
-	<li><b>Node #s</b>: Optional. Space separated list of AllStar node numbers you own or manage
-	<li><b>Time Zone</b>: Default is UTC
-	<li><b>Password</b>: Must be 6-16 printable ASCII characters
+	or other name. Must be 2-24 alphanumeric characters. May contain spaces</li>
+	<li><b>Email</b>: Optional. Not currently used but email features may be supported in the future</li>
+	<li><b>Location</b>: Optional. Your location eg. "Chicago, IL" or "Nottingham, UK"</li>
+	<li><b>Node #s</b>: Optional. Space separated list of AllStar node numbers you own or manage</li>
+	<li><b>Time Zone</b>: Default is UTC</li>
+	<li><b>Password</b>: Must be 6-16 printable ASCII characters</li>
 	</ul><br>
 ';
 

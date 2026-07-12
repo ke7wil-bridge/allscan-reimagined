@@ -2,6 +2,7 @@
 // AllScan main includes & common functions
 // Author: David Gleason - AllScan.info
 $AllScanVersion = "v1.01";
+define('ASR_REIMAGINED_VERSION_LABEL', 'v1.0.0 Beta 5');
 require_once('Html.php');
 require_once('logUtils.php');
 require_once('timeUtils.php');
@@ -63,16 +64,38 @@ function asInit(&$msg) {
 	// Or if in an allscan subdir eg. user: same as above but subdir=user, relpath=allscan/user
 }
 
+function asrInitAuthenticatedUser(&$msg) {
+	global $db, $userCnt, $cfgModel, $userModel, $user;
+	$db = dbInit();
+	$userCnt = checkTables($db, $msg);
+	if(!$userCnt)
+		redirect('user/');
+	$cfgModel = new CfgModel($db);
+	$userModel = new UserModel($db);
+	$user = $userModel->validate();
+	if(empty($user) || !isset($user->user_id) || !validDbID($user->user_id))
+		redirect('user/');
+	return $user;
+}
+
 function htmlInit($title) {
 	global $html, $urlbase;
 	echo $html->htmlOpen($title)
-		.	"<link href=\"$urlbase/css/main.css\" rel=\"stylesheet\" type=\"text/css\">" . NL
-		.	asrAdminAssetCssLink()
-		.	"<link href=\"$urlbase/css/asr-admin.css\" rel=\"stylesheet\" type=\"text/css\">" . NL
-		.	"<link href=\"$urlbase/favicon-bolt-r-c.png\" rel=\"icon\" type=\"image/png\">" . NL
+		.	'<script>(function(){document.documentElement.dataset.asrTheme="standard";document.documentElement.dataset.asrMode="dark"})();</script>' . NL
+			.	"<link href=\"$urlbase/css/main.css\" rel=\"stylesheet\" type=\"text/css\">" . NL
+			.	asrAdminAssetCssLink()
+			.	asrAdminCssLink()
+			.	"<link href=\"$urlbase/favicon-bolt-r-c.png\" rel=\"icon\" type=\"image/png\">" . NL
 		.	'<meta name="viewport" content="width=device-width, initial-scale=1">' . NL
 		.	"<script src=\"$urlbase/js/main.js\"></script>" . NL
 		.	'</head>' . NL;
+}
+
+function asrAdminCssLink() {
+	global $wwwroot, $asdir, $urlbase;
+	$file = "$wwwroot/$asdir/css/asr-admin.css";
+	$version = is_readable($file) ? filemtime($file) : time();
+	return "<link href=\"$urlbase/css/asr-admin.css?v=$version\" rel=\"stylesheet\" type=\"text/css\">" . NL;
 }
 
 function asrAdminAssetCssLink() {
@@ -103,39 +126,90 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 	htmlInit(asrAdminDocumentTitle($title));
 	$bodyClass = asrAdminBodyClass();
 	// Output header
-	$menu = [];
-	$menu[] = $html->a("$urlbase/", null, 'Return to Main Page');
-	if($showHdrLinks && $userCnt)
-		$menu = array_merge($menu, getHdrLinks());
-	$menuHtml = '<details class="allscan-menu-slot asr-admin-menu"><summary class="allscan-menu-button">'
-		. '<span class="allscan-menu-desktop">Menu</span><span class="allscan-menu-mobile">☰</span></summary>'
-		. '<div class="allscan-menu-panel asr-admin-menu-panel" role="menu">'
-		. '<div class="allscan-submenu is-open asr-admin-menu-list">' .
-		implode(NL, array_map('asrAdminMenuItem', $menu)) . '</div></div></details>';
+	$menuHtml = asrAdminHeaderMenu($showHdrLinks);
 	$cpuTemp = asrAdminCpuTemp();
 	$cpuBg = asrAdminCpuBg($cpuTemp);
 	$nodeTitle = asrAdminTitle($title);
 	$runtime = asrAdminRuntimeConfig();
-	$versionLabel = htmlspecial($runtime['versionLabel'] ?? 'v1.0.0 Beta 4');
+	$versionLabel = htmlspecial($runtime['versionLabel'] ?? ASR_REIMAGINED_VERSION_LABEL);
 	$brandByline = htmlspecial($runtime['brandByline'] ?? '');
 	$headerLogo = htmlattr($runtime['headerLogo'] ?? "$urlbase/asr-logo-bright-r-tight.png");
 	echo "<body$onload class=\"$bodyClass\">" . NL
+		. '<script>(function(){try{document.body.dataset.asrTheme=document.documentElement.dataset.asrTheme||"standard";document.body.dataset.asrMode=document.documentElement.dataset.asrMode||"dark"}catch(e){}})();</script>' . NL
 		. '<header class="allscan-header asr-admin-header">' . NL
 		. '<div class="allscan-brand"><a class="allscan-brand-main" href="' . $urlbase . '/" aria-label="Return to main AllScan page"><div class="allscan-wordmark">'
-		. '<strong class="allscan-wordmark-mark"><span class="allscan-wordmark-silver allscan-wordmark-all">All</span>'
-		. '<span class="allscan-wordmark-bolt-wrap" aria-hidden="true"><img class="allscan-wordmark-bolt" src="' . $urlbase . '/bolt-test-tight.png" alt=""></span>'
-		. '<span class="allscan-wordmark-silver allscan-wordmark-can">can</span></strong>'
-		. '<span class="allscan-tagline font-georgia">Reimagined</span>'
+		. '<strong class="allscan-wordmark-mark"><span class="allscan-wordmark-silver allscan-wordmark-all">All</span><span class="allscan-wordmark-bolt-wrap" aria-hidden="true"><img class="allscan-wordmark-bolt" src="' . $urlbase . '/bolt-test-tight.png" alt=""></span><span class="allscan-wordmark-silver allscan-wordmark-can">can</span></strong>'
+		. '<span class="allscan-tagline">Reimagined</span>'
 		. '<small class="allscan-brand-version">' . $versionLabel . '</small>'
 		. ($brandByline ? '<span class="allscan-byline">' . $brandByline . '</span>' : '')
 		. '</div></a></div>' . NL
-		. '<div class="allscan-header-center"><img class="allscan-header-ke7wil-logo" src="' . $headerLogo . '" alt="Header logo">'
+		. '<div class="allscan-header-center"><a class="allscan-header-logo-link" href="' . $urlbase . '/" aria-label="Return to main AllScan page"><img class="allscan-header-ke7wil-logo" src="' . $headerLogo . '" alt="Header logo"></a>'
 		. '<h1 class="allscan-title">' . htmlspecial($nodeTitle) . '</h1>'
 		. '<div class="allscan-cpu"><span class="allscan-meta-label">CPU Temp:</span><b class="allscan-cpu-pill" style="background-color:' . htmlattr($cpuBg) . ';">' . htmlspecial($cpuTemp) . '</b></div>'
 		. '<div class="allscan-clockline"><span><span class="allscan-meta-label">Local</span> ' . date('g:i:s A') . '</span>'
 		. '<span><span class="allscan-meta-label">UTC</span> ' . gmdate('G:i:s') . '</span></div></div>' . NL
 		. $menuHtml . NL
-		. '</header>' . NL . BR;
+		. '</header>' . NL
+		. '<script>function asrAdminCloseMenu(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");var btn=wrap&&wrap.querySelector(".allscan-menu-button");if(panel){panel.setAttribute("hidden","");panel.style.display="none";panel.classList.remove("has-active-submenu")}if(btn)btn.setAttribute("aria-expanded","false");if(wrap)wrap.classList.remove("is-open")}function asrAdminClearSubmenus(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!wrap||!panel)return;wrap.querySelectorAll(".allscan-menu-proxy-row").forEach(function(button){button.classList.remove("is-active");button.setAttribute("aria-expanded","false")});wrap.querySelectorAll(".allscan-submenu").forEach(function(menu){menu.classList.remove("is-open")});panel.classList.remove("has-active-submenu")}function asrAdminToggleMenu(btn){var wrap=btn.closest(".asr-admin-menu");var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!panel)return;var open=panel.hasAttribute("hidden");if(open){panel.removeAttribute("hidden");panel.style.display="block";wrap.classList.add("is-open");btn.setAttribute("aria-expanded","true")}else{asrAdminCloseMenu(wrap)}}document.addEventListener("click",function(e){var row=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-menu-proxy-row");if(row){var key=row.getAttribute("data-submenu");if(!key)return;e.preventDefault();e.stopPropagation();var wrap=row.closest(".asr-admin-menu");var panel=wrap.querySelector(".asr-admin-menu-panel");var active=row.classList.contains("is-active");asrAdminClearSubmenus(wrap);if(!active){row.classList.add("is-active");row.setAttribute("aria-expanded","true");var submenu=wrap.querySelector(".allscan-submenu-"+key);if(submenu)submenu.classList.add("is-open");if(panel)panel.classList.add("has-active-submenu")}return}var back=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-submenu-back");if(back){e.preventDefault();e.stopPropagation();asrAdminClearSubmenus(back.closest(".asr-admin-menu"));return}document.querySelectorAll(".asr-admin-menu.is-open").forEach(function(wrap){if(wrap.contains(e.target))return;asrAdminCloseMenu(wrap)})});</script>' . NL . BR;
+}
+
+function asrAdminHeaderMenu($showHdrLinks=true) {
+	global $html, $urlbase, $amicfg, $msg, $subdir;
+	if(!isset($amicfg->node))
+		getAmiCfg($msg);
+	$node = trim($amicfg->node ?? '');
+	$resources = [
+		'<a role="menuitem" href="https://allscan.info/" target="_blank" rel="noreferrer">AllScan.info</a>',
+		'<a role="menuitem" href="https://github.com/ke7wil-bridge/allscan-reimagined#updates" target="_blank" rel="noreferrer">Updates</a>',
+		'<a role="menuitem" href="https://github.com/davidgsd/AllScan#allscan" target="_blank" rel="noreferrer">Original AllScan</a>',
+		'<a role="menuitem" href="https://www.allstarlink.org/" target="_blank" rel="noreferrer">AllStarLink.org</a>',
+		'<a role="menuitem" href="http://stats.allstarlink.org/stats/keyed" target="_blank" rel="noreferrer">Keyed Nodes</a>',
+		'<a role="menuitem" href="https://community.allstarlink.org/" target="_blank" rel="noreferrer">ASL Forum</a>',
+		'<a role="menuitem" href="https://www.facebook.com/groups/allscan" target="_blank" rel="noreferrer">AllScan FB</a>',
+		'<a role="menuitem" href="https://www.eham.net/" target="_blank" rel="noreferrer">eHam.net</a>',
+	];
+	$loggedIn = isset($GLOBALS['user']->user_id) && validDbID($GLOBALS['user']->user_id);
+	$isAdmin = $loggedIn && adminUser();
+	$admin = [
+		$html->a("$urlbase/user/settings/", null, 'Settings'),
+		$html->a("$urlbase/asr-settings/", null, 'Reimagined Settings'),
+		$html->a("$urlbase/performance/", null, 'Performance Stats'),
+		$html->a("$urlbase/user/", null, 'Users'),
+		$html->a("$urlbase/cfg/", null, 'Configs'),
+	];
+	if($node !== '')
+		$admin[] = '<a role="menuitem" href="http://stats.allstarlink.org/stats/' . htmlattr($node) . '" target="_blank" rel="noreferrer">Node Status</a>';
+	if(!$loggedIn) {
+		$admin[] = $html->a("$urlbase/user/", null, 'Login');
+	}
+	$returnMainPages = ['cfg', 'user', 'user/settings', 'lookup', 'echolink-lookup', 'asr-settings', 'performance'];
+	$showReturnMain = $loggedIn && in_array($subdir, $returnMainPages, true);
+	$returnMain = $showReturnMain
+		? '<a class="asr-admin-return-main" href="' . $urlbase . '/">Return to Main Page</a>'
+		: '';
+	$returnMainMenu = $showReturnMain
+		? '<a class="allscan-menu-proxy-row allscan-menu-direct-row asr-admin-menu-main-row" role="menuitem" href="' . $urlbase . '/"><span>Main Page</span></a>'
+		: '';
+	$reportBugMenu = $isAdmin
+		? '<a class="allscan-menu-proxy-row asr-admin-report-bug-row" role="menuitem" href="' . $urlbase . '/?reportBug=1"><span>Report a Bug</span></a>'
+		: '';
+	$logoutMenu = $loggedIn
+		? '<a class="allscan-menu-proxy-row asr-admin-logout-row" role="menuitem" href="' . $urlbase . '/user/?logout=1"><span>Logout</span></a>'
+		: '';
+	return '<div class="allscan-menu-slot asr-admin-menu"><button type="button" class="allscan-menu-button" aria-haspopup="menu" aria-expanded="false" onclick="asrAdminToggleMenu(this)"><span class="allscan-menu-desktop">Menu <span class="asr-admin-menu-caret" aria-hidden="true">⌄</span></span><span class="allscan-menu-mobile">☰</span></button>'
+		. '<div class="allscan-menu-panel asr-admin-menu-panel" role="menu" hidden style="display:none">'
+		. '<div class="allscan-menu-proxy-list">'
+		. $returnMainMenu
+		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="admin" aria-expanded="false"><span>Admin</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
+		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="resources" aria-expanded="false"><span>Resources</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
+		. '<a class="allscan-menu-proxy-row allscan-menu-direct-row" role="menuitem" href="' . $urlbase . '/lookup/"><span>Lookup</span></a>'
+		. $reportBugMenu
+		. $logoutMenu
+		. '</div>'
+		. '<button type="button" class="allscan-submenu-back"><span class="allscan-submenu-back-icon" aria-hidden="true">‹</span><span>Menu</span></button>'
+		. '<div class="allscan-submenu allscan-submenu-resources">' . implode(NL, $resources) . '</div>'
+		. '<div class="allscan-submenu allscan-submenu-admin">' . implode(NL, array_map('asrAdminMenuItem', $admin)) . '</div>'
+		. '</div>' . $returnMain . '</div>';
 }
 
 function asrAdminRuntimeConfig() {
@@ -145,9 +219,8 @@ function asrAdminRuntimeConfig() {
 	$file = '/etc/allscan-reimagined/config.json';
 	$data = is_readable($file) ? json_decode(file_get_contents($file), true) : [];
 	$runtime = is_array($data) ? $data : [];
-	$runtime['versionLabel'] = 'v1.0.0 Beta 4';
-	if(empty($runtime['brandByline']))
-		$runtime['brandByline'] = 'by KE7WIL';
+	$runtime['versionLabel'] = ASR_REIMAGINED_VERSION_LABEL;
+	$runtime['brandByline'] = 'by KE7WIL';
 	if(empty($runtime['footerByline']))
 		$runtime['footerByline'] = 'customized by KE7WIL';
 	return $runtime;
@@ -155,13 +228,13 @@ function asrAdminRuntimeConfig() {
 
 function asrAdminTitle($title) {
 	$runtime = asrAdminRuntimeConfig();
-	if(!empty($runtime['headerTitle']))
-		return $runtime['headerTitle'];
 	global $gCfg, $amicfg, $msg;
 	if(!isset($amicfg->node))
 		getAmiCfg($msg);
 	$call = trim($gCfg[call] ?? '');
 	$node = trim($amicfg->node ?? ($gCfg[nodenum] ?? ''));
+	if(!empty($runtime['headerTitle']))
+		return str_replace(['{CALLSIGN}', '{NODE}'], [$call ?: 'AllScan', $node], $runtime['headerTitle']);
 	if($call && $node)
 		return "$call | Node $node";
 	return $title;
@@ -169,13 +242,13 @@ function asrAdminTitle($title) {
 
 function asrAdminDocumentTitle($title) {
 	$runtime = asrAdminRuntimeConfig();
-	if(!empty($runtime['browserTitle']))
-		return $runtime['browserTitle'];
 	global $gCfg, $amicfg, $msg;
 	if(!isset($amicfg->node))
 		getAmiCfg($msg);
 	$call = trim($gCfg[call] ?? '');
 	$node = trim($amicfg->node ?? ($gCfg[nodenum] ?? ''));
+	if(!empty($runtime['browserTitle']))
+		return str_replace(['{CALLSIGN}', '{NODE}'], [$call ?: 'AllScan', $node], $runtime['browserTitle']);
 	if($call && $node)
 		return "$call - $node | ASR";
 	return $title;
@@ -190,6 +263,15 @@ function asrAdminBodyClass() {
 		$classes[] = 'asr-admin-page-users';
 	} elseif($subdir === 'user/settings') {
 		$classes[] = 'asr-admin-page-settings';
+	} elseif($subdir === 'asr-settings') {
+		$classes[] = 'asr-admin-page-reimagined';
+	} elseif($subdir === 'performance') {
+		$classes[] = 'asr-admin-page-performance';
+	} elseif($subdir === 'lookup') {
+		$classes[] = 'asr-admin-page-lookup';
+	} elseif($subdir === 'echolink-lookup') {
+		$classes[] = 'asr-admin-page-lookup';
+		$classes[] = 'asr-admin-page-echolink-lookup';
 	}
 	return implode(' ', $classes);
 }
@@ -224,9 +306,12 @@ function checkTitleCfgs() {
 	if(!isset($amicfg->node))
 		getAmiCfg($msg);
 	$node = $amicfg->node;
+	$call = $desc = $loc = '';
 	if($node && is_numeric($node)) {
 		if(empty($astdb))
 			$astdb = readAstDb($msg);
+		if(!is_array($astdb))
+			$astdb = [];
 		if(array_key_exists($node, $astdb))
 			list($x, $call, $desc, $loc) = $astdb[$node];
 		if(empty($gCfg[call]) && $call)
@@ -240,23 +325,37 @@ function checkTitleCfgs() {
 }
 
 function getHdrLinks() {
-	global $html, $urlbase, $user;
+	global $html, $urlbase, $user, $amicfg, $msg;
 	$lnk = [];
 	if(isset($user->user_id) && validDbID($user->user_id)) {
-		// Show links to Cfg and User modules if Admin user
+		$url = "$urlbase/user/settings/";
+		$title = 'Settings';
+		$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+		// Keep the legacy admin links in the same order as the shared Admin menu.
 		if(adminUser()) {
-			$url = "$urlbase/cfg/";
-			$title = 'Cfgs';
+			$url = "$urlbase/asr-settings/";
+			$title = 'Reimagined Settings';
+			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+			$url = "$urlbase/performance/";
+			$title = 'Performance Stats';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
 			$url = "$urlbase/user/";
 			$title = 'Users';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$lnk[] = 'Reimagined Settings (Header, Logo, Bridges - Coming Soon)';
+			$url = "$urlbase/cfg/";
+			$title = 'Configs';
+			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+			if(!isset($amicfg->node))
+				getAmiCfg($msg);
+			$node = trim($amicfg->node ?? '');
+			if($node !== '')
+				$lnk[] = '<a href="http://stats.allstarlink.org/stats/' . htmlattr($node) . '" target="_blank" rel="noreferrer">Node Status</a>';
 		}
-		// Show Settings & Logout links
-		$url = "$urlbase/user/settings/";
-		$title = 'Settings';
+		$url = "$urlbase/lookup/";
+		$title = 'Lookup';
 		$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+		if(adminUser())
+			$lnk[] = $html->a("$urlbase/", ['reportBug'=>1], 'Report a Bug');
 		$lnk[] = $html->a("$urlbase/user/", ['logout'=>1], 'Logout');
 	} else {
 		// Show Login link
@@ -308,14 +407,14 @@ function getAmiCfg(&$msg) {
 				$nnums[] = $m[1];
 		}
 		if(!count($nnums)) {
-			$msg[] = "No valid nodes found in $f. Check file or set Node Number parameter on Cfgs Tab.";
+			$msg[] = "No valid nodes found in $f. Check file or set Node Number parameter on Configs Tab.";
 			return false;
 		}
 		$msg[] = "rpt.conf node #s: " . implode(', ', $nnums);
 		$amicfg->node = $nnums[0];
 		if(count($nnums) > 1)
 			$msg[] = "AllScan uses the first node# found in rpt.conf. To use a different node#<br>"
-					."reorder the node stanzas in rpt.conf or set the Node Number parameter on the Cfgs Tab.";
+					."reorder the node stanzas in rpt.conf or set the Node Number parameter on the Configs Tab.";
 	}
 	// Read AMI info from manager.conf
 	$f = '/etc/asterisk/manager.conf';
@@ -341,7 +440,7 @@ function getAmiCfg(&$msg) {
 	if( empty($amicfg->host) || empty($amicfg->port) ||
 		empty($amicfg->user) || empty($amicfg->pass) ) {
 		$msg[] = "Valid Asterisk Manager (AMI) definitions not found in $f.<br>"
-				."Run asl-menu to configure AMI credentials, or set AMI parameters on Cfgs Tab";
+				."Run asl-menu to configure AMI credentials, or set AMI parameters on Configs Tab";
 		return false;
 	}
 	return true;
@@ -416,7 +515,9 @@ function readAstDb2() {
 	}
 	arsort($mtime, SORT_NUMERIC);
 	if(!reset($mtime)) {
-		return false;
+		$astdb = [];
+		readAsDb($astdb);
+		return count($astdb) ? $astdb : false;
 	}
 	$keys = array_keys($mtime);
 	$file = $astdbtxt[$keys[0]];

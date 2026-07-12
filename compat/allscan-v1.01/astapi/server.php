@@ -36,12 +36,21 @@ $astdb = readAstDb2();
 
 $node = $passedNodes[0];
 if($node != $amicfg->node) {
-	statErr("Node $node not in AMI Cfgs");
+	statErr("Node $node not in AMI Configs");
 	exit();
 }
 
 // Do not time out
 set_time_limit(0);
+
+$sharedDir = '/run/allscan-reimagined';
+$sharedLock = $sharedDir . '/astapi-' . $node . '.lock';
+$sharedCache = $sharedDir . '/astapi-' . $node . '.json';
+$sharedHandle = is_dir($sharedDir) ? @fopen($sharedLock, 'c') : false;
+$sharedLeader = $sharedHandle !== false && @flock($sharedHandle, LOCK_EX | LOCK_NB);
+if($sharedHandle !== false && !$sharedLeader) {
+	$sharedLeader = streamSharedStatus($sharedHandle, $sharedCache);
+}
 
 $ami = new AMI();
 $fp = [];
@@ -54,7 +63,7 @@ $port = $amicfg->port;
 $s = "Connecting to Asterisk Manager $node $host:$port...";
 $fp[$node] = $ami->connect($host, $port);
 if($fp[$node] === false) {
-	statErr($s . 'Failed. Check AMI host/port Cfgs.');
+	statErr($s . 'Failed. Check AMI host/port Configs.');
 	exit();
 }
 
@@ -63,7 +72,7 @@ if($ami->login($fp[$node], $amicfg->user, $amicfg->pass) !== false) {
 	statMsg($s . 'Login OK');
 } else {
 	unset($fp[$node]);
-	statErr($s . 'Login Failed. Check AMI Cfgs.');
+	statErr($s . 'Login Failed. Check AMI Configs.');
 	exit();
 }
 
@@ -79,6 +88,7 @@ statMsg($s);
 $current = [];
 $saved = [];
 $nodeTime = [];
+$timeCycle = 0;
 //$n = 0;
 while(!empty($fp[$node])) {
 	$connectedNodes = getNode($fp[$node], $node);
@@ -116,16 +126,25 @@ while(!empty($fp[$node])) {
 		$i++;
 	}
 	// Send current nodes only when data changes
-	if($current !== $saved) {
+	$nodesChanged = $current !== $saved;
+	if($nodesChanged) {
 		sendData($current, 'nodes');
 		// if($n++ == 5)
 		//	logToFile($current, 'log.txt');
 		$saved = $current;
 	}
-	// Send times every cycle
-	sendData($nodeTime, 'nodetimes');
-	// Wait 500mS
-	usleep(500000);
+	$sendTimes = $timeCycle === 0 || $timeCycle >= 5;
+	if($sendTimes) {
+		sendData($nodeTime, 'nodetimes');
+		$timeCycle = 1;
+	} else {
+		$timeCycle++;
+	}
+	if($sharedLeader && ($nodesChanged || $sendTimes))
+		writeSharedStatus($sharedCache, $current, $nodeTime);
+	if(connection_aborted())
+		break;
+	usleep(asrPollDelayUs());
 }
 
 exit();
@@ -206,6 +225,75 @@ function sendData($data, $event='errMsg') {
 	echo 'data: ' . json_encode($data) . "\n\n";
 	ob_flush();
 	flush();
+}
+
+function writeSharedStatus($path, $current, $nodeTime) {
+	$payload = json_encode([
+		'updated' => microtime(true),
+		'current' => $current,
+		'nodeTime' => $nodeTime,
+	]);
+	if($payload === false)
+		return;
+	$tmp = $path . '.' . getmypid() . '.tmp';
+	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false)
+		@rename($tmp, $path);
+	else
+		@unlink($tmp);
+}
+
+function streamSharedStatus($lockHandle, $cachePath) {
+	$lastUpdate = '';
+	$lastCurrent = '';
+	sendData(['status' => 'Shared Asterisk status feed connected'], 'connection');
+	while(true) {
+		$payload = [];
+		if(is_readable($cachePath)) {
+			$payload = json_decode((string) @file_get_contents($cachePath), true);
+			if(!is_array($payload))
+				$payload = [];
+		}
+		$updated = isset($payload['updated']) ? (string) $payload['updated'] : '';
+		if($updated !== '' && $updated !== $lastUpdate) {
+			$currentHash = md5(json_encode($payload['current'] ?? []));
+			if($currentHash !== $lastCurrent) {
+				sendData($payload['current'] ?? [], 'nodes');
+				$lastCurrent = $currentHash;
+			}
+			sendData($payload['nodeTime'] ?? [], 'nodetimes');
+			$lastUpdate = $updated;
+		}
+		if(connection_aborted())
+			exit();
+
+		$cacheAge = is_file($cachePath) ? time() - (int) @filemtime($cachePath) : 99;
+		if($cacheAge > 3 && @flock($lockHandle, LOCK_EX | LOCK_NB))
+			return true;
+		usleep(250000);
+	}
+}
+
+function asrPollDelayUs() {
+	static $checked = 0;
+	static $delay = 1000000;
+	$now = time();
+	if($now - $checked < 10)
+		return $delay;
+	$checked = $now;
+	$lowPower = false;
+	$configFile = '/etc/allscan-reimagined/config.json';
+	if(is_readable($configFile)) {
+		$config = json_decode((string) @file_get_contents($configFile), true);
+		$lowPower = is_array($config) && !empty($config['lowPowerMode']);
+	}
+	$delay = $lowPower ? 1250000 : 1000000;
+	$load = sys_getloadavg();
+	$temp = is_readable('/sys/class/thermal/thermal_zone0/temp')
+		? ((int) @file_get_contents('/sys/class/thermal/thermal_zone0/temp')) / 1000
+		: 0;
+	if((is_array($load) && ($load[0] ?? 0) >= 4.0) || $temp >= 75)
+		$delay = 2000000;
+	return $delay;
 }
 
 function sortNodes($nodes) {

@@ -6,32 +6,21 @@ AllScan Reimagined is customized by KE7WIL.
 
 ## Install
 
-Download the current release archive from the GitHub release page, then run the installer as root on the AllStar node.
-
-For v1.0.0 Beta 4:
+Download the current release archive and its published SHA-256 checksum from the GitHub release page. Verify and extract the archive, then run the installer directly in an interactive root shell on the AllStar node:
 
 ```bash
-bash <<'ASR'
 set -e
 
-url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.4/allscan-reimagined-1.0.0-beta.4.tar.gz"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.4.tar.gz"
-stage="/tmp/allscan-reimagined-install-beta4"
-sum="5af5ce9ae06552b1ca86fc519abc376779a16e497208276ad810e8db314543bb"
+pkg="allscan-reimagined-1.0.0-beta.5.tar.gz"
+sum="PASTE_THE_PUBLISHED_SHA256_HERE"
 
-rm -rf "$stage"
-curl -fL "$url" -o "$pkg"
 echo "$sum  $pkg" | sha256sum -c -
-
-mkdir -p "$stage"
-tar -xzf "$pkg" -C "$stage"
-
-cd "$stage/allscan-reimagined-1.0.0-beta.4"
-./install.sh
-ASR
+tar -xzf "$pkg"
+cd allscan-reimagined-1.0.0-beta.5
+bash ./install.sh
 ```
 
-This command verifies the release archive before installing.
+Do not run the final installer through a heredoc or other non-interactive wrapper. When the official AllScan backend needs an update, both installers require an interactive terminal.
 
 ## Setup Prompts
 
@@ -51,9 +40,7 @@ The browser tab title is set automatically from the header title:
 Header title | ASR
 ```
 
-Press Enter/Return at the logo prompt to use the default ASR logo. That is the recommended choice for beta testing.
-
-Custom logo support is prepared for PNG, JPEG, and WebP images. The current beta accepts a logo file path on the node. A friendlier Reimagined Settings page for uploading a logo from your desktop is planned for the Admin menu.
+Press Enter/Return at the logo prompt to use the default ASR logo. After installation, **Admin → Reimagined Settings** can change the header title, upload a PNG, JPEG, or WebP header logo under 1 MB, configure up to eight bridge cards and optional client sources, maintain friendly bridge names, save QRZ XML credentials, and control whether login is required.
 
 The Reimagined credit remains:
 
@@ -62,7 +49,7 @@ by KE7WIL
 customized by KE7WIL
 ```
 
-The planned Reimagined Settings page will also support changing the header title and enabling or disabling bridge cards.
+Only the top header logo is customizable. The footer always uses the ASR logo.
 
 If bridge services are detected, the installer reviews the bridge card node numbers before saving them. Press Enter/Return to accept a detected node number, type a corrected node number, or type `none` to hide that bridge card.
 
@@ -80,6 +67,8 @@ To update AllScan Reimagined, install the latest Reimagined release. The install
 8. Verifies the page and runtime configuration before reporting success.
 
 If the official AllScan backend is already current, the official updater is skipped.
+
+After a successful interactive installation, ASR offers to retain the newest 10 rollback backups under `/root/allscan-reimagined-backups/` and remove older timestamped backups. The cleanup is skipped in non-interactive shells. Set `ASR_BACKUP_RETENTION` to a different positive number when running `bash ./install.sh` if the node needs a different retention policy.
 
 ## Personal Configuration
 
@@ -104,6 +93,10 @@ Rerun personalization without reinstalling:
 
 Back up `/etc/allscan-reimagined/config.json` before forced reconfiguration if the node has hand-tuned bridge mappings.
 
+### Smaller-node performance
+
+The Access section includes **Low-Power Node Mode**. It reduces bridge and temperature refresh frequency, disables animated themes, uses adaptive Asterisk polling, and keeps transient status caches in RAM. The admin-only **Performance Stats** page shows load, temperature, memory, disk use, request activity, active viewers, and ASR timer state without reloading the page.
+
 ## Accounts and Secrets
 
 AllScan's account database remains local to each node at:
@@ -126,6 +119,11 @@ The release archive and SHA-256 checksum are written under:
 ```text
 release/
 ```
+
+## Documentation
+
+- [Beta 5 release notes](docs/beta-5-release-notes.md)
+- [Lookup page and station origin map](docs/lookup-map.md)
 
 ## Original AllScan
 

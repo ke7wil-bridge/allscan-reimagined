@@ -292,6 +292,8 @@ done < <(json_bridge_ids)
 [ -s "$bridge_file" ] || echo "No bridges detected; bridge cards will be hidden."
 
 mkdir -p "$CONFIG_DIR"
+chown "root:$WEB_GROUP" "$CONFIG_DIR"
+chmod 775 "$CONFIG_DIR"
 export ASR_NODE="$node" ASR_CALLSIGN="$callsign" ASR_HEADER_TITLE="$header_title"
 export ASR_BROWSER_TITLE="$browser_title" ASR_BRAND_BYLINE="$brand_byline"
 export ASR_FOOTER_BYLINE="$footer_byline" ASR_LOGO_URL="$logo_url" ASR_BRIDGE_FILE="$bridge_file"
@@ -312,14 +314,16 @@ $config = [
     'brandByline' => getenv('ASR_BRAND_BYLINE'),
     'footerByline' => getenv('ASR_FOOTER_BYLINE'),
     'headerLogo' => getenv('ASR_LOGO_URL'),
-    'footerLogo' => getenv('ASR_LOGO_URL'),
+    'footerLogo' => '/allscan/asr-logo-bright-r-tight.png',
+    'maintainFriendlyNames' => false,
+    'lowPowerMode' => false,
     'bridges' => $bridges,
 ];
 echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
 PHP
 
 php -r 'json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);' "$CONFIG_FILE.tmp"
-install -o root -g "$WEB_GROUP" -m 640 "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+install -o root -g "$WEB_GROUP" -m 664 "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 rm -f "$CONFIG_FILE.tmp"
 
 echo
