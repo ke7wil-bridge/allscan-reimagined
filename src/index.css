@@ -2094,6 +2094,19 @@ html[data-asr-theme] .allscan-favorites-table tbody td a {
 
 /* Standard Light overrides. */
 
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-lookup-main-button {
+  background: var(--theme-control);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-lookup-main-button:hover,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-lookup-main-button:focus-visible {
+  background: var(--theme-panel-2);
+  border-color: var(--theme-border-strong);
+  color: var(--theme-text);
+}
+
 html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-wordmark-silver {
   background: linear-gradient(180deg, #030405 0%, #30363a 22%, #07090a 46%, #4a5257 68%, #050607 100%);
   -webkit-background-clip: text;
@@ -2141,6 +2154,7 @@ html[data-asr-theme="deep-ocean-animated"] .allscan-footer {
 }
 
 html[data-asr-theme="deep-ocean-animated"] .allscan-action-button,
+html[data-asr-theme="deep-ocean-animated"] .allscan-lookup-main-button,
 html[data-asr-theme="deep-ocean-animated"] .allscan-favs-button,
 html[data-asr-theme="deep-ocean-animated"] .allscan-action-select,
 html[data-asr-theme="deep-ocean-animated"] .allscan-favorites-file-form select {
@@ -2205,6 +2219,7 @@ html[data-asr-theme="matrix"] .allscan-footer {
 }
 
 html[data-asr-theme="matrix"] .allscan-action-button,
+html[data-asr-theme="matrix"] .allscan-lookup-main-button,
 html[data-asr-theme="matrix"] .allscan-favs-button,
 html[data-asr-theme="matrix"] .allscan-action-select,
 html[data-asr-theme="matrix"] .allscan-favorites-file-form select {
