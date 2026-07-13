@@ -771,28 +771,6 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [config.node])
 
   useEffect(() => {
-    const increment = (value: string) => {
-      if (!/^\d{2,}:\d{2}:\d{2}$/.test(value)) return value
-      const parts = value.split(':').map(Number)
-      const total = parts[0] * 3600 + parts[1] * 60 + parts[2] + 1
-      return `${String(Math.floor(total / 3600)).padStart(2, '0')}:${String(Math.floor(total / 60) % 60).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-    }
-    const timer = window.setInterval(() => {
-      if (document.hidden) return
-      setRows((current) => {
-        const next = current.map((row, index) => index === 0 ? row : {
-          ...row,
-          received: row.state === 'talking' ? '00:00:00' : increment(row.received),
-          connected: increment(row.connected),
-        })
-        connectionRowsRef.current = next
-        return next
-      })
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  useEffect(() => {
     let cancelled = false
 
     const refreshCpu = async () => {

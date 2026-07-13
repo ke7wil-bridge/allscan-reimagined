@@ -88,7 +88,6 @@ statMsg($s);
 $current = [];
 $saved = [];
 $nodeTime = [];
-$timeCycle = 0;
 //$n = 0;
 while(!empty($fp[$node])) {
 	$connectedNodes = getNode($fp[$node], $node);
@@ -133,18 +132,14 @@ while(!empty($fp[$node])) {
 		//	logToFile($current, 'log.txt');
 		$saved = $current;
 	}
-	$sendTimes = $timeCycle === 0 || $timeCycle >= 5;
-	if($sendTimes) {
-		sendData($nodeTime, 'nodetimes');
-		$timeCycle = 1;
-	} else {
-		$timeCycle++;
-	}
-	if($sharedLeader && ($nodesChanged || $sendTimes))
+	// Keep displayed timers authoritative. This event is lightweight; the
+	// adaptive AMI polling delay and shared feed still provide the load savings.
+	sendData($nodeTime, 'nodetimes');
+	if($sharedLeader)
 		writeSharedStatus($sharedCache, $current, $nodeTime);
 	if(connection_aborted())
 		break;
-	usleep(asrPollDelayUs());
+	usleep(asrPollDelayUs($current, $node));
 }
 
 exit();
@@ -273,9 +268,22 @@ function streamSharedStatus($lockHandle, $cachePath) {
 	}
 }
 
-function asrPollDelayUs() {
+function asrPollDelayUs($current = [], $node = '') {
 	static $checked = 0;
 	static $delay = 1000000;
+	static $activityUntil = 0.0;
+	$nowFloat = microtime(true);
+	$rows = $current[$node]['remote_nodes'] ?? [];
+	foreach($rows as $row) {
+		if(($row['keyed'] ?? '') === 'yes' || !empty($row['cos_keyed']) || !empty($row['tx_keyed'])) {
+			$activityUntil = $nowFloat + 3.0;
+			break;
+		}
+	}
+	// David's AllScan polls SawStat every 500mS. Keep that cadence during
+	// activity and briefly after unkey so short drop/rekey transitions are seen.
+	if($nowFloat < $activityUntil)
+		return 500000;
 	$now = time();
 	if($now - $checked < 10)
 		return $delay;

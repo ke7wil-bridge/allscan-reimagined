@@ -35,7 +35,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5.2',
+  versionLabel: 'v1.0.0 Beta 5.3',
   lowPowerMode: false,
   bridges: [],
 }
@@ -236,6 +236,18 @@ function toModeLabel(mode: string) {
   return mode || ''
 }
 
+function normalizeFeedTime(value: string | undefined, fallback = '') {
+  const text = String(value ?? '')
+  const marker = text.trim().toLowerCase()
+  if (
+    marker === '&nbsp;'
+    || marker === '&#160;'
+    || marker === '&#xa0;'
+    || (marker === '' && text.includes('\u00a0'))
+  ) return fallback
+  return text
+}
+
 function buildLocalRow(node: string, remoteNodes: FeedNode[]): LiveConnectionRow {
   let cosKeyed = 0
   let txKeyed = 0
@@ -299,9 +311,9 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
     remoteRows.push({
       node,
       info,
-      received: row.last_keyed || '',
+      received: normalizeFeedTime(row.last_keyed),
       direction: row.direction || '',
-      connected: row.elapsed || '',
+      connected: normalizeFeedTime(row.elapsed),
       mode: toModeLabel(row.mode),
       state: liveBridgeRowState(row.keyed, row.mode),
       sourceIndex: index,
@@ -347,12 +359,28 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
 
     return {
       ...row,
-      received: update.last_keyed || row.received,
-      connected: update.elapsed || row.connected,
+      received: normalizeFeedTime(update.last_keyed, row.received),
+      connected: normalizeFeedTime(update.elapsed, row.connected),
     }
   })
 
   return { ...snapshot, rows: nextRows }
+}
+
+function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSnapshot): ConnectionSnapshot {
+  const previousByNode = new Map(previous.rows.map((row) => [row.node, row]))
+  return {
+    ...next,
+    rows: next.rows.map((row) => {
+      const oldRow = previousByNode.get(row.node)
+      if (!oldRow) return row
+      return {
+        ...row,
+        received: row.received || oldRow.received,
+        connected: row.connected || oldRow.connected,
+      }
+    }),
+  }
 }
 
 export function subscribeConnectionFeed(
@@ -397,7 +425,10 @@ export function subscribeConnectionFeed(
     if (share) channel?.postMessage({ eventName, rawData })
     if (eventName === 'nodes') {
       resetReconnectDelay()
-      const next = buildSnapshot(JSON.parse(rawData) as FeedPayload, bridgeNodes)
+      const next = preserveSnapshotTimes(
+        snapshot,
+        buildSnapshot(JSON.parse(rawData) as FeedPayload, bridgeNodes),
+      )
       snapshot = next
       onSnapshot(next)
     } else if (eventName === 'nodetimes') {

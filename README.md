@@ -11,12 +11,12 @@ Download the current release archive and its published SHA-256 checksum from the
 ```bash
 set -e
 
-pkg="allscan-reimagined-1.0.0-beta.5.2.tar.gz"
+pkg="allscan-reimagined-1.0.0-beta.5.3.tar.gz"
 sum="PASTE_THE_PUBLISHED_SHA256_HERE"
 
 echo "$sum  $pkg" | sha256sum -c -
 tar -xzf "$pkg"
-cd allscan-reimagined-1.0.0-beta.5.2
+cd allscan-reimagined-1.0.0-beta.5.3
 bash ./install.sh
 ```
 
@@ -68,7 +68,7 @@ To update AllScan Reimagined, install the latest Reimagined release. The install
 
 If the official AllScan backend is already current, the official updater is skipped.
 
-After a successful interactive installation, ASR offers to retain the newest 10 rollback backups under `/root/allscan-reimagined-backups/` and remove older timestamped backups. The cleanup is skipped in non-interactive shells. Set `ASR_BACKUP_RETENTION` to a different positive number when running `bash ./install.sh` if the node needs a different retention policy.
+After a successful installation, ASR automatically retains the newest 10 rollback backups under `/root/allscan-reimagined-backups/` and removes older timestamped ASR backups. Set `ASR_BACKUP_RETENTION` to a different positive number when running `bash ./install.sh` if the node needs a different retention policy.
 
 ## Personal Configuration
 
