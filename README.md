@@ -11,12 +11,12 @@ Download the current release archive and its published SHA-256 checksum from the
 ```bash
 set -e
 
-pkg="allscan-reimagined-1.0.0-beta.5.tar.gz"
+pkg="allscan-reimagined-1.0.0-beta.5.1.tar.gz"
 sum="PASTE_THE_PUBLISHED_SHA256_HERE"
 
 echo "$sum  $pkg" | sha256sum -c -
 tar -xzf "$pkg"
-cd allscan-reimagined-1.0.0-beta.5
+cd allscan-reimagined-1.0.0-beta.5.1
 bash ./install.sh
 ```
 
@@ -122,7 +122,6 @@ release/
 
 ## Documentation
 
-- [Beta 5 release notes](docs/beta-5-release-notes.md)
 - [Lookup page and station origin map](docs/lookup-map.md)
 
 ## Original AllScan
