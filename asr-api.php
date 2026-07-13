@@ -8,7 +8,7 @@ const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.3';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.4';
 
 require_once __DIR__ . '/include/common.php';
 

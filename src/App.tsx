@@ -1720,7 +1720,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     {connectedCount > 0 ? (
                       <tr className="allscan-status-count-row border-b border-[rgba(255,255,255,.12)] text-[14px] leading-[19px] text-[#edf4f8]">
                         <td colSpan={6} className="px-4 py-[5px]">
-                          {connectedCount} total linked ({directCount} direct, {adjacentCount} adjacent)
+                          {connectedCount} nodes connected ({directCount} direct, {adjacentCount} adjacent)
                         </td>
                       </tr>
                     ) : null}
