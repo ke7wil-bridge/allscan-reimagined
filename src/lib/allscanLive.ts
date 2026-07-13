@@ -35,7 +35,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5.4',
+  versionLabel: 'v1.0.0 Beta 5.5',
   lowPowerMode: false,
   bridges: [],
 }
@@ -329,12 +329,15 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
 
   const localStatus = nodeData.remote_nodes.find((row) => String(row.node) === '1')
   const officialDirectCount = Number(localStatus?.num_alinks)
-  const officialAdjacentCount = Number(localStatus?.num_links)
   const hasOfficialDirectCount = String(localStatus?.num_alinks ?? '').trim() !== '' && Number.isFinite(officialDirectCount)
-  const hasOfficialAdjacentCount = String(localStatus?.num_links ?? '').trim() !== '' && Number.isFinite(officialAdjacentCount)
-  const connectedCount = remoteRows.length
   const directCount = hasOfficialDirectCount ? officialDirectCount : remoteRows.length
-  const adjacentCount = hasOfficialAdjacentCount ? officialAdjacentCount : 0
+  // RPT_NUMLINKS is not a reliable full-network total on every installed
+  // app_rpt version. LinkedNodes contains the propagated numeric topology;
+  // merge it with visible direct rows so named IAX/EchoLink clients are also
+  // counted without double-counting numeric direct nodes.
+  const allLinkedIds = new Set([...linkedNodes, ...remoteRows.map((row) => row.node).filter(Boolean)])
+  const connectedCount = Math.max(allLinkedIds.size, directCount)
+  const adjacentCount = Math.max(connectedCount - directCount, 0)
 
   return {
     rows: [buildLocalRow(nodeKey, nodeData.remote_nodes), ...detailRows],
