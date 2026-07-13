@@ -35,7 +35,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5.1',
+  versionLabel: 'v1.0.0 Beta 5.2',
   lowPowerMode: false,
   bridges: [],
 }
@@ -486,9 +486,24 @@ export function subscribeConnectionFeed(
     }
   }
 
+  const releaseForPageExit = () => {
+    if (!sharedMode) return
+    isLeader = false
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+    reconnectTimer = undefined
+    closeSource()
+    releaseLease()
+  }
+
+  const resumeAfterPageRestore = () => {
+    if (!stopped) checkLeadership()
+  }
+
   if (sharedMode) {
     checkLeadership()
     leaderTimer = window.setInterval(checkLeadership, 1000)
+    window.addEventListener('pagehide', releaseForPageExit)
+    window.addEventListener('pageshow', resumeAfterPageRestore)
   } else {
     isLeader = true
     connect()
@@ -498,6 +513,8 @@ export function subscribeConnectionFeed(
     stopped = true
     if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
     if (leaderTimer !== undefined) window.clearInterval(leaderTimer)
+    window.removeEventListener('pagehide', releaseForPageExit)
+    window.removeEventListener('pageshow', resumeAfterPageRestore)
     releaseLease()
     channel?.close()
     closeSource()
