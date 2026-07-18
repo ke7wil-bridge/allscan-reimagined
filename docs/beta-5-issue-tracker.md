@@ -8,6 +8,7 @@ The installer, authentication, Favorites, packaging, recovery, branding, connect
 
 Remaining release checks and final notes:
 
+- Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard.
 - The two noncritical admin-page mobile reviews are deferred to a patch or Beta 6.
 - D-Star follow-up on Thomas is deferred. It previously worked and is being repaired separately; ASR intentionally does not invent D-Star client rows without verified external talker data.
 - The unused QRZ API Key input was removed. QRZ XML map enrichment uses the saved QRZ username and password; any legacy stored key remains private and ignored.
@@ -32,6 +33,14 @@ For Beta 5, only the top header logo should be customizable. The footer must alw
 Do not treat the footer logo as node-specific configuration. Header logo uploads/configuration should not change the footer logo.
 
 ## High Priority
+
+### Bound companion TGIF collector resources after reconnect failures
+
+Labels: `beta 5`, `known issue`, `bridge clients`, `priority high`
+
+Verified KE7WIL failure: `connected-clients-daemon.service` grew to approximately 780 MB and 76 threads after repeated TGIF Socket.IO session errors, contributing to high CPU use and a 64 C system temperature.
+
+Beta 5.6 repairs only the known vulnerable reconnect loop, closes each failed client before retrying, preserves the original daemon, reapplies the repair during ASR integrity checks, and sets systemd `MemoryHigh=128M` and `MemoryMax=192M` safeguards. The installed collector remained active at 2 threads and approximately 40-52 MB during the post-install observation window.
 
 ### Run official AllScan updater with PHP for `/tmp noexec` systems
 

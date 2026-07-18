@@ -56,6 +56,7 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asterisk-read.sh" /usr/l
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-friendly-names.php" /usr/local/sbin/allscan-reimagined-friendly-names
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-clients.php" /usr/local/sbin/allscan-reimagined-bridge-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/local/sbin/allscan-reimagined-manager-perms
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
 chmod 775 "$CONFIG_DIR"
@@ -118,6 +119,18 @@ if [ "$bridge_count" -gt 0 ]; then
   systemctl enable --now allscan-reimagined-bridge-clients.timer >/dev/null 2>&1 || true
 else
   systemctl disable --now allscan-reimagined-bridge-clients.timer >/dev/null 2>&1 || true
+fi
+if systemctl list-unit-files connected-clients-daemon.service --no-legend 2>/dev/null | grep -q '^connected-clients-daemon\.service'; then
+  install -d -o root -g root -m 755 /etc/systemd/system/connected-clients-daemon.service.d
+  cat > /etc/systemd/system/connected-clients-daemon.service.d/asr-resource-guard.conf <<'EOF'
+[Service]
+MemoryHigh=128M
+MemoryMax=192M
+EOF
+  systemctl daemon-reload
+  if /usr/local/sbin/allscan-reimagined-patch-connected-clients; then
+    systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
+  fi
 fi
 if systemctl list-unit-files asl3-update-astdb.service --no-legend 2>/dev/null | grep -q '^asl3-update-astdb\.service'; then
   install -d -o root -g root -m 755 /etc/systemd/system/asl3-update-astdb.service.d

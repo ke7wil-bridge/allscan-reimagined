@@ -56,3 +56,10 @@ if [ "$needs_reapply" -eq 1 ]; then
   logger -t allscan-reimagined "Official AllScan replacement detected; restoring Reimagined overlay"
   /usr/local/sbin/allscan-reimagined-reapply
 fi
+
+if [ -x /usr/local/sbin/allscan-reimagined-patch-connected-clients ]; then
+  if /usr/local/sbin/allscan-reimagined-patch-connected-clients >/dev/null; then
+    logger -t allscan-reimagined "Repaired connected-clients TGIF reconnect cleanup"
+    systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
+  fi
+fi

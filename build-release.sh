@@ -45,6 +45,7 @@ install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
+install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
 cp -a compat/. "$STAGE/payload/compat/"
 find "$STAGE/payload/compat" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -delete
 install -m 755 install.sh "$STAGE/install.sh"
