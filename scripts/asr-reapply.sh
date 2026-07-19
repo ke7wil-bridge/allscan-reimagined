@@ -127,10 +127,40 @@ if systemctl list-unit-files connected-clients-daemon.service --no-legend 2>/dev
 MemoryHigh=128M
 MemoryMax=192M
 EOF
+  cat > /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.service <<'EOF'
+[Unit]
+Description=Perform scheduled maintenance restart of the companion connected-client collector
+After=network-online.target connected-clients-daemon.service
+ConditionPathExists=/usr/local/sbin/connected-clients-daemon.py
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart connected-clients-daemon.service
+EOF
+  cat > /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.timer <<'EOF'
+[Unit]
+Description=Schedule the companion connected-client collector maintenance restart
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+AccuracySec=1min
+RandomizedDelaySec=15min
+Persistent=true
+Unit=allscan-reimagined-connected-clients-maintenance.service
+
+[Install]
+WantedBy=timers.target
+EOF
   systemctl daemon-reload
+  systemctl enable --now allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
   if /usr/local/sbin/allscan-reimagined-patch-connected-clients; then
     systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
   fi
+else
+  systemctl disable --now allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.service
+  rm -f /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.timer
+  systemctl daemon-reload
 fi
 if systemctl list-unit-files asl3-update-astdb.service --no-legend 2>/dev/null | grep -q '^asl3-update-astdb\.service'; then
   install -d -o root -g root -m 755 /etc/systemd/system/asl3-update-astdb.service.d
