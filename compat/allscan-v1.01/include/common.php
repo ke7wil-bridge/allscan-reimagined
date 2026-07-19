@@ -2,7 +2,7 @@
 // AllScan main includes & common functions
 // Author: David Gleason - AllScan.info
 $AllScanVersion = "v1.01";
-define('ASR_REIMAGINED_VERSION_LABEL', 'v1.0.0 Beta 5.7');
+define('ASR_REIMAGINED_VERSION_LABEL', 'v1.0.0 Beta 5.8');
 require_once('Html.php');
 require_once('logUtils.php');
 require_once('timeUtils.php');

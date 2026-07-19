@@ -8,7 +8,7 @@ const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.7';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.8';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -120,7 +120,12 @@ function asr_detect_callsign(string $node): string {
 }
 
 function asr_lookup_node_label(string $node): string {
-    if ($node === '') return '';
+    $record = asr_lookup_node_record($node);
+    return $record ? implode(' ', array_values(array_filter($record, static fn (string $piece): bool => $piece !== ''))) : '';
+}
+
+function asr_lookup_node_record(string $node): array {
+    if ($node === '') return [];
 
     $files = [
         __DIR__ . '/astdb.txt',
@@ -135,17 +140,16 @@ function asr_lookup_node_label(string $node): string {
             $parts = explode('|', trim($line));
             if (($parts[0] ?? '') !== $node) continue;
             fclose($handle);
-            $pieces = array_values(array_filter(array_map('trim', [
-                (string) ($parts[1] ?? ''),
-                (string) ($parts[2] ?? ''),
-                (string) ($parts[3] ?? ''),
-            ]), static fn (string $piece): bool => $piece !== ''));
-            return implode(' ', $pieces);
+            return array_map('trim', [
+                'name' => (string) ($parts[1] ?? ''),
+                'desc' => (string) ($parts[2] ?? ''),
+                'location' => (string) ($parts[3] ?? ''),
+            ]);
         }
         fclose($handle);
     }
 
-    return '';
+    return [];
 }
 
 function asr_lookup_node_location(string $node): string {
@@ -891,6 +895,27 @@ function asr_parse_label(string $label, string $node): array {
     ];
 }
 
+function asr_format_favorite_label(array $record, string $node): string {
+    $prefix = trim((string) ($record['name'] ?? '') . ' ' . (string) ($record['desc'] ?? ''));
+    $location = trim((string) ($record['location'] ?? ''));
+    return trim($prefix . ($location !== '' ? ', ' . $location : '') . ' ' . $node);
+}
+
+function asr_favorite_display_data(string $label, string $node): array {
+    $normalized = trim(preg_replace('/\s+/', ' ', $label) ?: '');
+    $placeholder = $normalized === $node || $normalized === $node . ' ' . $node;
+    $record = asr_lookup_node_record($node);
+    if ($record) {
+        $resolvedLabel = asr_format_favorite_label($record, $node);
+        $legacyLabel = implode(' ', array_values(array_filter($record, static fn (string $piece): bool => $piece !== ''))) . ' ' . $node;
+        if ($placeholder || $normalized === $resolvedLabel || $normalized === $legacyLabel) {
+            return ['label' => $resolvedLabel] + $record;
+        }
+    }
+
+    return ['label' => $label] + asr_parse_label($label, $node);
+}
+
 function asr_favorites_payload(string $requested = ''): array {
     $selected = asr_safe_favorites_file($requested);
     $contents = is_readable($selected) ? (string) file_get_contents($selected) : '';
@@ -904,14 +929,14 @@ function asr_favorites_payload(string $requested = ''): array {
         if ($node === '' && preg_match('/\b([0-9]{3,7})\b\s*$/', $label, $match)) $node = $match[1];
         if ($node === '') continue;
 
-        $parts = asr_parse_label($label, $node);
+        $display = asr_favorite_display_data($label, $node);
         $rows[] = [
             'index' => (string) $index,
             'node' => $node,
-            'label' => $label,
-            'name' => $parts['name'],
-            'desc' => $parts['desc'],
-            'location' => $parts['location'],
+            'label' => (string) $display['label'],
+            'name' => (string) $display['name'],
+            'desc' => (string) $display['desc'],
+            'location' => (string) $display['location'],
             'rx' => '',
             'lcnt' => '',
             'href' => 'http://stats.allstarlink.org/stats/' . rawurlencode($node),
@@ -952,7 +977,9 @@ function asr_favorite_action(string $action, string $node, string $requested): a
     }
 
     if (!preg_match('/\bilink\s+\d+\s+' . preg_quote($node, '/') . '\b/i', $contents)) {
-        $entry = PHP_EOL . 'label[] = "' . addcslashes($node . ' ' . $node, '"\\') . '"' . PHP_EOL .
+        $record = asr_lookup_node_record($node);
+        $favoriteLabel = $record ? asr_format_favorite_label($record, $node) : $node . ' ' . $node;
+        $entry = PHP_EOL . 'label[] = "' . addcslashes($favoriteLabel, '"\\') . '"' . PHP_EOL .
             'cmd[] = "rpt cmd %node% ilink 3 ' . $node . '"' . PHP_EOL;
         file_put_contents($file, rtrim($contents) . PHP_EOL . $entry);
     }

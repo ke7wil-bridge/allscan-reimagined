@@ -8,7 +8,7 @@ The installer, authentication, Favorites, packaging, recovery, branding, connect
 
 Remaining release checks and final notes:
 
-- Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard. Beta 5.7 adds a daily maintenance restart after live observation showed slower retained memory growth without thread growth or reconnect errors.
+- Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard. Beta 5.7 adds a daily maintenance restart after live observation showed slower retained memory growth without thread growth or reconnect errors. Beta 5.8 repairs Favorite labels added through ASR and enriches existing number-only placeholders from the local node database.
 - The two noncritical admin-page mobile reviews are deferred to a patch or Beta 6.
 - D-Star follow-up on Thomas is deferred. It previously worked and is being repaired separately; ASR intentionally does not invent D-Star client rows without verified external talker data.
 - The unused QRZ API Key input was removed. QRZ XML map enrichment uses the saved QRZ username and password; any legacy stored key remains private and ignored.
@@ -43,6 +43,12 @@ Verified KE7WIL failure: `connected-clients-daemon.service` grew to approximatel
 Beta 5.6 repairs only the known vulnerable reconnect loop, closes each failed client before retrying, preserves the original daemon, reapplies the repair during ASR integrity checks, and sets systemd `MemoryHigh=128M` and `MemoryMax=192M` safeguards. The installed collector remained active at 2 threads and approximately 40-52 MB during the post-install observation window.
 
 Follow-up observation: after approximately 21.5 hours, the collector still had only 2-4 threads, 0.4 percent CPU, no TGIF session errors, and no memory-pressure events, but retained approximately 89 MB versus 32 MB immediately after restart. Beta 5.7 therefore schedules a controlled collector-only restart daily at approximately 03:15 local time, with up to 15 minutes of randomized delay. Asterisk and bridge-audio services are not restarted.
+
+### Favorite additions use the local AllStar node label
+
+Labels: `beta 5`, `known issue`, `favorites`, `priority high`
+
+Verified difference: adding node 29332 through ASR on KE7WIL produced the placeholder label `29332 29332`, while original AllScan on Del Webb used the current local node database and displayed `WL7LP`, `Alaska AllStar Hub`, and `North Pole, Alaska`. Beta 5.8 resolves new Favorite labels from the local node database and dynamically enriches existing exact number-only placeholders without overwriting customized Favorite names.
 
 ### Run official AllScan updater with PHP for `/tmp noexec` systems
 
