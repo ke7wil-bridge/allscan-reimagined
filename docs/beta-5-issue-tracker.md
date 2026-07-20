@@ -8,7 +8,7 @@ The installer, authentication, Favorites, packaging, recovery, branding, connect
 
 Remaining release checks and final notes:
 
-- Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard. Beta 5.7 adds a daily maintenance restart after live observation showed slower retained memory growth without thread growth or reconnect errors. Beta 5.8 repairs Favorite labels added through ASR and enriches existing number-only placeholders from the local node database.
+- Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard. Beta 5.7 adds a daily maintenance restart after live observation showed slower retained memory growth without thread growth or reconnect errors. Beta 5.8 repairs Favorite labels added through ASR and enriches existing number-only placeholders from the local node database. Beta 5.9 makes the optional bridge-client collector source-aware and prevents continuous timer load.
 - The two noncritical admin-page mobile reviews are deferred to a patch or Beta 6.
 - D-Star follow-up on Thomas is deferred. It previously worked and is being repaired separately; ASR intentionally does not invent D-Star client rows without verified external talker data.
 - The unused QRZ API Key input was removed. QRZ XML map enrichment uses the saved QRZ username and password; any legacy stored key remains private and ignored.
@@ -49,6 +49,24 @@ Follow-up observation: after approximately 21.5 hours, the collector still had o
 Labels: `beta 5`, `known issue`, `favorites`, `priority high`
 
 Verified difference: adding node 29332 through ASR on KE7WIL produced the placeholder label `29332 29332`, while original AllScan on Del Webb used the current local node database and displayed `WL7LP`, `Alaska AllStar Hub`, and `North Pole, Alaska`. Beta 5.8 resolves new Favorite labels from the local node database and dynamically enriches existing exact number-only placeholders without overwriting customized Favorite names.
+
+### Optional bridge-client timer can run continuously without a configured source
+
+Labels: `beta 5`, `known issue`, `performance`, `systemd`, `priority high`
+
+Thomas incident evidence showed the optional `allscan-reimagined-bridge-clients.timer` firing every 15 seconds while collections often needed 20-60 seconds, raising VPS load to approximately 37-47. All four live Thomas bridge cards had Client Source set to Disabled, and external daemons continued updating the client/status caches after the ASR timer was stopped. Beta 5.9 enables the optional timer only for an explicit nonempty client source, schedules the next run after a one-minute inactive interval, and adds timeout, CPU, memory, and non-overlap safeguards.
+
+### Preserve stock AllScan Favorites writes after ASR hardening
+
+Labels: `beta 5`, `known issue`, `favorites`, `permissions`, `priority high`
+
+External Beta 4 testing showed stock AllScan could not create `favorites.ini.bak` after ASR reapply hardened the web root to `root:root` mode 755. Beta 5.9 uses `/etc/allscan/favorites.ini` as the single primary file, exposes the web-root primary Favorites path as a symlink, creates writable adjacent backup files, and preserves any differing pre-link web copy in protected migration storage. Regression testing must cover ASR and stock AllScan add/delete behavior before and after a manual reapply.
+
+### Remove installation-specific initial title and public-index warning
+
+Labels: `beta 5`, `known issue`, `branding`, `compatibility`
+
+External Beta 4 testing found the static HTML title briefly exposed the KE7WIL callsign and node number on every installation, and current stock AllScan `index.php` logged a null-user warning during allowed unauthenticated requests. Beta 5.9 uses a generic initial title until runtime configuration loads and applies a narrow, update-surviving guard to the stock index status message.
 
 ### Run official AllScan updater with PHP for `/tmp noexec` systems
 

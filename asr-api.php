@@ -8,7 +8,7 @@ const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.8';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.9';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -1297,6 +1297,16 @@ function asr_tgif_tracking_diagnostics(): array {
     ];
 }
 
+function asr_bridge_collector_required(array $bridges): bool {
+    foreach ($bridges as $bridge) {
+        if (!is_array($bridge)) continue;
+        $source = (string) ($bridge['clientSource'] ?? 'disabled');
+        $url = trim((string) ($bridge['clientUrl'] ?? ''));
+        if (in_array($source, ['local_json', 'http_api'], true) && $url !== '') return true;
+    }
+    return false;
+}
+
 function asr_bridge_diagnostics(): array {
     $config = asr_raw_runtime_config();
     $runtime = asr_runtime_config();
@@ -1365,6 +1375,7 @@ function asr_bridge_diagnostics(): array {
     return [
         'ok' => true,
         'node' => $node,
+        'collectorRequired' => asr_bridge_collector_required($bridges),
         'collectorTimer' => $collectorTimer,
         'collectorService' => $collectorService,
         'connectedClientsFile' => $clientFile,
@@ -1423,6 +1434,7 @@ function asr_performance_stats(): array {
         if (is_array($cached)) return $cached;
     }
     $config = asr_raw_runtime_config();
+    $bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
     $load = sys_getloadavg();
     $mem = [];
     foreach (file('/proc/meminfo', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
@@ -1463,7 +1475,9 @@ function asr_performance_stats(): array {
         'apacheWorkers' => asr_process_count('apache2'),
         'asteriskRunning' => asr_process_count('asterisk') > 0,
         'statusCacheAge' => $cacheAge,
-        'bridgeCollector' => asr_unit_state('allscan-reimagined-bridge-clients.timer')['state'] ?? 'unknown',
+        'bridgeCollector' => asr_bridge_collector_required($bridges)
+            ? (asr_unit_state('allscan-reimagined-bridge-clients.timer')['state'] ?? 'unknown')
+            : 'not needed',
         'integrityTimer' => asr_unit_state('allscan-reimagined-reapply.timer')['state'] ?? 'unknown',
     ];
     if (is_dir(dirname($cachePath))) @file_put_contents($cachePath, json_encode($payload), LOCK_EX);

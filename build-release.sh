@@ -21,6 +21,10 @@ grep -Fq "ASR_VERSION=\"$VERSION\"" "$ROOT/install.sh" || {
   echo "install.sh ASR_VERSION does not match package.json version: $VERSION" >&2
   exit 1
 }
+grep -Fq '<title>AllScan Reimagined</title>' "$ROOT/index.html" || {
+  echo "index.html must use the generic pre-configuration browser title." >&2
+  exit 1
+}
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload/web" "$STAGE/payload/server" "$STAGE/payload/bin" "$STAGE/payload/scripts"
@@ -45,7 +49,9 @@ install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
+install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
 install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
+install -m 755 scripts/asr-patch-allscan-index.py "$STAGE/payload/scripts/asr-patch-allscan-index.py"
 cp -a compat/. "$STAGE/payload/compat/"
 find "$STAGE/payload/compat" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -delete
 install -m 755 install.sh "$STAGE/install.sh"

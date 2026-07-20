@@ -320,7 +320,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = []) {
 				<label><span>Username</span><input name="bridgeClientUsername[]" type="text" value="<?php echo asrSettingsH($bridge['clientUsername'] ?? ''); ?>"></label>
 				<label><span>Password / Token</span><input name="bridgeClientPassword[]" type="password" placeholder="<?php echo asrSettingsH($passwordPlaceholder); ?>"></label>
 			</div>
-			<p class="asr-bridge-section-note">Disabled keeps any existing client data but does not create a new source. Local JSON / file should point to a readable JSON file. HTTP API should point to a JSON endpoint made for client status.</p>
+			<p class="asr-bridge-section-note">Disabled uses any current external connected-client data and does not start ASR's optional collector. Local JSON / file should point to a readable JSON file. HTTP API should point to a JSON endpoint made for client status.</p>
 		</div>
 		</div>
 	</div>
@@ -654,11 +654,12 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			target.innerHTML = '<p class="asr-bridge-diagnostics-error">' + escapeHtml(payload && payload.error ? payload.error : 'Bridge diagnostics could not be loaded.') + '</p>';
 			return;
 		}
+		var collectorRequired = payload.collectorRequired !== false;
 		var serviceState = (payload.collectorService || {}).state || 'unknown';
 		var serviceLabel = serviceState === 'inactive' ? 'last run complete' : serviceState;
 		var html = '<div class="asr-diagnostics-summary">'
-			+ '<span>Collector timer: <strong>' + escapeHtml((payload.collectorTimer || {}).state || 'unknown') + '</strong></span>'
-			+ '<span>Collector service: <strong>' + escapeHtml(serviceLabel) + '</strong></span>'
+			+ '<span>Collector timer: <strong>' + escapeHtml(collectorRequired ? ((payload.collectorTimer || {}).state || 'unknown') : 'not needed') + '</strong></span>'
+			+ '<span>Collector service: <strong>' + escapeHtml(collectorRequired ? serviceLabel : 'not needed') + '</strong></span>'
 			+ '<span>External client file: <strong>' + escapeHtml(payload.connectedClientsFile || 'unknown') + '</strong></span>'
 			+ '<span>ASR client file: <strong>' + escapeHtml(payload.asrConnectedClientsFile || 'unknown') + '</strong></span>'
 			+ '</div>';

@@ -5,6 +5,7 @@ declare(strict_types=1);
 const ASR_CONFIG_FILE = '/etc/allscan-reimagined/config.json';
 const ASR_SECRETS_FILE = '/etc/allscan-reimagined/secrets.json';
 const ASR_DEFAULT_OUTPUT = '/var/www/html/allscan/asr-connected-clients.json';
+const ASR_LOCK_FILE = '/run/allscan-reimagined/bridge-clients.lock';
 const ASR_ZELLO_SOURCE_FILES = [
 	'/var/www/html/allscan/zello-talkers.json',
 	'/var/www/html/allscan/zello-status-data.json',
@@ -13,6 +14,41 @@ const ASR_ZELLO_SOURCE_FILES = [
 const ASR_YSF_LOG_DIR = '/var/log/YSFReflector';
 const ASR_CLIENT_MAX_SEEN_AGE = 180;
 const ASR_CLIENT_MAX_TALK_AGE = 300;
+
+function asrAcquireLock() {
+	$lock = @fopen(ASR_LOCK_FILE, 'c');
+	if($lock === false)
+		throw new RuntimeException('Could not open bridge-client collection lock.');
+	if(!@flock($lock, LOCK_EX | LOCK_NB)) {
+		fclose($lock);
+		return false;
+	}
+	return $lock;
+}
+
+function asrManagedBridges(array $bridges): array {
+	return array_values(array_filter($bridges, static function(mixed $bridge): bool {
+		if(!is_array($bridge))
+			return false;
+		$source = (string) ($bridge['clientSource'] ?? 'disabled');
+		$url = trim((string) ($bridge['clientUrl'] ?? ''));
+		return in_array($source, ['local_json', 'http_api'], true) && $url !== '';
+	}));
+}
+
+function asrSelfTest(): void {
+	$bridges = [
+		['id' => 'dmr', 'clientSource' => 'disabled', 'clientUrl' => ''],
+		['id' => 'ysf', 'clientSource' => 'local_json', 'clientUrl' => ''],
+		['id' => 'zello', 'clientSource' => 'local_json', 'clientUrl' => '/var/www/html/allscan/zello-talkers.json'],
+		['id' => 'dstar', 'clientSource' => 'http_api', 'clientUrl' => 'https://example.invalid/clients'],
+	];
+	$managed = asrManagedBridges($bridges);
+	$ids = array_column($managed, 'id');
+	if($ids !== ['zello', 'dstar'])
+		throw new RuntimeException('Managed-source selection self-test failed.');
+	echo "bridge-client source selection self-test: ok" . PHP_EOL;
+}
 
 function asrReadJson(string $path): array {
 	if(!is_readable($path))
@@ -303,9 +339,15 @@ function asrWriteJsonAtomic(string $path, array $payload): void {
 	chmod($path, 0664);
 }
 
+if(in_array('--self-test', $argv ?? [], true)) {
+	asrSelfTest();
+	exit(0);
+}
+
 $config = asrReadJson(ASR_CONFIG_FILE);
 $secrets = asrReadJson(ASR_SECRETS_FILE);
 $bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+$bridges = asrManagedBridges($bridges);
 $timerUnit = 'allscan-reimagined-bridge-clients.timer';
 if(function_exists('posix_geteuid') && posix_geteuid() === 0) {
 	if($bridges === [])
@@ -313,13 +355,18 @@ if(function_exists('posix_geteuid') && posix_geteuid() === 0) {
 	else
 		@shell_exec('systemctl enable --now ' . escapeshellarg($timerUnit) . ' 2>/dev/null');
 }
+
+$lock = asrAcquireLock();
+if($lock === false) {
+	echo "Bridge client collection is already running; timer state synchronized." . PHP_EOL;
+	exit(0);
+}
+
 $passwords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bridgeClientPasswords'] : [];
 $output = getenv('ASR_CONNECTED_CLIENTS_JSON') ?: ASR_DEFAULT_OUTPUT;
 $result = [];
 
 foreach($bridges as $bridge) {
-	if(!is_array($bridge))
-		continue;
 	$id = (string) ($bridge['id'] ?? '');
 	if(!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id))
 		continue;

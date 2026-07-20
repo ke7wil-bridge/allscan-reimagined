@@ -56,7 +56,9 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asterisk-read.sh" /usr/l
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-friendly-names.php" /usr/local/sbin/allscan-reimagined-friendly-names
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-clients.php" /usr/local/sbin/allscan-reimagined-bridge-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/local/sbin/allscan-reimagined-manager-perms
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
 chmod 775 "$CONFIG_DIR"
@@ -94,6 +96,9 @@ Wants=network-online.target
 Type=oneshot
 Nice=10
 IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=128M
+TimeoutStartSec=30s
 ExecStart=/usr/local/sbin/allscan-reimagined-bridge-clients --once
 EOF
 cat > /etc/systemd/system/allscan-reimagined-bridge-clients.timer <<'EOF'
@@ -101,24 +106,31 @@ cat > /etc/systemd/system/allscan-reimagined-bridge-clients.timer <<'EOF'
 Description=Refresh AllScan Reimagined bridge connected-client status
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=15s
-AccuracySec=2s
-RandomizedDelaySec=3s
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=5s
+RandomizedDelaySec=10s
 Unit=allscan-reimagined-bridge-clients.service
 
 [Install]
 WantedBy=timers.target
 EOF
 systemctl daemon-reload
-bridge_count=$(php -r '
+bridge_client_source_count=$(php -r '
   $data = json_decode((string) @file_get_contents($argv[1]), true);
-  echo is_array($data["bridges"] ?? null) ? count($data["bridges"]) : 0;
+  $count = 0;
+  foreach ((array) ($data["bridges"] ?? []) as $bridge) {
+    $source = (string) ($bridge["clientSource"] ?? "disabled");
+    $url = trim((string) ($bridge["clientUrl"] ?? ""));
+    if (in_array($source, ["local_json", "http_api"], true) && $url !== "") $count++;
+  }
+  echo $count;
 ' "$CONFIG_DIR/config.json" 2>/dev/null || printf '0')
-if [ "$bridge_count" -gt 0 ]; then
+if [ "$bridge_client_source_count" -gt 0 ]; then
   systemctl enable --now allscan-reimagined-bridge-clients.timer >/dev/null 2>&1 || true
 else
   systemctl disable --now allscan-reimagined-bridge-clients.timer >/dev/null 2>&1 || true
+  systemctl stop allscan-reimagined-bridge-clients.service >/dev/null 2>&1 || true
 fi
 if systemctl list-unit-files connected-clients-daemon.service --no-legend 2>/dev/null | grep -q '^connected-clients-daemon\.service'; then
   install -d -o root -g root -m 755 /etc/systemd/system/connected-clients-daemon.service.d
@@ -195,6 +207,12 @@ else
   logger -t allscan-reimagined "No verified admin/security compatibility layer for AllScan ${backend_version:-unknown}; upstream files left unchanged"
   echo "WARNING: No verified admin-page compatibility layer exists for AllScan ${backend_version:-unknown}."
 fi
+if /usr/local/sbin/allscan-reimagined-patch-allscan-index; then
+  :
+else
+  patch_status=$?
+  [ "$patch_status" -eq 3 ] || echo "WARNING: Stock AllScan public-index guard could not be applied." >&2
+fi
 
 if [ -d "$DATA_DIR" ]; then
   for logo in "$DATA_DIR"/header-logo.*; do
@@ -223,9 +241,6 @@ find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'for fi
 [ -s "$ALLSCAN_DIR/bridge-live.json" ] || printf '%s\n' '{"updated":""}' > "$ALLSCAN_DIR/bridge-live.json"
 [ -s "$ALLSCAN_DIR/connected-clients.json" ] || printf '%s\n' '{}' > "$ALLSCAN_DIR/connected-clients.json"
 [ -s "$ALLSCAN_DIR/asr-connected-clients.json" ] || printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"
-if [ -s /etc/allscan/favorites.ini ]; then
-  install -o root -g "$WEB_GROUP" -m 664 /etc/allscan/favorites.ini "$ALLSCAN_DIR/favorites.ini"
-fi
 
 for runtime_file in "$ALLSCAN_DIR"/favorites*.ini \
   "$ALLSCAN_DIR/bridge-live.json" \
@@ -236,6 +251,7 @@ for runtime_file in "$ALLSCAN_DIR"/favorites*.ini \
   safe_chown_files "root:$WEB_GROUP" "$runtime_file"
   safe_chmod_files 664 "$runtime_file"
 done
+ASR_WEB_GROUP="$WEB_GROUP" /usr/local/sbin/allscan-reimagined-favorites-permissions --apply
 
 [ -f "$ALLSCAN_DIR/AllScanInstallUpdate.php" ] && chmod 755 "$ALLSCAN_DIR/AllScanInstallUpdate.php"
 [ -f "$ALLSCAN_DIR/docs/extensions.conf" ] && chmod 600 "$ALLSCAN_DIR/docs/extensions.conf"
@@ -244,15 +260,11 @@ if [ -f /etc/allscan/allscan.db ]; then
   chown "$WEB_GROUP:$WEB_GROUP" /etc/allscan/allscan.db
   chmod 660 /etc/allscan/allscan.db
 fi
-if [ -f /etc/allscan/favorites.ini ]; then
-  chown "root:$WEB_GROUP" /etc/allscan/favorites.ini
-  chmod 664 /etc/allscan/favorites.ini
-fi
 /usr/local/sbin/allscan-reimagined-friendly-names --once >/dev/null 2>&1 || true
 [ -f /etc/allscan/asdb.txt ] && chown "root:$WEB_GROUP" /etc/allscan/asdb.txt
 [ -f /etc/allscan/asdb.txt ] && chmod 664 /etc/allscan/asdb.txt
 /usr/local/sbin/allscan-reimagined-manager-perms >/dev/null 2>&1 || true
-if [ "$bridge_count" -gt 0 ]; then
+if [ "$bridge_client_source_count" -gt 0 ]; then
   /usr/local/sbin/allscan-reimagined-bridge-clients --once >/dev/null 2>&1 || true
 else
   printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"

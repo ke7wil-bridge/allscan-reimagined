@@ -63,3 +63,13 @@ if [ -x /usr/local/sbin/allscan-reimagined-patch-connected-clients ]; then
     systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
   fi
 fi
+
+if [ -x /usr/local/sbin/allscan-reimagined-patch-allscan-index ]; then
+  if /usr/local/sbin/allscan-reimagined-patch-allscan-index >/dev/null; then
+    logger -t allscan-reimagined "Repaired stock AllScan public-index user guard"
+  fi
+fi
+
+if [ -x /usr/local/sbin/allscan-reimagined-favorites-permissions ]; then
+  /usr/local/sbin/allscan-reimagined-favorites-permissions --apply >/dev/null
+fi
