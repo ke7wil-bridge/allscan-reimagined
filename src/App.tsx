@@ -32,6 +32,7 @@ const BRIDGE_REFRESH_MS = 2000
 const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
+const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 
 const loggedOutAuth: AuthStatus = {
   loggedIn: false,
@@ -116,6 +117,24 @@ function writeThemeSettings(settings: ThemeSettings) {
     window.localStorage.setItem(THEME_SETTINGS_KEY, JSON.stringify(settings))
   } catch {
     // Ignore theme preference write failures.
+  }
+}
+
+function readAutodiscPreference() {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(AUTODISC_PREFERENCE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeAutodiscPreference(checked: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(AUTODISC_PREFERENCE_KEY, checked ? 'true' : 'false')
+  } catch {
+    // Ignore preference write failures.
   }
 }
 
@@ -380,7 +399,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [actionValue, setActionValue] =
     useState<(typeof actionOptions)[number]['value']>('dropclient')
   const [permanent, setPermanent] = useState(false)
-  const [autodisc, setAutodisc] = useState(false)
+  const [autodisc, setAutodisc] = useState(readAutodiscPreference)
   const [clock, setClock] = useState(() => new Date())
   const [lcarsNumbers, setLcarsNumbers] = useState(() => makeLcarsNumbers(12))
   const [lcarsHeaderNumbers, setLcarsHeaderNumbers] = useState(() => makeLcarsHeaderNumbers())
@@ -1470,7 +1489,11 @@ function App({ config }: { config: RuntimeConfig }) {
                     type="checkbox"
                     className="allscan-checkbox"
                     checked={autodisc}
-                    onChange={(event) => setAutodisc(event.target.checked)}
+                    onChange={(event) => {
+                      const checked = event.target.checked
+                      setAutodisc(checked)
+                      writeAutodiscPreference(checked)
+                    }}
                     disabled={!authStatus.canModify}
                   />
                   Disconnect before Connect
@@ -1578,15 +1601,7 @@ function App({ config }: { config: RuntimeConfig }) {
                             onClick={() => {
                               if (!canPopulateNodeControl(favorite.node)) return
                               setNodeValue(favorite.node)
-                              window.setTimeout(() => {
-                                setFavoritesOpen(isAddDeleteFavoriteAction)
-                              }, isAddDeleteFavoriteAction ? 120 : 80)
-                            }}
-                            onDoubleClick={() => {
-                              if (!canPopulateNodeControl(favorite.node)) return
-                              setNodeValue(favorite.node)
-                              setFavoritesOpen(false)
-                              void runCommandForNode('connect', favorite.node)
+                              setFavoritesOpen(isAddDeleteFavoriteAction)
                             }}
                           >
                             {favorite.node}

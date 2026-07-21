@@ -705,6 +705,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				+ '<span>Daemon: <strong>' + escapeHtml((bridge.tgif.clientDaemon || {}).state || 'unknown') + '</strong></span>'
 				+ '<span>Refresh timer: <strong>' + escapeHtml((bridge.tgif.refreshTimer || {}).state || 'unknown') + '</strong></span>'
 				+ '<span>Token: <strong>' + escapeHtml(bridge.tgif.tokenConfigured ? 'configured' : 'missing') + '</strong></span>'
+				+ '<span>Credential file: <strong>' + escapeHtml((bridge.tgif.tokenEnvironment || {}).status || 'unknown') + '</strong></span>'
 				+ '<span>Login file: <strong>' + escapeHtml((bridge.tgif.loginEnv || {}).status || 'unknown') + '</strong></span>'
 				+ '</div></div>' : '';
 			html += '<section class="asr-diagnostics-bridge">'

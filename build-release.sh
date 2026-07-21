@@ -51,6 +51,7 @@ install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
 install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
+install -m 755 scripts/asr-migrate-tgif-environment.py "$STAGE/payload/scripts/asr-migrate-tgif-environment.py"
 install -m 755 scripts/asr-patch-allscan-index.py "$STAGE/payload/scripts/asr-patch-allscan-index.py"
 cp -a compat/. "$STAGE/payload/compat/"
 find "$STAGE/payload/compat" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -delete

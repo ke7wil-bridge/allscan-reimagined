@@ -13,7 +13,7 @@ case "$cmd" in
     ;;
   file-status)
     case "$arg" in
-      /root/tgif-login.env|/etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf|/usr/local/sbin/tgif-refresh-token.py|/usr/local/sbin/connected-clients-daemon.py) ;;
+      /root/tgif-login.env|/etc/allscan-reimagined/connected-clients-daemon.env|/etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf|/usr/local/sbin/tgif-refresh-token.py|/usr/local/sbin/connected-clients-daemon.py) ;;
       *) echo "Invalid file." >&2; exit 2 ;;
     esac
     if [ ! -e "$arg" ]; then

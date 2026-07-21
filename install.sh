@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.5.9"
+ASR_VERSION="1.0.0-beta.5.9-Rollup-1"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -25,6 +25,19 @@ restore_runtime_backup() {
     mkdir -p /etc/allscan
     install -o root -g "$WEB_GROUP" -m 664 "$BACKUP_DIR/runtime/etc-favorites.ini" /etc/allscan/favorites.ini
   fi
+  if [ -f "$BACKUP_DIR/runtime/tgif-daemon-environment" ]; then
+    mkdir -p /etc/allscan-reimagined
+    install -o root -g root -m 600 "$BACKUP_DIR/runtime/tgif-daemon-environment" /etc/allscan-reimagined/connected-clients-daemon.env
+  elif [ -f "$BACKUP_DIR/runtime/tgif-daemon-environment.absent" ]; then
+    rm -f /etc/allscan-reimagined/connected-clients-daemon.env
+  fi
+  if [ -f "$BACKUP_DIR/runtime/tgif-token-dropin" ]; then
+    mkdir -p /etc/systemd/system/connected-clients-daemon.service.d
+    install -o root -g root -m 644 "$BACKUP_DIR/runtime/tgif-token-dropin" /etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf
+  elif [ -f "$BACKUP_DIR/runtime/tgif-token-dropin.absent" ]; then
+    rm -f /etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf
+  fi
+  systemctl daemon-reload 2>/dev/null || true
 }
 
 rollback_on_error() {
@@ -117,7 +130,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 5.9"
+echo "Reimagined release:        v1.0.0 Beta 5.9 Rollup 1"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -133,6 +146,16 @@ if [ -d "$ALLSCAN_DIR" ]; then
   done
   [ -d "$ALLSCAN_DIR/img" ] && cp -a "$ALLSCAN_DIR/img" "$BACKUP_DIR/runtime/img"
   [ -f /etc/allscan/favorites.ini ] && cp -p /etc/allscan/favorites.ini "$BACKUP_DIR/runtime/etc-favorites.ini"
+  if [ -f /etc/allscan-reimagined/connected-clients-daemon.env ]; then
+    install -o root -g root -m 600 /etc/allscan-reimagined/connected-clients-daemon.env "$BACKUP_DIR/runtime/tgif-daemon-environment"
+  else
+    : > "$BACKUP_DIR/runtime/tgif-daemon-environment.absent"
+  fi
+  if [ -f /etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf ]; then
+    install -o root -g root -m 600 /etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf "$BACKUP_DIR/runtime/tgif-token-dropin"
+  else
+    : > "$BACKUP_DIR/runtime/tgif-token-dropin.absent"
+  fi
   tar_status=0
   COPYFILE_DISABLE=1 tar --ignore-failed-read --warning=no-file-changed \
     --exclude='allscan/bridge-live.json' \
@@ -228,7 +251,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 [ -d "$RELEASE_DIR" ] && mv "$RELEASE_DIR" "$RELEASE_PREVIOUS"
@@ -319,7 +342,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 5.9"
+echo "AllScan Reimagined:    v1.0.0 Beta 5.9 Rollup 1"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Open:                    http://$(hostname -I | awk '{print $1}')/allscan/"

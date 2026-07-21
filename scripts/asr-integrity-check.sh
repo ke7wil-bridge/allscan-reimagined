@@ -64,6 +64,17 @@ if [ -x /usr/local/sbin/allscan-reimagined-patch-connected-clients ]; then
   fi
 fi
 
+if [ -x /usr/local/sbin/allscan-reimagined-migrate-tgif-environment ]; then
+  if /usr/local/sbin/allscan-reimagined-migrate-tgif-environment >/dev/null; then
+    logger -t allscan-reimagined "Migrated TGIF daemon credentials to protected environment storage"
+    systemctl daemon-reload
+    systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
+  else
+    migration_status=$?
+    [ "$migration_status" -eq 3 ] || exit "$migration_status"
+  fi
+fi
+
 if [ -x /usr/local/sbin/allscan-reimagined-patch-allscan-index ]; then
   if /usr/local/sbin/allscan-reimagined-patch-allscan-index >/dev/null; then
     logger -t allscan-reimagined "Repaired stock AllScan public-index user guard"

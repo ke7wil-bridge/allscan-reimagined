@@ -8,7 +8,7 @@ const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.9';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.9 Rollup 1';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -1273,12 +1273,15 @@ function asr_root_file_brief(string $path): array {
 
 function asr_tgif_tracking_diagnostics(): array {
     $dropin = '/etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf';
+    $tokenEnvironment = '/etc/allscan-reimagined/connected-clients-daemon.env';
     $loginEnv = '/root/tgif-login.env';
     $refreshScript = '/usr/local/sbin/tgif-refresh-token.py';
     $daemonScript = '/usr/local/sbin/connected-clients-daemon.py';
     $dropinInfo = asr_root_file_brief($dropin);
-    $tokenConfigured = false;
-    if (is_readable($dropin)) {
+    $tokenEnvironmentInfo = asr_root_file_brief($tokenEnvironment);
+    $tokenConfigured = in_array(($tokenEnvironmentInfo['status'] ?? ''), ['present', 'present, protected'], true)
+        && (int) ($tokenEnvironmentInfo['size'] ?? 0) > 0;
+    if (!$tokenConfigured && is_readable($dropin)) {
         $contents = (string) file_get_contents($dropin);
         $tokenConfigured = preg_match('/^\s*Environment=TGIF_API_TOKEN=.+/m', $contents) === 1;
     } elseif (($dropinInfo['status'] ?? '') === 'present, protected' || ($dropinInfo['status'] ?? '') === 'present') {
@@ -1293,6 +1296,7 @@ function asr_tgif_tracking_diagnostics(): array {
         'refreshScript' => asr_root_file_brief($refreshScript),
         'daemonScript' => asr_root_file_brief($daemonScript),
         'tokenDropin' => $dropinInfo,
+        'tokenEnvironment' => $tokenEnvironmentInfo,
         'tokenConfigured' => $tokenConfigured,
     ];
 }

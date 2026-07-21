@@ -4,6 +4,10 @@ AllScan Reimagined is a configurable interface and security layer for David Glea
 
 AllScan Reimagined is customized by KE7WIL.
 
+This archive is **Beta 5.9 Rollup 1**. It contains the complete Beta 5.9
+release plus the verified Favorite-click and Disconnect-before-Connect
+persistence fixes, and TGIF credential-storage hardening planned for Beta 6.
+
 ## Install
 
 Download the current release archive and its published SHA-256 checksum from the GitHub release page. Verify and extract the archive, then run the installer directly in an interactive root shell on the AllStar node:
@@ -11,12 +15,12 @@ Download the current release archive and its published SHA-256 checksum from the
 ```bash
 set -e
 
-pkg="allscan-reimagined-1.0.0-beta.5.9.tar.gz"
+pkg="allscan-reimagined-1.0.0-beta.5.9-Rollup-1.tar.gz"
 sum="PASTE_THE_PUBLISHED_SHA256_HERE"
 
 echo "$sum  $pkg" | sha256sum -c -
 tar -xzf "$pkg"
-cd allscan-reimagined-1.0.0-beta.5.9
+cd allscan-reimagined-1.0.0-beta.5.9-Rollup-1
 bash ./install.sh
 ```
 

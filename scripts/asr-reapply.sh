@@ -58,6 +58,7 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-clients.php" /usr
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/local/sbin/allscan-reimagined-manager-perms
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
@@ -134,6 +135,13 @@ else
 fi
 if systemctl list-unit-files connected-clients-daemon.service --no-legend 2>/dev/null | grep -q '^connected-clients-daemon\.service'; then
   install -d -o root -g root -m 755 /etc/systemd/system/connected-clients-daemon.service.d
+  tgif_environment_changed=0
+  if /usr/local/sbin/allscan-reimagined-migrate-tgif-environment; then
+    tgif_environment_changed=1
+  else
+    migration_status=$?
+    [ "$migration_status" -eq 3 ] || exit "$migration_status"
+  fi
   cat > /etc/systemd/system/connected-clients-daemon.service.d/asr-resource-guard.conf <<'EOF'
 [Service]
 MemoryHigh=128M
@@ -165,7 +173,11 @@ WantedBy=timers.target
 EOF
   systemctl daemon-reload
   systemctl enable --now allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
+  connected_clients_changed=0
   if /usr/local/sbin/allscan-reimagined-patch-connected-clients; then
+    connected_clients_changed=1
+  fi
+  if [ "$connected_clients_changed" -eq 1 ] || [ "$tgif_environment_changed" -eq 1 ]; then
     systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
   fi
 else
