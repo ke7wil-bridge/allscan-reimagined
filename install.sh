@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.5.10"
+ASR_VERSION="1.0.0-beta.5.11"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -130,7 +130,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 5.10"
+echo "Reimagined release:        v1.0.0 Beta 5.11"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -342,7 +342,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 5.10"
+echo "AllScan Reimagined:    v1.0.0 Beta 5.11"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Open:                    http://$(hostname -I | awk '{print $1}')/allscan/"

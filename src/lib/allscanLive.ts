@@ -35,7 +35,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5.10',
+  versionLabel: 'v1.0.0 Beta 5.11',
   lowPowerMode: false,
   bridges: [],
 }

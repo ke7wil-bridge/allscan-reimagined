@@ -8,7 +8,7 @@ const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.10';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.11';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -455,7 +455,8 @@ function asr_lookup_is_private_node(string $value, array $bridgeNodes): bool {
     if (isset($bridgeNodes[$value])) {
         return true;
     }
-    return preg_match('/^\d{4}$/', $value) === 1;
+    $number = (int) $value;
+    return $number > 0 && $number < 2000;
 }
 
 function asr_lookup_is_iax_client(string $node, string $label, string $detail): bool {

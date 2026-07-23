@@ -14,7 +14,7 @@ const runtimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: '/asr-logo-bright-r-tight.png',
   footerLogo: '/asr-logo-bright-r-tight.png',
-  versionLabel: 'v1.0.0 Beta 4',
+  versionLabel: 'v1.0.0 Beta 5.11',
   bridges: [
     { id: 'dmr', node: '641891', title: 'DMR Bridge', detailTitle: 'DMR Connected Clients' },
     { id: 'ysf', node: '641892', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
@@ -399,6 +399,33 @@ function connectedClients() {
   })
 }
 
+function favoritesPayload() {
+  return jsonResponse({
+    ok: true,
+    selectedFile: '/etc/allscan/favorites.ini',
+    files: [
+      { value: '/etc/allscan/favorites.ini', label: 'favorites.ini', selected: true },
+    ],
+    rows: [
+      { index: '1', node: '2300', label: 'Public Legacy Node', name: 'Public Legacy Node', desc: 'Four-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
+      { index: '2', node: '1883', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
+      { index: '3', node: '29332', label: 'Standard Public Node', name: 'Standard Public Node', desc: 'Five-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
+    ],
+  })
+}
+
+function connectionFeed() {
+  return JSON.stringify({
+    641890: {
+      remote_nodes: [
+        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 2, lnodes: ['2300', '1883'] },
+        { node: '2300', info: 'Public Legacy Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
+        { node: '1883', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
+      ],
+    },
+  })
+}
+
 function serveText(res: import('node:http').ServerResponse, body: string, contentType: string) {
   res.statusCode = 200
   res.setHeader('Content-Type', contentType)
@@ -437,8 +464,17 @@ export function allscanMockPlugin(): Plugin {
           const action = url.searchParams.get('action')
           if (action === 'runtime-config') return serveText(res, jsonResponse(runtimeConfig), 'application/json; charset=utf-8')
           if (action === 'auth-status') return serveText(res, jsonResponse(authStatus), 'application/json; charset=utf-8')
+          if (action === 'favorites') return serveText(res, favoritesPayload(), 'application/json; charset=utf-8')
           if (action === 'drop-clients') return serveText(res, jsonResponse({ ok: true, clients: [] }), 'application/json; charset=utf-8')
           return serveText(res, jsonResponse({ ok: true, message: `Mock ${action || 'request'} handled.` }), 'application/json; charset=utf-8')
+        }
+
+        if (requestPath === '/allscan/astapi/server.php') {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-cache')
+          res.write(`event: nodes\ndata: ${connectionFeed()}\n\n`)
+          return
         }
 
         if (requestPath === '/allscan/api/') {

@@ -9,6 +9,7 @@ The installer, authentication, Favorites, packaging, recovery, branding, connect
 Remaining release checks and final notes:
 
 - Beta 5.6 repairs the known TGIF Socket.IO reconnect leak in the companion connected-client daemon and adds a conservative systemd memory guard. Beta 5.7 adds a daily maintenance restart after live observation showed slower retained memory growth without thread growth or reconnect errors. Beta 5.8 repairs Favorite labels added through ASR and enriches existing number-only placeholders from the local node database. Beta 5.9 makes the optional bridge-client collector source-aware and prevents continuous timer load.
+- Beta 5.11 recognizes legitimate public four-digit AllStar nodes beginning at 2000 when selecting a node from Favorites or Connection Status, while continuing to exclude private/local nodes 1000 through 1999 and explicitly configured bridge nodes from public lookup targets.
 - The two noncritical admin-page mobile reviews are deferred to a patch or Beta 6.
 - D-Star follow-up on Thomas is deferred. It previously worked and is being repaired separately; ASR intentionally does not invent D-Star client rows without verified external talker data.
 - The unused QRZ API Key input was removed. QRZ XML map enrichment uses the saved QRZ username and password; any legacy stored key remains private and ignored.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpDown, ChevronDown, ChevronLeft, Menu, Search } from 'lucide-react'
 import { headerStats } from './mockData'
+import { canPopulateNodeControl } from './lib/nodeNumbers'
 import {
   actionOptions,
   dropClientChannel,
@@ -143,10 +144,6 @@ function compactBridgeDetailTitle(title: string) {
   if (title === 'Linked YSF Gateways') return 'Linked Gateways'
   if (title === 'Linked D-Star Gateways') return 'Linked Gateways'
   return title
-}
-
-function canPopulateNodeControl(value: string) {
-  return /^\d{5,}$/.test(value.trim())
 }
 
 function loadFavoriteStatsCache(): Record<string, FavoriteStats> {

@@ -65,15 +65,21 @@ find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi
-COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname root \
+COPYFILE_DISABLE=1 tar --no-xattrs --format ustar --uid 0 --gid 0 --uname root --gname root \
   --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"
 if command -v xattr >/dev/null 2>&1; then
   xattr -c "$PACKAGE" 2>/dev/null || true
 fi
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+  (
+    cd "$OUT"
+    sha256sum "$(basename "$PACKAGE")"
+  ) > "$PACKAGE.sha256"
 else
-  shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256"
+  (
+    cd "$OUT"
+    shasum -a 256 "$(basename "$PACKAGE")"
+  ) > "$PACKAGE.sha256"
 fi
 echo "Created: $PACKAGE"
 cat "$PACKAGE.sha256"
