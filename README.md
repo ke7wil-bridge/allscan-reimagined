@@ -10,17 +10,25 @@ planned for Beta 6.
 
 ## Install
 
-Download the current release archive and its published SHA-256 checksum from the GitHub release page. Verify and extract the archive, then run the installer directly in an interactive root shell on the AllStar node:
+Download, verify, and extract the current release archive, then run the
+installer directly in an interactive root shell on the AllStar node:
 
 ```bash
 set -e
 
-pkg="allscan-reimagined-1.0.0-beta.5.11.tar.gz"
-sum="PASTE_THE_PUBLISHED_SHA256_HERE"
+url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.5.11/allscan-reimagined-1.0.0-beta.5.11.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.5.11.tar.gz"
+sum="e82bbaaf8938e1e60c0a2cb539f0f86ee83b9f6c44ec1b68910d82678393bffe"
+stage="/tmp/asr-beta-5.11-install"
 
-echo "$sum  $pkg" | sha256sum -c -
-tar -xzf "$pkg"
-cd allscan-reimagined-1.0.0-beta.5.11
+curl -fL "$url" -o "$pkg"
+printf '%s  %s\n' "$sum" "$pkg" | sha256sum -c -
+
+rm -rf "$stage"
+mkdir -p "$stage"
+tar -xzf "$pkg" -C "$stage"
+cd "$stage/allscan-reimagined-1.0.0-beta.5.11"
+
 bash ./install.sh
 ```
 
