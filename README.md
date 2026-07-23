@@ -1,12 +1,14 @@
 # AllScan Reimagined
 
-AllScan Reimagined is a configurable interface and security layer for David Gleason's AllScan. It installs the current official AllScan backend first, then applies the Reimagined interface without copying user accounts or credentials between nodes.
+AllScan Reimagined is a configurable interface and security layer for David
+Gleason's AllScan. Beta 6 installs the current official AllScan backend at
+`/allscan/` and installs the Reimagined interface separately at `/asr/`.
+The two interfaces share the node's existing AllScan accounts and data without
+copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 5.11**. It contains the complete Beta 5.10
-release plus the verified public four-digit AllStar node-selection correction
-planned for Beta 6.
+This archive is **Beta 6** and remains a prerelease.
 
 ## Install
 
@@ -16,18 +18,42 @@ installer directly in an interactive root shell on the AllStar node:
 ```bash
 set -e
 
-url="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.5.11/allscan-reimagined-1.0.0-beta.5.11.tar.gz"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.5.11.tar.gz"
-sum="e82bbaaf8938e1e60c0a2cb539f0f86ee83b9f6c44ec1b68910d82678393bffe"
-stage="/tmp/asr-beta-5.11-install"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz"
+checksum="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz.sha256"
+stage="/tmp/asr-beta-6-install"
 
-curl -fL "$url" -o "$pkg"
-printf '%s  %s\n' "$sum" "$pkg" | sha256sum -c -
+curl -fL "$base/$(basename "$pkg")" -o "$pkg"
+curl -fL "$base/$(basename "$checksum")" -o "$checksum"
+(cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 rm -rf "$stage"
 mkdir -p "$stage"
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.5.11"
+cd "$stage/allscan-reimagined-1.0.0-beta.6"
+
+php -l payload/server/asr-api.php
+php -l payload/compat/allscan-v1.01/asr-settings/index.php
+php -l payload/compat/allscan-v1.01/asr-instructions/index.php
+php -l payload/scripts/asr-bridge-clients.php
+php payload/scripts/asr-bridge-clients.php --self-test
+php payload/scripts/asr-access-policy-self-test.php
+php payload/scripts/asr-lookup-map-self-test.php
+sh -n payload/scripts/asr-asterisk-read.sh
+bash -n payload/scripts/asr-reapply.sh
+bash -n payload/scripts/asr-integrity-check.sh
+bash payload/scripts/asr-favorites-permissions.sh --self-test
+bash payload/scripts/asr-side-by-side-self-test.sh
+python3 payload/scripts/asr-patch-connected-clients.py --self-test
+python3 payload/scripts/asr-patch-allscan-index.py --self-test
+python3 payload/scripts/asr-migrate-tgif-environment.py --self-test
+python3 payload/scripts/asr-release-check.py --self-test
+python3 payload/scripts/asr-rollback.py self-test
+python3 payload/scripts/asr-bridge-control.py --self-test
+python3 payload/scripts/asr-favorites-update.py --self-test
+python3 payload/scripts/asr-favorites-source.py --self-test
+python3 payload/scripts/asr-instructions-self-test.py
+python3 payload/scripts/asr-stock-count-helper.py --self-test
 
 bash ./install.sh
 ```
@@ -35,6 +61,18 @@ bash ./install.sh
 Do not run the final installer through a heredoc or other non-interactive wrapper. When the official AllScan backend needs an update, both installers require an interactive terminal.
 
 ## Setup Prompts
+
+The installer explains and configures the two web interfaces:
+
+```text
+/allscan/  Original stock AllScan
+/asr/      AllScan Reimagined
+```
+
+They share users, Favorites, the database, and node settings, but each path
+keeps its own browser login session. The installer also explains that enabling
+the optional stock `/allscan/` login requirement blocks unauthenticated
+read-only dashboard monitoring as well as control.
 
 The installer detects the node number, callsign, and known bridge services.
 
@@ -52,7 +90,16 @@ The browser tab title is set automatically from the header title:
 Header title | ASR
 ```
 
-Press Enter/Return at the logo prompt to use the default ASR logo. After installation, **Admin → Reimagined Settings** can change the header title, upload a PNG, JPEG, or WebP header logo under 1 MB, configure up to eight bridge cards and optional client sources, maintain friendly bridge names, save QRZ XML credentials, and control whether login is required.
+Press Enter/Return at the logo prompt to use the default ASR logo. After
+installation, **Admin → Reimagined Settings** can change the header title,
+upload a PNG, JPEG, or WebP header logo under 1 MB, configure up to eight
+bridge cards and optional client sources, maintain friendly bridge names, save
+QRZ XML credentials, control whether ASR login is required, and roll back to
+one of the five newest valid previous ASR versions.
+
+**Admin → Help & Instructions** explains the dashboard, Favorites, bridge
+cards, DMR Net Bridge controls, Lookup and the station map, update notices,
+rollback, diagnostics, and hard-refresh behavior.
 
 The Reimagined credit remains:
 
@@ -70,17 +117,24 @@ If bridge services are detected, the installer reviews the bridge card node numb
 To update AllScan Reimagined, install the latest Reimagined release. The installer:
 
 1. Reports the installed and latest official AllScan backend versions.
-2. Backs up the existing AllScan web directory and private database.
+2. Backs up the existing stock and Reimagined state before changing files.
 3. Runs the official AllScan installer/updater when required.
 4. Preserves existing users, passwords, permissions, Favorites, and node settings.
 5. Detects the primary node number, callsign, and known bridge services.
 6. Applies Apache, session, file-permission, and endpoint hardening.
-7. Installs an integrity service that restores the Reimagined overlay after official AllScan updates.
-8. Verifies the page and runtime configuration before reporting success.
+7. Installs persistence services that maintain `/asr/` without replacing stock
+   `/allscan/`.
+8. Installs a low-frequency cached release checker that never installs updates
+   automatically.
+9. Verifies the pages and runtime configuration before reporting success.
 
 If the official AllScan backend is already current, the official updater is skipped.
 
 After a successful installation, ASR automatically retains the newest 10 rollback backups under `/root/allscan-reimagined-backups/` and removes older timestamped ASR backups. Set `ASR_BACKUP_RETENTION` to a different positive number when running `bash ./install.sh` if the node needs a different retention policy.
+
+The on-screen rollback control is the final expandable section above Save in
+Reimagined Settings. It has its own confirmation button; the normal Save
+button never starts a rollback.
 
 ## Personal Configuration
 
@@ -135,6 +189,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
+- [Beta 6 release notes](release-notes/v1.0.0-beta.6.md)
 
 ## Original AllScan
 

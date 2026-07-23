@@ -92,8 +92,8 @@ pageInit();
 					<form class="asr-echolink-actions" method="post" action="https://www.echolink.org/validation/node_lookup.jsp" target="_blank" rel="noreferrer">
 						<input type="hidden" name="call" value="<?php echo asr_h($lookup); ?>">
 						<button type="submit">Open on EchoLink</button>
-						<a href="/allscan/lookup/">Back to Lookup</a>
-						<a href="/allscan/">Return to Main Page</a>
+							<a href="<?php echo asr_h(rtrim($urlbase, '/') . '/lookup/'); ?>">Back to Lookup</a>
+							<a href="<?php echo asr_h(rtrim($urlbase, '/') . '/'); ?>">Return to Main Page</a>
 					</form>
 				<?php endif; ?>
 			</section>

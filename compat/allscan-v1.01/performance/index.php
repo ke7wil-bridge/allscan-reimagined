@@ -23,6 +23,7 @@ pageInit();
 </section>
 <script>
 (function () {
+	var asrBase = <?php echo json_encode(rtrim($urlbase, '/'), JSON_UNESCAPED_SLASHES); ?>;
 	var grid = document.getElementById('asrPerformanceGrid');
 	var updated = document.getElementById('asrPerformanceUpdated');
 	var loading = false;
@@ -71,7 +72,7 @@ pageInit();
 	function load() {
 		if(loading || document.hidden) return;
 		loading = true;
-		fetch('/allscan/asr-api.php?action=performance-stats', {credentials:'same-origin', cache:'no-store'})
+		fetch(asrBase + '/asr-api.php?action=performance-stats', {credentials:'same-origin', cache:'no-store'})
 			.then(function (response) { if(!response.ok) throw new Error('Performance statistics unavailable'); return response.json(); })
 			.then(render)
 			.catch(function (error) {

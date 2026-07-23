@@ -4,11 +4,17 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 const ASR_ETC_FAVORITES = '/etc/allscan/favorites.ini';
-const ASR_DEFAULT_FAVORITES = '/var/www/html/allscan/favorites.ini';
+const ASR_DEFAULT_FAVORITES = __DIR__ . '/favorites.ini';
 const ASR_RUNTIME_CONFIG = '/etc/allscan-reimagined/config.json';
 const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 5.11';
+const ASR_LOOKUP_DATA_CACHE = '/run/allscan-reimagined/lookup-data.json';
+const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-status.json';
+const ASR_RELEASE_STATUS_MAX_AGE = 259200;
+const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
+const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
+const ASR_VERSION = '1.0.0-beta.6';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6';
 
 require_once __DIR__ . '/include/common.php';
 
@@ -28,6 +34,20 @@ function asr_json(array $payload, int $status = 200) {
 
 function asr_error(string $message, int $status = 400) {
     asr_json(['ok' => false, 'error' => $message], $status);
+}
+
+function asr_web_base(): string {
+    global $urlbase;
+    return rtrim((string) $urlbase, '/');
+}
+
+function asr_web_path(string $path = ''): string {
+    $suffix = ltrim($path, '/');
+    return $suffix === '' ? asr_web_base() . '/' : asr_web_base() . '/' . $suffix;
+}
+
+function asr_rebase_legacy_web_path(string $path): string {
+    return asrRebaseLegacyWebPath($path);
 }
 
 function asr_logged_in(): bool {
@@ -228,11 +248,26 @@ function asr_runtime_config(): array {
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
         $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
+        $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net'], true)
+            ? (string) $bridge['cardType']
+            : 'standard';
+        $linkAlias = '';
+        if ($cardType === 'dmr_net'
+            && $bridgeNode !== ''
+            && preg_match('/^[0-9]{3,6}$/D', $node)
+            && preg_match('/^999[0-9]{6}$/D', (string) ($bridge['linkAlias'] ?? ''))
+            && hash_equals('999' . str_pad($node, 6, '0', STR_PAD_LEFT), (string) $bridge['linkAlias'])
+            && (string) $bridge['linkAlias'] !== $bridgeNode) {
+            $linkAlias = (string) $bridge['linkAlias'];
+        }
         $bridges[] = [
             'id' => (string) $bridge['id'],
             'node' => $bridgeNode,
+            'linkAlias' => $linkAlias,
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
-            'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connections')), 0, 80),
+            'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
+            'friendlyName' => substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),
+            'cardType' => $cardType,
         ];
     }
 
@@ -247,12 +282,132 @@ function asr_runtime_config(): array {
         'browserTitle' => $browserTitle,
         'brandByline' => 'by KE7WIL',
         'footerByline' => $replace((string) ($stored['footerByline'] ?? 'customized by KE7WIL')),
-        'headerLogo' => (string) ($stored['headerLogo'] ?? '/allscan/asr-logo-bright-r-tight.png'),
-        'footerLogo' => '/allscan/asr-logo-bright-r-tight.png',
+        'headerLogo' => asr_rebase_legacy_web_path((string) ($stored['headerLogo'] ?? asr_web_path('asr-logo-bright-r-tight.png'))),
+        'footerLogo' => asr_web_path('asr-logo-bright-r-tight.png'),
         'versionLabel' => ASR_VERSION_LABEL,
         'lowPowerMode' => !empty($stored['lowPowerMode']),
         'bridges' => $bridges,
     ];
+}
+
+function asr_release_status_payload(): array {
+    $pending = [
+        'ok' => true,
+        'status' => 'pending',
+        'updateAvailable' => false,
+        'checkedAt' => '',
+        'installedVersion' => ASR_VERSION,
+        'installedLabel' => ASR_VERSION_LABEL,
+        'availableVersion' => '',
+        'availableLabel' => '',
+        'releaseUrl' => '',
+        'publishedAt' => '',
+        'package' => ['name' => '', 'url' => '', 'size' => 0, 'sha256' => ''],
+    ];
+    if (!is_readable(ASR_RELEASE_STATUS_CACHE)) return $pending;
+
+    $decoded = json_decode((string) file_get_contents(ASR_RELEASE_STATUS_CACHE), true);
+    if (!is_array($decoded) || (string) ($decoded['installedVersion'] ?? '') !== ASR_VERSION) {
+        return $pending;
+    }
+
+    $checkedAt = (string) ($decoded['checkedAt'] ?? '');
+    $checkedEpoch = $checkedAt !== '' ? strtotime($checkedAt) : false;
+    if ($checkedEpoch === false || time() - $checkedEpoch > ASR_RELEASE_STATUS_MAX_AGE) {
+        $pending['checkedAt'] = $checkedAt;
+        return $pending;
+    }
+
+    $trustedGithubUrl = static function (string $value): string {
+        $parts = parse_url($value);
+        if (!is_array($parts)
+            || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
+            || strtolower((string) ($parts['host'] ?? '')) !== 'github.com'
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['port'])
+            || !str_starts_with(
+                (string) ($parts['path'] ?? ''),
+                '/ke7wil-bridge/allscan-reimagined/releases/'
+            )) {
+            return '';
+        }
+        return $value;
+    };
+
+    $releaseUrl = $trustedGithubUrl((string) ($decoded['releaseUrl'] ?? ''));
+    $package = is_array($decoded['package'] ?? null) ? $decoded['package'] : [];
+    $packageUrl = $trustedGithubUrl((string) ($package['url'] ?? ''));
+    $checksum = strtolower((string) ($package['sha256'] ?? ''));
+    if (!preg_match('/^[a-f0-9]{64}$/', $checksum)) $checksum = '';
+
+    return [
+        'ok' => true,
+        'status' => !empty($decoded['updateAvailable']) ? 'update_available' : 'up_to_date',
+        'updateAvailable' => !empty($decoded['updateAvailable']),
+        'checkedAt' => $checkedAt,
+        'installedVersion' => ASR_VERSION,
+        'installedLabel' => ASR_VERSION_LABEL,
+        'availableVersion' => substr((string) ($decoded['availableVersion'] ?? ''), 0, 80),
+        'availableLabel' => substr((string) ($decoded['availableLabel'] ?? ''), 0, 80),
+        'releaseUrl' => $releaseUrl,
+        'publishedAt' => (string) ($decoded['publishedAt'] ?? ''),
+        'package' => [
+            'name' => substr((string) ($package['name'] ?? ''), 0, 180),
+            'url' => $packageUrl,
+            'size' => max(0, (int) ($package['size'] ?? 0)),
+            'sha256' => $checksum,
+        ],
+    ];
+}
+
+function asr_dmr_net_live_statuses(): array {
+    $path = '/run/allscan-reimagined-bridge-control/bridge-live.json';
+    $fileStatus = @stat($path);
+    if (!is_array($fileStatus)
+        || (int) ($fileStatus['uid'] ?? -1) !== 0
+        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0
+        || time() - (int) ($fileStatus['mtime'] ?? 0) > 10) {
+        return [];
+    }
+    $decoded = json_decode((string) @file_get_contents($path), true);
+    $entries = is_array($decoded['bridges'] ?? null) ? $decoded['bridges'] : [];
+    if ($entries === []) return [];
+
+    $config = is_readable(ASR_RUNTIME_CONFIG)
+        ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+        : null;
+    $allowed = [];
+    foreach ((array) ($config['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge) || ($bridge['cardType'] ?? '') !== 'dmr_net') continue;
+        $id = (string) ($bridge['id'] ?? '');
+        if (preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) $allowed[$id] = true;
+    }
+
+    $clean = [];
+    foreach ($entries as $id => $entry) {
+        $id = (string) $id;
+        if (!isset($allowed[$id]) || !is_array($entry)) continue;
+        $role = strtolower((string) ($entry['role'] ?? 'idle'));
+        if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
+        $clean[$id] = [
+            'active' => $role !== 'idle',
+            'role' => $role,
+            'state' => $role === 'source' ? 'TX ACTIVE' : ($role === 'relay' ? 'RELAY' : 'Idle'),
+            'node' => substr((string) ($entry['node'] ?? ''), 0, 10),
+            'title' => substr((string) ($entry['title'] ?? 'DMR Net Bridge'), 0, 80),
+            'channel' => substr((string) ($entry['channel'] ?? '-'), 0, 80),
+            'active_start_epoch' => max(0, (int) ($entry['active_start_epoch'] ?? 0)),
+            'activity_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
+            'last_time_epoch' => max(0, (int) ($entry['last_time_epoch'] ?? 0)),
+            'warning' => substr((string) ($entry['warning'] ?? ''), 0, 160),
+            'current_user' => substr((string) ($entry['current_user'] ?? ''), 0, 120),
+            'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 120),
+            'caller' => substr((string) ($entry['caller'] ?? ''), 0, 120),
+            'recent_users' => [],
+        ];
+    }
+    return $clean;
 }
 
 function asr_bridge_status_payload(): array {
@@ -262,11 +417,150 @@ function asr_bridge_status_payload(): array {
         $decoded = json_decode((string) file_get_contents($path), true);
         if (is_array($decoded)) $bridge = $decoded;
     }
+    foreach (asr_dmr_net_live_statuses() as $id => $entry) {
+        $bridge[$id] = $entry;
+    }
     return [
         'ok' => true,
         'bridge' => $bridge,
         'clients' => asr_bridge_clients_payload(),
+        'controls' => asr_dmr_net_control_statuses(),
     ];
+}
+
+function asr_valid_dmr_net_paths(array $bridge): bool {
+    return preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', (string) ($bridge['abinfoPath'] ?? '')) === 1
+        && preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', (string) ($bridge['dvswitchScript'] ?? '')) === 1
+        && preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', (string) ($bridge['analogConfig'] ?? '')) === 1;
+}
+
+function asr_dmr_net_current_tg(string $path, string $bridgeId = '', string $abinfoPath = ''): string {
+    if (preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) {
+        $statePath = '/run/allscan-reimagined-bridge-control/bridge-control-' . $bridgeId . '.json';
+        if (is_readable($statePath)) {
+            $state = json_decode((string) @file_get_contents($statePath), true);
+            $stateTg = (int) ($state['currentTg'] ?? 0);
+            if ($stateTg >= 1 && $stateTg <= 16777215) return (string) $stateTg;
+        }
+    }
+    if ($abinfoPath !== '' && is_readable($abinfoPath)) {
+        $abinfo = json_decode((string) @file_get_contents($abinfoPath), true);
+        if (is_array($abinfo)) {
+            $values = [
+                $abinfo['last_tune'] ?? null,
+                is_array($abinfo['digital'] ?? null) ? ($abinfo['digital']['tg'] ?? null) : null,
+            ];
+            foreach ($values as $value) {
+                $liveTg = (int) $value;
+                if ($liveTg === 4000) return '';
+                if ($liveTg >= 1 && $liveTg <= 16777215) return (string) $liveTg;
+            }
+        }
+    }
+    if (!is_readable($path)) return '';
+    $contents = (string) @file_get_contents($path);
+    if (!preg_match('/^\s*txTg\s*=\s*(\d+)\b/mi', $contents, $match)) return '';
+    $tg = (int) $match[1];
+    return $tg >= 1 && $tg <= 16777215 ? (string) $tg : '';
+}
+
+function asr_dmr_net_control_statuses(): array {
+    $config = is_readable(ASR_RUNTIME_CONFIG)
+        ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+        : null;
+    $localNode = preg_match('/^[0-9]{3,6}$/D', (string) ($config['node'] ?? ''))
+        ? (string) $config['node']
+        : '';
+    $expectedLinkAlias = $localNode !== ''
+        ? '999' . str_pad($localNode, 6, '0', STR_PAD_LEFT)
+        : '';
+    $statuses = [];
+    foreach ((array) ($config['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge) || ($bridge['cardType'] ?? '') !== 'dmr_net') continue;
+        $id = (string) ($bridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id) || !asr_valid_dmr_net_paths($bridge)) continue;
+        $script = (string) $bridge['dvswitchScript'];
+        $analogConfig = (string) $bridge['analogConfig'];
+        $bridgeNode = (string) ($bridge['node'] ?? '');
+        $linkAlias = (string) ($bridge['linkAlias'] ?? '');
+        $linkAliasValid = $expectedLinkAlias !== ''
+            && preg_match('/^999[0-9]{6}$/D', $linkAlias)
+            && hash_equals($expectedLinkAlias, $linkAlias)
+            && $linkAlias !== $bridgeNode;
+        $statePath = '/run/allscan-reimagined-bridge-control/bridge-control-' . $id . '.json';
+        $state = is_readable($statePath)
+            ? json_decode((string) @file_get_contents($statePath), true)
+            : null;
+        $stateTg = is_array($state) ? (int) ($state['currentTg'] ?? 0) : 0;
+        $statuses[$id] = [
+            'currentTg' => asr_dmr_net_current_tg($analogConfig, $id, (string) $bridge['abinfoPath']),
+            'linked' => $stateTg >= 1 && $stateTg <= 16777215,
+            'ready' => $linkAliasValid
+                && is_executable(ASR_BRIDGE_CONTROL_HELPER)
+                && is_file($script)
+                && is_executable($script)
+                && is_file($analogConfig),
+            'abinfoAvailable' => is_file((string) $bridge['abinfoPath']),
+        ];
+    }
+    return $statuses;
+}
+
+function asr_dmr_net_connect(string $bridgeId, string $talkgroup): array {
+    global $user;
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) asr_error('Invalid bridge ID.');
+    if (!preg_match('/^\d{1,8}$/D', $talkgroup) || (int) $talkgroup < 1 || (int) $talkgroup > 16777215) {
+        asr_error('Enter a valid DMR talkgroup.');
+    }
+    if ((int) $talkgroup === 4000) asr_error('Use Disconnect instead of entering TG 4000.');
+    if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+
+    $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER)
+        . ' --connect ' . escapeshellarg($bridgeId)
+        . ' ' . escapeshellarg($talkgroup)
+        . ' --user ' . escapeshellarg($username)
+        . ' 2>&1';
+    $lines = [];
+    $status = 1;
+    exec($command, $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) {
+            $payload = $decoded;
+            break;
+        }
+    }
+    if (!is_array($payload)) asr_error('DMR Net Bridge control returned an invalid response.', 500);
+    if ($status !== 0 || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? 'DMR Net Bridge connection failed.'), 500);
+    return $payload;
+}
+
+function asr_dmr_net_disconnect(string $bridgeId): array {
+    global $user;
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) asr_error('Invalid bridge ID.');
+    if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+
+    $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER)
+        . ' --disconnect ' . escapeshellarg($bridgeId)
+        . ' --user ' . escapeshellarg($username)
+        . ' 2>&1';
+    $lines = [];
+    $status = 1;
+    exec($command, $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) {
+            $payload = $decoded;
+            break;
+        }
+    }
+    if (!is_array($payload)) asr_error('DMR Net Bridge disconnect returned an invalid response.', 500);
+    if ($status !== 0 || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? 'DMR Net Bridge disconnect failed.'), 500);
+    return $payload;
 }
 
 function asr_cpu_temp_payload(): array {
@@ -465,7 +759,7 @@ function asr_lookup_is_iax_client(string $node, string $label, string $detail): 
     return ($node !== '' && !preg_match('/^\d+$/', $node)) || preg_match('/\b(IAX|IaxRpt|Web Transceiver|WebTransceiver)\b/i', $text);
 }
 
-function asr_lookup_payload(): array {
+function asr_lookup_payload_uncached(): array {
     $runtime = asr_runtime_config();
     $node = (string) ($runtime['node'] ?? '');
     $bridgeNodes = [];
@@ -533,6 +827,50 @@ function asr_lookup_payload(): array {
         'generatedAt' => gmdate('c'),
         'items' => $items,
     ];
+}
+
+function asr_lookup_payload(): array {
+    $cacheTtl = 15;
+    $readCache = static function () use ($cacheTtl): ?array {
+        if (!is_readable(ASR_LOOKUP_DATA_CACHE)) return null;
+        $modifiedAt = (int) @filemtime(ASR_LOOKUP_DATA_CACHE);
+        if ($modifiedAt <= 0 || time() - $modifiedAt >= $cacheTtl) return null;
+        $decoded = json_decode((string) file_get_contents(ASR_LOOKUP_DATA_CACHE), true);
+        return is_array($decoded) && !empty($decoded['ok']) ? $decoded : null;
+    };
+
+    $cached = $readCache();
+    if ($cached !== null) return $cached;
+
+    $directory = dirname(ASR_LOOKUP_DATA_CACHE);
+    $lock = is_dir($directory) && is_writable($directory)
+        ? @fopen(ASR_LOOKUP_DATA_CACHE . '.lock', 'c')
+        : false;
+    if ($lock) {
+        @flock($lock, LOCK_EX);
+        clearstatcache(true, ASR_LOOKUP_DATA_CACHE);
+        $cached = $readCache();
+        if ($cached !== null) {
+            @flock($lock, LOCK_UN);
+            @fclose($lock);
+            return $cached;
+        }
+    }
+
+    $payload = asr_lookup_payload_uncached();
+    if ($lock) {
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES);
+        if (is_string($json)) {
+            $temporary = ASR_LOOKUP_DATA_CACHE . '.tmp.' . getmypid();
+            if (@file_put_contents($temporary, $json . "\n", LOCK_EX) !== false) {
+                @chmod($temporary, 0660);
+                if (!@rename($temporary, ASR_LOOKUP_DATA_CACHE)) @unlink($temporary);
+            }
+        }
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
+    }
+    return $payload;
 }
 
 function asr_http_get(string $url, int $timeout = 5): string {
@@ -736,7 +1074,7 @@ function asr_station_map_payload(?array $requestedStations = null): array {
     $geocodeCandidate = null;
     foreach ($stations as $callsign => $item) {
         $entry = is_array($cache['callsigns'][$callsign] ?? null) ? $cache['callsigns'][$callsign] : [];
-        if (!empty($entry['resolved'])) continue;
+        if (!empty($entry['resolved']) && ($entry['source'] ?? '') !== 'nominatim') continue;
         $locationHint = asr_clean_location_hint((string) ($item['locationHint'] ?? ''));
         if ($locationHint === '') continue;
         $geocodeKey = strtolower($locationHint);
@@ -958,33 +1296,37 @@ function asr_favorite_action(string $action, string $node, string $requested): a
     if (!preg_match('/^[A-Za-z0-9*#]{3,8}$/', $node)) asr_error('Invalid node.');
     $file = asr_safe_favorites_file($requested);
     if (!is_writable($file)) asr_error('Favorites file is not writable.', 500);
-
-    $contents = (string) file_get_contents($file);
-    $lines = preg_split('/\R/', $contents) ?: [];
-
-    if ($action === 'delfav') {
-        $next = [];
-        for ($i = 0; $i < count($lines); $i += 1) {
-            $line = $lines[$i];
-            $nextLine = $lines[$i + 1] ?? '';
-            if (preg_match('/^\s*label\s*\[\]\s*=/', $line) && asr_node_from_command($nextLine) === $node) {
-                $i += 1;
-                continue;
-            }
-            $next[] = $line;
-        }
-        file_put_contents($file, rtrim(implode(PHP_EOL, $next)) . PHP_EOL);
-        return ['ok' => true, 'message' => "Deleted {$node} from Favorites."];
+    $real = realpath($file);
+    if (!is_string($real) || !str_starts_with($real, '/etc/allscan/favorites')) {
+        asr_error('Only shared Favorites files under /etc/allscan can be modified.', 400);
+    }
+    if (!is_executable(ASR_FAVORITES_UPDATE_HELPER)) {
+        asr_error('Favorites update helper is unavailable.', 500);
     }
 
-    if (!preg_match('/\bilink\s+\d+\s+' . preg_quote($node, '/') . '\b/i', $contents)) {
+    $verb = $action === 'delfav' ? 'delete' : 'add';
+    $label = '';
+    if ($verb === 'add') {
         $record = asr_lookup_node_record($node);
-        $favoriteLabel = $record ? asr_format_favorite_label($record, $node) : $node . ' ' . $node;
-        $entry = PHP_EOL . 'label[] = "' . addcslashes($favoriteLabel, '"\\') . '"' . PHP_EOL .
-            'cmd[] = "rpt cmd %node% ilink 3 ' . $node . '"' . PHP_EOL;
-        file_put_contents($file, rtrim($contents) . PHP_EOL . $entry);
+        $label = $record ? asr_format_favorite_label($record, $node) : $node . ' ' . $node;
     }
-    return ['ok' => true, 'message' => "Added {$node} to Favorites."];
+    $command = 'sudo -n ' . escapeshellarg(ASR_FAVORITES_UPDATE_HELPER)
+        . ' ' . escapeshellarg($verb)
+        . ' --file ' . escapeshellarg($real)
+        . ' --node ' . escapeshellarg($node);
+    if ($verb === 'add') $command .= ' --label ' . escapeshellarg($label);
+    $raw = trim((string) shell_exec($command . ' 2>&1'));
+    $result = json_decode($raw, true);
+    if (!is_array($result) || empty($result['ok'])) {
+        asr_error('Favorites update failed.', 500);
+    }
+    return [
+        'ok' => true,
+        'changed' => !empty($result['changed']),
+        'message' => $verb === 'delete'
+            ? "Deleted {$node} from Favorites."
+            : "Added {$node} to Favorites.",
+    ];
 }
 
 function asr_drop_clients(): array {
@@ -1199,7 +1541,10 @@ function asr_local_path_status(string $path): array {
     $path = trim($path);
     if ($path === '') return ['path' => '', 'status' => 'not configured'];
     $resolved = $path;
-    if (str_starts_with($path, '/allscan/')) $resolved = __DIR__ . substr($path, strlen('/allscan'));
+    $webBase = asr_web_base();
+    if ($webBase !== '' && strpos($path, $webBase . '/') === 0) {
+        $resolved = __DIR__ . substr($path, strlen($webBase));
+    }
     $real = realpath($resolved);
     if (!$real) return ['path' => $path, 'status' => 'missing'];
     return [
@@ -1424,7 +1769,7 @@ function asr_recent_request_count(): int {
     $cutoff = time() - 60;
     $count = 0;
     foreach ($lines as $line) {
-        if (strpos($line, ' /allscan/') === false) continue;
+        if (strpos($line, ' ' . asr_web_base() . '/') === false) continue;
         if (!preg_match('/\[([^\]]+)\]/', $line, $match)) continue;
         $date = DateTimeImmutable::createFromFormat('d/M/Y:H:i:s O', $match[1]);
         if ($date && $date->getTimestamp() >= $cutoff) $count++;
@@ -1493,6 +1838,10 @@ $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
 if ($action === 'runtime-config') asr_json(asr_runtime_config());
+if ($action === 'release-status') {
+    asr_require_read();
+    asr_json(asr_release_status_payload());
+}
 if ($action === 'bridge-clients') {
     asr_require_read();
     asr_json(asr_bridge_clients_payload());
@@ -1500,6 +1849,24 @@ if ($action === 'bridge-clients') {
 if ($action === 'bridge-status') {
     asr_require_read();
     asr_json(asr_bridge_status_payload());
+}
+if ($action === 'bridge-connect') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
+        asr_error('Invalid bridge-control request.', 403);
+    }
+    asr_json(asr_dmr_net_connect((string) ($_POST['bridgeId'] ?? ''), (string) ($_POST['talkgroup'] ?? '')));
+}
+if ($action === 'bridge-disconnect') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
+        asr_error('Invalid bridge-control request.', 403);
+    }
+    asr_json(asr_dmr_net_disconnect((string) ($_POST['bridgeId'] ?? '')));
 }
 if ($action === 'cpu-temp') {
     asr_require_read();

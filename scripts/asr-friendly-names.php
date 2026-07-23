@@ -2,6 +2,26 @@
 <?php
 const ASR_CONFIG_FILE = '/etc/allscan-reimagined/config.json';
 const ASR_LOCAL_DB_FILE = '/etc/allscan/asdb.txt';
+const ASR_FRIENDLY_NAME_FILES = [
+    ASR_LOCAL_DB_FILE,
+    '/var/www/html/asr/astdb.txt',
+    '/srv/http/asr/astdb.txt',
+    '/var/www/html/supermon/astdb.txt',
+    '/var/log/asterisk/astdb.txt',
+];
+
+if (($argv[1] ?? '') === '--self-test') {
+    foreach (ASR_FRIENDLY_NAME_FILES as $file) {
+        if (strpos($file, '/var/www/html/allscan/') === 0 || strpos($file, '/srv/http/allscan/') === 0) {
+            throw new RuntimeException('Friendly-name helper targets the stock AllScan web root.');
+        }
+    }
+    if (!in_array('/var/www/html/asr/astdb.txt', ASR_FRIENDLY_NAME_FILES, true)) {
+        throw new RuntimeException('Friendly-name helper does not target the ASR web root.');
+    }
+    echo "friendly-name stock-isolation self-test: ok" . PHP_EOL;
+    exit(0);
+}
 
 $config = is_readable(ASR_CONFIG_FILE)
     ? json_decode((string) file_get_contents(ASR_CONFIG_FILE), true)
@@ -27,14 +47,7 @@ if (!$bridges) {
     exit(0);
 }
 
-$files = [
-    ASR_LOCAL_DB_FILE,
-    '/var/www/html/allscan/astdb.txt',
-    '/var/www/html/supermon/astdb.txt',
-    '/var/log/asterisk/astdb.txt',
-];
-
-foreach ($files as $file) {
+foreach (ASR_FRIENDLY_NAME_FILES as $file) {
     if (!file_exists($file)) {
         if ($file !== ASR_LOCAL_DB_FILE) continue;
         if (!is_dir(dirname($file)) && !@mkdir(dirname($file), 0775, true)) continue;

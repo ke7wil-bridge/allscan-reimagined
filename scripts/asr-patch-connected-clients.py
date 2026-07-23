@@ -29,9 +29,6 @@ def patched_source(source):
         raise PatchError("socket_thread() end marker was not found")
 
     block = source[start:end]
-    if PATCH_MARKER in block:
-        return source, False
-
     old_client = (
         "    while True:\n"
         "        try:\n"
@@ -57,8 +54,27 @@ def patched_source(source):
     old_error = (
         "        except Exception as e:\n"
         "            print(\"TGIF session error:\", e, flush=True)\n"
-        "            time.sleep(5)"
+            "            time.sleep(5)"
     )
+    required_repair = (
+        PATCH_MARKER,
+        "sio = None",
+        "reconnection=False",
+        "while sio.connected:",
+        "finally:",
+        "if sio is not None:",
+        "sio.disconnect()",
+        'getattr(sio, "shutdown", None)',
+    )
+    if PATCH_MARKER in block:
+        if (
+            all(item in block for item in required_repair)
+            and old_client not in block
+            and old_session_loop not in block
+            and old_error not in block
+        ):
+            return source, False
+        raise PatchError("reconnect patch marker exists but the repair is incomplete")
     new_error = (
         "        except Exception as e:\n"
         "            print(\"TGIF session error:\", e, flush=True)\n"
@@ -106,6 +122,7 @@ def apply_patch(path):
             os.chown(str(backup), current.st_uid, current.st_gid)
         except PermissionError:
             pass
+    os.chmod(str(backup), 0o600)
 
     file_descriptor, temporary_name = tempfile.mkstemp(
         prefix=path.name + ".asr-", dir=str(path.parent)
@@ -159,8 +176,11 @@ threading.Thread(target=socket_thread, daemon=True).start()
         raise PatchError("self-test did not patch the vulnerable fixture")
     required = (
         PATCH_MARKER,
+        "sio = None",
         "reconnection=False",
         "while sio.connected:",
+        "finally:",
+        "if sio is not None:",
         "sio.disconnect()",
         'getattr(sio, "shutdown", None)',
     )
@@ -169,6 +189,34 @@ threading.Thread(target=socket_thread, daemon=True).start()
     repaired_again, changed_again = patched_source(repaired)
     if changed_again or repaired_again != repaired:
         raise PatchError("self-test patch is not idempotent")
+    marker_only = vulnerable.replace(
+        "    while True:\n        try:\n",
+        "    while True:\n        # " + PATCH_MARKER + "\n        try:\n",
+        1,
+    )
+    try:
+        patched_source(marker_only)
+    except PatchError as error:
+        if "repair is incomplete" not in str(error):
+            raise
+    else:
+        raise PatchError("self-test trusted an incomplete reconnect marker")
+
+    with tempfile.TemporaryDirectory(prefix="asr-connected-clients-test-") as directory:
+        target = Path(directory) / "connected-clients-daemon.py"
+        target.write_text(vulnerable, encoding="utf-8")
+        target.chmod(0o750)
+        if not apply_patch(target):
+            raise PatchError("self-test did not patch the temporary daemon")
+        backup = target.with_name(target.name + ".pre-asr-beta5.6")
+        if not backup.is_file() or backup.read_text(encoding="utf-8") != vulnerable:
+            raise PatchError("self-test did not preserve the original daemon")
+        if stat.S_IMODE(backup.stat().st_mode) != 0o600:
+            raise PatchError("self-test daemon backup is not protected")
+        if stat.S_IMODE(target.stat().st_mode) != 0o750:
+            raise PatchError("self-test changed the daemon executable mode")
+        if apply_patch(target):
+            raise PatchError("self-test temporary-file patch is not idempotent")
 
 
 def main():

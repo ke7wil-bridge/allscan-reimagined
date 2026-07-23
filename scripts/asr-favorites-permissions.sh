@@ -4,19 +4,61 @@ set -Eeuo pipefail
 detect_allscan_dir() {
   if [ -n "${ASR_ALLSCAN_DIR:-}" ]; then
     printf '%s\n' "$ASR_ALLSCAN_DIR"
-  elif [ -d /var/www/html/allscan ]; then
-    printf '%s\n' /var/www/html/allscan
-  elif [ -d /srv/http/allscan ]; then
-    printf '%s\n' /srv/http/allscan
+  elif [ -d /var/www/html/asr ]; then
+    printf '%s\n' /var/www/html/asr
+  elif [ -d /srv/http/asr ]; then
+    printf '%s\n' /srv/http/asr
   else
-    return 1
+    printf '%s\n' /var/www/html/asr
   fi
 }
 
+canonicalize_planned_path() {
+  local cursor="$1" parent component resolved suffix=""
+  case "$cursor" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  cursor=${cursor%/}
+  [ -n "$cursor" ] || cursor=/
+  while [ ! -e "$cursor" ] && [ ! -L "$cursor" ]; do
+    parent=$(dirname "$cursor")
+    [ "$parent" != "$cursor" ] || return 1
+    component=${cursor##*/}
+    case "$component" in
+      ''|.) ;;
+      ..) return 1 ;;
+      *) suffix="/$component$suffix" ;;
+    esac
+    cursor="$parent"
+  done
+  resolved=$(realpath "$cursor") || return 1
+  printf '%s%s\n' "${resolved%/}" "$suffix"
+}
+
+path_is_within() {
+  case "$1" in
+    "$2"|"$2"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 apply_favorites_permissions() {
-  local allscan_dir etc_dir data_dir owner owner_user owner_group web_favorite etc_favorite
-  local migration_dir migration_backup favorite backup
-  allscan_dir=$(detect_allscan_dir) || { echo "AllScan installation not found." >&2; return 1; }
+  local requested_allscan_dir allscan_dir etc_dir data_dir owner owner_user owner_group web_favorite etc_favorite
+  local migration_dir migration_backup favorite backup stock_candidate stock_root
+  requested_allscan_dir=$(detect_allscan_dir) || { echo "AllScan installation not found." >&2; return 1; }
+  allscan_dir=$(canonicalize_planned_path "$requested_allscan_dir") || {
+    echo "ASR web root is not a safe absolute path." >&2
+    return 1
+  }
+  stock_candidate="${ASR_STOCK_ALLSCAN_DIR:-$(dirname "$requested_allscan_dir")/allscan}"
+  for stock_candidate in "$stock_candidate" /var/www/html/allscan /srv/http/allscan; do
+    stock_root=$(canonicalize_planned_path "$stock_candidate") || continue
+    if path_is_within "$allscan_dir" "$stock_root"; then
+      echo "Refusing to modify the stock AllScan web root." >&2
+      return 1
+    fi
+  done
   etc_dir="${ASR_ETC_ALLSCAN_DIR:-/etc/allscan}"
   data_dir="${ASR_DATA_DIR:-/var/lib/allscan-reimagined}"
   owner="${ASR_OWNER:-root:${ASR_WEB_GROUP:-www-data}}"
@@ -59,7 +101,7 @@ apply_favorites_permissions() {
 }
 
 self_test() {
-  local tmp owner target
+  local tmp owner target rejected_target
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/asr-favorites-test.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
   owner="$(id -un):$(id -gn)"
@@ -89,6 +131,24 @@ self_test() {
   [ -L "$tmp/web/favorites.ini" ] || { echo "self-test did not restore the Favorites symlink" >&2; return 1; }
   find "$tmp/data/migrations" -type f -name 'favorites-web-before-link-*.ini' -exec grep -q 'Different Web Favorite' {} \; -print -quit \
     | grep -q . || { echo "self-test did not preserve a differing web Favorites copy" >&2; return 1; }
+
+  mkdir -p "$tmp/allscan" "$tmp/asr"
+  ln -s "$tmp/allscan" "$tmp/allscan-alias"
+  for rejected_target in \
+    /var/www/html/allscan/ \
+    "$tmp/asr/../allscan" \
+    "$tmp/allscan-alias" \
+    "$tmp/allscan/subdirectory"; do
+    if ASR_ALLSCAN_DIR="$rejected_target" \
+      ASR_STOCK_ALLSCAN_DIR="$tmp/allscan" \
+      ASR_ETC_ALLSCAN_DIR="$tmp/etc" \
+      ASR_DATA_DIR="$tmp/data" \
+      ASR_OWNER="$owner" \
+        apply_favorites_permissions >/dev/null 2>&1; then
+      echo "self-test allowed stock AllScan target: $rejected_target" >&2
+      return 1
+    fi
+  done
   echo "favorites permissions and single-source self-test: ok"
 }
 

@@ -1,18 +1,31 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-MASTER_DIR="/opt/allscan-reimagined/current"
+MASTER_DIR="${ASR_MASTER_DIR:-/opt/allscan-reimagined/current}"
 CONFIG_DIR="/etc/allscan-reimagined"
 DATA_DIR="/var/lib/allscan-reimagined"
+ROLLBACK_MODE="${ASR_ROLLBACK_MODE:-0}"
+WEB_ONLY="${ASR_REAPPLY_WEB_ONLY:-0}"
+if [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ]; then
+  LOCK_PATH="${ASR_LOCK_PATH:-/run/lock/allscan-reimagined-rollback.lock}"
+  mkdir -p "$(dirname "$LOCK_PATH")"
+  exec 9>"$LOCK_PATH"
+  flock -n 9 || { echo "Another ASR installation, reapply, or rollback is running." >&2; exit 1; }
+fi
 
-if [ -d /var/www/html/allscan ]; then
-  ALLSCAN_DIR="/var/www/html/allscan"
+if [ -n "${ASR_WEB_ROOT:-}" ]; then
+  WEB_ROOT="$ASR_WEB_ROOT"
+elif [ -d /var/www/html/allscan ]; then
+  WEB_ROOT="/var/www/html"
 elif [ -d /srv/http/allscan ]; then
-  ALLSCAN_DIR="/srv/http/allscan"
+  WEB_ROOT="/srv/http"
 else
   echo "AllScan installation not found." >&2
   exit 1
 fi
+STOCK_ALLSCAN_DIR="${STOCK_ALLSCAN_DIR:-$WEB_ROOT/allscan}"
+ASR_WEB_DIR="${ASR_WEB_DIR:-$WEB_ROOT/asr}"
+[ -d "$STOCK_ALLSCAN_DIR" ] || { echo "Stock AllScan installation not found." >&2; exit 1; }
 
 [ -d "$MASTER_DIR/web" ] || { echo "Reimagined master web files are missing." >&2; exit 1; }
 [ -f "$MASTER_DIR/server/asr-api.php" ] || { echo "Reimagined API is missing." >&2; exit 1; }
@@ -20,7 +33,10 @@ fi
 WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
-getent group "$WEB_GROUP" >/dev/null 2>&1 || { echo "Web-server group not found." >&2; exit 1; }
+if ! getent group "$WEB_GROUP" >/dev/null 2>&1; then
+  [ "$WEB_ONLY" = "1" ] || { echo "Web-server group not found." >&2; exit 1; }
+  WEB_GROUP="$(id -gn)"
+fi
 
 safe_chown_files() {
   local owner="$1"
@@ -42,24 +58,127 @@ safe_chmod_files() {
   done
 }
 
-echo "Reapplying AllScan Reimagined interface..."
-cp -a "$MASTER_DIR/web/." "$ALLSCAN_DIR/"
-if [ -d "$MASTER_DIR/web/assets" ] && [ -d "$ALLSCAN_DIR/assets" ]; then
-  for asset in "$ALLSCAN_DIR"/assets/index-*.js "$ALLSCAN_DIR"/assets/index-*.css; do
-    [ -f "$asset" ] || continue
-    [ -f "$MASTER_DIR/web/assets/${asset##*/}" ] || rm -f -- "$asset"
-  done
-fi
-install -o root -g root -m 644 "$MASTER_DIR/server/asr-api.php" "$ALLSCAN_DIR/asr-api.php"
+tree_digest() {
+  local target="$1"
+  (
+    cd "$target"
+    # Live status and user-data files can legitimately change while /asr is
+    # being staged. They are copied/preserved separately and are not stock
+    # application code, so exclude them from the stock-code isolation guard.
+    find . -type f \
+      ! -path './bridge-live.json' \
+      ! -path './connected-clients.json' \
+      ! -path './asr-connected-clients.json' \
+      ! -path './zello-status-data.json' \
+      ! -path './zello-stream-debug.json' \
+      ! -path './zello-talkers.json' \
+      ! -path './astdb.txt' \
+      ! -path './favorites.ini' \
+      ! -path './favorites.ini.bak' \
+      -print0 | LC_ALL=C sort -z | \
+      xargs -0 -r sha256sum
+    find . -type l -print0 | LC_ALL=C sort -z | \
+      while IFS= read -r -d '' link; do printf '%s  %s\n' "$(readlink "$link")" "$link"; done
+  ) | sha256sum | awk '{print $1}'
+}
+
+stage_asr_web() {
+  local stage previous="" stock_before stock_after backend_version compat_dir relative
+  stage=$(mktemp -d "$WEB_ROOT/.asr-reapply.XXXXXX")
+  trap 'rm -rf -- "$stage"' RETURN
+  stock_before=$(tree_digest "$STOCK_ALLSCAN_DIR")
+
+  cp -a "$STOCK_ALLSCAN_DIR/." "$stage/"
+  if [ -d "$ASR_WEB_DIR" ]; then
+    for relative in \
+      bridge-live.json connected-clients.json asr-connected-clients.json \
+      zello-status-data.json favorites.ini; do
+      [ -f "$ASR_WEB_DIR/$relative" ] || continue
+      if [ "$relative" = "favorites.ini" ]; then
+        # Stock and ASR normally share the canonical /etc/allscan file through
+        # symlinks. Copying one symlink over the other dereferences both to the
+        # same inode and fails with "same file" on a repeated reapply.
+        if [ -L "$ASR_WEB_DIR/$relative" ] \
+          || { [ -e "$stage/$relative" ] \
+            && [ "$ASR_WEB_DIR/$relative" -ef "$stage/$relative" ]; }; then
+          continue
+        fi
+        rm -f -- "$stage/$relative"
+      fi
+      cp -p "$ASR_WEB_DIR/$relative" "$stage/$relative"
+    done
+    for relative in img asr-user-content; do
+      if [ -d "$ASR_WEB_DIR/$relative" ]; then
+        rm -rf -- "$stage/$relative"
+        cp -a "$ASR_WEB_DIR/$relative" "$stage/$relative"
+      fi
+    done
+  fi
+
+  cp -a "$MASTER_DIR/web/." "$stage/"
+  install -m 644 "$MASTER_DIR/server/asr-api.php" "$stage/asr-api.php"
+  backend_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' \
+    "$STOCK_ALLSCAN_DIR/include/common.php" | head -1)
+  compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"
+  if [ -d "$compat_dir" ]; then
+    echo "Applying verified Reimagined compatibility layer for AllScan $backend_version..."
+    while IFS= read -r -d '' source; do
+      relative=${source#"$compat_dir/"}
+      install -d -m 755 "$(dirname "$stage/$relative")"
+      install -m 644 "$source" "$stage/$relative"
+    done < <(find "$compat_dir" -type f -print0)
+  else
+    echo "No exact ASR compatibility layer exists for AllScan ${backend_version:-unknown}; keeping the current /asr tree." >&2
+    return 1
+  fi
+  if [ -d "$DATA_DIR" ]; then
+    for logo in "$DATA_DIR"/header-logo.*; do
+      [ -f "$logo" ] || continue
+      install -m 644 "$logo" "$stage/asr-custom-logo.${logo##*.}"
+    done
+  fi
+
+  stock_after=$(tree_digest "$STOCK_ALLSCAN_DIR")
+  [ "$stock_before" = "$stock_after" ] || {
+    echo "Stock AllScan changed while staging /asr; refusing to continue." >&2
+    return 1
+  }
+  if [ -e "$ASR_WEB_DIR" ]; then
+    previous="$WEB_ROOT/.asr-previous.$$"
+    mv "$ASR_WEB_DIR" "$previous"
+  fi
+  if ! mv "$stage" "$ASR_WEB_DIR"; then
+    [ -n "$previous" ] && mv "$previous" "$ASR_WEB_DIR"
+    return 1
+  fi
+  stage=""
+  [ -n "$previous" ] && rm -rf -- "$previous"
+  trap - RETURN
+}
+
+echo "Staging AllScan Reimagined beside untouched stock AllScan..."
+stage_asr_web
+ALLSCAN_DIR="$ASR_WEB_DIR"
+[ "$WEB_ONLY" = "1" ] && exit 0
+
 install -o root -g root -m 755 "$MASTER_DIR/bin/allscan_wt_clients.sh" /usr/local/bin/allscan_wt_clients.sh
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asterisk-read.sh" /usr/local/sbin/allscan-reimagined-asterisk-read
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-friendly-names.php" /usr/local/sbin/allscan-reimagined-friendly-names
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-clients.php" /usr/local/sbin/allscan-reimagined-bridge-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/local/sbin/allscan-reimagined-manager-perms
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
+[ -f "$MASTER_DIR/scripts/asr-favorites-update.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-update.py" /usr/local/sbin/allscan-reimagined-favorites-update
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
+[ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
+install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-release-check.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-release-check.py" /usr/local/sbin/allscan-reimagined-release-check
+[ -f "$MASTER_DIR/scripts/asr-rollback.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback
 mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
 chmod 775 "$CONFIG_DIR"
@@ -68,9 +187,119 @@ chmod 775 "$CONFIG_DIR"
 [ -f "$CONFIG_DIR/secrets.json" ] && chown "root:$WEB_GROUP" "$CONFIG_DIR/secrets.json"
 [ -f "$CONFIG_DIR/secrets.json" ] && chmod 640 "$CONFIG_DIR/secrets.json"
 cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
-d /run/allscan-reimagined 0775 root $WEB_GROUP -
+d /run/allscan-reimagined 1775 root $WEB_GROUP -
+d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
+d /run/allscan-reimagined/rollback-jobs 0700 root root -
 EOF
 systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
+chmod 1775 /run/allscan-reimagined
+install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
+install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
+cat > /etc/systemd/system/allscan-reimagined-dmr-net-live.service <<'EOF'
+[Unit]
+Description=Collect live activity for configured ASR DMR Net Bridges
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-bridge-control --watch-status
+Restart=on-failure
+RestartSec=2s
+Nice=10
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/allscan-reimagined-bridge-control
+
+[Install]
+WantedBy=multi-user.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-bridge-control ] \
+  && python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(
+    0 if any(
+        isinstance(item, dict) and item.get("cardType") == "dmr_net"
+        for item in payload.get("bridges", [])
+    ) else 1
+)
+PY
+then
+  systemctl daemon-reload
+  systemctl enable --now allscan-reimagined-dmr-net-live.service >/dev/null
+else
+  systemctl disable --now allscan-reimagined-dmr-net-live.service >/dev/null 2>&1 || true
+  rm -f /run/allscan-reimagined-bridge-control/bridge-live.json
+fi
+cat > /etc/systemd/system/allscan-reimagined-release-check.service <<'EOF'
+[Unit]
+Description=Check for a newer AllScan Reimagined release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=64M
+TasksMax=16
+TimeoutStartSec=45s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/allscan-reimagined/release-check
+ExecStart=/usr/local/sbin/allscan-reimagined-release-check
+EOF
+cat > /etc/systemd/system/allscan-reimagined-release-check.timer <<'EOF'
+[Unit]
+Description=Schedule the AllScan Reimagined release check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1d
+AccuracySec=5min
+RandomizedDelaySec=10min
+Unit=allscan-reimagined-release-check.service
+
+[Install]
+WantedBy=timers.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-release-check ] \
+  && [ -f "$MASTER_DIR/scripts/asr-release-check.py" ]; then
+  systemctl daemon-reload
+  systemctl enable --now allscan-reimagined-release-check.timer >/dev/null
+  systemctl is-enabled --quiet allscan-reimagined-release-check.timer
+  systemctl is-active --quiet allscan-reimagined-release-check.timer
+else
+  systemctl disable --now allscan-reimagined-release-check.timer >/dev/null 2>&1 || true
+  rm -f /usr/local/sbin/allscan-reimagined-release-check
+  rm -f /etc/systemd/system/allscan-reimagined-release-check.service
+  rm -f /etc/systemd/system/allscan-reimagined-release-check.timer
+  systemctl daemon-reload
+fi
+cat > /etc/systemd/system/allscan-reimagined-rollback@.service <<'EOF'
+[Unit]
+Description=Run a queued AllScan Reimagined rollback
+After=apache2.service
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=512M
+TasksMax=64
+TimeoutStartSec=infinity
+ExecStart=/usr/local/sbin/allscan-reimagined-rollback run-job %i
+EOF
+systemctl daemon-reload
 rm -f /var/cache/allscan-reimagined/astapi-*.json /var/cache/allscan-reimagined/astapi-*.lock 2>/dev/null || true
 rmdir /var/cache/allscan-reimagined 2>/dev/null || true
 cat > /etc/cron.d/allscan-reimagined-friendly-names <<'EOF'
@@ -87,6 +316,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 23 4 * * * root nice -n 10 ionice -c 3 /usr/local/sbin/allscan-reimagined-manager-perms >/dev/null 2>&1
 EOF
 chmod 644 /etc/cron.d/allscan-reimagined-manager-perms
+if [ "$ROLLBACK_MODE" != "1" ]; then
 cat > /etc/systemd/system/allscan-reimagined-bridge-clients.service <<'EOF'
 [Unit]
 Description=Collect AllScan Reimagined bridge connected-client status
@@ -177,7 +407,8 @@ EOF
   if /usr/local/sbin/allscan-reimagined-patch-connected-clients; then
     connected_clients_changed=1
   fi
-  if [ "$connected_clients_changed" -eq 1 ] || [ "$tgif_environment_changed" -eq 1 ]; then
+  if { [ "$connected_clients_changed" -eq 1 ] || [ "$tgif_environment_changed" -eq 1 ]; } \
+    && [ "${ASR_ROLLBACK_MODE:-0}" != "1" ]; then
     systemctl try-restart connected-clients-daemon.service >/dev/null 2>&1 || true
   fi
 else
@@ -185,6 +416,7 @@ else
   rm -f /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.service
   rm -f /etc/systemd/system/allscan-reimagined-connected-clients-maintenance.timer
   systemctl daemon-reload
+fi
 fi
 if systemctl list-unit-files asl3-update-astdb.service --no-legend 2>/dev/null | grep -q '^asl3-update-astdb\.service'; then
   install -d -o root -g root -m 755 /etc/systemd/system/asl3-update-astdb.service.d
@@ -195,50 +427,18 @@ EOF
   systemctl daemon-reload
 fi
 
-backend_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' "$ALLSCAN_DIR/include/common.php" | head -1)
-compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"
-if [ -d "$compat_dir" ]; then
-  echo "Applying verified Reimagined compatibility layer for AllScan $backend_version..."
-  install -o root -g root -m 644 "$compat_dir/include/common.php" "$ALLSCAN_DIR/include/common.php"
-  install -o root -g root -m 644 "$compat_dir/include/UserModel.php" "$ALLSCAN_DIR/include/UserModel.php"
-  install -o root -g root -m 644 "$compat_dir/user/settings/index.php" "$ALLSCAN_DIR/user/settings/index.php"
-  install -d -o root -g root -m 755 "$ALLSCAN_DIR/asr-settings"
-  install -o root -g root -m 644 "$compat_dir/asr-settings/index.php" "$ALLSCAN_DIR/asr-settings/index.php"
-  install -d -o root -g root -m 755 "$ALLSCAN_DIR/lookup"
-  install -o root -g root -m 644 "$compat_dir/lookup/index.php" "$ALLSCAN_DIR/lookup/index.php"
-  install -d -o root -g root -m 755 "$ALLSCAN_DIR/echolink-lookup"
-  install -o root -g root -m 644 "$compat_dir/echolink-lookup/index.php" "$ALLSCAN_DIR/echolink-lookup/index.php"
-  install -d -o root -g root -m 755 "$ALLSCAN_DIR/performance"
-  install -o root -g root -m 644 "$compat_dir/performance/index.php" "$ALLSCAN_DIR/performance/index.php"
-  install -o root -g root -m 644 "$compat_dir/css/asr-admin.css" "$ALLSCAN_DIR/css/asr-admin.css"
-  if [ -d "$compat_dir/astapi" ]; then
-    install -o root -g root -m 644 "$compat_dir/astapi/server.php" "$ALLSCAN_DIR/astapi/server.php"
-    install -o root -g root -m 644 "$compat_dir/astapi/AMI.php" "$ALLSCAN_DIR/astapi/AMI.php"
-  fi
-else
-  logger -t allscan-reimagined "No verified admin/security compatibility layer for AllScan ${backend_version:-unknown}; upstream files left unchanged"
-  echo "WARNING: No verified admin-page compatibility layer exists for AllScan ${backend_version:-unknown}."
-fi
-if /usr/local/sbin/allscan-reimagined-patch-allscan-index; then
-  :
-else
-  patch_status=$?
-  [ "$patch_status" -eq 3 ] || echo "WARNING: Stock AllScan public-index guard could not be applied." >&2
-fi
-
-if [ -d "$DATA_DIR" ]; then
-  for logo in "$DATA_DIR"/header-logo.*; do
-    [ -f "$logo" ] || continue
-    extension="${logo##*.}"
-    install -o root -g root -m 644 "$logo" "$ALLSCAN_DIR/asr-custom-logo.$extension"
-  done
-fi
-
 cat > /etc/sudoers.d/allscan-reimagined <<EOF
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --status-json [0-9]*
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined
 visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null
@@ -263,7 +463,8 @@ for runtime_file in "$ALLSCAN_DIR"/favorites*.ini \
   safe_chown_files "root:$WEB_GROUP" "$runtime_file"
   safe_chmod_files 664 "$runtime_file"
 done
-ASR_WEB_GROUP="$WEB_GROUP" /usr/local/sbin/allscan-reimagined-favorites-permissions --apply
+ASR_ALLSCAN_DIR="$ASR_WEB_DIR" ASR_WEB_GROUP="$WEB_GROUP" \
+  /usr/local/sbin/allscan-reimagined-favorites-permissions --apply
 
 [ -f "$ALLSCAN_DIR/AllScanInstallUpdate.php" ] && chmod 755 "$ALLSCAN_DIR/AllScanInstallUpdate.php"
 [ -f "$ALLSCAN_DIR/docs/extensions.conf" ] && chmod 600 "$ALLSCAN_DIR/docs/extensions.conf"
@@ -276,10 +477,12 @@ fi
 [ -f /etc/allscan/asdb.txt ] && chown "root:$WEB_GROUP" /etc/allscan/asdb.txt
 [ -f /etc/allscan/asdb.txt ] && chmod 664 /etc/allscan/asdb.txt
 /usr/local/sbin/allscan-reimagined-manager-perms >/dev/null 2>&1 || true
-if [ "$bridge_client_source_count" -gt 0 ]; then
-  /usr/local/sbin/allscan-reimagined-bridge-clients --once >/dev/null 2>&1 || true
-else
-  printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"
+if [ "$ROLLBACK_MODE" != "1" ]; then
+  if [ "$bridge_client_source_count" -gt 0 ]; then
+    /usr/local/sbin/allscan-reimagined-bridge-clients --once >/dev/null 2>&1 || true
+  else
+    printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"
+  fi
 fi
 [ -f "$ALLSCAN_DIR/connected-clients.json" ] && chown "root:$WEB_GROUP" "$ALLSCAN_DIR/connected-clients.json"
 [ -f "$ALLSCAN_DIR/connected-clients.json" ] && chmod 664 "$ALLSCAN_DIR/connected-clients.json"
@@ -321,7 +524,7 @@ if command -v apache2ctl >/dev/null 2>&1; then
 </Directory>
 
 <IfModule mod_headers.c>
-    <Location "/allscan">
+    <Location "/asr">
         Header always set X-Content-Type-Options "nosniff"
         Header always set Referrer-Policy "same-origin"
         Header always set X-Frame-Options "SAMEORIGIN"

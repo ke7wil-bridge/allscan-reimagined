@@ -35,6 +35,73 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
+.allscan-update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid #f5bd3f;
+  border-left: 6px solid #ffd15a;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(91, 58, 5, 0.97), rgba(48, 33, 8, 0.97));
+  color: #fff4ce;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.allscan-update-notice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.allscan-update-notice-copy strong {
+  color: #fff;
+  font-size: 16px;
+}
+
+.allscan-update-package {
+  color: #f7dda0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.allscan-update-package code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
+}
+
+.allscan-update-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.allscan-update-actions a {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.allscan-update-actions a:hover,
+.allscan-update-actions a:focus-visible {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
 /* ==========================================================================
    Header, Branding, And Menus
    ========================================================================== */
@@ -666,6 +733,84 @@ body {
   color: #f2f2f2;
 }
 
+.allscan-dmr-net-controls {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.allscan-dmr-net-link-buttons,
+.allscan-dmr-net-tune {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.allscan-dmr-net-link-buttons .allscan-action-button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.allscan-dmr-net-tune {
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr);
+}
+
+.allscan-dmr-net-tune label {
+  color: #e7e7e7;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.allscan-dmr-net-tune input {
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 5px;
+  background-color: #050505 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  opacity: 1 !important;
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.allscan-dmr-net-tune input:hover,
+.allscan-dmr-net-tune input:focus,
+.allscan-dmr-net-tune input:active,
+.allscan-dmr-net-tune input:disabled {
+  background-color: #050505 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  opacity: 1 !important;
+}
+
+.allscan-dmr-net-tune input:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 1px;
+}
+
+.allscan-dmr-net-tune input:-webkit-autofill,
+.allscan-dmr-net-tune input:-webkit-autofill:hover,
+.allscan-dmr-net-tune input:-webkit-autofill:focus,
+.allscan-dmr-net-tune input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  -webkit-box-shadow: 0 0 0 1000px #050505 inset !important;
+  box-shadow: 0 0 0 1000px #050505 inset !important;
+}
+
 /* ==========================================================================
    Footer
    ========================================================================== */
@@ -726,6 +871,19 @@ body {
 }
 
 @media (max-width: 760px) {
+  .allscan-bridge-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .allscan-dmr-net-tune {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .allscan-dmr-net-tune label {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
   .allscan-footer {
     max-width: calc(100vw - 34px);
     padding-left: 11px;
@@ -1392,6 +1550,30 @@ body {
     grid-template-rows: auto;
     gap: 4px 6px;
     padding: 4px 6px 3px;
+  }
+
+  .allscan-update-notice {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 9px 10px;
+  }
+
+  .allscan-update-notice-copy {
+    font-size: 12px;
+  }
+
+  .allscan-update-notice-copy strong {
+    font-size: 14px;
+  }
+
+  .allscan-update-actions {
+    width: 100%;
+  }
+
+  .allscan-update-actions a {
+    flex: 1 1 0;
   }
 
   .allscan-brand {
@@ -3142,7 +3324,7 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
 
 @media (max-width: 900px) and (orientation: portrait) {
   .allscan-controls-section {
-    width: calc(100vw - 12px);
+    width: 100%;
     margin-right: auto;
     margin-left: auto;
   }
@@ -3447,10 +3629,12 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
 
 @media (max-width: 900px) {
   .allscan-status-shell {
-    width: calc(100vw - 12px);
-    max-width: calc(100vw - 12px);
-    margin-left: calc(-50vw + 6px);
-    margin-right: calc(-50vw + 6px);
+    left: auto;
+    right: auto;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .allscan-connection-table th,
@@ -3506,11 +3690,13 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
   }
 
   .allscan-bridge-grid {
+    left: auto;
+    right: auto;
     gap: 4px;
-    width: calc(100vw - 12px);
-    max-width: calc(100vw - 12px);
-    margin-left: calc(-50vw + 6px);
-    margin-right: calc(-50vw + 6px);
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .allscan-bridge-head {
@@ -3583,7 +3769,7 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
 
 @media (max-width: 900px) and (orientation: portrait) {
   .allscan-controls-section {
-    width: calc(100vw - 12px);
+    width: 100%;
   }
 
   .allscan-controls-shell {
@@ -3733,5 +3919,45 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
     margin-top: 2px;
     font-size: 8px;
     line-height: 1.05;
+  }
+}
+
+@media (max-width: 360px) and (orientation: portrait) {
+  body {
+    min-width: 0;
+  }
+
+  .allscan-controls-row {
+    grid-template-columns: max-content max-content;
+  }
+
+  .allscan-node-field {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .allscan-connect-button {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .allscan-disconnect-button {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .allscan-favorites-wrap {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .allscan-action-field {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .allscan-go-button {
+    grid-column: 1 / 3;
+    grid-row: 4;
   }
 }

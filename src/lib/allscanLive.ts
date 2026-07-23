@@ -1,5 +1,11 @@
-const ALLSCAN_BASE = '/allscan'
-const ASR_API = `${ALLSCAN_BASE}/asr-api.php`
+export const ASR_BASE_PATH = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+export function asrPath(path = '') {
+  const suffix = path.replace(/^\/+/, '')
+  return suffix ? `${ASR_BASE_PATH}/${suffix}` : `${ASR_BASE_PATH}/`
+}
+
+const ASR_API = asrPath('asr-api.php')
 const CONNECTION_RECONNECT_INITIAL_MS = 2000
 const CONNECTION_RECONNECT_MAX_MS = 30000
 
@@ -10,6 +16,9 @@ export type RuntimeBridgeConfig = {
   node: string
   title: string
   detailTitle: string
+  friendlyName?: string
+  cardType?: 'standard' | 'dmr_net'
+  linkAlias?: string
 }
 
 export type RuntimeConfig = {
@@ -33,9 +42,9 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   browserTitle: 'AllScan Reimagined',
   brandByline: 'by KE7WIL',
   footerByline: 'customized by KE7WIL',
-  headerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  footerLogo: `${ALLSCAN_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 5.11',
+  headerLogo: asrPath('asr-logo-bright-r-tight.png'),
+  footerLogo: asrPath('asr-logo-bright-r-tight.png'),
+  versionLabel: 'v1.0.0 Beta 6',
   lowPowerMode: false,
   bridges: [],
 }
@@ -50,6 +59,7 @@ export type LiveConnectionRow = {
   connected: string
   mode: string
   state: RowState
+  bridgeId?: string
   sourceIndex?: number
   linkedNodes?: string[]
 }
@@ -90,10 +100,15 @@ export type FavoritesPayload = {
 
 export type BridgeCardView = {
   id: string
+  node: string
   title: string
+  cardType: 'standard' | 'dmr_net'
   status: 'Idle' | 'Source/TX' | 'Relay'
   lastCaller: string
   warning: string
+  currentTg: string
+  controlLinked: boolean
+  controlReady: boolean
   detailTitle: string
   detailRows: BridgeDetailItem[]
 }
@@ -129,6 +144,24 @@ export type AuthStatus = {
   isAdmin: boolean
 }
 
+export type ReleaseStatus = {
+  status: 'pending' | 'up_to_date' | 'update_available'
+  updateAvailable: boolean
+  checkedAt: string
+  installedVersion: string
+  installedLabel: string
+  availableVersion: string
+  availableLabel: string
+  releaseUrl: string
+  publishedAt: string
+  package: {
+    name: string
+    url: string
+    size: number
+    sha256: string
+  }
+}
+
 export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
   const response = await fetch(`${ASR_API}?action=runtime-config`, {
     credentials: 'same-origin',
@@ -142,6 +175,16 @@ export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
     ...payload,
     bridges: Array.isArray(payload.bridges) ? payload.bridges : [],
   }
+}
+
+export async function fetchReleaseStatus(): Promise<ReleaseStatus> {
+  const response = await fetch(`${ASR_API}?action=release-status`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as ReleaseStatus & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Release status could not be checked.')
+  return payload
 }
 
 type FeedNode = {
@@ -196,6 +239,13 @@ type ConnectedClientsResponse = {
   ysf?: Array<Record<string, unknown>>
   zello?: Array<Record<string, unknown>>
 } & Record<string, Array<Record<string, unknown>> | undefined>
+
+type BridgeControlResponse = Record<string, {
+  currentTg?: string
+  linked?: boolean
+  ready?: boolean
+  abinfoAvailable?: boolean
+}>
 
 export const actionOptions = [
   { value: 'dropclient', label: 'Drop Client' },
@@ -276,13 +326,18 @@ function liveBridgeRowState(keyed: string, mode: string): RowState {
   return 'normal'
 }
 
-function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): ConnectionSnapshot {
+function buildSnapshot(
+  payload: FeedPayload,
+  bridgeNodes: Set<string>,
+  bridgeAliases: Map<string, RuntimeBridgeConfig>,
+): ConnectionSnapshot {
   const nodeKey = Object.keys(payload)[0]
   if (!nodeKey) return { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
 
   const nodeData = payload[nodeKey]
   const remoteRows: LiveConnectionRow[] = []
   const linkedNodes = new Set<string>()
+  const directNodeIds = new Set<string>()
   const keyedNodes = new Set<string>()
   const linkedNodeCounts: Record<string, number> = {}
   const firstExternalNode = nodeData.remote_nodes.find((row) => {
@@ -296,15 +351,18 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
     const row = nodeData.remote_nodes[index]
     const linkedList = (row.lnodes || []).map(String)
     linkedList.forEach((linkedNode) => linkedNodes.add(linkedNode))
-    const node = String(row.node)
+    const rawNode = String(row.node)
+    const aliasBridge = bridgeAliases.get(rawNode)
+    const node = aliasBridge?.node || rawNode
+    if (rawNode !== '1' && row.info !== 'NO CONNECTION') directNodeIds.add(rawNode)
     if (linkedList.length > 0 && node !== '1') linkedNodeCounts[node] = linkedList.length
     if (linkedList.length > 0 && node === '1' && firstExternalNode) linkedNodeCounts[String(firstExternalNode.node)] = linkedList.length
-    if (row.keyed === 'yes') keyedNodes.add(String(row.node))
+    if (row.keyed === 'yes') keyedNodes.add(node)
     if (row.info === 'NO CONNECTION') {
       hasNoConnectionRow = true
       continue
     }
-    if (String(row.node) === '1') continue
+    if (rawNode === '1') continue
 
     const info = row.info ? htmlToText(row.info) : row.ip
 
@@ -316,6 +374,7 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
       connected: normalizeFeedTime(row.elapsed),
       mode: toModeLabel(row.mode),
       state: liveBridgeRowState(row.keyed, row.mode),
+      bridgeId: aliasBridge?.id,
       sourceIndex: index,
       linkedNodes: linkedList,
     })
@@ -335,7 +394,10 @@ function buildSnapshot(payload: FeedPayload, bridgeNodes: Set<string>): Connecti
   // app_rpt version. LinkedNodes contains the propagated numeric topology;
   // merge it with visible direct rows so named IAX/EchoLink clients are also
   // counted without double-counting numeric direct nodes.
-  const allLinkedIds = new Set([...linkedNodes, ...remoteRows.map((row) => row.node).filter(Boolean)])
+  // Count using the raw Asterisk identities. A private numeric node elsewhere
+  // in the topology can legitimately have the same visible number as an ASR
+  // alias-backed local bridge, and those are still two distinct links.
+  const allLinkedIds = new Set([...linkedNodes, ...directNodeIds])
   const connectedCount = Math.max(allLinkedIds.size, directCount)
   const adjacentCount = Math.max(connectedCount - directCount, 0)
 
@@ -371,11 +433,14 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
 }
 
 function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSnapshot): ConnectionSnapshot {
-  const previousByNode = new Map(previous.rows.map((row) => [row.node, row]))
+  const rowIdentity = (row: LiveConnectionRow) => (
+    `${row.bridgeId ? `bridge:${row.bridgeId}` : `node:${row.node}`}\0${row.direction}\0${row.mode}`
+  )
+  const previousByIdentity = new Map(previous.rows.map((row) => [rowIdentity(row), row]))
   return {
     ...next,
     rows: next.rows.map((row) => {
-      const oldRow = previousByNode.get(row.node)
+      const oldRow = previousByIdentity.get(rowIdentity(row))
       if (!oldRow) return row
       return {
         ...row,
@@ -388,11 +453,18 @@ function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSna
 
 export function subscribeConnectionFeed(
   localNode: string,
-  configuredBridgeNodes: string[],
+  configuredBridges: RuntimeBridgeConfig[],
   onSnapshot: (snapshot: ConnectionSnapshot) => void,
   onMessage: (message: string) => void,
 ) {
-  const bridgeNodes = new Set(configuredBridgeNodes.filter(Boolean))
+  const bridgeAliases = new Map(
+    configuredBridges
+      .filter((bridge) => bridge.linkAlias && bridge.node)
+      .map((bridge) => [String(bridge.linkAlias), bridge]),
+  )
+  const bridgeNodes = new Set(
+    configuredBridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || '']).filter(Boolean),
+  )
   let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
   let source: EventSource | undefined
   let reconnectTimer: number | undefined
@@ -430,7 +502,7 @@ export function subscribeConnectionFeed(
       resetReconnectDelay()
       const next = preserveSnapshotTimes(
         snapshot,
-        buildSnapshot(JSON.parse(rawData) as FeedPayload, bridgeNodes),
+        buildSnapshot(JSON.parse(rawData) as FeedPayload, bridgeNodes, bridgeAliases),
       )
       snapshot = next
       onSnapshot(next)
@@ -459,7 +531,7 @@ export function subscribeConnectionFeed(
   const connect = () => {
     if (stopped) return
 
-    const nextSource = new EventSource(`${ALLSCAN_BASE}/astapi/server.php?nodes=${encodeURIComponent(localNode)}`)
+    const nextSource = new EventSource(`${asrPath('astapi/server.php')}?nodes=${encodeURIComponent(localNode)}`)
     source = nextSource
 
     nextSource.addEventListener('nodes', (event) => {
@@ -804,9 +876,14 @@ export async function fetchBridgeCards(
   signal?: AbortSignal,
 ): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
   const response = await fetch(`${ASR_API}?action=bridge-status`, { credentials: 'same-origin', cache: 'no-store', signal })
-  const payload = (await response.json()) as { bridge?: BridgeLiveResponse; clients?: ConnectedClientsResponse }
+  const payload = (await response.json()) as {
+    bridge?: BridgeLiveResponse
+    clients?: ConnectedClientsResponse
+    controls?: BridgeControlResponse
+  }
   const bridge = normalizeBridgeRoles(payload.bridge || {})
   const clients = payload.clients || {}
+  const controls = payload.controls || {}
 
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
     const entryValue = bridge[bridgeConfig.id]
@@ -818,12 +895,18 @@ export async function fetchBridgeCards(
       ? liveZelloRecentTalkers(bridge.zello)
       : cachedDetailRows
     const status = mapBridgeStatus(entry)
+    const control = controls[bridgeConfig.id] || {}
     return {
       id: bridgeConfig.id,
+      node: bridgeConfig.node,
       title: bridgeConfig.title,
+      cardType: bridgeConfig.cardType === 'dmr_net' ? 'dmr_net' : 'standard',
       status,
       lastCaller: bridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
+      currentTg: String(control.currentTg || ''),
+      controlLinked: control.linked === true,
+      controlReady: control.ready === true,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(detailRows, 'None', bridgeConfig.id),
     }
@@ -836,8 +919,53 @@ export async function fetchBridgeCards(
   return { updatedLabel, cards }
 }
 
+export async function connectDmrNetBridge(bridgeId: string, talkgroup: string) {
+  const response = await fetch(`${ASR_API}?action=bridge-connect`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-ASR-Requested-With': 'bridge-control',
+    },
+    body: new URLSearchParams({ bridgeId, talkgroup }).toString(),
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    message?: string
+    currentTg?: string
+  }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Talkgroup change failed (${response.status}).`)
+  }
+  return payload
+}
+
+export async function disconnectDmrNetBridge(bridgeId: string) {
+  const response = await fetch(`${ASR_API}?action=bridge-disconnect`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-ASR-Requested-With': 'bridge-control',
+    },
+    body: new URLSearchParams({ bridgeId }).toString(),
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    message?: string
+  }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `DMR disconnect failed (${response.status}).`)
+  }
+  return payload
+}
+
 export async function fetchFavoriteStats(node: string): Promise<FavoriteStats | null> {
-  const response = await fetch(`${ALLSCAN_BASE}/stats/stats.php`, {
+  const response = await fetch(asrPath('stats/stats.php'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ node }).toString(),
@@ -916,7 +1044,7 @@ export async function sendNodeCommand(args: {
   }
 
   if (args.action === 'dtmf') {
-    const response = await fetch(`${ALLSCAN_BASE}/astapi/cmd.php`, {
+    const response = await fetch(asrPath('astapi/cmd.php'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -930,7 +1058,7 @@ export async function sendNodeCommand(args: {
     return (await response.text()).trim()
   }
 
-  const response = await fetch(`${ALLSCAN_BASE}/astapi/connect.php`, {
+  const response = await fetch(asrPath('astapi/connect.php'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -947,7 +1075,7 @@ export async function sendNodeCommand(args: {
 }
 
 export async function restartAsteriskCommand(localNode: string) {
-  const response = await fetch(`${ALLSCAN_BASE}/astapi/cmd.php`, {
+  const response = await fetch(asrPath('astapi/cmd.php'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

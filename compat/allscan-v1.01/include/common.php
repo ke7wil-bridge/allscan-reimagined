@@ -2,7 +2,7 @@
 // AllScan main includes & common functions
 // Author: David Gleason - AllScan.info
 $AllScanVersion = "v1.01";
-define('ASR_REIMAGINED_VERSION_LABEL', 'v1.0.0 Beta 5.11');
+define('ASR_REIMAGINED_VERSION_LABEL', 'v1.0.0 Beta 6');
 require_once('Html.php');
 require_once('logUtils.php');
 require_once('timeUtils.php');
@@ -98,6 +98,27 @@ function asrAdminCssLink() {
 	return "<link href=\"$urlbase/css/asr-admin.css?v=$version\" rel=\"stylesheet\" type=\"text/css\">" . NL;
 }
 
+function asrWebPath($path='') {
+	global $urlbase;
+	$base = rtrim((string)$urlbase, '/');
+	$suffix = ltrim((string)$path, '/');
+	return $suffix === '' ? $base . '/' : $base . '/' . $suffix;
+}
+
+function asrRebaseLegacyWebPath($path, $defaultPath='') {
+	global $urlbase;
+	$value = trim((string)$path);
+	if($value === '')
+		return asrWebPath($defaultPath);
+	$base = rtrim((string)$urlbase, '/');
+	if($base !== '/allscan' && strpos($value, '/allscan/') === 0) {
+		$suffix = substr($value, strlen('/allscan'));
+		if(preg_match('#^/[A-Za-z0-9._/\-]+$#', $suffix))
+			return $base . $suffix;
+	}
+	return $value;
+}
+
 function asrAdminAssetCssLink() {
 	global $wwwroot, $asdir, $urlbase;
 	$assetDir = "$wwwroot/$asdir/assets";
@@ -150,7 +171,7 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 		. '<span><span class="allscan-meta-label">UTC</span> ' . gmdate('G:i:s') . '</span></div></div>' . NL
 		. $menuHtml . NL
 		. '</header>' . NL
-		. '<script>function asrAdminCloseMenu(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");var btn=wrap&&wrap.querySelector(".allscan-menu-button");if(panel){panel.setAttribute("hidden","");panel.style.display="none";panel.classList.remove("has-active-submenu")}if(btn)btn.setAttribute("aria-expanded","false");if(wrap)wrap.classList.remove("is-open")}function asrAdminClearSubmenus(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!wrap||!panel)return;wrap.querySelectorAll(".allscan-menu-proxy-row").forEach(function(button){button.classList.remove("is-active");button.setAttribute("aria-expanded","false")});wrap.querySelectorAll(".allscan-submenu").forEach(function(menu){menu.classList.remove("is-open")});panel.classList.remove("has-active-submenu")}function asrAdminToggleMenu(btn){var wrap=btn.closest(".asr-admin-menu");var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!panel)return;var open=panel.hasAttribute("hidden");if(open){panel.removeAttribute("hidden");panel.style.display="block";wrap.classList.add("is-open");btn.setAttribute("aria-expanded","true")}else{asrAdminCloseMenu(wrap)}}document.addEventListener("click",function(e){var row=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-menu-proxy-row");if(row){var key=row.getAttribute("data-submenu");if(!key)return;e.preventDefault();e.stopPropagation();var wrap=row.closest(".asr-admin-menu");var panel=wrap.querySelector(".asr-admin-menu-panel");var active=row.classList.contains("is-active");asrAdminClearSubmenus(wrap);if(!active){row.classList.add("is-active");row.setAttribute("aria-expanded","true");var submenu=wrap.querySelector(".allscan-submenu-"+key);if(submenu)submenu.classList.add("is-open");if(panel)panel.classList.add("has-active-submenu")}return}var back=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-submenu-back");if(back){e.preventDefault();e.stopPropagation();asrAdminClearSubmenus(back.closest(".asr-admin-menu"));return}document.querySelectorAll(".asr-admin-menu.is-open").forEach(function(wrap){if(wrap.contains(e.target))return;asrAdminCloseMenu(wrap)})});</script>' . NL . BR;
+		. '<script>function asrAdminCloseMenu(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");var btn=wrap&&wrap.querySelector(".allscan-menu-button");if(panel){panel.setAttribute("hidden","");panel.style.display="none";panel.classList.remove("has-active-submenu")}if(btn)btn.setAttribute("aria-expanded","false");if(wrap)wrap.classList.remove("is-open")}function asrAdminClearSubmenus(wrap){var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!wrap||!panel)return;wrap.querySelectorAll(".allscan-menu-proxy-row").forEach(function(button){button.classList.remove("is-active");button.setAttribute("aria-expanded","false")});wrap.querySelectorAll(".allscan-submenu").forEach(function(menu){menu.classList.remove("is-open")});panel.classList.remove("has-active-submenu")}function asrAdminToggleMenu(btn){var wrap=btn.closest(".asr-admin-menu");var panel=wrap&&wrap.querySelector(".asr-admin-menu-panel");if(!panel)return;var open=panel.hasAttribute("hidden");if(open){panel.removeAttribute("hidden");panel.style.display="block";wrap.classList.add("is-open");btn.setAttribute("aria-expanded","true")}else{asrAdminCloseMenu(wrap)}}document.addEventListener("click",function(e){var row=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-menu-proxy-row");if(row){var key=row.getAttribute("data-submenu");if(!key)return;e.preventDefault();e.stopPropagation();var wrap=row.closest(".asr-admin-menu");var panel=wrap.querySelector(".asr-admin-menu-panel");var active=row.classList.contains("is-active");asrAdminClearSubmenus(wrap);if(!active){row.classList.add("is-active");row.setAttribute("aria-expanded","true");var submenu=wrap.querySelector(".allscan-submenu-"+key);if(submenu)submenu.classList.add("is-open");if(panel)panel.classList.add("has-active-submenu")}return}var back=e.target.closest&&e.target.closest(".asr-admin-menu .allscan-submenu-back");if(back){e.preventDefault();e.stopPropagation();asrAdminClearSubmenus(back.closest(".asr-admin-menu"));return}document.querySelectorAll(".asr-admin-menu.is-open").forEach(function(wrap){if(wrap.contains(e.target))return;asrAdminCloseMenu(wrap)})});document.addEventListener("DOMContentLoaded",function(){var heading=document.querySelector("body.asr-admin-page-cfg .greenborder:first-of-type > h1");if(heading&&heading.textContent.trim()==="Manage Cfgs")heading.textContent="Manage Configs"});</script>' . NL . BR;
 }
 
 function asrAdminHeaderMenu($showHdrLinks=true) {
@@ -177,12 +198,14 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 		$html->a("$urlbase/user/", null, 'Users'),
 		$html->a("$urlbase/cfg/", null, 'Configs'),
 	];
+	if($isAdmin)
+		array_splice($admin, 2, 0, [$html->a("$urlbase/asr-instructions/", null, 'Help & Instructions')]);
 	if($node !== '')
 		$admin[] = '<a role="menuitem" href="http://stats.allstarlink.org/stats/' . htmlattr($node) . '" target="_blank" rel="noreferrer">Node Status</a>';
 	if(!$loggedIn) {
 		$admin[] = $html->a("$urlbase/user/", null, 'Login');
 	}
-	$returnMainPages = ['cfg', 'user', 'user/settings', 'lookup', 'echolink-lookup', 'asr-settings', 'performance'];
+	$returnMainPages = ['cfg', 'user', 'user/settings', 'lookup', 'echolink-lookup', 'asr-settings', 'asr-instructions', 'performance'];
 	$showReturnMain = $loggedIn && in_array($subdir, $returnMainPages, true);
 	$returnMain = $showReturnMain
 		? '<a class="asr-admin-return-main" href="' . $urlbase . '/">Return to Main Page</a>'
@@ -221,6 +244,14 @@ function asrAdminRuntimeConfig() {
 	$runtime = is_array($data) ? $data : [];
 	$runtime['versionLabel'] = ASR_REIMAGINED_VERSION_LABEL;
 	$runtime['brandByline'] = 'by KE7WIL';
+	$runtime['headerLogo'] = asrRebaseLegacyWebPath(
+		$runtime['headerLogo'] ?? '',
+		'asr-logo-bright-r-tight.png'
+	);
+	$runtime['footerLogo'] = asrRebaseLegacyWebPath(
+		$runtime['footerLogo'] ?? '',
+		'asr-logo-bright-r-tight.png'
+	);
 	if(empty($runtime['footerByline']))
 		$runtime['footerByline'] = 'customized by KE7WIL';
 	return $runtime;
@@ -265,6 +296,8 @@ function asrAdminBodyClass() {
 		$classes[] = 'asr-admin-page-settings';
 	} elseif($subdir === 'asr-settings') {
 		$classes[] = 'asr-admin-page-reimagined';
+	} elseif($subdir === 'asr-instructions') {
+		$classes[] = 'asr-admin-page-instructions';
 	} elseif($subdir === 'performance') {
 		$classes[] = 'asr-admin-page-performance';
 	} elseif($subdir === 'lookup') {
@@ -335,6 +368,9 @@ function getHdrLinks() {
 		if(adminUser()) {
 			$url = "$urlbase/asr-settings/";
 			$title = 'Reimagined Settings';
+			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+			$url = "$urlbase/asr-instructions/";
+			$title = 'Help & Instructions';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
 			$url = "$urlbase/performance/";
 			$title = 'Performance Stats';

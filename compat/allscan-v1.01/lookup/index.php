@@ -25,11 +25,12 @@ pageInit();
 		</section>
 
 		<div class="asr-map-actions">
-			<button id="asrStationMapOpen" type="button" class="asr-map-button" aria-expanded="false">View Station Origin Map</button>
+			<button id="asrStationMapOpen" type="button" class="asr-map-button" aria-pressed="false">View Station Map</button>
+			<button id="asrNetworkMapOpen" type="button" class="asr-map-button" aria-expanded="false" disabled>View Network Map</button>
 		</div>
 		<section id="asrStationMapPanel" class="asr-map-panel" hidden>
 			<div class="asr-map-head">
-				<strong>Connected Station Origins</strong>
+				<strong>Connected Station Map</strong>
 				<button id="asrStationMapClose" type="button" class="asr-map-close">Close</button>
 			</div>
 			<div class="asr-map-body">
@@ -45,11 +46,56 @@ pageInit();
 				<p class="asr-map-style">Map style: Esri Dark Gray Canvas. Fallback location data © OpenStreetMap contributors.</p>
 			</div>
 		</section>
+		<section id="asrNetworkMapPanel" class="asr-map-panel" hidden>
+			<div class="asr-map-head">
+				<strong>AllStarLink Network Map</strong>
+				<button id="asrNetworkMapClose" type="button" class="asr-map-close">Close</button>
+			</div>
+			<div class="asr-map-body">
+				<div id="asrNetworkMapFrame" class="asr-map-frame asr-network-map-frame">
+					<span id="asrNetworkMapLoading" class="asr-map-loading">Loading Map</span>
+					<img id="asrNetworkMapImage" alt="" loading="eager" decoding="async">
+				</div>
+				<p class="asr-map-note">
+					<button id="asrNetworkMapFallback" type="button" class="asr-map-button">Open Full Map</button>
+				</p>
+			</div>
+		</section>
 	</div>
 </section>
 
+<style>
+.asr-network-map-frame {
+	background:#fff;
+	height:clamp(300px, 34vw, 430px);
+}
+
+.asr-network-map-frame img {
+	position:relative;
+	z-index:1;
+	display:block;
+	width:100%;
+	height:100%;
+	object-fit:contain;
+	object-position:center center;
+}
+
+.asr-map-button:disabled {
+	cursor:default;
+	opacity:.72;
+}
+
+@media (max-width:760px) {
+	.asr-network-map-frame {
+		height:260px;
+		min-height:180px;
+	}
+}
+</style>
+
 <script>
 (function () {
+	var asrBase = <?php echo json_encode(rtrim($urlbase, '/'), JSON_UNESCAPED_SLASHES); ?>;
 	var list = document.getElementById('asrLookupList');
 	var count = document.getElementById('asrLookupCount');
 	var updated = document.getElementById('asrLookupUpdated');
@@ -63,11 +109,24 @@ pageInit();
 	var mapCard = document.getElementById('asrStationMapCard');
 	var mapSummary = document.getElementById('asrStationMapSummary');
 	var mapUnmapped = document.getElementById('asrStationMapUnmapped');
+	var networkMapOpen = document.getElementById('asrNetworkMapOpen');
+	var networkMapClose = document.getElementById('asrNetworkMapClose');
+	var networkMapPanel = document.getElementById('asrNetworkMapPanel');
+	var networkMapFrame = document.getElementById('asrNetworkMapFrame');
+	var networkMapLoading = document.getElementById('asrNetworkMapLoading');
+	var networkMapImage = document.getElementById('asrNetworkMapImage');
+	var networkMapFallback = document.getElementById('asrNetworkMapFallback');
 	var leafletPromise = null;
 	var stationMap = null;
 	var stationMarkers = null;
 	var stationPointsKey = '';
+	var stationMapHasValidData = false;
+	var stationMapIsStale = false;
+	var stationMapRequestSequence = 0;
 	var lookupLoading = false;
+	var networkMapNode = '';
+	var networkMapUrl = '';
+	var networkMapRefreshTimer = null;
 
 	function escapeHtml(value) {
 		return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
@@ -102,6 +161,59 @@ pageInit();
 			: '';
 	}
 
+	function networkMapBaseUrl(node) {
+		var text = String(node || '').trim();
+		return /^\d{3,10}$/.test(text)
+			? 'https://stats.allstarlink.org/stats/' + encodeURIComponent(text) + '/networkMap'
+			: '';
+	}
+
+	function freshNetworkMapUrl() {
+		var baseUrl = networkMapBaseUrl(networkMapNode);
+		if(!baseUrl) return '';
+		networkMapUrl = baseUrl + '?nh_refresh=' + encodeURIComponent(Date.now());
+		return networkMapUrl;
+	}
+
+	function syncNetworkMapLoader() {
+		if(networkMapImage.complete && networkMapImage.naturalWidth > 0) {
+			networkMapLoading.hidden = true;
+			return;
+		}
+		networkMapLoading.hidden = false;
+		networkMapLoading.textContent = 'Loading Map';
+	}
+
+	function refreshNetworkMap() {
+		if(networkMapPanel.hidden) return;
+		var freshUrl = freshNetworkMapUrl();
+		if(!freshUrl) return;
+		networkMapImage.src = freshUrl;
+		networkMapImage.alt = 'AllStarLink network map for node ' + networkMapNode;
+		syncNetworkMapLoader();
+	}
+
+	function scheduleNetworkMapRefresh() {
+		if(networkMapRefreshTimer) window.clearTimeout(networkMapRefreshTimer);
+		networkMapRefreshTimer = window.setTimeout(function () {
+			if(networkMapPanel.hidden) return;
+			refreshNetworkMap();
+			scheduleNetworkMapRefresh();
+		}, 300000);
+	}
+
+	function stopNetworkMapRefresh() {
+		if(networkMapRefreshTimer) window.clearTimeout(networkMapRefreshTimer);
+		networkMapRefreshTimer = null;
+	}
+
+	function setNetworkMapNode(node) {
+		var nextNode = String(node || '').trim();
+		if(!networkMapBaseUrl(nextNode)) return;
+		networkMapNode = nextNode;
+		networkMapOpen.disabled = false;
+	}
+
 	function extractCallsign(value) {
 		var text = String(value || '');
 		var match = text.match(/\b([A-Z]{1,2}[0-9][A-Z0-9]{1,4})\b/i);
@@ -117,7 +229,8 @@ pageInit();
 	}
 
 	function isPrivateNode(node) {
-		return /^\d{4}$/.test(String(node || '').trim());
+		var text = String(node || '').trim();
+		return /^\d+$/.test(text) && Number(text) > 0 && Number(text) < 2000;
 	}
 
 	function groupTitle(source) {
@@ -154,7 +267,18 @@ pageInit();
 			var existing = items[index];
 			var existingKey = String(existing.source || '') + '|' + String(existing.node || '') + '|' + String(existing.callsign || '') + '|' + String(existing.label || '');
 			if((node && String(existing.node || '') === node) || existingKey === nextKey) {
-				items[index] = item;
+				var incomingLabel = String(item.label || '').trim();
+				var incomingMissing = !item.callsign && /^(?:Node\s+)?not\s+in\s+(?:the\s+)?database$|^Node\s+\d+$/i.test(incomingLabel);
+				if(incomingMissing && existing.callsign) {
+					items[index] = Object.assign({}, item, {
+						label: existing.label,
+						callsign: existing.callsign,
+						qrzUrl: existing.qrzUrl,
+						locationHint: existing.locationHint || item.locationHint || ''
+					});
+				} else {
+					items[index] = item;
+				}
 				return;
 			}
 		}
@@ -184,7 +308,7 @@ pageInit();
 					: '<strong class="asr-lookup-card-title">' + callsignText + '</strong>';
 				var number = item.node ? escapeHtml(item.node) : escapeHtml(isIax ? iaxClient : detailText);
 				if(item.echolinkLookup) {
-					number = '<a class="asr-lookup-inline-link" href="/allscan/echolink-lookup/?lookup=' + encodeURIComponent(item.echolinkLookup) + '">' + escapeHtml(item.echolinkLookup) + '</a>';
+						number = '<a class="asr-lookup-inline-link" href="' + asrBase + '/echolink-lookup/?lookup=' + encodeURIComponent(item.echolinkLookup) + '">' + escapeHtml(item.echolinkLookup) + '</a>';
 				} else if(item.node && item.allstarUrl) {
 					number = '<a class="asr-lookup-inline-link" href="' + escapeHtml(item.allstarUrl) + '" target="_blank" rel="noreferrer">' + escapeHtml(item.node) + '</a>';
 				}
@@ -242,9 +366,14 @@ pageInit();
 
 	function applyStationMapData(payload, fitMap) {
 		var points = payload && Array.isArray(payload.points) ? payload.points : [];
-		var nextKey = pointsKey(points);
-		if(nextKey === stationPointsKey) return;
+		var missed = payload && Array.isArray(payload.unmapped) ? payload.unmapped : [];
+		var nextKey = pointsKey(points) + '||' + missed.map(function (item) {
+			return [item.callsign, item.node, item.label].join('|');
+		}).sort().join('~');
+		if(nextKey === stationPointsKey && !stationMapIsStale) return;
 		stationPointsKey = nextKey;
+		stationMapHasValidData = true;
+		stationMapIsStale = false;
 		stationMarkers.clearLayers();
 		mapCard.hidden = true;
 
@@ -271,10 +400,23 @@ pageInit();
 		mapSummary.textContent = bounds.length
 			? bounds.length + ' connected station location' + (bounds.length === 1 ? '' : 's') + ' mapped.'
 			: 'No connected station locations are available right now.';
-		var missed = payload && Array.isArray(payload.unmapped) ? payload.unmapped : [];
 		mapUnmapped.textContent = missed.length
 			? 'Not mapped: ' + missed.map(function (item) { return item.callsign || item.node || item.label || ''; }).filter(Boolean).slice(0,8).join(', ')
 			: '';
+	}
+
+	function applyStationMapResult(result, fitMap) {
+		if(!result || result.requestSequence !== stationMapRequestSequence) return false;
+		applyStationMapData(result.payload, fitMap);
+		return true;
+	}
+
+	function markStationMapUnavailable(error) {
+		if(error && error.asrMapRequestSequence && error.asrMapRequestSequence !== stationMapRequestSequence) return;
+		stationMapIsStale = stationMapHasValidData;
+		mapSummary.textContent = stationMapHasValidData
+			? 'Station map update unavailable; showing last known map data.'
+			: 'Station origin map is unavailable right now.';
 	}
 
 	function currentMapStations() {
@@ -294,24 +436,37 @@ pageInit();
 
 	function fetchStationMap() {
 		var stations = JSON.stringify(currentMapStations());
-		return fetch('/allscan/asr-api.php?action=station-map&stations=' + encodeURIComponent(stations) + '&t=' + Date.now(), {credentials:'same-origin', cache:'no-store'})
+		var requestSequence = ++stationMapRequestSequence;
+			return fetch(asrBase + '/asr-api.php?action=station-map&stations=' + encodeURIComponent(stations) + '&t=' + Date.now(), {credentials:'same-origin', cache:'no-store'})
 			.then(function (response) {
 				if(!response.ok) throw new Error('Station map unavailable');
 				return response.json();
+			})
+			.then(function (payload) {
+				if(!payload || payload.ok !== true) {
+					throw new Error(payload && payload.error ? payload.error : 'Station map unavailable');
+				}
+				return { requestSequence:requestSequence, payload:payload };
+			})
+			.catch(function (error) {
+				if(error && typeof error === 'object') error.asrMapRequestSequence = requestSequence;
+				throw error;
 			});
 	}
 
 	function refreshStationMap() {
 		if(mapPanel.hidden || !stationMap) return;
-		fetchStationMap().then(function (payload) {
-			applyStationMapData(payload, false);
-		}).catch(function () {});
+		fetchStationMap().then(function (result) {
+			applyStationMapResult(result, false);
+		}).catch(markStationMapUnavailable);
 	}
 
 	function initializeStationMap() {
 		if(stationMap) {
 			window.setTimeout(function () { stationMap.invalidateSize(); }, 100);
-			fetchStationMap().then(function (payload) { applyStationMapData(payload, false); }).catch(function () {});
+			fetchStationMap().then(function (result) {
+				applyStationMapResult(result, false);
+			}).catch(markStationMapUnavailable);
 			return;
 		}
 		Promise.all([loadLeaflet(), fetchStationMap()])
@@ -322,35 +477,67 @@ pageInit();
 				L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, attribution:'Tiles &copy; Esri'}).addTo(stationMap);
 				L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, pane:'overlayPane'}).addTo(stationMap);
 				stationMarkers = L.layerGroup().addTo(stationMap);
-				applyStationMapData(results[1] || {}, true);
+				applyStationMapResult(results[1], true);
 				window.setTimeout(function () { stationMap.invalidateSize(); }, 150);
 			})
-			.catch(function () {
+			.catch(function (error) {
 				mapFrame.classList.add('is-loaded');
-				mapSummary.textContent = 'Station origin map is unavailable right now.';
+				markStationMapUnavailable(error);
 				mapUnmapped.textContent = '';
 			});
 	}
 
 	mapOpen.addEventListener('click', function () {
+		if(!mapPanel.hidden) return;
 		mapPanel.hidden = false;
 		mapOpen.classList.add('is-open');
-		mapOpen.setAttribute('aria-expanded', 'true');
+		mapOpen.setAttribute('aria-pressed', 'true');
+		mapOpen.disabled = true;
 		initializeStationMap();
 	});
 	mapClose.addEventListener('click', function () {
 		mapPanel.hidden = true;
 		mapOpen.classList.remove('is-open');
-		mapOpen.setAttribute('aria-expanded', 'false');
+		mapOpen.setAttribute('aria-pressed', 'false');
+		mapOpen.disabled = false;
 	});
 	mapCard.addEventListener('click', function (event) {
 		if(event.target.closest('[data-asr-map-card-close]')) mapCard.hidden = true;
+	});
+	networkMapOpen.addEventListener('click', function () {
+		if(!networkMapNode) return;
+		if(window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+			window.open(freshNetworkMapUrl(), '_blank', 'noopener');
+			return;
+		}
+		if(!networkMapPanel.hidden) return;
+		networkMapPanel.hidden = false;
+		networkMapOpen.setAttribute('aria-expanded', 'true');
+		refreshNetworkMap();
+		scheduleNetworkMapRefresh();
+	});
+	networkMapClose.addEventListener('click', function () {
+		networkMapPanel.hidden = true;
+		networkMapOpen.setAttribute('aria-expanded', 'false');
+		stopNetworkMapRefresh();
+		networkMapUrl = '';
+	});
+	networkMapImage.addEventListener('load', function () {
+		networkMapLoading.hidden = true;
+	});
+	networkMapImage.addEventListener('error', function () {
+		networkMapLoading.hidden = false;
+		networkMapLoading.textContent = 'Map unavailable';
+	});
+	networkMapFallback.addEventListener('click', function () {
+		var fallbackUrl = networkMapUrl || freshNetworkMapUrl();
+		if(fallbackUrl) window.open(fallbackUrl, '_blank', 'noopener');
 	});
 
 	function load() {
 		if(lookupLoading || document.hidden) return;
 		lookupLoading = true;
-		fetch('/allscan/asr-api.php?action=lookup-data', { credentials: 'same-origin', cache: 'no-store' })
+			fetch(asrBase + '/asr-api.php?action=lookup-data', { credentials: 'same-origin', cache: 'no-store' })
 			.then(function (response) { return response.json(); })
 			.then(function (payload) {
 				if(!payload || payload.ok === false) throw new Error(payload && payload.error ? payload.error : 'Lookup data unavailable.');
@@ -362,6 +549,7 @@ pageInit();
 				var localUpdated = viewerTime(payload.generatedAt);
 				updated.textContent = localUpdated ? ' · Updated ' + localUpdated : '';
 				render();
+				setNetworkMapNode(payload.node);
 				loadLiveConnectionRows(payload.node);
 				refreshStationMap();
 			})
@@ -376,7 +564,7 @@ pageInit();
 
 	function loadLiveConnectionRows(node) {
 		if(!node || typeof EventSource === 'undefined') return;
-		var source = new EventSource('/allscan/astapi/server.php?nodes=' + encodeURIComponent(node));
+			var source = new EventSource(asrBase + '/astapi/server.php?nodes=' + encodeURIComponent(node));
 		var closed = false;
 		var close = function () {
 			if(closed) return;

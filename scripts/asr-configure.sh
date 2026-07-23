@@ -4,7 +4,9 @@ set -Eeuo pipefail
 CONFIG_DIR="/etc/allscan-reimagined"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 DATA_DIR="/var/lib/allscan-reimagined"
-if [ -d /var/www/html/allscan ]; then
+if [ -n "${STOCK_ALLSCAN_DIR:-}" ]; then
+  ALLSCAN_DIR="$STOCK_ALLSCAN_DIR"
+elif [ -d /var/www/html/allscan ]; then
   ALLSCAN_DIR="/var/www/html/allscan"
 else
   ALLSCAN_DIR="/srv/http/allscan"
@@ -28,6 +30,20 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || { echo "Web-server group not found." >&2; exit 1; }
 
 if [ -s "$CONFIG_FILE" ] && [ "$FORCE" -eq 0 ]; then
+  if ! php -r '
+    $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+    exit(array_key_exists("requireLogin", $data) ? 0 : 1);
+  ' "$CONFIG_FILE"; then
+    php -r '
+      $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+      $data["requireLogin"] = true;
+      echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+    ' "$CONFIG_FILE" > "$CONFIG_FILE.require-login.tmp"
+    install -o root -g "$WEB_GROUP" -m 664 \
+      "$CONFIG_FILE.require-login.tmp" "$CONFIG_FILE"
+    rm -f "$CONFIG_FILE.require-login.tmp"
+    echo "Added the default ASR-only login policy to $CONFIG_FILE"
+  fi
   echo "Keeping existing Reimagined configuration: $CONFIG_FILE"
   exit 0
 fi
@@ -205,7 +221,7 @@ browser_title="$header_title | ASR"
 brand_byline="by KE7WIL"
 footer_byline="customized by KE7WIL"
 
-logo_url="/allscan/asr-logo-bright-r-tight.png"
+logo_url="/asr/asr-logo-bright-r-tight.png"
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ -t 0 ]; then
   read -r -p "Optional PNG/JPEG/WebP logo path [press Enter/Return to use the default ASR logo]: " logo_path
   if [ -n "${logo_path:-}" ]; then
@@ -218,7 +234,7 @@ if [ "$NON_INTERACTIVE" -eq 0 ] && [ -t 0 ]; then
     esac
     mkdir -p "$DATA_DIR"
     install -o root -g root -m 644 "$logo_path" "$DATA_DIR/header-logo.$logo_ext"
-    logo_url="/allscan/asr-custom-logo.$logo_ext"
+    logo_url="/asr/asr-custom-logo.$logo_ext"
   fi
 fi
 
@@ -313,9 +329,10 @@ $config = [
     'browserTitle' => getenv('ASR_BROWSER_TITLE'),
     'brandByline' => getenv('ASR_BRAND_BYLINE'),
     'footerByline' => getenv('ASR_FOOTER_BYLINE'),
-    'headerLogo' => getenv('ASR_LOGO_URL'),
-    'footerLogo' => '/allscan/asr-logo-bright-r-tight.png',
-    'maintainFriendlyNames' => false,
+	    'headerLogo' => getenv('ASR_LOGO_URL'),
+	    'footerLogo' => '/asr/asr-logo-bright-r-tight.png',
+	    'requireLogin' => true,
+	    'maintainFriendlyNames' => false,
     'lowPowerMode' => false,
     'bridges' => $bridges,
 ];

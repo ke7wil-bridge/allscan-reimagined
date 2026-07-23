@@ -4,6 +4,8 @@ import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import {
   actionOptions,
+  asrPath,
+  disconnectDmrNetBridge,
   dropClientChannel,
   fetchBridgeCards,
   fetchAuthStatus,
@@ -12,7 +14,9 @@ import {
   fetchDropClients,
   fetchFavorites,
   fetchFavoriteStats,
+  fetchReleaseStatus,
   restartAsteriskCommand,
+  connectDmrNetBridge,
   type DiagnosticsReport,
   type FavoritesFileOption,
   type FavoriteStats,
@@ -24,6 +28,7 @@ import {
   type FavoriteNode,
   type LiveConnectionRow,
   type RuntimeConfig,
+  type ReleaseStatus,
 } from './lib/allscanLive'
 
 const FAVORITES_DISPLAY_CACHE_KEY = 'asrFavoritesDisplayCache.v2'
@@ -34,6 +39,7 @@ const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
+const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 
 const loggedOutAuth: AuthStatus = {
   loggedIn: false,
@@ -364,6 +370,9 @@ function App({ config }: { config: RuntimeConfig }) {
     updatedLabel: '--:--:--',
     cards: [],
   })
+  const [dmrTalkgroupInputs, setDmrTalkgroupInputs] = useState<Record<string, string>>({})
+  const [bridgeControlBusy, setBridgeControlBusy] = useState('')
+  const [bridgeControlAction, setBridgeControlAction] = useState<'connect' | 'disconnect' | ''>('')
   const [nodeMessage, setNodeMessage] = useState('Loading live status...')
   const [nodeMessageLatest, setNodeMessageLatest] = useState(() => readLiveNodeMessageCache() || 'No recent messages')
   const [nodeMessageRaw, setNodeMessageRaw] = useState('')
@@ -402,6 +411,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [lcarsHeaderNumbers, setLcarsHeaderNumbers] = useState(() => makeLcarsHeaderNumbers())
   const [busy, setBusy] = useState(false)
   const [authStatus, setAuthStatus] = useState<AuthStatus>(loggedOutAuth)
+  const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
@@ -419,6 +429,19 @@ function App({ config }: { config: RuntimeConfig }) {
     [desktopThemeViewport],
   )
   const isAddDeleteFavoriteAction = actionValue === 'addfav' || actionValue === 'delfav'
+  const bridgeConnectionLabels = useMemo(
+    () => ({
+      byId: new Map(
+        config.bridges.map((bridge) => [bridge.id, bridge.friendlyName?.trim() || bridge.title]),
+      ),
+      byNode: new Map(
+        config.bridges
+          .filter((bridge) => bridge.node && !bridge.linkAlias)
+          .map((bridge) => [bridge.node, bridge.friendlyName?.trim() || bridge.title]),
+      ),
+    }),
+    [config.bridges],
+  )
   const bridgeConnectionStates = useMemo(() => {
     const byId = new Map(bridgeState.cards.map((card) => [card.id, card.status]))
     const toRowState = (status?: BridgeCardView['status']): LiveConnectionRow['state'] | undefined => {
@@ -427,20 +450,38 @@ function App({ config }: { config: RuntimeConfig }) {
       return undefined
     }
 
-    return Object.fromEntries(
-      config.bridges
-        .filter((bridge) => bridge.node)
-        .map((bridge) => [bridge.node, toRowState(byId.get(bridge.id))]),
-    ) as Record<string, LiveConnectionRow['state'] | undefined>
+    return {
+      byId: new Map(
+        config.bridges.map((bridge) => [bridge.id, toRowState(byId.get(bridge.id))]),
+      ),
+      byNode: new Map(
+        config.bridges
+          .filter((bridge) => bridge.node && !bridge.linkAlias)
+          .map((bridge) => [bridge.node, toRowState(byId.get(bridge.id))]),
+      ),
+    }
   }, [bridgeState.cards, config.bridges])
 
   useEffect(() => {
     document.title = browserTitle
   }, [browserTitle])
 
+  useEffect(() => {
+    let cancelled = false
+    void fetchReleaseStatus()
+      .then((status) => {
+        if (!cancelled) setReleaseStatus(status)
+      })
+      .catch(() => {
+        // Offline and rate-limit failures stay quiet; the server keeps the last good daily result.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   function applyBridgeConnectionOverrides(next: { updatedLabel: string; cards: BridgeCardView[] }) {
     const rowsByNode = new Map(connectionRowsRef.current.map((row) => [row.node, row]))
-    const bridgeNodeById = Object.fromEntries(config.bridges.map((bridge) => [bridge.id, bridge.node]))
     const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
     const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
     const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
@@ -452,12 +493,28 @@ function App({ config }: { config: RuntimeConfig }) {
     return {
       ...next,
       cards: next.cards.map((card) => {
-        const row = rowsByNode.get(bridgeNodeById[card.id])
+        const row = card.cardType === 'dmr_net'
+          ? connectionRowsRef.current.find((candidate) => (
+            candidate.bridgeId === card.id
+            && candidate.direction.toUpperCase() === 'OUT'
+            && candidate.state !== 'message'
+          ))
+          : rowsByNode.get(card.node)
+        // The ASR DMR Net status collector reads the dedicated MMDVM instance,
+        // so its Source/TX and Relay roles are more authoritative than the
+        // alias-backed Asterisk link row. The row remains a safe fallback when
+        // the collector reports idle or has not produced data yet.
+        if (card.cardType === 'dmr_net' && card.status !== 'Idle') {
+          return card
+        }
         if (row?.state === 'talking') {
           return withStatus(card, 'Source/TX')
         }
         if (row) {
           return withStatus(card, localIsTransmitting ? 'Relay' : 'Idle')
+        }
+        if (card.cardType === 'dmr_net') {
+          return withStatus(card, 'Idle')
         }
         return withStatus(card, card.status)
       }),
@@ -488,6 +545,37 @@ function App({ config }: { config: RuntimeConfig }) {
     if (options?.persistLatest !== false) {
       writeLiveNodeMessageCache(latest)
       setNodeMessageLatest(latest)
+    }
+  }
+
+  function clearNodeMessage(message: string) {
+    const target = cleanNodeMessageLine(message)
+    if (!target) return
+    const removeTarget = (current: string) => {
+      const remaining = String(current || '')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .filter((line) => cleanNodeMessageLine(line) !== target)
+        .join('\n')
+        .trim()
+      return remaining
+    }
+    setNodeMessageRaw(removeTarget)
+    setNodeMessage((current) => removeTarget(current) || readLiveNodeMessageCache() || 'No recent messages')
+    setNodeMessageLatest((current) => (
+      cleanNodeMessageLine(current) === target
+        ? readLiveNodeMessageCache() || 'No recent messages'
+        : current
+    ))
+    if (cleanNodeMessageLine(lastNodeMessage.current) === target) {
+      lastNodeMessage.current = ''
+    }
+    try {
+      if (cleanNodeMessageLine(readLiveNodeMessageCache()) === target) {
+        window.localStorage.removeItem(NODE_MESSAGE_LIVE_CACHE_KEY)
+      }
+    } catch {
+      // Ignore cache cleanup failures.
     }
   }
 
@@ -715,9 +803,9 @@ function App({ config }: { config: RuntimeConfig }) {
     setMenuOpen(false)
     setOpenSubmenu(null)
     try {
-      await fetch('/allscan/user/?logout=1', { credentials: 'same-origin' })
+      await fetch(asrPath('user/?logout=1'), { credentials: 'same-origin' })
     } finally {
-      window.location.assign('/allscan/')
+      window.location.assign(asrPath())
     }
   }
 
@@ -730,7 +818,7 @@ function App({ config }: { config: RuntimeConfig }) {
         if (!cancelled) {
           setAuthStatus(next)
           if (!next.canRead && !next.loggedIn) {
-            window.location.assign('/allscan/user/')
+            window.location.assign(asrPath('user/'))
           }
         }
       } catch {
@@ -758,16 +846,22 @@ function App({ config }: { config: RuntimeConfig }) {
 
     const stop = subscribeConnectionFeed(
       config.node,
-      config.bridges.map((bridge) => bridge.node),
+      config.bridges,
       (snapshot) => {
+        const labeledRows = snapshot.rows.map((row) => {
+          const configuredLabel = row.bridgeId
+            ? bridgeConnectionLabels.byId.get(row.bridgeId)
+            : bridgeConnectionLabels.byNode.get(row.node)
+          return configuredLabel ? { ...row, info: configuredLabel } : row
+        })
         if (document.hidden) {
-          const localRow = snapshot.rows.find((row) => row.node === config.node) || snapshot.rows[0]
+          const localRow = labeledRows.find((row) => row.node === config.node) || labeledRows[0]
           setBackgroundNodeState(localRow?.state || 'idle')
           return
         }
         setBackgroundNodeState(null)
-        connectionRowsRef.current = snapshot.rows
-        setRows(snapshot.rows)
+        connectionRowsRef.current = labeledRows
+        setRows(labeledRows)
         setConnectedCount(snapshot.connectedCount)
         setDirectCount(snapshot.directCount)
         setAdjacentCount(snapshot.adjacentCount)
@@ -869,25 +963,40 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     let cancelled = false
+    let retryTimer: number | undefined
+    let attempts = 0
+    let failureNotified = false
 
     const loadFavorites = async () => {
       try {
         const next = await fetchFavorites(selectedFavoriteFile)
         if (!cancelled) {
+          clearNodeMessage(FAVORITES_LOAD_ERROR)
           setFavorites(next.rows)
           setFavoriteFiles(next.files)
+          attempts = 0
+          failureNotified = false
           if (next.selectedFile !== selectedFavoriteFile) {
             setSelectedFavoriteFile(next.selectedFile)
           }
         }
       } catch {
-        if (!cancelled) appendNodeMessage('Favorites list could not be loaded.')
+        if (cancelled) return
+        attempts += 1
+        if (!failureNotified) {
+          appendNodeMessage(FAVORITES_LOAD_ERROR)
+          failureNotified = true
+        }
+        if (attempts < 4) {
+          retryTimer = window.setTimeout(loadFavorites, Math.min(5000, attempts * 1500))
+        }
       }
     }
 
     void loadFavorites()
     return () => {
       cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
     }
   }, [selectedFavoriteFile])
 
@@ -1043,7 +1152,12 @@ function App({ config }: { config: RuntimeConfig }) {
     return runCommandForNode(action, nodeValue)
   }
 
-  async function runCommandForNode(action: string, node: string) {
+  async function runCommandForNode(
+    action: string,
+    node: string,
+    disconnectBeforeConnect = autodisc,
+    permanentLink = permanent,
+  ) {
     if (!authStatus.canModify) return
     if (action === 'dropclient') {
       setDropClientOpen(true)
@@ -1057,8 +1171,8 @@ function App({ config }: { config: RuntimeConfig }) {
         localNode: config.node,
         node,
         action,
-        permanent,
-        autodisc,
+        permanent: permanentLink,
+        autodisc: disconnectBeforeConnect,
         connectedCount,
         favsfile: selectedFavoriteFile,
       })
@@ -1076,6 +1190,59 @@ function App({ config }: { config: RuntimeConfig }) {
       appendNodeMessage(error instanceof Error ? error.message : 'Command failed.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function connectDmrNetCard(card: BridgeCardView) {
+    if (!authStatus.canModify || bridgeControlBusy) return
+    const talkgroup = String(dmrTalkgroupInputs[card.id] ?? card.currentTg).trim()
+    if (!/^\d{1,8}$/.test(talkgroup) || Number(talkgroup) < 1 || Number(talkgroup) > 16777215) {
+      appendNodeMessage('Enter a valid DMR talkgroup.')
+      return
+    }
+    if (Number(talkgroup) === 4000) {
+      appendNodeMessage('Use Disconnect instead of entering TG 4000.')
+      return
+    }
+    try {
+      setBridgeControlBusy(card.id)
+      setBridgeControlAction('connect')
+      const result = await connectDmrNetBridge(card.id, talkgroup)
+      const currentTg = String(result.currentTg || talkgroup)
+      setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: currentTg }))
+      setBridgeState((current) => ({
+        ...current,
+        cards: current.cards.map((item) => item.id === card.id
+          ? { ...item, currentTg, controlLinked: true }
+          : item),
+      }))
+    } catch (error) {
+      appendNodeMessage(error instanceof Error ? error.message : 'DMR Net Bridge connection failed.')
+    } finally {
+      setBridgeControlBusy('')
+      setBridgeControlAction('')
+    }
+  }
+
+  async function disconnectDmrNetCard(card: BridgeCardView) {
+    if (!authStatus.canModify || bridgeControlBusy) return
+
+    try {
+      setBridgeControlBusy(card.id)
+      setBridgeControlAction('disconnect')
+      await disconnectDmrNetBridge(card.id)
+      setBridgeState((current) => ({
+        ...current,
+        cards: current.cards.map((item) => item.id === card.id
+          ? { ...item, currentTg: '', controlLinked: false }
+          : item),
+      }))
+      setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: '' }))
+    } catch (error) {
+      appendNodeMessage(error instanceof Error ? error.message : 'DMR Net Bridge disconnect failed.')
+    } finally {
+      setBridgeControlBusy('')
+      setBridgeControlAction('')
     }
   }
 
@@ -1168,7 +1335,7 @@ function App({ config }: { config: RuntimeConfig }) {
       <div className="w-full px-0 pb-6">
         <header className="allscan-header">
           <div className="allscan-brand">
-            <a className="allscan-brand-main" href="/allscan/" aria-label="Return to main AllScan page">
+            <a className="allscan-brand-main" href={asrPath()} aria-label="Return to main AllScan page">
               <div className="allscan-wordmark">
                 <strong className="allscan-wordmark-mark">
                   <span className="allscan-wordmark-silver allscan-wordmark-all">All</span>
@@ -1234,7 +1401,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   event.stopPropagation()
                   setMenuOpen(false)
                   setOpenSubmenu(null)
-                  window.location.href = '/allscan/lookup/'
+                  window.location.href = asrPath('lookup/')
                 }}
               >
                 Lookup
@@ -1263,7 +1430,7 @@ function App({ config }: { config: RuntimeConfig }) {
             </button>
             <a
               className="allscan-lookup-main-button"
-              href="/allscan/lookup/"
+              href={asrPath('lookup/')}
               title="Lookup callsigns, nodes, EchoLink, and map"
               onClick={() => {
                 setMenuOpen(false)
@@ -1294,7 +1461,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   <a
                     role="menuitem"
                     className="allscan-menu-proxy-row allscan-menu-direct-row"
-                    href="/allscan/lookup/"
+                    href={asrPath('lookup/')}
                     onClick={() => {
                       setMenuOpen(false)
                       setOpenSubmenu(null)
@@ -1350,15 +1517,16 @@ function App({ config }: { config: RuntimeConfig }) {
                 </div>
 
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
-                  {authStatus.loggedIn ? <a role="menuitem" href="/allscan/user/settings/" onClick={() => setMenuOpen(false)}>Settings</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/asr-settings/" onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/performance/" onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Users</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href="/allscan/cfg/" onClick={() => setMenuOpen(false)}>Configs</a> : null}
+                  {authStatus.loggedIn ? <a role="menuitem" href={asrPath('user/settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {!authStatus.loggedIn ? (
-                    <a role="menuitem" href="/allscan/user/" onClick={() => setMenuOpen(false)}>Login</a>
+                    <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Login</a>
                   ) : null}
                 </div>
 
@@ -1403,6 +1571,37 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
 
         <main className="mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
+          {releaseStatus?.updateAvailable ? (
+            <aside
+              className="allscan-update-notice"
+              role="status"
+              aria-live="polite"
+              aria-label="AllScan Reimagined update available"
+            >
+              <div className="allscan-update-notice-copy">
+                <strong>ASR update available: {releaseStatus.availableLabel}</strong>
+                <span>
+                  This node has {releaseStatus.installedLabel}. Nothing will install automatically.
+                </span>
+                {releaseStatus.package.name ? (
+                  <span className="allscan-update-package">
+                    Package: {releaseStatus.package.name}
+                    {releaseStatus.package.sha256 ? (
+                      <> · SHA-256: <code>{releaseStatus.package.sha256}</code></>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
+              <div className="allscan-update-actions">
+                {releaseStatus.releaseUrl ? (
+                  <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>
+                ) : null}
+                {releaseStatus.package.url ? (
+                  <a href={releaseStatus.package.url}>Download package</a>
+                ) : null}
+              </div>
+            </aside>
+          ) : null}
           <section className="allscan-main-section allscan-controls-section">
             <h2 className="allscan-section-title">
               Node Controls
@@ -1669,11 +1868,14 @@ function App({ config }: { config: RuntimeConfig }) {
                   <tbody>
                     {sortedConnectionRows.map((row) => {
                       const isLocalRow = row.node === config.node
+                      const configuredBridgeState = row.bridgeId
+                        ? bridgeConnectionStates.byId.get(row.bridgeId)
+                        : bridgeConnectionStates.byNode.get(row.node)
                       const displayState = isLocalRow
                         ? row.state
                         : row.state === 'talking'
                           ? row.state
-                          : bridgeConnectionStates[row.node] || row.state
+                          : configuredBridgeState || row.state
                       const canUseRowNode = canPopulateNodeControl(row.node)
                       const localStyle = isLocalRow
                         ? localRowStyles[row.state as keyof typeof localRowStyles]
@@ -1681,7 +1883,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
                       return (
                         <tr
-                          key={`${row.node}-${row.direction}-${row.mode}`}
+                          key={`${row.bridgeId || row.node}-${row.direction}-${row.mode}-${row.sourceIndex ?? 'local'}`}
                           className={`allscan-connection-row allscan-connection-row-${isLocalRow ? 'local' : displayState} border-b border-[rgba(255,255,255,.12)] text-[14px] leading-[19px] ${isLocalRow ? '' : rowClasses[displayState]}`}
                         >
                           {row.state === 'message' ? (
@@ -1757,7 +1959,14 @@ function App({ config }: { config: RuntimeConfig }) {
               className="allscan-bridge-grid"
               style={{ gridTemplateColumns: `repeat(${Math.min(bridgeState.cards.length, 4)}, minmax(0, 1fr))` }}
             >
-              {bridgeState.cards.map((card) => (
+              {bridgeState.cards.map((card) => {
+                const bridgeLinked = card.controlLinked || rows.some(
+                  (row) => row.bridgeId === card.id
+                    && row.direction.toUpperCase() === 'OUT'
+                    && row.state !== 'message',
+                )
+                const cardBusy = bridgeControlBusy === card.id
+                return (
                 <article
                   key={card.id}
                   className={`allscan-bridge-card ${bridgeRoleClasses[card.status]}`}
@@ -1772,6 +1981,12 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
 
                   <div className="allscan-bridge-body">
+                    {card.cardType === 'dmr_net' ? (
+                      <div className="allscan-bridge-row">
+                        <span>Current TG</span>
+                        <b>{bridgeLinked ? (card.currentTg || '-') : '-'}</b>
+                      </div>
+                    ) : null}
                     <div className="allscan-bridge-row">
                       <span>Talking</span>
                       <b>{card.lastCaller}</b>
@@ -1781,6 +1996,44 @@ function App({ config }: { config: RuntimeConfig }) {
                       <b>{card.warning}</b>
                     </div>
                   </div>
+
+                  {card.cardType === 'dmr_net' && authStatus.canModify ? (
+                    <div className="allscan-dmr-net-controls">
+                      <div className="allscan-dmr-net-tune">
+                        <label htmlFor={`dmr-net-tg-${card.id}`}>Talkgroup</label>
+                        <input
+                          id={`dmr-net-tg-${card.id}`}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          spellCheck={false}
+                          maxLength={8}
+                          value={dmrTalkgroupInputs[card.id] ?? (bridgeLinked ? card.currentTg : '')}
+                          onChange={(event) => {
+                            const value = event.target.value.replace(/\D/g, '').slice(0, 8)
+                            setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: value }))
+                          }}
+                        />
+                      </div>
+                      <div className="allscan-dmr-net-link-buttons">
+                        <button
+                          type="button"
+                          className="allscan-action-button allscan-connect-button"
+                          disabled={busy || cardBusy || !card.controlReady}
+                          onClick={() => void connectDmrNetCard(card)}
+                        >
+                          {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
+                        </button>
+                        <button
+                          type="button"
+                          className="allscan-action-button allscan-disconnect-button"
+                          disabled={busy || cardBusy || !card.controlReady}
+                          onClick={() => void disconnectDmrNetCard(card)}
+                        >
+                          {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="allscan-bridge-detail-wrap">
                     <div className="allscan-bridge-detail-title">
@@ -1803,7 +2056,8 @@ function App({ config }: { config: RuntimeConfig }) {
                     </div>
                   </div>
                 </article>
-              ))}
+                )
+              })}
             </div>
           </section> : null}
 
