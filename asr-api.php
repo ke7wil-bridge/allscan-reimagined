@@ -13,8 +13,8 @@ const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6';
+const ASR_VERSION = '1.0.0-beta.6.1';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.1';
 
 require_once __DIR__ . '/include/common.php';
 

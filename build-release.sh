@@ -98,7 +98,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.6.md "$STAGE/release-notes/v1.0.0-beta.6.md"
+install -m 644 release-notes/v1.0.0-beta.6.1.md "$STAGE/release-notes/v1.0.0-beta.6.1.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then

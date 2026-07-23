@@ -18,10 +18,10 @@ installer directly in an interactive root shell on the AllStar node:
 ```bash
 set -e
 
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz"
-checksum="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz.sha256"
-stage="/tmp/asr-beta-6-install"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.1"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.6.1.tar.gz"
+checksum="/tmp/allscan-reimagined-1.0.0-beta.6.1.tar.gz.sha256"
+stage="/tmp/asr-beta-6.1-install"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
@@ -30,7 +30,7 @@ curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 rm -rf "$stage"
 mkdir -p "$stage"
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.6"
+cd "$stage/allscan-reimagined-1.0.0-beta.6.1"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -189,6 +189,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
+- [Beta 6.1 release notes](release-notes/v1.0.0-beta.6.1.md)
 - [Beta 6 release notes](release-notes/v1.0.0-beta.6.md)
 
 ## Original AllScan

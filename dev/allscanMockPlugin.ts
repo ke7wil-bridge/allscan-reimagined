@@ -16,7 +16,7 @@ const runtimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 6',
+  versionLabel: 'v1.0.0 Beta 6.1',
   bridges: [
     { id: 'dmr', node: '1883', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
     { id: 'dmr_net', node: '1884', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
@@ -42,15 +42,15 @@ const releaseStatus = {
   status: 'update_available',
   updateAvailable: true,
   checkedAt: '2026-07-23T12:00:00Z',
-  installedVersion: '1.0.0-beta.6',
-  installedLabel: 'v1.0.0 Beta 6',
-  availableVersion: '1.0.0-beta.6.1',
-  availableLabel: 'v1.0.0 Beta 6.1',
-  releaseUrl: 'https://github.com/ke7wil-bridge/allscan-reimagined/releases/tag/v1.0.0-beta.6.1',
+  installedVersion: '1.0.0-beta.6.1',
+  installedLabel: 'v1.0.0 Beta 6.1',
+  availableVersion: '1.0.0-beta.6.2',
+  availableLabel: 'v1.0.0 Beta 6.2',
+  releaseUrl: 'https://github.com/ke7wil-bridge/allscan-reimagined/releases/tag/v1.0.0-beta.6.2',
   publishedAt: '2026-07-23T12:00:00Z',
   package: {
-    name: 'allscan-reimagined-1.0.0-beta.6.1.tar.gz',
-    url: 'https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.1/allscan-reimagined-1.0.0-beta.6.1.tar.gz',
+    name: 'allscan-reimagined-1.0.0-beta.6.2.tar.gz',
+    url: 'https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.2/allscan-reimagined-1.0.0-beta.6.2.tar.gz',
     size: 6200000,
     sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   },
@@ -462,7 +462,7 @@ function reimaginedSettingsPage() {
         <p class="asr-settings-help">Restore one of the five newest valid previous ASR versions. Users, Favorites, the database, Reimagined settings, bridge settings, map cache, and protected secrets are preserved.</p>
         <div class="asr-rollback-current">
           <span>Currently installed</span>
-          <strong>v1.0.0 Beta 6 Preview</strong>
+          <strong>v1.0.0 Beta 6.1 Preview</strong>
         </div>
         <div class="asr-rollback-controls">
           <label for="asrRollbackSelect">
@@ -487,7 +487,7 @@ function reimaginedSettingsPage() {
       <div class="asr-rollback-dialog-card">
         <h2 id="asrRollbackDialogTitle">Confirm ASR Rollback</h2>
         <div class="asr-rollback-version-change">
-          <div><span>Current version</span><strong>v1.0.0 Beta 6 Preview</strong></div>
+          <div><span>Current version</span><strong>v1.0.0 Beta 6.1 Preview</strong></div>
           <span class="asr-rollback-arrow" aria-hidden="true">→</span>
           <div><span>Restore version</span><strong id="asrRollbackTargetVersion"></strong></div>
         </div>

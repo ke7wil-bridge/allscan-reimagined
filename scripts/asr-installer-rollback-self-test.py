@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import shutil
+import subprocess
+import tarfile
 import tempfile
 
 
@@ -138,6 +140,7 @@ def assert_installer_order(installer: Path) -> None:
     assert disarm < cleanup
     assert 'mv "$WEB_ROOT/allscan-old" "$ALLSCAN_OLD_BACKUP"' in text
     assert "station-map-cache.json" in text
+    assert '--exclude="$BACKUP_WEB_NAME/astdb.txt.*"' in text
     assert 'if [ "$ASR_WEB_WAS_PRESENT" -eq 0 ]; then' in text
     assert "restore_reapply_unit_states" in text
     assert "restore_prior_reapply_units" in text
@@ -258,6 +261,46 @@ def exercise_live_schema1_cleanup(root: Path) -> None:
     assert current_states == prior_states
 
 
+def exercise_legacy_overlay_backup_exclusions(root: Path) -> None:
+    web_root = root / "www"
+    legacy = web_root / "allscan"
+    legacy.mkdir(parents=True)
+    (legacy / "index.html").write_text("legacy overlay\n", encoding="utf-8")
+    (legacy / "favorites.ini").symlink_to("/etc/allscan/favorites.ini")
+    (legacy / "astdb.txt").symlink_to("/var/lib/asterisk/astdb.txt")
+    (legacy / "astdb.txt.before-local-labels").symlink_to(
+        "/var/lib/asterisk/astdb.txt"
+    )
+    (legacy / "astdb.txt.bak-local-labels-20260723-173659").symlink_to(
+        "/var/lib/asterisk/astdb.txt"
+    )
+
+    archive_path = root / "allscan-webroot.tar.gz"
+    subprocess.run(
+        [
+            "tar",
+            "--exclude=allscan/astdb.txt",
+            "--exclude=allscan/astdb.txt.*",
+            "-czf",
+            str(archive_path),
+            "-C",
+            str(web_root),
+            "allscan",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    with tarfile.open(archive_path, "r:gz") as archive:
+        members = {member.name: member for member in archive.getmembers()}
+    assert "allscan/index.html" in members
+    assert "allscan/favorites.ini" in members
+    assert members["allscan/favorites.ini"].issym()
+    assert members["allscan/favorites.ini"].linkname == "/etc/allscan/favorites.ini"
+    assert not any(name.startswith("allscan/astdb.txt") for name in members)
+
+
 def self_test(*, model_only: bool = False) -> None:
     if not model_only:
         script_path = Path(__file__).resolve()
@@ -275,12 +318,12 @@ def self_test(*, model_only: bool = False) -> None:
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "before_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "during_current_link_swap"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6", "after_current_link_swap"),
-        (None, "1.0.0-beta.6", "after_release_install"),
-        (None, "1.0.0-beta.6", "before_release_install"),
-        (None, "1.0.0-beta.6", "during_current_link_swap"),
+        ("1.0.0-beta.5.11", "1.0.0-beta.6.1", "after_current_link_swap"),
+        (None, "1.0.0-beta.6.1", "after_release_install"),
+        (None, "1.0.0-beta.6.1", "before_release_install"),
+        (None, "1.0.0-beta.6.1", "during_current_link_swap"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", None),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6", None),
+        ("1.0.0-beta.5.11", "1.0.0-beta.6.1", None),
     )
     for initial, new, failure in cases:
         with tempfile.TemporaryDirectory(
@@ -300,6 +343,10 @@ def self_test(*, model_only: bool = False) -> None:
         prefix="asr-installer-live-schema1-failure-self-test."
     ) as temporary:
         exercise_live_schema1_cleanup(Path(temporary))
+    with tempfile.TemporaryDirectory(
+        prefix="asr-installer-legacy-overlay-backup-self-test."
+    ) as temporary:
+        exercise_legacy_overlay_backup_exclusions(Path(temporary))
     print("ASR installer rollback self-test: ok")
 
 
