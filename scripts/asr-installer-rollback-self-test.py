@@ -318,12 +318,12 @@ def self_test(*, model_only: bool = False) -> None:
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "before_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "during_current_link_swap"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6.1", "after_current_link_swap"),
-        (None, "1.0.0-beta.6.1", "after_release_install"),
-        (None, "1.0.0-beta.6.1", "before_release_install"),
-        (None, "1.0.0-beta.6.1", "during_current_link_swap"),
+        ("1.0.0-beta.5.11", "1.0.0-beta.6", "after_current_link_swap"),
+        (None, "1.0.0-beta.6", "after_release_install"),
+        (None, "1.0.0-beta.6", "before_release_install"),
+        (None, "1.0.0-beta.6", "during_current_link_swap"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", None),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6.1", None),
+        ("1.0.0-beta.5.11", "1.0.0-beta.6", None),
     )
     for initial, new, failure in cases:
         with tempfile.TemporaryDirectory(

@@ -13,10 +13,11 @@ const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6.1';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.1';
+const ASR_VERSION = '1.0.0-beta.6';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6';
 
 require_once __DIR__ . '/include/common.php';
+require_once __DIR__ . '/include/asrRuntime.php';
 
 $msg = [];
 asInit($msg);
@@ -197,7 +198,7 @@ function asr_lookup_node_location(string $node): string {
 }
 
 function asr_detect_bridges(): array {
-    $file = __DIR__ . '/bridge-live.json';
+    $file = asrRuntimeFilePath('bridge-live.json');
     $payload = is_readable($file) ? json_decode((string) file_get_contents($file), true) : null;
     if (!is_array($payload)) return [];
 
@@ -412,7 +413,7 @@ function asr_dmr_net_live_statuses(): array {
 
 function asr_bridge_status_payload(): array {
     $bridge = [];
-    $path = __DIR__ . '/bridge-live.json';
+    $path = asrRuntimeFilePath('bridge-live.json');
     if (is_readable($path)) {
         $decoded = json_decode((string) file_get_contents($path), true);
         if (is_array($decoded)) $bridge = $decoded;
@@ -666,7 +667,7 @@ function asr_bridge_clients_payload(): array {
         return is_string($payload) ? asr_decode_json_payload($payload) : [];
     };
 
-    $externalPayload = $readCurrentFile(__DIR__ . '/connected-clients.json');
+    $externalPayload = $readCurrentFile(asrRuntimeFilePath('connected-clients.json'));
     $managedPayload = $readCurrentFile(__DIR__ . '/asr-connected-clients.json');
     $bridgeIds = array_unique(array_merge(array_keys($externalPayload), array_keys($managedPayload)));
 
@@ -1446,8 +1447,8 @@ function asr_diagnostics_report(): array {
         asr_file_status('/etc/allscan/allscan.db'),
         asr_file_status('/etc/allscan/favorites.ini'),
         asr_file_status(__DIR__ . '/favorites.ini'),
-        asr_file_status(__DIR__ . '/bridge-live.json'),
-        asr_file_status(__DIR__ . '/connected-clients.json'),
+        asr_file_status(asrRuntimeFilePath('bridge-live.json')),
+        asr_file_status(asrRuntimeFilePath('connected-clients.json')),
         asr_file_status(__DIR__ . '/asr-connected-clients.json'),
         asr_file_status(__DIR__ . '/astapi/server.php'),
         asr_file_status(__DIR__ . '/astapi/AMI.php'),
@@ -1664,7 +1665,7 @@ function asr_bridge_diagnostics(): array {
     $clients = asr_bridge_clients_payload();
     $collectorTimer = asr_unit_state('allscan-reimagined-bridge-clients.timer');
     $collectorService = asr_unit_state('allscan-reimagined-bridge-clients.service');
-    $clientFile = asr_file_status(__DIR__ . '/connected-clients.json');
+    $clientFile = asr_file_status(asrRuntimeFilePath('connected-clients.json'));
     $asrClientFile = asr_file_status(__DIR__ . '/asr-connected-clients.json');
     $node = (string) ($runtime['node'] ?? '');
     $asteriskRead = '/usr/local/sbin/allscan-reimagined-asterisk-read';
@@ -1697,7 +1698,7 @@ function asr_bridge_diagnostics(): array {
         $clientCount = isset($clients[$id]) && is_array($clients[$id]) ? count($clients[$id]) : 0;
         $warnings = [];
         if ($id === 'zello' && $clientCount === 0) {
-            $zelloTalkers = asr_file_status(__DIR__ . '/zello-talkers.json');
+            $zelloTalkers = asr_file_status(asrRuntimeFilePath('zello-talkers.json'));
             $zelloStatus = asr_file_status(__DIR__ . '/zello-status-data.json');
             $staleTalkers = ($zelloTalkers['status'] ?? '') !== 'exists' || (int) ($zelloTalkers['mtime'] ?? 0) < time() - 3600;
             if ($staleTalkers) {

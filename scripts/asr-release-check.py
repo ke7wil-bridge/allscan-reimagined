@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ASR_INSTALLED_VERSION = "1.0.0-beta.6.1"
-ASR_INSTALLED_LABEL = "v1.0.0 Beta 6.1"
+ASR_INSTALLED_VERSION = "1.0.0-beta.6"
+ASR_INSTALLED_LABEL = "v1.0.0 Beta 6"
 ASR_RELEASES_API = (
     "https://api.github.com/repos/ke7wil-bridge/allscan-reimagined/releases?per_page=20"
 )
@@ -217,7 +217,7 @@ def self_test() -> None:
     global http_get, web_group
 
     assert is_newer("1.0.0-beta.5.11", "1.0.0-beta.5.10")
-    assert is_newer("1.0.0-beta.6.1", "1.0.0-beta.6")
+    assert is_newer("1.0.0-beta.6", "1.0.0-beta.5.11")
     assert is_newer("1.0.0", "1.0.0-beta.99")
     assert not is_newer("1.0.0-beta.5.11", "1.0.0-beta.5.11")
     assert not is_newer("1.0.0-beta.5.10", "1.0.0-beta.5.11")
@@ -225,20 +225,20 @@ def self_test() -> None:
 
     fixture = [
         {"tag_name": "v1.0.0-beta.5.11", "draft": False},
+        {"tag_name": "v1.0.0-beta.6", "draft": False},
         {"tag_name": "v1.0.0-beta.6.1", "draft": False},
-        {"tag_name": "v1.0.0-beta.6.2", "draft": False},
         {"tag_name": "v9.0.0", "draft": True},
         {"tag_name": "../../invalid", "draft": False},
     ]
     selected = select_release(fixture)
     assert selected is not None
-    assert selected["_asr_version"] == "1.0.0-beta.6.2"
-    package_name = "allscan-reimagined-1.0.0-beta.6.2.tar.gz"
+    assert selected["_asr_version"] == "1.0.0-beta.6.1"
+    package_name = "allscan-reimagined-1.0.0-beta.6.1.tar.gz"
     selected.update(
         {
             "html_url": (
                 "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                "releases/tag/v1.0.0-beta.6.2"
+                "releases/tag/v1.0.0-beta.6.1"
             ),
             "published_at": "2026-07-23T12:00:00Z",
             "assets": [
@@ -246,7 +246,7 @@ def self_test() -> None:
                     "name": package_name,
                     "browser_download_url": (
                         "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                        f"releases/download/v1.0.0-beta.6.2/{package_name}"
+                        f"releases/download/v1.0.0-beta.6.1/{package_name}"
                     ),
                     "size": 6200000,
                 },
@@ -254,7 +254,7 @@ def self_test() -> None:
                     "name": f"{package_name}.sha256",
                     "browser_download_url": (
                         "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                        f"releases/download/v1.0.0-beta.6.2/{package_name}.sha256"
+                        f"releases/download/v1.0.0-beta.6.1/{package_name}.sha256"
                     ),
                     "size": 96,
                 },
@@ -263,7 +263,7 @@ def self_test() -> None:
     )
     update_payload = build_payload(selected, "a" * 64)
     assert update_payload["updateAvailable"] is True
-    assert update_payload["availableLabel"] == "v1.0.0 Beta 6.2"
+    assert update_payload["availableLabel"] == "v1.0.0 Beta 6.1"
     assert update_payload["package"]["name"] == package_name
     assert update_payload["package"]["sha256"] == "a" * 64
     untrusted = {

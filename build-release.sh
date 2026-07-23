@@ -45,6 +45,7 @@ python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
+  php "$ROOT/scripts/asr-runtime-source-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
   php "$ROOT/scripts/asr-access-policy-self-test.php"
 else
@@ -91,6 +92,7 @@ install -m 755 scripts/asr-stock-count-helper.py "$STAGE/payload/scripts/asr-sto
 install -m 755 scripts/asr-lookup-map-self-test.php "$STAGE/payload/scripts/asr-lookup-map-self-test.php"
 install -m 755 scripts/asr-lookup-map-browser-self-test.mjs "$STAGE/payload/scripts/asr-lookup-map-browser-self-test.mjs"
 install -m 755 scripts/asr-access-policy-self-test.php "$STAGE/payload/scripts/asr-access-policy-self-test.php"
+install -m 755 scripts/asr-runtime-source-self-test.php "$STAGE/payload/scripts/asr-runtime-source-self-test.php"
 cp -a compat/. "$STAGE/payload/compat/"
 find "$STAGE/payload/compat" -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -delete
 install -m 755 install.sh "$STAGE/install.sh"
@@ -98,7 +100,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.6.1.md "$STAGE/release-notes/v1.0.0-beta.6.1.md"
+install -m 644 release-notes/v1.0.0-beta.6.md "$STAGE/release-notes/v1.0.0-beta.6.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
