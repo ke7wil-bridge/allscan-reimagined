@@ -3000,15 +3000,27 @@ body.asr-rollback-dialog-open {
 }
 
 .asr-instructions-status-grid .is-idle {
-	border-top-color:#73808a;
+	border-top-color:#3a8c4a;
 }
 
 .asr-instructions-status-grid .is-source {
-	border-top-color:#d45b5b;
+	border-top-color:#d16a6a;
 }
 
 .asr-instructions-status-grid .is-relay {
-	border-top-color:#4dbc70;
+	border-top-color:#b38b24;
+}
+
+.asr-instructions-status-grid .is-idle h3 {
+	color:#9bf0a5;
+}
+
+.asr-instructions-status-grid .is-source h3 {
+	color:#ff8a8a;
+}
+
+.asr-instructions-status-grid .is-relay h3 {
+	color:#ffe37a;
 }
 
 .asr-instructions-callout {

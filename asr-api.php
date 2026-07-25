@@ -13,11 +13,12 @@ const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6';
+const ASR_VERSION = '1.0.0-beta.6.1';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.1';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
+require_once __DIR__ . '/include/asrFavorites.php';
 
 $msg = [];
 asInit($msg);
@@ -1158,40 +1159,17 @@ function asr_allscan_dir(): string {
 
 function asr_favorites_files(): array {
     $dir = asr_allscan_dir();
-    $files = [];
-    if (file_exists(ASR_ETC_FAVORITES)) $files[] = ASR_ETC_FAVORITES;
-
-    $webFiles = glob($dir . '/favorites*.ini') ?: [];
-    sort($webFiles, SORT_NATURAL | SORT_FLAG_CASE);
-    foreach ($webFiles as $file) {
-        if (basename($file) === 'favorites.ini' && file_exists(ASR_ETC_FAVORITES)) continue;
-        $files[] = $file;
-    }
-
-    return $files;
+    return asrFavoritesFiles(dirname(ASR_ETC_FAVORITES), $dir);
 }
 
 function asr_safe_favorites_file(string $requested = ''): string {
-    $files = asr_favorites_files();
-    $default = file_exists(ASR_DEFAULT_FAVORITES) ? ASR_DEFAULT_FAVORITES : ($files[0] ?? ASR_DEFAULT_FAVORITES);
-    if (file_exists(ASR_ETC_FAVORITES)) $default = ASR_ETC_FAVORITES;
-
-    if ($requested === '') return $default;
-
     $dir = asr_allscan_dir();
-    $candidates = str_contains($requested, DIRECTORY_SEPARATOR)
-        ? [$requested]
-        : [dirname(ASR_ETC_FAVORITES) . DIRECTORY_SEPARATOR . basename($requested), $dir . DIRECTORY_SEPARATOR . basename($requested)];
-
-    foreach ($candidates as $candidate) {
-        $real = realpath($candidate);
-        if (!$real || !preg_match('/\/favorites[^\/]*\.ini$/', $real)) continue;
-        $inWebRoot = strncmp($real, $dir . DIRECTORY_SEPARATOR, strlen($dir) + 1) === 0;
-        $inEtcAllScan = strncmp($real, '/etc/allscan/', strlen('/etc/allscan/')) === 0;
-        if ($inWebRoot || $inEtcAllScan) return $real;
-    }
-
-    return $default;
+    return asrFavoritesFile(
+        $requested,
+        dirname(ASR_ETC_FAVORITES),
+        $dir,
+        ASR_DEFAULT_FAVORITES
+    );
 }
 
 function asr_ini_values(string $contents, string $key): array {

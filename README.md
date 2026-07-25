@@ -1,14 +1,14 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 6 installs the current official AllScan backend at
+Gleason's AllScan. Beta 6.1 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 6** and remains a prerelease.
+This archive is **Beta 6.1** and remains a prerelease.
 
 ## Install
 
@@ -18,10 +18,10 @@ installer directly in an interactive root shell on the AllStar node:
 ```bash
 set -e
 
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz"
-checksum="/tmp/allscan-reimagined-1.0.0-beta.6.tar.gz.sha256"
-stage="/tmp/asr-beta-6-install"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.1"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.6.1.tar.gz"
+checksum="/tmp/allscan-reimagined-1.0.0-beta.6.1.tar.gz.sha256"
+stage="/tmp/asr-beta-6-1-install"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
@@ -30,7 +30,7 @@ curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 rm -rf "$stage"
 mkdir -p "$stage"
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.6"
+cd "$stage/allscan-reimagined-1.0.0-beta.6.1"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -52,6 +52,8 @@ python3 payload/scripts/asr-rollback.py self-test
 python3 payload/scripts/asr-bridge-control.py --self-test
 python3 payload/scripts/asr-favorites-update.py --self-test
 python3 payload/scripts/asr-favorites-source.py --self-test
+php payload/scripts/asr-favorites-discovery-self-test.php
+python3 payload/scripts/asr-installer-prompts-self-test.py
 python3 payload/scripts/asr-instructions-self-test.py
 python3 payload/scripts/asr-stock-count-helper.py --self-test
 php payload/scripts/asr-runtime-source-self-test.php
@@ -190,7 +192,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 6 release notes](release-notes/v1.0.0-beta.6.md)
+- [Beta 6.1 release notes](release-notes/v1.0.0-beta.6.1.md)
 
 ## Original AllScan
 

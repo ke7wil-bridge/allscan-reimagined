@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.6"
+ASR_VERSION="1.0.0-beta.6.1"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -25,7 +25,6 @@ REAPPLY_TIMER_WAS_ACTIVE=0
 REAPPLY_STATES_CAPTURED=0
 ALLSCAN_OLD_ARMED=0
 ALLSCAN_OLD_BACKUP=""
-STOCK_LOGIN_OPTED_IN=0
 ASR_WEB_WAS_PRESENT=0
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
@@ -223,11 +222,28 @@ rollback_on_error() {
 }
 trap 'rollback_on_error $?' ERR
 trap 'rollback_on_error 130' INT TERM
+has_interactive_tty() {
+  [ -t 0 ] || [ -t 1 ] || [ -t 2 ]
+}
 ask() {
   local prompt="$1" default="${2:-y}" answer
-  [ -t 0 ] || { [ "$default" = "y" ]; return; }
-  read -r -p "$prompt " answer
-  answer="${answer:-$default}"
+  ASK_WAS_DEFAULT=0
+  if [ -t 0 ]; then
+    if ! IFS= read -r -p "$prompt " answer; then
+      answer=""
+    fi
+  elif has_interactive_tty && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    printf '%s ' "$prompt" > /dev/tty
+    if ! IFS= read -r answer < /dev/tty; then
+      answer=""
+    fi
+  else
+    answer=""
+  fi
+  if [ -z "$answer" ]; then
+    answer="$default"
+    ASK_WAS_DEFAULT=1
+  fi
   [[ "$answer" =~ ^[Yy]$ ]]
 }
 
@@ -316,7 +332,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 6"
+echo "Reimagined release:        v1.0.0 Beta 6.1"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -556,10 +572,96 @@ else
 fi
 
 echo
-echo "Optional stock-interface security:"
-echo "If enabled, /allscan will require login for every visit, including"
-echo "read-only monitoring and dashboard viewing."
-if [ -t 0 ] && ask "Require login for stock /allscan, including read-only monitoring? [y/N]" n; then
+echo "LOGIN AND PUBLIC MONITORING"
+echo
+echo "ASR and stock AllScan use separate access settings. Changing one does"
+echo "not change the other. Press Enter to keep each interface's current setting."
+echo
+echo "ASR (/asr/):"
+echo "  Yes - users must log in before accessing ASR."
+echo "  No  - ASR permits anonymous read-only monitoring; control and"
+echo "        administration still require an authorized login."
+current_asr_login=$(php -r '
+  $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+  echo (!array_key_exists("requireLogin", $data) || !empty($data["requireLogin"])) ? "yes" : "no";
+' /etc/allscan-reimagined/config.json) \
+  || fail "The current ASR login policy could not be read."
+if [ "$current_asr_login" = "yes" ]; then
+  echo "  Current setting: Login required."
+  asr_login_default=y
+  asr_login_prompt="Require login for ASR /asr/? [Y/n]"
+else
+  echo "  Current setting: Anonymous read-only monitoring allowed."
+  asr_login_default=n
+  asr_login_prompt="Require login for ASR /asr/? [y/N]"
+fi
+if ask "$asr_login_prompt" "$asr_login_default"; then
+  requested_asr_login=yes
+else
+  requested_asr_login=no
+fi
+if [ "$requested_asr_login" != "$current_asr_login" ]; then
+  asr_login_tmp=$(mktemp /etc/allscan-reimagined/.config-login.XXXXXX)
+  php -r '
+    $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+    $data["requireLogin"] = $argv[2] === "yes";
+    echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+  ' /etc/allscan-reimagined/config.json "$requested_asr_login" > "$asr_login_tmp"
+  install -o root -g "$WEB_GROUP" -m 664 \
+    "$asr_login_tmp" /etc/allscan-reimagined/config.json
+  rm -f "$asr_login_tmp"
+fi
+ASR_LOGIN_REQUIRED=0
+if [ "$requested_asr_login" = "yes" ]; then
+  ASR_LOGIN_REQUIRED=1
+  echo "ASR /asr/ requires an existing AllScan login."
+else
+  echo "ASR /asr/ allows anonymous read-only monitoring."
+fi
+
+echo
+echo "Stock AllScan (/allscan/):"
+echo "  Yes - users must log in for every visit; anonymous read-only"
+echo "        monitoring is disabled."
+echo "  No  - anonymous users may use stock AllScan's read-only monitoring;"
+echo "        control and administration still require an authorized login."
+current_stock_permission=$(php -r '
+  $_SERVER["DOCUMENT_ROOT"] = $argv[1];
+  $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
+  chdir($argv[2]);
+  require_once "include/common.php";
+  $msg = [];
+  asInit($msg);
+  $db = dbInit();
+  checkTables($db, $msg);
+  new CfgModel($db);
+  echo (int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY);
+' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR") \
+  || fail "The current stock AllScan access policy could not be read."
+if [ "$current_stock_permission" -eq 0 ]; then
+  echo "  Current setting: Login required."
+  stock_login_default=y
+  stock_login_prompt="Require login for stock /allscan/? [Y/n]"
+elif [ "$current_stock_permission" -eq 2 ]; then
+  echo "  Current setting: Anonymous read-only monitoring allowed."
+  stock_login_default=n
+  stock_login_prompt="Require login for stock /allscan/? [y/N]"
+else
+  echo "  Current setting: Custom public permission level $current_stock_permission."
+  echo "  Press Enter to preserve this custom setting."
+  stock_login_default=n
+  stock_login_prompt="Replace it with a login requirement for stock /allscan/? [y/N]"
+fi
+if ask "$stock_login_prompt" "$stock_login_default"; then
+  requested_stock_permission=0
+elif [ "$current_stock_permission" -ne 0 ] \
+  && [ "$current_stock_permission" -ne 2 ] \
+  && [ "$ASK_WAS_DEFAULT" -eq 1 ]; then
+  requested_stock_permission="$current_stock_permission"
+else
+  requested_stock_permission=2
+fi
+if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
   php -r '
     $_SERVER["DOCUMENT_ROOT"] = $argv[1];
     $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
@@ -569,23 +671,29 @@ if [ -t 0 ] && ask "Require login for stock /allscan, including read-only monito
     asInit($msg);
     $db = dbInit();
     checkTables($db, $msg);
-    $users = new UserModel($db);
-    $admins = $users->getUsers(null, null, PERMISSION_ADMIN);
-    if (!is_array($admins) || count($admins) < 1) exit(2);
+    $desired = (int)$argv[3];
+    if ($desired === PERMISSION_NONE) {
+      $users = new UserModel($db);
+      $admins = $users->getUsers(null, null, PERMISSION_ADMIN);
+      if (!is_array($admins) || count($admins) < 1) exit(2);
+    }
     $now = time();
     $current = $db->getRecord("cfg", "cfg_id=" . publicPermission);
     if ($current) {
-      $db->updateRow("cfg", ["val", "updated"], [PERMISSION_NONE, $now], "cfg_id=" . publicPermission);
+      $db->updateRow("cfg", ["val", "updated"], [$desired, $now], "cfg_id=" . publicPermission);
     } else {
-      $db->insertRow("cfg", ["cfg_id", "val", "updated"], [publicPermission, PERMISSION_NONE, $now]);
+      $db->insertRow("cfg", ["cfg_id", "val", "updated"], [publicPermission, $desired, $now]);
     }
     if (isset($db->error)) exit(1);
-  ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" \
-    || fail "Stock /allscan login requirement could not be enabled."
-  STOCK_LOGIN_OPTED_IN=1
-  echo "Stock /allscan now requires an existing AllScan login."
+  ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" "$requested_stock_permission" \
+    || fail "The stock /allscan access policy could not be updated."
+fi
+if [ "$requested_stock_permission" -eq 0 ]; then
+  echo "Stock /allscan/ requires an existing AllScan login."
+elif [ "$requested_stock_permission" -eq 2 ]; then
+  echo "Stock /allscan/ allows anonymous read-only monitoring."
 else
-  echo "Stock /allscan access policy was left unchanged."
+  echo "Stock /allscan/ retained custom public permission level $requested_stock_permission."
 fi
 
 echo "Validating the ASR-only login policy..."
@@ -600,17 +708,21 @@ php -r '
   $db = dbInit();
   checkTables($db, $msg);
   $cfgModel = new CfgModel($db);
-  if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== PERMISSION_NONE) exit(3);
-  $userModel = new UserModel($db);
-  $admins = $userModel->getUsers(null, null, PERMISSION_ADMIN);
-  if (!is_array($admins) || count($admins) < 1) exit(2);
-' "$WEB_ROOT" "$ASR_WEB_DIR" || access_policy_status=$?
+  $expected = (int)$argv[3];
+  if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== $expected) exit(3);
+  if ($expected === PERMISSION_NONE) {
+    $userModel = new UserModel($db);
+    $admins = $userModel->getUsers(null, null, PERMISSION_ADMIN);
+    if (!is_array($admins) || count($admins) < 1) exit(2);
+  }
+' "$WEB_ROOT" "$ASR_WEB_DIR" "$([ "$ASR_LOGIN_REQUIRED" -eq 1 ] && echo 0 || echo 2)" \
+  || access_policy_status=$?
 case "$access_policy_status" in
   0)
-    if [ "$STOCK_LOGIN_OPTED_IN" -eq 1 ]; then
-      echo "ASR uses its path-scoped login policy; stock /allscan login was also explicitly enabled."
+    if [ "$ASR_LOGIN_REQUIRED" -eq 1 ]; then
+      echo "ASR requires its own path-scoped login."
     else
-      echo "ASR requires its own path-scoped login; stock AllScan access policy was not changed."
+      echo "ASR permits anonymous read-only monitoring through its path-scoped policy."
     fi
     ;;
   2)
@@ -680,6 +792,8 @@ validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
 validate_command "canonical Favorites source self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" --self-test >/dev/null
+validate_command "multiple Favorites discovery self-test" \
+  php "$RELEASE_DIR/scripts/asr-favorites-discovery-self-test.php" >/dev/null
 validate_command "instructions and Settings self-test" \
   python3 "$RELEASE_DIR/scripts/asr-instructions-self-test.py" >/dev/null
 validate_command "stock topology formula self-test" \
@@ -751,20 +865,18 @@ if ! printf '%s' "$auth_json" | php -r '
 ' /etc/allscan-reimagined/config.json; then
   fail "Validation failed: ASR effective login policy"
 fi
-if [ "$STOCK_LOGIN_OPTED_IN" -eq 1 ]; then
-  validate_command "stock /allscan login policy" php -r '
-    $_SERVER["DOCUMENT_ROOT"] = $argv[1];
-    $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
-    chdir($argv[2]);
-    require_once "include/common.php";
-    $msg = [];
-    asInit($msg);
-    $db = dbInit();
-    checkTables($db, $msg);
-    new CfgModel($db);
-    if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== PERMISSION_NONE) exit(1);
-  ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR"
-fi
+validate_command "stock /allscan access policy" php -r '
+  $_SERVER["DOCUMENT_ROOT"] = $argv[1];
+  $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
+  chdir($argv[2]);
+  require_once "include/common.php";
+  $msg = [];
+  asInit($msg);
+  $db = dbInit();
+  checkTables($db, $msg);
+  new CfgModel($db);
+  if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== (int)$argv[3]) exit(1);
+' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" "$requested_stock_permission"
 if ! curl -fsS http://127.0.0.1/asr/ | grep -q 'assets/index-'; then
   fail "Validation failed: /asr page did not serve its built assets"
 fi
@@ -787,7 +899,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 6"
+echo "AllScan Reimagined:    v1.0.0 Beta 6.1"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"

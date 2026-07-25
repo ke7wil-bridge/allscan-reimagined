@@ -156,9 +156,9 @@ def assert_installer_order(installer: Path) -> None:
         'bash "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" >/dev/null 2>&1 || true'
         not in text
     )
-    assert "including read-only monitoring" in text
+    assert "monitoring is disabled." in text
     assert 'validate_command "release-check timer is active"' in text
-    stock_policy_check = text.index('validate_command "stock /allscan login policy"')
+    stock_policy_check = text.index('validate_command "stock /allscan access policy"')
     assert text.index("new CfgModel($db);", stock_policy_check) > stock_policy_check
     assert "Validation failed: /asr runtime-config endpoint" in text
 
@@ -318,12 +318,12 @@ def self_test(*, model_only: bool = False) -> None:
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "before_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_release_install"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "during_current_link_swap"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6", "after_current_link_swap"),
-        (None, "1.0.0-beta.6", "after_release_install"),
-        (None, "1.0.0-beta.6", "before_release_install"),
-        (None, "1.0.0-beta.6", "during_current_link_swap"),
+        ("1.0.0-beta.6", "1.0.0-beta.6.1", "after_current_link_swap"),
+        (None, "1.0.0-beta.6.1", "after_release_install"),
+        (None, "1.0.0-beta.6.1", "before_release_install"),
+        (None, "1.0.0-beta.6.1", "during_current_link_swap"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", None),
-        ("1.0.0-beta.5.11", "1.0.0-beta.6", None),
+        ("1.0.0-beta.6", "1.0.0-beta.6.1", None),
     )
     for initial, new, failure in cases:
         with tempfile.TemporaryDirectory(

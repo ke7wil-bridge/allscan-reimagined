@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTRUCTIONS = ROOT / "compat/allscan-v1.01/asr-instructions/index.php"
+ADMIN_CSS = ROOT / "compat/allscan-v1.01/css/asr-admin.css"
 SETTINGS = ROOT / "compat/allscan-v1.01/asr-settings/index.php"
 COMMON = ROOT / "compat/allscan-v1.01/include/common.php"
 
@@ -20,6 +21,7 @@ def require(condition: bool, message: str) -> None:
 
 def main() -> int:
     instructions = INSTRUCTIONS.read_text(encoding="utf-8")
+    admin_css = ADMIN_CSS.read_text(encoding="utf-8")
     settings = SETTINGS.read_text(encoding="utf-8")
     common = COMMON.read_text(encoding="utf-8")
 
@@ -43,6 +45,28 @@ def main() -> int:
         "diagnostics",
     }
     require(required_topics.issubset(section_ids), "one or more required help topics are missing")
+    require(
+        instructions.index("Green — Idle")
+        < instructions.index("Amber — Relay")
+        < instructions.index("Red — TX Active"),
+        "instructions status legend does not use the Green, Amber, Red order",
+    )
+    expected_status_colors = {
+        "is-idle": "#3a8c4a",
+        "is-relay": "#b38b24",
+        "is-source": "#d16a6a",
+    }
+    for status_class, color in expected_status_colors.items():
+        require(
+            re.search(
+                rf"\.asr-instructions-status-grid \.{status_class}\s*\{{[^}}]*"
+                rf"border-top-color:{re.escape(color)};",
+                admin_css,
+                re.DOTALL,
+            )
+            is not None,
+            f"instructions {status_class} color does not match the ASR legend",
+        )
 
     require(
         settings.count('name="maintainFriendlyNames"') == 1,

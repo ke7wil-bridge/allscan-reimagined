@@ -32,7 +32,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 6 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 6.1 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -133,9 +133,9 @@ pageInit();
 			<li><strong>Select Disconnect when finished.</strong> ASR disconnects the DMR network path, unlinks the private bridge node, clears the talkgroup box, and removes the bridge from Connection Status.</li>
 		</ol>
 		<div class="asr-instructions-status-grid">
-			<article class="is-idle"><h3>Idle</h3><p>No audio is passing. Talking displays <strong>-</strong>.</p></article>
-			<article class="is-source"><h3>TX Active</h3><p>A DMR user is transmitting into AllStar. Talking shows the callsign when the bridge provides it.</p></article>
-			<article class="is-relay"><h3>Relay</h3><p>AllStar audio is going out through the DMR bridge. Talking displays <strong>-</strong> because the card is relaying another source.</p></article>
+			<article class="is-idle"><h3>Green — Idle</h3><p>No audio is passing. Talking displays <strong>-</strong>.</p></article>
+			<article class="is-relay"><h3>Amber — Relay</h3><p>AllStar audio is going out through the DMR bridge. Talking displays <strong>-</strong> because the card is relaying another source.</p></article>
+			<article class="is-source"><h3>Red — TX Active</h3><p>A DMR user is transmitting into AllStar. Talking shows the callsign when the bridge provides it.</p></article>
 		</div>
 		<p class="asr-instructions-callout"><strong>Important:</strong> Talkgroup changes affect everyone using the DMR Net Bridge. AllStar node linking and DMR talkgroup selection are separate controls.</p>
 	</section>

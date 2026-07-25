@@ -41,10 +41,12 @@ python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
 python3 "$ROOT/scripts/asr-favorites-source.py" --self-test
+python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
 python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
+  php "$ROOT/scripts/asr-favorites-discovery-self-test.php"
   php "$ROOT/scripts/asr-runtime-source-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
   php "$ROOT/scripts/asr-access-policy-self-test.php"
@@ -87,6 +89,8 @@ install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-
 install -m 755 scripts/asr-side-by-side-self-test.sh "$STAGE/payload/scripts/asr-side-by-side-self-test.sh"
 install -m 755 scripts/asr-favorites-update.py "$STAGE/payload/scripts/asr-favorites-update.py"
 install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favorites-source.py"
+install -m 755 scripts/asr-favorites-discovery-self-test.php "$STAGE/payload/scripts/asr-favorites-discovery-self-test.php"
+install -m 755 scripts/asr-installer-prompts-self-test.py "$STAGE/payload/scripts/asr-installer-prompts-self-test.py"
 install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr-instructions-self-test.py"
 install -m 755 scripts/asr-stock-count-helper.py "$STAGE/payload/scripts/asr-stock-count-helper.py"
 install -m 755 scripts/asr-lookup-map-self-test.php "$STAGE/payload/scripts/asr-lookup-map-self-test.php"
@@ -100,7 +104,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.6.md "$STAGE/release-notes/v1.0.0-beta.6.md"
+install -m 644 release-notes/v1.0.0-beta.6.1.md "$STAGE/release-notes/v1.0.0-beta.6.1.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
