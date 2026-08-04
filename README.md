@@ -8,7 +8,7 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 6.1** and remains a prerelease.
+This archive is **Beta 6.3** and remains a prerelease.
 
 ## Install
 
@@ -21,7 +21,7 @@ set -e
 base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.3"
 pkg="/tmp/allscan-reimagined-1.0.0-beta.6.3.tar.gz"
 checksum="/tmp/allscan-reimagined-1.0.0-beta.6.3.tar.gz.sha256"
-stage="/tmp/asr-beta-6-1-install"
+stage="/tmp/asr-beta-6-3-install"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
