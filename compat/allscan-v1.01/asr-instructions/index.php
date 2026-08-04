@@ -24,6 +24,7 @@ pageInit();
 		<a href="#bridge-cards">Bridge Cards</a>
 		<a href="#bridge-setup">Bridge Setup</a>
 		<a href="#dmr-net-bridge">DMR Net Bridge</a>
+		<a href="#ysf-net-bridge">YSF Net Bridge</a>
 		<a href="#lookup-map">Lookup &amp; Map</a>
 		<a href="#updates">Update Notices</a>
 		<a href="#rollback">Rollback</a>
@@ -32,7 +33,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 6.1 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 6.3 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -91,8 +92,8 @@ pageInit();
 		<h2>Bridge Cards</h2>
 		<p>Bridge Cards tell ASR which already-working bridges to display. A card does not install or configure the underlying digital bridge.</p>
 		<dl class="asr-instructions-definitions">
-			<div><dt>Card Type</dt><dd>Use Standard Bridge for normal monitoring cards. Use DMR Net Bridge only for a separately installed, tunable DMR bridge.</dd></div>
-			<div><dt>ID</dt><dd>A unique lowercase ASR identifier such as dmr, dmr_net, ysf, zello, dstar, p25, m17, or nxdn.</dd></div>
+			<div><dt>Card Type</dt><dd>Use Standard Bridge for normal monitoring cards. Use DMR Net Bridge or YSF Net Bridge only for a separately installed, isolated tunable bridge.</dd></div>
+			<div><dt>ID</dt><dd>A unique lowercase ASR identifier such as dmr, dmr_net, ysf, ysf_net, zello, dstar, p25, m17, or nxdn.</dd></div>
 			<div><dt>Node</dt><dd>The AllStar bridge node ASR matches against live connection status. This is not a DMR talkgroup.</dd></div>
 			<div><dt>Card Title</dt><dd>The heading displayed on the main ASR bridge card.</dd></div>
 			<div><dt>Detail Title</dt><dd>The label above the card’s client or activity details, usually Connected Clients.</dd></div>
@@ -138,6 +139,19 @@ pageInit();
 			<article class="is-source"><h3>Red — TX Active</h3><p>A DMR user is transmitting into AllStar. Talking shows the callsign when the bridge provides it.</p></article>
 		</div>
 		<p class="asr-instructions-callout"><strong>Important:</strong> Talkgroup changes affect everyone using the DMR Net Bridge. AllStar node linking and DMR talkgroup selection are separate controls.</p>
+	</section>
+
+	<section id="ysf-net-bridge" class="asr-instructions-section">
+		<h2>YSF Net Bridge</h2>
+		<p>A YSF Net Bridge is a separate selectable YSF path. It never replaces or retunes the fixed/home YSF Bridge.</p>
+		<ol class="asr-instructions-steps">
+			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-KE7WIL-YSF</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
+			<li><strong>Add an unlisted reflector once.</strong> In Reimagined Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the updater-owned list in a separate root-owned catalog.</li>
+			<li><strong>Select Connect.</strong> ASR sends the destination to the dedicated YSFGateway and waits for the Gateway log to confirm the exact link before linking the bridge’s private AllStar node.</li>
+			<li><strong>Confirm the result.</strong> The card shows the current reflector from the cached watcher after refresh. Source/TX, Relay, caller, warning, and error information appears only when the dedicated logs provide real evidence.</li>
+			<li><strong>Select Disconnect when finished.</strong> ASR attempts both the YSF unlink and local AllStar unlink and reports a partial failure rather than claiming success.</li>
+		</ol>
+		<p class="asr-instructions-callout"><strong>Isolation required:</strong> The YSF Net Bridge needs its own AllStar node, YSFGateway, MMDVM Bridge, Analog Bridge, emulator, configuration files, ports, logs, and RemoteCommand path. ASR does not install or remove that external bridge stack. When custom reflectors are configured, ASR points only the dedicated YSFGateway at its separate merged catalog and safely reloads that Gateway when the catalog changes; the updater-owned hosts file remains untouched.</p>
 	</section>
 
 	<section id="lookup-map" class="asr-instructions-section">

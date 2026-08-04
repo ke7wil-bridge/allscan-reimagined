@@ -12,9 +12,10 @@ const ASR_LOOKUP_DATA_CACHE = '/run/allscan-reimagined/lookup-data.json';
 const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-status.json';
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
+const ASR_YSF_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-ysf-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6.1';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.1';
+const ASR_VERSION = '1.0.0-beta.6.3';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.3';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -250,7 +251,7 @@ function asr_runtime_config(): array {
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
         $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
-        $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net'], true)
+        $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net', 'ysf_net'], true)
             ? (string) $bridge['cardType']
             : 'standard';
         $linkAlias = '';
@@ -270,6 +271,7 @@ function asr_runtime_config(): array {
             'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
             'friendlyName' => substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),
             'cardType' => $cardType,
+            'allowTune' => $cardType === 'ysf_net' && !empty($bridge['allowTune']),
         ];
     }
 
@@ -422,12 +424,278 @@ function asr_bridge_status_payload(): array {
     foreach (asr_dmr_net_live_statuses() as $id => $entry) {
         $bridge[$id] = $entry;
     }
+    foreach (asr_ysf_net_live_statuses() as $id => $entry) {
+        $bridge[$id] = $entry;
+    }
     return [
         'ok' => true,
         'bridge' => $bridge,
         'clients' => asr_bridge_clients_payload(),
-        'controls' => asr_dmr_net_control_statuses(),
+        'controls' => array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses()),
     ];
+}
+
+function asr_valid_ysf_net_config(array $bridge): bool {
+    $gateway = (string) ($bridge['ysfGatewayConfig'] ?? '');
+    $mmdvm = (string) ($bridge['mmdvmConfig'] ?? '');
+    if (!preg_match('#^/opt/YSFGateway_([A-Za-z0-9_-]+)/YSFGateway\.ini$#D', $gateway, $gatewayMatch)
+        || !preg_match('#^/opt/MMDVM_Bridge_([A-Za-z0-9_-]+)/MMDVM_Bridge\.ini$#D', $mmdvm, $mmdvmMatch)
+        || strcasecmp((string) $gatewayMatch[1], (string) $mmdvmMatch[1]) !== 0
+        || (string) ($bridge['commandTransport'] ?? '') !== 'remote_command'
+        || (isset($bridge['allowTune']) && !is_bool($bridge['allowTune']))
+        || !preg_match('/^[0-9]{3,10}$/D', (string) ($bridge['node'] ?? ''))) {
+        return false;
+    }
+    foreach (['ysfGatewayService', 'mmdvmService'] as $key) {
+        if (!preg_match('/^[a-z0-9][a-z0-9@_.-]{0,79}\.service$/D', (string) ($bridge[$key] ?? ''))) return false;
+    }
+    foreach (['analogBridgeService', 'emulatorService'] as $key) {
+        if (isset($bridge[$key]) && (string) $bridge[$key] !== ''
+            && !preg_match('/^[a-z0-9][a-z0-9@_.-]{0,79}\.service$/D', (string) $bridge[$key])) {
+            return false;
+        }
+    }
+    if (isset($bridge['ysfHostsPath']) && (string) $bridge['ysfHostsPath'] !== ''
+        && !preg_match('#^/var/lib/mmdvm/[A-Za-z0-9_.-]*YSF[A-Za-z0-9_.-]*Hosts[A-Za-z0-9_.-]*$#D', (string) $bridge['ysfHostsPath'])) {
+        return false;
+    }
+    $customReflectors = $bridge['ysfCustomReflectors'] ?? [];
+    if (!is_array($customReflectors) || count($customReflectors) > 32) return false;
+    if (count($customReflectors) > 0
+        && !preg_match('#^/var/lib/mmdvm/[A-Za-z0-9_.-]*YSF[A-Za-z0-9_.-]*Hosts[A-Za-z0-9_.-]*$#D', (string) ($bridge['ysfHostsPath'] ?? ''))) {
+        return false;
+    }
+    $seenIds = [];
+    $seenNames = [];
+    foreach ($customReflectors as $reflector) {
+        if (!is_array($reflector)) return false;
+        $id = (string) ($reflector['id'] ?? '');
+        $name = (string) ($reflector['name'] ?? '');
+        $host = (string) ($reflector['host'] ?? '');
+        $port = filter_var($reflector['port'] ?? null, FILTER_VALIDATE_INT);
+        $description = (string) ($reflector['description'] ?? '');
+        $validIp = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $validHost = preg_match('/(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/D', $host) === 1;
+        $nameKey = strtolower($name);
+        if (!preg_match('/^[0-9]{5}$/D', $id) || $id === '00000'
+            || !preg_match('/^[A-Z0-9][A-Z0-9 _.-]{0,15}$/D', $name)
+            || preg_match('/^[0-9]{5}$/D', $name)
+            || (!$validIp && !$validHost)
+            || preg_match('/[;\x00-\x20\/\\\\\[\]@]/', $host)
+            || $port === false || $port < 1 || $port > 65535
+            || $description === '' || strlen($description) > 120
+            || preg_match('/[;\x00-\x1F\x7F]/', $description)
+            || isset($seenIds[$id]) || isset($seenNames[$nameKey])) {
+            return false;
+        }
+        $seenIds[$id] = true;
+        $seenNames[$nameKey] = true;
+    }
+    return true;
+}
+
+function asr_ysf_net_bridge_config(string $bridgeId): ?array {
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) return null;
+    $config = is_readable(ASR_RUNTIME_CONFIG)
+        ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+        : null;
+    $bridges = (array) ($config['bridges'] ?? []);
+    foreach ($bridges as $index => $bridge) {
+        if (!is_array($bridge)
+            || (string) ($bridge['id'] ?? '') !== $bridgeId
+            || (string) ($bridge['cardType'] ?? '') !== 'ysf_net'
+            || !asr_valid_ysf_net_config($bridge)) {
+            continue;
+        }
+        foreach ($bridges as $otherIndex => $other) {
+            if ($otherIndex === $index || !is_array($other)) continue;
+            if ((string) ($other['node'] ?? '') === (string) ($bridge['node'] ?? '')
+                || ((string) ($other['ysfGatewayConfig'] ?? '') !== ''
+                    && (string) $other['ysfGatewayConfig'] === (string) $bridge['ysfGatewayConfig'])
+                || ((string) ($other['mmdvmConfig'] ?? '') !== ''
+                    && (string) $other['mmdvmConfig'] === (string) $bridge['mmdvmConfig'])) {
+                return null;
+            }
+        }
+        return $bridge;
+    }
+    return null;
+}
+
+function asr_secure_root_json(string $path): ?array {
+    $fileStatus = @stat($path);
+    if (is_link($path)
+        || !is_array($fileStatus)
+        || (int) ($fileStatus['uid'] ?? -1) !== 0
+        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0) {
+        return null;
+    }
+    $decoded = json_decode((string) @file_get_contents($path), true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+function asr_ysf_net_live_statuses(): array {
+    $path = '/run/allscan-reimagined-ysf-bridge-control/ysf-live.json';
+    $payload = asr_secure_root_json($path);
+    if (!is_array($payload)
+        || time() - (int) ($payload['updated_epoch'] ?? 0) > 10
+        || !is_array($payload['bridges'] ?? null)) {
+        return [];
+    }
+    $clean = [];
+    foreach ($payload['bridges'] as $id => $entry) {
+        $id = (string) $id;
+        if (!is_array($entry) || asr_ysf_net_bridge_config($id) === null) continue;
+        $role = strtolower((string) ($entry['role'] ?? 'idle'));
+        if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
+        $linked = !empty($entry['linked']);
+        if (!$linked) $role = 'idle';
+        $caller = $role === 'source' ? substr((string) ($entry['current_user'] ?? ''), 0, 20) : '';
+        $clean[$id] = [
+            'active' => $role !== 'idle',
+            'role' => $role,
+            'state' => $role === 'source' ? 'TX ACTIVE' : ($role === 'relay' ? 'RELAY' : ($linked ? 'Idle' : 'Disconnected')),
+            'node' => substr((string) ($entry['node'] ?? ''), 0, 10),
+            'title' => 'YSF Net Bridge',
+            'channel' => $linked ? substr((string) ($entry['name'] ?? ''), 0, 80) : '-',
+            'destination' => preg_match('/^[0-9]{5}$/D', (string) ($entry['destination'] ?? '')) ? (string) $entry['destination'] : '',
+            'destinationName' => substr((string) ($entry['name'] ?? ''), 0, 80),
+            'linked' => $linked,
+            'digitalLinked' => $linked,
+            'allstarLinked' => !empty($entry['allstarLinked']),
+            'ready' => !empty($entry['ready']),
+            'active_start_epoch' => max(0, (int) ($entry['active_start_epoch'] ?? 0)),
+            'activity_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
+            'last_time_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
+            'warning' => substr((string) ($entry['warning'] ?? ''), 0, 160),
+            'current_user' => $caller,
+            'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 20),
+            'caller' => $caller,
+            'recent_users' => [],
+        ];
+    }
+    return $clean;
+}
+
+function asr_ysf_net_control_statuses(): array {
+    $live = asr_ysf_net_live_statuses();
+    $statuses = [];
+    $config = is_readable(ASR_RUNTIME_CONFIG)
+        ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+        : null;
+    foreach ((array) ($config['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge) || ($bridge['cardType'] ?? '') !== 'ysf_net' || !asr_valid_ysf_net_config($bridge)) continue;
+        $id = (string) ($bridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
+        $entry = is_array($live[$id] ?? null) ? $live[$id] : [];
+        $statuses[$id] = [
+            'ready' => !empty($bridge['allowTune'])
+                && is_executable(ASR_YSF_BRIDGE_CONTROL_HELPER)
+                && !empty($entry['ready']),
+            'linked' => !empty($entry['linked']) && !empty($entry['allstarLinked']),
+            'digitalLinked' => !empty($entry['linked']),
+            'allstarLinked' => !empty($entry['allstarLinked']),
+            'currentDestination' => (string) ($entry['destination'] ?? ''),
+            'currentDestinationLabel' => (string) ($entry['destinationName'] ?? ''),
+        ];
+    }
+    return $statuses;
+}
+
+function asr_ysf_net_destination_rows(string $bridgeId): array {
+    if (asr_ysf_net_bridge_config($bridgeId) === null) asr_error('Configured YSF Net Bridge was not found.', 404);
+    $path = '/run/allscan-reimagined-ysf-bridge-control/destinations-' . $bridgeId . '.json';
+    $payload = asr_secure_root_json($path);
+    if (!is_array($payload)
+        || (string) ($payload['bridgeId'] ?? '') !== $bridgeId
+        || !is_array($payload['destinations'] ?? null)) {
+        asr_error('YSF reflector cache is not ready.', 503);
+    }
+    $destinations = [];
+    foreach ($payload['destinations'] as $item) {
+        if (!is_array($item)
+            || !preg_match('/^[0-9]{5}$/D', (string) ($item['id'] ?? ''))
+            || trim((string) ($item['name'] ?? '')) === '') {
+            continue;
+        }
+        $destinations[] = [
+            'id' => (string) $item['id'],
+            'name' => substr(trim((string) $item['name']), 0, 80),
+        ];
+    }
+    return $destinations;
+}
+
+function asr_ysf_net_destinations(string $bridgeId): array {
+    $destinations = [];
+    foreach (asr_ysf_net_destination_rows($bridgeId) as $item) {
+        $destinations[] = [
+            'id' => $item['id'],
+            'name' => $item['name'],
+            'value' => $item['name'],
+            'label' => $item['name'] . ' (' . $item['id'] . ')',
+        ];
+    }
+    return ['ok' => true, 'bridgeId' => $bridgeId, 'destinations' => $destinations];
+}
+
+function asr_ysf_net_resolve_destination(string $bridgeId, string $query): array {
+    $query = trim($query);
+    if ($query === '' || strlen($query) > 80 || preg_match('/[\x00-\x1F\x7F]/', $query)) {
+        asr_error('Enter an exact YSF reflector name or five-digit ID.');
+    }
+    $matches = [];
+    $isId = preg_match('/^[0-9]{5}$/D', $query) === 1;
+    foreach (asr_ysf_net_destination_rows($bridgeId) as $item) {
+        if (($isId && hash_equals($item['id'], $query))
+            || (!$isId && strcasecmp($item['name'], $query) === 0)) {
+            $matches[$item['id']] = $item;
+        }
+    }
+    if(count($matches) === 0) asr_error('YSF reflector name or ID was not found. Add an unlisted reflector in Reimagined Settings.');
+    if(count($matches) > 1) asr_error('More than one reflector uses that name. Enter its five-digit ID.');
+    return array_values($matches)[0];
+}
+
+function asr_ysf_helper(array $arguments, string $fallback): array {
+    global $user;
+    if (!is_executable(ASR_YSF_BRIDGE_CONTROL_HELPER)) asr_error('YSF Net Bridge control helper is not installed.', 503);
+    $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg(ASR_YSF_BRIDGE_CONTROL_HELPER);
+    foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+    $command .= ' --user ' . escapeshellarg($username) . ' 2>&1';
+    $lines = [];
+    $status = 1;
+    exec($command, $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) {
+            $payload = $decoded;
+            break;
+        }
+    }
+    if (!is_array($payload)) asr_error('YSF Net Bridge control returned an invalid response.', 500);
+    if ($status !== 0 || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? $fallback), 500);
+    return $payload;
+}
+
+function asr_ysf_net_connect(string $bridgeId, string $destination): array {
+    $bridge = asr_ysf_net_bridge_config($bridgeId);
+    if ($bridge === null) asr_error('Configured YSF Net Bridge was not found.', 404);
+    if (empty($bridge['allowTune'])) asr_error('YSF Net Bridge tuning is disabled.', 403);
+    $resolved = asr_ysf_net_resolve_destination($bridgeId, $destination);
+    $payload = asr_ysf_helper(['--connect', $bridgeId, $resolved['id']], 'YSF Net Bridge connection failed.');
+    $payload['currentDestination'] = $resolved['id'];
+    $payload['currentDestinationLabel'] = $resolved['name'];
+    return $payload;
+}
+
+function asr_ysf_net_disconnect(string $bridgeId): array {
+    $bridge = asr_ysf_net_bridge_config($bridgeId);
+    if ($bridge === null) asr_error('Configured YSF Net Bridge was not found.', 404);
+    if (empty($bridge['allowTune'])) asr_error('YSF Net Bridge tuning is disabled.', 403);
+    return asr_ysf_helper(['--disconnect', $bridgeId], 'YSF Net Bridge disconnect failed.');
 }
 
 function asr_valid_dmr_net_paths(array $bridge): bool {
@@ -1829,6 +2097,10 @@ if ($action === 'bridge-status') {
     asr_require_read();
     asr_json(asr_bridge_status_payload());
 }
+if ($action === 'bridge-destinations') {
+    asr_require_read();
+    asr_json(asr_ysf_net_destinations((string) ($_GET['bridgeId'] ?? '')));
+}
 if ($action === 'bridge-connect') {
     asr_require_post();
     asr_require_same_origin();
@@ -1836,7 +2108,14 @@ if ($action === 'bridge-connect') {
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
         asr_error('Invalid bridge-control request.', 403);
     }
-    asr_json(asr_dmr_net_connect((string) ($_POST['bridgeId'] ?? ''), (string) ($_POST['talkgroup'] ?? '')));
+    $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    if (asr_ysf_net_bridge_config($bridgeId) !== null) {
+        asr_json(asr_ysf_net_connect($bridgeId, (string) ($_POST['destination'] ?? '')));
+    }
+    asr_json(asr_dmr_net_connect(
+        $bridgeId,
+        (string) ($_POST['talkgroup'] ?? ($_POST['destination'] ?? ''))
+    ));
 }
 if ($action === 'bridge-disconnect') {
     asr_require_post();
@@ -1845,7 +2124,11 @@ if ($action === 'bridge-disconnect') {
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
         asr_error('Invalid bridge-control request.', 403);
     }
-    asr_json(asr_dmr_net_disconnect((string) ($_POST['bridgeId'] ?? '')));
+    $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    if (asr_ysf_net_bridge_config($bridgeId) !== null) {
+        asr_json(asr_ysf_net_disconnect($bridgeId));
+    }
+    asr_json(asr_dmr_net_disconnect($bridgeId));
 }
 if ($action === 'cpu-temp') {
     asr_require_read();

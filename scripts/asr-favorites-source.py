@@ -23,6 +23,9 @@ DEFAULT_ENTRIES = [
     "../supermon/favorites.ini",
     CANONICAL_ENTRY,
 ]
+EMPTY_CANONICAL_CONTENT = (
+    "; Primary Favorites list shared by stock AllScan and AllScan Reimagined.\n"
+)
 
 
 def digest(path: Path) -> str:
@@ -49,6 +52,48 @@ def copy_preserved(source: Path, destination: Path, mode: int = 0o600) -> None:
         if descriptor >= 0:
             os.close(descriptor)
         temporary.unlink(missing_ok=True)
+
+
+def write_preserved(content: str, destination: Path, mode: int = 0o664) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=destination.parent,
+        prefix=".asr-favorites-source.",
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, destination)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def initialize_canonical(canonical: Path, stock_favorites: Path) -> str:
+    if canonical.is_symlink():
+        raise ValueError("Canonical Favorites path must not be a symbolic link.")
+    if canonical.exists():
+        if not canonical.is_file():
+            raise ValueError("Canonical Favorites path is not a regular file.")
+        if canonical.stat().st_size > 0:
+            return "existing"
+
+    if (
+        stock_favorites.is_file()
+        and stock_favorites.stat().st_size > 0
+        and stock_favorites.resolve() != canonical.resolve()
+    ):
+        copy_preserved(stock_favorites, canonical, mode=0o664)
+        return "stock"
+
+    write_preserved(EMPTY_CANONICAL_CONTENT, canonical)
+    return "new-empty"
 
 
 def ordered_sources(raw: str | None) -> list[str]:
@@ -89,8 +134,7 @@ def apply_source_policy(
 ) -> dict[str, object]:
     if not database.is_file():
         raise ValueError("Shared AllScan database was not found.")
-    if not canonical.is_file() or canonical.stat().st_size == 0:
-        raise ValueError("Canonical Favorites file is missing or empty.")
+    canonical_source = initialize_canonical(canonical, stock_favorites)
 
     migration_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -147,6 +191,7 @@ def apply_source_policy(
             "sourceOrder": ordered_sources(new_value),
             "stockBackup": stock_backup,
             "databaseBackup": database_backup,
+            "canonicalSource": canonical_source,
         }
     except Exception:
         connection.rollback()
@@ -206,6 +251,31 @@ def self_test() -> None:
         second = apply_source_policy(database, canonical, stock, migrations)
         assert second["changed"] is False
         assert second["databaseBackup"] == ""
+
+        missing_canonical = root / "missing-stock-copy" / "favorites.ini"
+        stock_copy = root / "stock-copy" / "favorites.ini"
+        stock_copy.parent.mkdir(parents=True)
+        stock_copy.write_text('label[] = "Stock-only 524771"\n', encoding="utf-8")
+        copied = apply_source_policy(
+            database,
+            missing_canonical,
+            stock_copy,
+            root / "stock-copy-migrations",
+        )
+        assert copied["canonicalSource"] == "stock"
+        assert missing_canonical.read_bytes() == stock_copy.read_bytes()
+        assert stat.S_IMODE(missing_canonical.stat().st_mode) == 0o664
+
+        empty_canonical = root / "fresh-node" / "favorites.ini"
+        initialized = apply_source_policy(
+            database,
+            empty_canonical,
+            root / "fresh-stock" / "favorites.ini",
+            root / "fresh-node-migrations",
+        )
+        assert initialized["canonicalSource"] == "new-empty"
+        assert empty_canonical.read_text(encoding="utf-8") == EMPTY_CANONICAL_CONTENT
+        assert stat.S_IMODE(empty_canonical.stat().st_mode) == 0o664
     print("canonical Favorites source self-test: ok")
 
 

@@ -488,6 +488,7 @@ def create_safety_backup(web_root: Path) -> Path:
                 "--exclude=asr/asr-connected-clients.json",
                 "--exclude=asr/zello-status-data.json",
                 "--exclude=asr/astdb.txt",
+                "--exclude=asr/astdb.txt.*",
                 "--exclude=asr/backup-*",
                 "--exclude=asr/*.bak",
                 "--exclude=asr/*.bak.*",
@@ -565,6 +566,38 @@ def run_checked(command: list[str], *, env: dict[str, str] | None = None) -> Non
         raise RollbackError(
             f"Command failed: {' '.join(command)}" + (f": {detail}" if detail else "")
         )
+
+
+def reconcile_ysf_net_wiring(release_root: Path) -> None:
+    """Remove only ASR-owned YSF wiring when the restored release predates it."""
+    if (release_root / "scripts/asr-ysf-bridge-control.py").is_file():
+        return
+    subprocess.run(
+        [
+            "systemctl", "disable", "--now",
+            "allscan-reimagined-ysf-net-live.service",
+            "allscan-reimagined-ysf-hosts-refresh.timer",
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for path in (
+        Path("/etc/systemd/system/allscan-reimagined-ysf-net-live.service"),
+        Path("/etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service"),
+        Path("/etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer"),
+        Path("/usr/local/sbin/allscan-reimagined-ysf-bridge-control"),
+    ):
+        path.unlink(missing_ok=True)
+    shutil.rmtree(
+        "/run/allscan-reimagined-ysf-bridge-control", ignore_errors=True
+    )
+    subprocess.run(
+        ["systemctl", "daemon-reload"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def ensure_manager_wiring() -> None:
@@ -780,6 +813,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                     ["bash", str(release_target / "scripts/asr-reapply.sh")],
                     env=environment,
                 )
+            reconcile_ysf_net_wiring(release_target)
             ensure_manager_wiring()
             if detect_version(active_web / "asr-api.php") != version:
                 raise RollbackError("Served ASR version did not match after rollback")

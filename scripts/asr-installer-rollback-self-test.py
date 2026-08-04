@@ -144,10 +144,21 @@ def assert_installer_order(installer: Path) -> None:
     assert 'if [ "$ASR_WEB_WAS_PRESENT" -eq 0 ]; then' in text
     assert "restore_reapply_unit_states" in text
     assert "restore_prior_reapply_units" in text
+    assert "PRIOR_ASR_CAN_REAPPLY=1" in text
+    assert "PRIOR_ASR_WIRING_VALID=1" in text
     assert '"$BACKUP_DIR/runtime/systemd"' in text
     assert "allscan-reimagined-reapply.path" in text
     assert "allscan-reimagined-reapply.timer" in text
+    assert "allscan-reimagined-ysf-net-live.service" in text
+    assert "allscan-reimagined-ysf-bridge-control" in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test' in text
     assert "remove_asr_managed_wiring" in text
+    assert "allscan-reimagined-friendly-names.conf" in text
+    assert (
+        'if [ "$PRIOR_ASR_WIRING_VALID" -eq 1 ]; then\n'
+        "      restore_prior_reapply_units"
+    ) in text
+    assert "Removed orphaned ASR persistence wiring" in text
     state_capture = text.index("REAPPLY_STATES_CAPTURED=1")
     backup_creation = text.index('install -d -o root -g root -m 700 "$BACKUP_DIR"')
     assert state_capture < backup_creation
@@ -158,6 +169,8 @@ def assert_installer_order(installer: Path) -> None:
     )
     assert "monitoring is disabled." in text
     assert 'validate_command "release-check timer is active"' in text
+    assert 'validate_command "initial release check"' in text
+    assert "Initial release status is pending; the daily timer will retry automatically." in text
     stock_policy_check = text.index('validate_command "stock /allscan access policy"')
     assert text.index("new CfgModel($db);", stock_policy_check) > stock_policy_check
     assert "Validation failed: /asr runtime-config endpoint" in text
@@ -301,6 +314,25 @@ def exercise_legacy_overlay_backup_exclusions(root: Path) -> None:
     assert not any(name.startswith("allscan/astdb.txt") for name in members)
 
 
+def exercise_orphan_wiring_cleanup(root: Path) -> None:
+    managed = root / "managed"
+    managed.mkdir()
+    for name in (
+        "allscan-reimagined-reapply.service",
+        "allscan-reimagined-reapply.path",
+        "allscan-reimagined-reapply.timer",
+        "allscan-reimagined-friendly-names.conf",
+    ):
+        (managed / name).write_text("orphaned\n", encoding="utf-8")
+
+    # Model rollback with no valid prior release and no recognized legacy
+    # overlay: exact ASR-managed persistence wiring must stay removed.
+    for child in tuple(managed.iterdir()):
+        child.unlink()
+
+    assert not tuple(managed.iterdir())
+
+
 def self_test(*, model_only: bool = False) -> None:
     if not model_only:
         script_path = Path(__file__).resolve()
@@ -347,6 +379,10 @@ def self_test(*, model_only: bool = False) -> None:
         prefix="asr-installer-legacy-overlay-backup-self-test."
     ) as temporary:
         exercise_legacy_overlay_backup_exclusions(Path(temporary))
+    with tempfile.TemporaryDirectory(
+        prefix="asr-installer-orphan-wiring-self-test."
+    ) as temporary:
+        exercise_orphan_wiring_cleanup(Path(temporary))
     print("ASR installer rollback self-test: ok")
 
 

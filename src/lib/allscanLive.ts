@@ -17,7 +17,7 @@ export type RuntimeBridgeConfig = {
   title: string
   detailTitle: string
   friendlyName?: string
-  cardType?: 'standard' | 'dmr_net'
+  cardType?: 'standard' | 'dmr_net' | 'ysf_net'
   linkAlias?: string
 }
 
@@ -44,7 +44,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 6.1',
+  versionLabel: 'v1.0.0 Beta 6.3',
   lowPowerMode: false,
   bridges: [],
 }
@@ -102,15 +102,26 @@ export type BridgeCardView = {
   id: string
   node: string
   title: string
-  cardType: 'standard' | 'dmr_net'
+  cardType: 'standard' | 'dmr_net' | 'ysf_net'
   status: 'Idle' | 'Source/TX' | 'Relay'
   lastCaller: string
   warning: string
   currentTg: string
+  currentDestination: string
+  currentDestinationLabel: string
   controlLinked: boolean
   controlReady: boolean
+  digitalLinked: boolean
+  allstarLinked: boolean
   detailTitle: string
   detailRows: BridgeDetailItem[]
+}
+
+export type BridgeDestination = {
+  id: string
+  name: string
+  value: string
+  label: string
 }
 
 export type BridgeDetailItem = {
@@ -242,8 +253,12 @@ type ConnectedClientsResponse = {
 
 type BridgeControlResponse = Record<string, {
   currentTg?: string
+  currentDestination?: string
+  currentDestinationLabel?: string
   linked?: boolean
   ready?: boolean
+  digitalLinked?: boolean
+  allstarLinked?: boolean
   abinfoAvailable?: boolean
 }>
 
@@ -896,17 +911,27 @@ export async function fetchBridgeCards(
       : cachedDetailRows
     const status = mapBridgeStatus(entry)
     const control = controls[bridgeConfig.id] || {}
+    const cardType = bridgeConfig.cardType === 'dmr_net'
+      ? 'dmr_net'
+      : bridgeConfig.cardType === 'ysf_net'
+        ? 'ysf_net'
+        : 'standard'
+    const currentDestination = String(control.currentDestination || control.currentTg || '')
     return {
       id: bridgeConfig.id,
       node: bridgeConfig.node,
       title: bridgeConfig.title,
-      cardType: bridgeConfig.cardType === 'dmr_net' ? 'dmr_net' : 'standard',
+      cardType,
       status,
       lastCaller: bridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
-      currentTg: String(control.currentTg || ''),
+      currentTg: String(control.currentTg || control.currentDestination || ''),
+      currentDestination,
+      currentDestinationLabel: String(control.currentDestinationLabel || currentDestination),
       controlLinked: control.linked === true,
       controlReady: control.ready === true,
+      digitalLinked: control.digitalLinked === true,
+      allstarLinked: control.allstarLinked === true,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(detailRows, 'None', bridgeConfig.id),
     }
@@ -919,7 +944,32 @@ export async function fetchBridgeCards(
   return { updatedLabel, cards }
 }
 
-export async function connectDmrNetBridge(bridgeId: string, talkgroup: string) {
+export async function fetchBridgeDestinations(bridgeId: string): Promise<BridgeDestination[]> {
+  const query = new URLSearchParams({ action: 'bridge-destinations', bridgeId })
+  const response = await fetch(`${ASR_API}?${query.toString()}`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    destinations?: Array<Partial<BridgeDestination>>
+  }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Bridge destinations could not be loaded (${response.status}).`)
+  }
+  if (!Array.isArray(payload.destinations)) return []
+  return payload.destinations
+    .map((destination) => ({
+      id: String((destination as Partial<BridgeDestination>).id || '').trim(),
+      name: String((destination as Partial<BridgeDestination>).name || destination.value || '').trim(),
+      value: String(destination.value || (destination as Partial<BridgeDestination>).name || '').trim(),
+      label: String(destination.label || destination.value || '').trim(),
+    }))
+    .filter((destination) => /^\d{5}$/.test(destination.id) && destination.name && destination.value && destination.label)
+}
+
+export async function connectBridge(bridgeId: string, destination: string) {
   const response = await fetch(`${ASR_API}?action=bridge-connect`, {
     method: 'POST',
     credentials: 'same-origin',
@@ -928,21 +978,22 @@ export async function connectDmrNetBridge(bridgeId: string, talkgroup: string) {
       'Content-Type': 'application/x-www-form-urlencoded',
       'X-ASR-Requested-With': 'bridge-control',
     },
-    body: new URLSearchParams({ bridgeId, talkgroup }).toString(),
+    body: new URLSearchParams({ bridgeId, destination }).toString(),
   })
   const payload = (await response.json()) as {
     ok?: boolean
     error?: string
     message?: string
-    currentTg?: string
+    currentDestination?: string
+    currentDestinationLabel?: string
   }
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `Talkgroup change failed (${response.status}).`)
+    throw new Error(payload.error || `Bridge connection failed (${response.status}).`)
   }
   return payload
 }
 
-export async function disconnectDmrNetBridge(bridgeId: string) {
+export async function disconnectBridge(bridgeId: string) {
   const response = await fetch(`${ASR_API}?action=bridge-disconnect`, {
     method: 'POST',
     credentials: 'same-origin',
@@ -959,7 +1010,7 @@ export async function disconnectDmrNetBridge(bridgeId: string) {
     message?: string
   }
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `DMR disconnect failed (${response.status}).`)
+    throw new Error(payload.error || `Bridge disconnect failed (${response.status}).`)
   }
   return payload
 }

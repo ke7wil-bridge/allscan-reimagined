@@ -21,6 +21,7 @@ const runtimeConfig = {
     { id: 'dmr', node: '1883', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
     { id: 'dmr_net', node: '1884', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
     { id: 'ysf', node: '641892', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
+    { id: 'ysf_net', node: '1885', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
     { id: 'zello', node: '641893', title: 'Zello Bridge', detailTitle: 'Zello Clients' },
   ],
 }
@@ -547,13 +548,30 @@ function instructionsPage(projectRoot: string) {
   )
 }
 
-function bridgeLive() {
+type MockBridgeControlState = {
+  dmrNetDestination: string
+  dmrNetLinked: boolean
+  ysfNetDestination: string
+  ysfNetLinked: boolean
+}
+
+const mockYsfDestinations = [
+  { id: '32453', name: 'US-KCWIDE', value: 'US-KCWIDE', label: 'US-KCWIDE (32453)' },
+  { id: '67874', name: 'US-NETOHOLICS', value: 'US-NETOHOLICS', label: 'US-NETOHOLICS (67874)' },
+  { id: '83193', name: 'AMERICA-LINK', value: 'AMERICA-LINK', label: 'AMERICA-LINK (83193)' },
+  { id: '64189', name: 'US-KE7WIL-YSF', value: 'US-KE7WIL-YSF', label: 'US-KE7WIL-YSF (64189)' },
+]
+
+function bridgeLive(state?: MockBridgeControlState) {
   return jsonResponse({
     updated: '2026-06-25T17:15:30Z',
     updated_epoch: 1782417330,
     dmr: { active: true, role: 'source', state: 'Source/TX', caller: 'N7MOCK', recent_users: [{ name: 'N7MOCK' }, { name: 'W7TEST' }] },
     dmr_net: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
     ysf: { active: true, role: 'relay', state: 'Relay', caller: 'W7TEST', recent_users: [{ name: 'W7TEST' }] },
+    ysf_net: state?.ysfNetLinked
+      ? { active: true, role: 'source', state: 'Source/TX', caller: 'K7YSF', current_user: 'K7YSF', recent_users: [{ name: 'K7YSF' }] }
+      : { active: false, role: 'idle', state: 'Idle', caller: '', warning: '', recent_users: [] },
     zello: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
   })
 }
@@ -563,6 +581,7 @@ function connectedClients() {
     dmr: [{ callsign: 'N7MOCK', room: 'TG 3100', connected: '00:12:04' }],
     dmr_net: [{ callsign: 'N7NET', room: 'TG 86753', connected: '00:03:16' }],
     ysf: [{ callsign: 'W7TEST', room: 'America-Link', connected: '00:03:41' }],
+    ysf_net: [{ callsign: 'K7YSF', room: 'US-KCWIDE', connected: '00:01:18' }],
     zello: [],
   })
 }
@@ -582,16 +601,30 @@ function favoritesPayload() {
   })
 }
 
-function connectionFeed() {
+function connectionFeed(state?: MockBridgeControlState) {
+  const ysfNetRows = state?.ysfNetLinked
+    ? [{ node: '1885', info: 'YSF Net Bridge', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:30', last_keyed: 'Never', lnodes: [] }]
+    : []
   return JSON.stringify({
     641890: {
       remote_nodes: [
-        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3, lnodes: ['2300', '1883', '1884'] },
+        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['2300', '1883', '1884', ...ysfNetRows.map((row) => row.node)] },
         { node: '2300', info: 'Public Legacy Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
         { node: '1883', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
         { node: '1884', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
+        ...ysfNetRows,
       ],
     },
+  })
+}
+
+function readFormBody(req: import('node:http').IncomingMessage) {
+  return new Promise<URLSearchParams>((resolve, reject) => {
+    let body = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => resolve(new URLSearchParams(body)))
+    req.on('error', reject)
   })
 }
 
@@ -626,6 +659,12 @@ export function allscanMockPlugin(): Plugin {
     configureServer(server) {
       const projectRoot = server.config.root
       let favoritesFailuresRemaining = process.env.ASR_MOCK_FAVORITES_FAIL_ONCE === '1' ? 1 : 0
+      const bridgeControlState: MockBridgeControlState = {
+        dmrNetDestination: '86753',
+        dmrNetLinked: true,
+        ysfNetDestination: '32453',
+        ysfNetLinked: true,
+      }
 
       server.middlewares.use((req, res, next) => {
         if (!req.url) return next()
@@ -651,12 +690,89 @@ export function allscanMockPlugin(): Plugin {
           }
           if (action === 'drop-clients') return serveText(res, jsonResponse({ ok: true, clients: [] }), 'application/json; charset=utf-8')
           if (action === 'bridge-status') {
+            const ysfDestination = mockYsfDestinations.find(
+              (destination) => destination.id === bridgeControlState.ysfNetDestination,
+            )
             return serveText(res, jsonResponse({
               ok: true,
-              bridge: JSON.parse(bridgeLive()),
+              bridge: JSON.parse(bridgeLive(bridgeControlState)),
               clients: JSON.parse(connectedClients()),
-              controls: { dmr_net: { currentTg: '86753', ready: true, abinfoAvailable: true } },
+              controls: {
+                dmr_net: {
+                  currentDestination: bridgeControlState.dmrNetLinked ? bridgeControlState.dmrNetDestination : '',
+                  currentDestinationLabel: bridgeControlState.dmrNetLinked ? `TG ${bridgeControlState.dmrNetDestination}` : '',
+                  linked: bridgeControlState.dmrNetLinked,
+                  ready: true,
+                  digitalLinked: bridgeControlState.dmrNetLinked,
+                  allstarLinked: bridgeControlState.dmrNetLinked,
+                  abinfoAvailable: true,
+                },
+                ysf_net: {
+                  currentDestination: bridgeControlState.ysfNetLinked ? bridgeControlState.ysfNetDestination : '',
+                  currentDestinationLabel: bridgeControlState.ysfNetLinked ? (ysfDestination?.name || bridgeControlState.ysfNetDestination) : '',
+                  linked: bridgeControlState.ysfNetLinked,
+                  ready: true,
+                  digitalLinked: bridgeControlState.ysfNetLinked,
+                  allstarLinked: bridgeControlState.ysfNetLinked,
+                },
+              },
             }), 'application/json; charset=utf-8')
+          }
+          if (action === 'bridge-destinations') {
+            const bridgeId = url.searchParams.get('bridgeId') || ''
+            return serveText(res, jsonResponse({
+              ok: bridgeId === 'ysf_net',
+              bridgeId,
+              destinations: bridgeId === 'ysf_net' ? mockYsfDestinations : [],
+              ...(bridgeId === 'ysf_net' ? {} : { error: 'No mock destinations are configured for this bridge.' }),
+            }), 'application/json; charset=utf-8')
+          }
+          if (action === 'bridge-connect') {
+            return void readFormBody(req).then((form) => {
+              const bridgeId = String(form.get('bridgeId') || '')
+              const destination = String(form.get('destination') || '').trim()
+              if (bridgeId === 'dmr_net' && /^\d{1,8}$/.test(destination)) {
+                bridgeControlState.dmrNetDestination = destination
+                bridgeControlState.dmrNetLinked = true
+                return serveText(res, jsonResponse({
+                  ok: true,
+                  bridgeId,
+                  currentDestination: destination,
+                  currentDestinationLabel: `TG ${destination}`,
+                  message: `DMR Net Bridge connected to TG ${destination}.`,
+                }), 'application/json; charset=utf-8')
+              }
+              const ysfDestination = mockYsfDestinations.find((item) => (
+                item.id === destination || item.name.toLocaleLowerCase() === destination.toLocaleLowerCase()
+              ))
+              if (bridgeId === 'ysf_net' && ysfDestination) {
+                bridgeControlState.ysfNetDestination = ysfDestination.id
+                bridgeControlState.ysfNetLinked = true
+                return serveText(res, jsonResponse({
+                  ok: true,
+                  bridgeId,
+                  currentDestination: ysfDestination.id,
+                  currentDestinationLabel: ysfDestination.name,
+                  message: `YSF Net Bridge connected to ${ysfDestination.name}.`,
+                }), 'application/json; charset=utf-8')
+              }
+              return serveText(res, jsonResponse({ ok: false, error: 'Invalid mock bridge destination.' }), 'application/json; charset=utf-8')
+            }).catch(() => serveText(res, jsonResponse({ ok: false, error: 'Mock request body could not be read.' }), 'application/json; charset=utf-8'))
+          }
+          if (action === 'bridge-disconnect') {
+            return void readFormBody(req).then((form) => {
+              const bridgeId = String(form.get('bridgeId') || '')
+              if (bridgeId === 'dmr_net') bridgeControlState.dmrNetLinked = false
+              if (bridgeId === 'ysf_net') bridgeControlState.ysfNetLinked = false
+              if (bridgeId !== 'dmr_net' && bridgeId !== 'ysf_net') {
+                return serveText(res, jsonResponse({ ok: false, error: 'Unknown mock bridge.' }), 'application/json; charset=utf-8')
+              }
+              return serveText(res, jsonResponse({
+                ok: true,
+                bridgeId,
+                message: `${bridgeId === 'ysf_net' ? 'YSF' : 'DMR'} Net Bridge disconnected.`,
+              }), 'application/json; charset=utf-8')
+            }).catch(() => serveText(res, jsonResponse({ ok: false, error: 'Mock request body could not be read.' }), 'application/json; charset=utf-8'))
           }
           if (action === 'bridge-tune') {
             return serveText(res, jsonResponse({
@@ -678,7 +794,7 @@ export function allscanMockPlugin(): Plugin {
           res.statusCode = 200
           res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
           res.setHeader('Cache-Control', 'no-cache')
-          res.write(`event: nodes\ndata: ${connectionFeed()}\n\n`)
+          res.write(`event: nodes\ndata: ${connectionFeed(bridgeControlState)}\n\n`)
           return
         }
 
@@ -687,7 +803,7 @@ export function allscanMockPlugin(): Plugin {
         }
 
         if (requestPath === `${ASR_BASE}/bridge-live.json`) {
-          return serveText(res, bridgeLive(), 'application/json; charset=utf-8')
+          return serveText(res, bridgeLive(bridgeControlState), 'application/json; charset=utf-8')
         }
 
         if (requestPath === `${ASR_BASE}/connected-clients.json`) {

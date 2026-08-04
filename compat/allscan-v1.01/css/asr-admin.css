@@ -696,6 +696,19 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	width:100%;
 	max-width:54rem;
 	margin:0 auto 16px;
+	font-size:15px;
+}
+
+.asr-visually-hidden {
+	position:absolute !important;
+	width:1px !important;
+	height:1px !important;
+	padding:0 !important;
+	margin:-1px !important;
+	overflow:hidden !important;
+	clip:rect(0, 0, 0, 0) !important;
+	white-space:nowrap !important;
+	border:0 !important;
 }
 
 .asr-reimagined-settings-form fieldset {
@@ -781,7 +794,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 
 .asr-settings-row label,
 .asr-settings-row > span:first-child {
-	font-size:13px;
+	font-size:14px;
 	font-weight:900;
 	white-space:normal;
 }
@@ -795,6 +808,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	max-width:100%;
 	min-height:32px;
 	margin:0;
+	font-size:14px;
 }
 
 .asr-bridge-settings-table {
@@ -824,7 +838,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 .asr-bridge-settings-row label span {
 	display:block;
 	color:#55c7ff;
-	font-size:11px;
+	font-size:13px;
 	font-weight:900;
 	text-transform:uppercase;
 }
@@ -834,7 +848,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	margin:0 0 10px;
 	text-align:left;
 	color:#c7d2d9;
-	font-size:13px;
+	font-size:14px;
 	line-height:1.35;
 }
 
@@ -859,7 +873,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	border-radius:7px;
 	background:rgba(85,199,255,0.1);
 	color:#dff5ff;
-	font-size:13px;
+	font-size:14px;
 	font-weight:900;
 	line-height:1.2;
 	text-decoration:none;
@@ -875,6 +889,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 
 .asr-bridge-panel-header {
 	display:flex;
+	flex-wrap:wrap;
 	align-items:flex-start;
 	justify-content:space-between;
 	gap:12px;
@@ -925,7 +940,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 
 .asr-bridge-panel-name {
 	color:#eaf4f8;
-	font-size:17px;
+	font-size:18px;
 	line-height:1.2;
 }
 
@@ -933,7 +948,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 .asr-bridge-section-copy span,
 .asr-bridge-section-note {
 	color:#c7d2d9;
-	font-size:12px;
+	font-size:14px;
 	line-height:1.35;
 }
 
@@ -949,7 +964,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 
 .asr-bridge-section-copy strong {
 	color:#55c7ff;
-	font-size:13px;
+	font-size:15px;
 	line-height:1.2;
 }
 
@@ -964,6 +979,17 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 
 .asr-bridge-status-grid {
 	grid-template-columns:minmax(12rem, 1fr);
+}
+
+.asr-ysf-custom-reflectors {
+	grid-column:1 / -1;
+}
+
+.asr-ysf-custom-reflectors textarea {
+	width:100%;
+	min-height:7rem;
+	margin:2px 0;
+	resize:vertical;
 }
 
 .asr-bridge-client-source {
@@ -983,7 +1009,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 .asr-settings-secret-grid label span {
 	display:block;
 	color:#55c7ff;
-	font-size:11px;
+	font-size:13px;
 	font-weight:900;
 	text-transform:uppercase;
 }
@@ -1017,7 +1043,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 .asr-setup-help-grid h2 {
 	margin:0;
 	color:#55c7ff;
-	font-size:13px;
+	font-size:15px;
 	line-height:1.2;
 	text-align:left;
 }
@@ -1026,7 +1052,7 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	max-width:none;
 	margin:0;
 	color:#c7d2d9;
-	font-size:12px;
+	font-size:14px;
 	line-height:1.35;
 	text-align:left;
 }
@@ -1619,7 +1645,16 @@ body.asr-admin-page-performance .asr-admin-header {
 	text-align:left;
 }
 
-.asr-bridge-delete,
+.asr-bridge-panel-actions {
+	display:flex;
+	flex:0 0 auto;
+	flex-wrap:wrap;
+	align-items:center;
+	justify-content:flex-end;
+	gap:6px;
+}
+
+.asr-bridge-panel-actions button,
 .asr-add-bridge-button {
 	min-height:32px;
 	border:1px solid rgba(255,255,255,0.24);
@@ -1631,8 +1666,32 @@ body.asr-admin-page-performance .asr-admin-header {
 	cursor:pointer;
 }
 
-.asr-bridge-delete {
+.asr-bridge-panel-actions button {
 	padding:6px 10px;
+}
+
+.asr-bridge-drag-handle {
+	cursor:grab !important;
+	touch-action:none;
+}
+
+.asr-bridge-drag-handle:active {
+	cursor:grabbing !important;
+}
+
+.asr-bridge-panel-actions button:disabled {
+	cursor:not-allowed;
+	opacity:0.45;
+}
+
+.asr-bridge-settings-row.is-dragging {
+	opacity:0.58;
+	outline:2px solid rgba(85,199,255,0.7);
+	outline-offset:2px;
+}
+
+.asr-bridge-settings-table.is-reordering .asr-bridge-settings-row:not(.is-dragging) {
+	transition:transform 120ms ease;
 }
 
 .asr-add-bridge-button {
@@ -1660,7 +1719,7 @@ body.asr-admin-page-performance .asr-admin-header {
 	align-items:center;
 	gap:8px;
 	color:#eaf4f8;
-	font-size:14px;
+	font-size:15px;
 	font-weight:800;
 }
 
@@ -1679,7 +1738,7 @@ body.asr-admin-page-performance .asr-admin-header {
 
 .asr-reimagined-submit span {
 	color:#c7d2d9;
-	font-size:12px;
+	font-size:13px;
 	line-height:1.3;
 }
 
@@ -1954,6 +2013,40 @@ body.asr-rollback-dialog-open {
 
 .asr-rollback-dialog-actions button {
 	min-height:42px;
+}
+
+.asr-rollback-complete-card {
+	border-color:rgba(92,205,126,0.68);
+}
+
+.asr-rollback-complete-card h2 {
+	color:#bdf4cb;
+}
+
+.asr-rollback-complete-button {
+	min-width:112px;
+	padding:9px 22px;
+	border:1px solid rgba(112,224,143,0.82);
+	border-radius:7px;
+	background:linear-gradient(180deg, #318d4d 0%, #1f6737 100%);
+	color:#fff;
+	font-size:14px;
+	font-weight:900;
+	cursor:pointer;
+}
+
+.asr-rollback-complete-button:hover,
+.asr-rollback-complete-button:focus-visible {
+	border-color:#bdf4cb;
+	background:linear-gradient(180deg, #3ca65b 0%, #277844 100%);
+	color:#fff;
+	outline:2px solid rgba(112,224,143,0.42);
+	outline-offset:2px;
+}
+
+.asr-rollback-complete-button:disabled {
+	cursor:wait;
+	opacity:0.72;
 }
 
 @media (max-width:900px) {
@@ -2610,7 +2703,7 @@ body.asr-rollback-dialog-open {
 
 	.asr-settings-section-toggle {
 		min-height:48px;
-		font-size:15px;
+		font-size:16px;
 	}
 
 	.asr-settings-row {
@@ -2648,19 +2741,29 @@ body.asr-rollback-dialog-open {
 	.asr-bridge-settings-row label span {
 		display:block;
 		color:#55c7ff;
-		font-size:11px;
+		font-size:13px;
 		font-weight:900;
 		text-transform:uppercase;
 	}
 
 	.asr-bridge-panel-header {
+		flex-direction:column;
 		align-items:stretch;
 		gap:8px;
 	}
 
-	.asr-bridge-delete {
-		width:auto;
+	.asr-bridge-panel-actions {
+		display:grid;
+		grid-template-columns:repeat(4, minmax(0, 1fr));
+		width:100%;
+		gap:6px;
+	}
+
+	.asr-bridge-panel-actions button {
+		width:100%;
 		min-height:38px;
+		padding:6px 5px;
+		font-size:13px;
 	}
 
 	.asr-bridge-fields-grid,

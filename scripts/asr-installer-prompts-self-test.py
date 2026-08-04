@@ -34,7 +34,9 @@ def main() -> int:
         "anonymous read-only monitoring",
         'read -r answer < /dev/tty',
         "ASK_WAS_DEFAULT=1",
-        "Use /etc/allscan/favorites.ini for both interfaces?",
+        "SHARED FAVORITES (REQUIRED)",
+        "This required configuration is",
+        "applied automatically.",
     ]
     for text in required_text:
         require(text in installer, f"installer prompt behavior is missing: {text}")
@@ -58,6 +60,27 @@ def main() -> int:
     require(
         'requested_stock_permission" -ne "$current_stock_permission' in installer,
         "stock login policy does not preserve an unchanged selection",
+    )
+    require(
+        "Use /etc/allscan/favorites.ini for both interfaces?" not in installer,
+        "mandatory shared Favorites setup must not be presented as a choice",
+    )
+    require(
+        "Canonical shared Favorites configuration was declined." not in installer,
+        "mandatory shared Favorites setup must not have a declined path",
+    )
+    require(
+        installer.count("scripts/asr-loopback-validate.py") >= 5,
+        "installer must stage, test, and use the loopback endpoint validator",
+    )
+    require(
+        installer.count("--expect json") == 2
+        and installer.count("--expect html") == 1,
+        "installer endpoint validation must cover both JSON APIs and built HTML",
+    )
+    require(
+        "curl -fsS http://127.0.0.1/asr" not in installer,
+        "installer still uses redirect-unsafe raw HTTP endpoint validation",
     )
 
     print("ASR installer prompts self-test: ok")

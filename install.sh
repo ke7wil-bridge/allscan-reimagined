@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.6.1"
+ASR_VERSION="1.0.0-beta.6.3"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -14,8 +14,9 @@ RELEASE_PREVIOUS=""
 RELEASE_REPLACED=0
 RELEASE_PREVIOUS_ARMED=0
 CURRENT_LINK_PREVIOUS=""
-CURRENT_LINK_HAD_TARGET=0
 CURRENT_LINK_CHANGED=0
+PRIOR_ASR_CAN_REAPPLY=0
+PRIOR_ASR_WIRING_VALID=0
 MIGRATED_STOCK_ARMED=0
 MIGRATED_STOCK_DIR=""
 REAPPLY_PATH_WAS_ENABLED=0
@@ -26,6 +27,7 @@ REAPPLY_STATES_CAPTURED=0
 ALLSCAN_OLD_ARMED=0
 ALLSCAN_OLD_BACKUP=""
 ASR_WEB_WAS_PRESENT=0
+ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT=0
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 validate_command() {
@@ -105,6 +107,9 @@ remove_asr_managed_wiring() {
     allscan-reimagined-reapply.timer \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-dmr-net-live.service \
+    allscan-reimagined-ysf-net-live.service \
+    allscan-reimagined-ysf-hosts-refresh.service \
+    allscan-reimagined-ysf-hosts-refresh.timer \
     allscan-reimagined-bridge-clients.timer \
     allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
   command -v a2disconf >/dev/null 2>&1 \
@@ -117,7 +122,9 @@ remove_asr_managed_wiring() {
     /etc/systemd/system/allscan-reimagined-*.timer \
     /etc/cron.d/allscan-reimagined-* \
     /etc/sudoers.d/allscan-reimagined \
-    /etc/apache2/conf-available/allscan-reimagined.conf
+    /etc/apache2/conf-available/allscan-reimagined.conf \
+    /etc/systemd/system/asl3-update-astdb.service.d/allscan-reimagined-friendly-names.conf
+  rmdir /etc/systemd/system/asl3-update-astdb.service.d >/dev/null 2>&1 || true
   systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
@@ -157,9 +164,9 @@ rollback_on_error() {
     mv "$RELEASE_PREVIOUS" "$RELEASE_DIR"
   fi
   if [ "$CURRENT_LINK_CHANGED" -eq 1 ]; then
-    if [ "$CURRENT_LINK_HAD_TARGET" -eq 1 ] && [ -d "$CURRENT_LINK_PREVIOUS" ]; then
+    if [ "$PRIOR_ASR_CAN_REAPPLY" -eq 1 ] && [ -d "$CURRENT_LINK_PREVIOUS" ]; then
       ln -sfn "$CURRENT_LINK_PREVIOUS" /opt/allscan-reimagined/current
-    elif [ "$CURRENT_LINK_HAD_TARGET" -eq 0 ]; then
+    else
       rm -f /opt/allscan-reimagined/current
     fi
   fi
@@ -184,7 +191,7 @@ rollback_on_error() {
   restore_shared_backup
   if [ "$CHANGES_STARTED" -eq 1 ]; then
     remove_asr_managed_wiring
-    if [ "$CURRENT_LINK_HAD_TARGET" -eq 1 ] && [ -f "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" ]; then
+    if [ "$PRIOR_ASR_CAN_REAPPLY" -eq 1 ]; then
       install -o root -g root -m 755 "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" \
         /usr/local/sbin/allscan-reimagined-reapply
       [ -f "$CURRENT_LINK_PREVIOUS/scripts/asr-integrity-check.sh" ] && \
@@ -204,18 +211,30 @@ rollback_on_error() {
       "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
       "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
       "scripts/asr-bridge-control.py:/usr/local/sbin/allscan-reimagined-bridge-control" \
+      "scripts/asr-ysf-bridge-control.py:/usr/local/sbin/allscan-reimagined-ysf-bridge-control" \
       "scripts/asr-favorites-update.py:/usr/local/sbin/allscan-reimagined-favorites-update"; do
       helper_source=${helper_spec%%:*}
       helper_target=${helper_spec#*:}
-      if [ "$CURRENT_LINK_HAD_TARGET" -eq 1 ] && [ -f "$CURRENT_LINK_PREVIOUS/$helper_source" ]; then
+      if [ "$PRIOR_ASR_CAN_REAPPLY" -eq 1 ] && [ -f "$CURRENT_LINK_PREVIOUS/$helper_source" ]; then
         install -o root -g root -m 755 "$CURRENT_LINK_PREVIOUS/$helper_source" "$helper_target"
       else
         rm -f "$helper_target"
       fi
     done
-    restore_prior_reapply_units
-    systemctl daemon-reload 2>/dev/null || true
-    [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && restore_reapply_unit_states
+    if [ "$PRIOR_ASR_WIRING_VALID" -eq 1 ]; then
+      restore_prior_reapply_units
+      systemctl daemon-reload 2>/dev/null || true
+      [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && restore_reapply_unit_states
+    else
+      systemctl reset-failed \
+        allscan-reimagined-reapply.service \
+        allscan-reimagined-reapply.path \
+        allscan-reimagined-reapply.timer >/dev/null 2>&1 || true
+      if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
+        systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
+      fi
+      echo "Removed orphaned ASR persistence wiring; no valid previous ASR installation was found." >&2
+    fi
   fi
   systemctl reload apache2 2>/dev/null || true
   exit "$status"
@@ -287,6 +306,8 @@ fi
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1
+[ -f /etc/systemd/system/asl3-update-astdb.service.d/allscan-reimagined-friendly-names.conf ] \
+  && ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT=1
 WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
@@ -332,7 +353,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 6.1"
+echo "Reimagined release:        v1.0.0 Beta 6.3"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -380,23 +401,22 @@ PRE_UPDATE_ASR_VERSION="not-installed"
 PRE_UPDATE_MASTER=""
 if [ -e /opt/allscan-reimagined/current ]; then
   CURRENT_LINK_PREVIOUS=$(readlink -f /opt/allscan-reimagined/current 2>/dev/null || true)
-  if [ -d "$CURRENT_LINK_PREVIOUS" ]; then
-    CURRENT_LINK_HAD_TARGET=1
-    PRE_UPDATE_MASTER="$CURRENT_LINK_PREVIOUS"
-  fi
-  case "$PRE_UPDATE_MASTER" in
-	    /opt/allscan-reimagined/releases/*)
-	      if [ -f "$PRE_UPDATE_MASTER/server/asr-api.php" ]; then
-	        PRE_UPDATE_ASR_VERSION=$(python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
-	          detect-version "$PRE_UPDATE_MASTER/server/asr-api.php")
-	        PRE_UPDATE_ASR_VERSION="${PRE_UPDATE_ASR_VERSION:-unknown}"
-	      fi
-      ;;
-    *)
-      PRE_UPDATE_MASTER=""
-      PRE_UPDATE_ASR_VERSION="unknown"
+  case "$CURRENT_LINK_PREVIOUS" in
+    /opt/allscan-reimagined/releases/*)
+      if [ -f "$CURRENT_LINK_PREVIOUS/server/asr-api.php" ] \
+        && [ -f "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" ]; then
+        PRE_UPDATE_MASTER="$CURRENT_LINK_PREVIOUS"
+        PRIOR_ASR_CAN_REAPPLY=1
+        PRIOR_ASR_WIRING_VALID=1
+        PRE_UPDATE_ASR_VERSION=$(python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
+          detect-version "$PRE_UPDATE_MASTER/server/asr-api.php")
+        PRE_UPDATE_ASR_VERSION="${PRE_UPDATE_ASR_VERSION:-unknown}"
+      fi
       ;;
   esac
+fi
+if [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; then
+  PRIOR_ASR_WIRING_VALID=1
 fi
 BACKUP_WEB_DIR=""
 BACKUP_WEB_NAME=""
@@ -527,7 +547,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -548,9 +568,6 @@ else
 fi
 
 echo "[5/8] Applying the Reimagined interface and security protections..."
-ASR_INSTALL_LOCK_HELD=1 STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" \
-  "$RELEASE_DIR/scripts/asr-reapply.sh"
-
 if python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" \
   --check \
   --database /etc/allscan/allscan.db \
@@ -558,11 +575,21 @@ if python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" \
   echo "Stock AllScan and ASR already use the preserved canonical Favorites source."
 else
   echo
-  echo "Stock AllScan and ASR need one preserved Favorites source."
-  echo "The stock Favorites file will be backed up if it differs; stock web files will not be modified."
-  if ! ask "Use /etc/allscan/favorites.ini for both interfaces? [y/N]" n; then
-    fail "Canonical shared Favorites configuration was declined."
-  fi
+  echo "SHARED FAVORITES (REQUIRED)"
+  echo
+  echo "Stock AllScan (/allscan/) and AllScan Reimagined (/asr/) must use"
+  echo "one preserved primary Favorites file:"
+  echo
+  echo "  /etc/allscan/favorites.ini"
+  echo
+  echo "The installer will preserve an existing primary Favorites list. If none"
+  echo "exists, it will use an existing stock Favorites list or create a new empty"
+  echo "personal list. favorites-Sample.ini remains available separately and will"
+  echo "not replace personal Favorites."
+  echo
+  echo "Any differing stock Favorites file will be backed up before configuration."
+  echo "No existing Favorites will be deleted. This required configuration is"
+  echo "applied automatically."
   python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" \
     --apply \
     --database /etc/allscan/allscan.db \
@@ -570,6 +597,8 @@ else
     --stock-favorites "$STOCK_ALLSCAN_DIR/favorites.ini" \
     --migration-dir /var/lib/allscan-reimagined/migrations
 fi
+ASR_INSTALL_LOCK_HELD=1 STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" \
+  "$RELEASE_DIR/scripts/asr-reapply.sh"
 
 echo
 echo "LOGIN AND PUBLIC MONITORING"
@@ -788,10 +817,14 @@ validate_command "rollback helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test >/dev/null
 validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
+validate_command "YSF bridge-control helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
 validate_command "canonical Favorites source self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" --self-test >/dev/null
+validate_command "loopback endpoint validation self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" --self-test >/dev/null
 validate_command "multiple Favorites discovery self-test" \
   php "$RELEASE_DIR/scripts/asr-favorites-discovery-self-test.php" >/dev/null
 validate_command "instructions and Settings self-test" \
@@ -813,6 +846,32 @@ validate_command "release-check timer is enabled" \
   systemctl is-enabled --quiet allscan-reimagined-release-check.timer
 validate_command "release-check timer is active" \
   systemctl is-active --quiet allscan-reimagined-release-check.timer
+echo "  Running an initial release-notification check..."
+validate_command "initial release check" \
+  systemctl restart allscan-reimagined-release-check.service
+if python3 - "$ASR_VERSION" /run/allscan-reimagined/release-check/release-status.json <<'PY'
+import json
+import sys
+from pathlib import Path
+
+expected_version = sys.argv[1]
+cache = Path(sys.argv[2])
+if not cache.is_file():
+    raise SystemExit(1)
+payload = json.loads(cache.read_text(encoding="utf-8"))
+raise SystemExit(
+    0 if (
+        payload.get("ok") is True
+        and payload.get("installedVersion") == expected_version
+        and payload.get("status") in {"up_to_date", "update_available"}
+    ) else 1
+)
+PY
+then
+  echo "  Initial release status is ready."
+else
+  echo "  Initial release status is pending; the daily timer will retry automatically."
+fi
 validate_command "rollback job unit was installed" \
   test -f /etc/systemd/system/allscan-reimagined-rollback@.service
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
@@ -830,6 +889,21 @@ then
   validate_command "configured DMR Net live service is active" \
     systemctl is-active --quiet allscan-reimagined-dmr-net-live.service
 fi
+if python3 - /etc/allscan-reimagined/config.json <<'PY'
+import json
+import sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+raise SystemExit(
+    0 if any(
+        isinstance(item, dict) and item.get("cardType") == "ysf_net"
+        for item in payload.get("bridges", [])
+    ) else 1
+)
+PY
+then
+  validate_command "configured YSF Net live service is active" \
+    systemctl is-active --quiet allscan-reimagined-ysf-net-live.service
+fi
 if ! rollback_json=$(/usr/local/sbin/allscan-reimagined-rollback list --json); then
   fail "Validation failed: rollback backup listing"
 fi
@@ -841,7 +915,9 @@ assert isinstance(data.get("backups"), list)
 '; then
   fail "Validation failed: rollback listing JSON"
 fi
-if ! runtime_json=$(curl -fsS "http://127.0.0.1/asr/asr-api.php?action=runtime-config"); then
+if ! runtime_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+  --expect json \
+  "http://127.0.0.1/asr/asr-api.php?action=runtime-config"); then
   fail "Validation failed: /asr runtime-config endpoint"
 fi
 if ! printf '%s' "$runtime_json" | php -r '
@@ -850,7 +926,9 @@ if ! printf '%s' "$runtime_json" | php -r '
 '; then
   fail "Validation failed: runtime-config response content"
 fi
-if ! auth_json=$(curl -fsS "http://127.0.0.1/asr/asr-api.php?action=auth-status"); then
+if ! auth_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+  --expect json \
+  "http://127.0.0.1/asr/asr-api.php?action=auth-status"); then
   fail "Validation failed: /asr auth-status endpoint"
 fi
 if ! printf '%s' "$auth_json" | php -r '
@@ -877,7 +955,10 @@ validate_command "stock /allscan access policy" php -r '
   new CfgModel($db);
   if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== (int)$argv[3]) exit(1);
 ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" "$requested_stock_permission"
-if ! curl -fsS http://127.0.0.1/asr/ | grep -q 'assets/index-'; then
+if ! python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+  --expect html \
+  --contains 'assets/index-' \
+  http://127.0.0.1/asr/ >/dev/null; then
   fail "Validation failed: /asr page did not serve its built assets"
 fi
 validate_command "enable/start reapply path and timer" \
@@ -899,7 +980,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 6.1"
+echo "AllScan Reimagined:    v1.0.0 Beta 6.3"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"

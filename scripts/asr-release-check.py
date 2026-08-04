@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import grp
+import io
 import json
 import os
 import re
@@ -15,8 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ASR_INSTALLED_VERSION = "1.0.0-beta.6.1"
-ASR_INSTALLED_LABEL = "v1.0.0 Beta 6.1"
+ASR_INSTALLED_VERSION = "1.0.0-beta.6.3"
+ASR_INSTALLED_LABEL = "v1.0.0 Beta 6.3"
 ASR_RELEASES_API = (
     "https://api.github.com/repos/ke7wil-bridge/allscan-reimagined/releases?per_page=20"
 )
@@ -224,22 +226,34 @@ def self_test() -> None:
     assert not is_newer("1.0.0-beta.5.10", "1.0.0-beta.5.11")
     assert version_label("1.0.0-beta.5.11") == "v1.0.0 Beta 5.11"
 
+    installed_parts = version_parts(ASR_INSTALLED_VERSION)
+    assert installed_parts is not None
+    core, channel, sequence = installed_parts
+    if channel:
+        next_sequence = (*sequence[:-1], sequence[-1] + 1)
+        fixture_version = (
+            f"{core[0]}.{core[1]}.{core[2]}-{channel}."
+            + ".".join(str(part) for part in next_sequence)
+        )
+    else:
+        fixture_version = f"{core[0]}.{core[1]}.{core[2] + 1}-beta.1"
+
     fixture = [
         {"tag_name": "v1.0.0-beta.5.11", "draft": False},
         {"tag_name": "v1.0.0-beta.6", "draft": False},
-        {"tag_name": "v1.0.0-beta.6.2", "draft": False},
+        {"tag_name": f"v{fixture_version}", "draft": False},
         {"tag_name": "v9.0.0", "draft": True},
         {"tag_name": "../../invalid", "draft": False},
     ]
     selected = select_release(fixture)
     assert selected is not None
-    assert selected["_asr_version"] == "1.0.0-beta.6.2"
-    package_name = "allscan-reimagined-1.0.0-beta.6.2.tar.gz"
+    assert selected["_asr_version"] == fixture_version
+    package_name = f"allscan-reimagined-{fixture_version}.tar.gz"
     selected.update(
         {
             "html_url": (
                 "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                "releases/tag/v1.0.0-beta.6.2"
+                f"releases/tag/v{fixture_version}"
             ),
             "published_at": "2026-07-23T12:00:00Z",
             "assets": [
@@ -247,7 +261,7 @@ def self_test() -> None:
                     "name": package_name,
                     "browser_download_url": (
                         "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                        f"releases/download/v1.0.0-beta.6.2/{package_name}"
+                        f"releases/download/v{fixture_version}/{package_name}"
                     ),
                     "size": 6200000,
                 },
@@ -255,7 +269,7 @@ def self_test() -> None:
                     "name": f"{package_name}.sha256",
                     "browser_download_url": (
                         "https://github.com/ke7wil-bridge/allscan-reimagined/"
-                        f"releases/download/v1.0.0-beta.6.2/{package_name}.sha256"
+                        f"releases/download/v{fixture_version}/{package_name}.sha256"
                     ),
                     "size": 96,
                 },
@@ -264,7 +278,7 @@ def self_test() -> None:
     )
     update_payload = build_payload(selected, "a" * 64)
     assert update_payload["updateAvailable"] is True
-    assert update_payload["availableLabel"] == "v1.0.0 Beta 6.2"
+    assert update_payload["availableLabel"] == version_label(fixture_version)
     assert update_payload["package"]["name"] == package_name
     assert update_payload["package"]["sha256"] == "a" * 64
     untrusted = {
@@ -316,7 +330,8 @@ def self_test() -> None:
             urllib.error.URLError("offline")
         )
         try:
-            assert main([]) == 0
+            with contextlib.redirect_stderr(io.StringIO()):
+                assert main([]) == 0
             assert cache.read_bytes() == original_cache
         finally:
             http_get = original_http_get

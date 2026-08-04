@@ -38,9 +38,18 @@ files_match() {
 if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" != "1" ]; then
 [ -x /usr/local/sbin/allscan-reimagined-rollback ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-bridge-control ] || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-favorites-update ] || needs_reapply=1
 [ -d /run/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
+[ -d /run/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
+[ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
+[ -d /var/log/allscan-reimagined ] || needs_reapply=1
+[ "$(stat -c '%U:%G:%a' /var/log/allscan-reimagined 2>/dev/null)" = "root:root:750" ] || needs_reapply=1
+[ "$(stat -c '%U:%a' /etc/allscan-reimagined/config.json 2>/dev/null)" = "root:664" ] || needs_reapply=1
+if [ -f /etc/allscan-reimagined/secrets.json ]; then
+  [ "$(stat -c '%U:%a' /etc/allscan-reimagined/secrets.json 2>/dev/null)" = "root:640" ] || needs_reapply=1
+fi
 [ -f /etc/systemd/system/allscan-reimagined-rollback@.service ] || needs_reapply=1
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
 import json
@@ -59,6 +68,27 @@ PY
 then
   [ -f /etc/systemd/system/allscan-reimagined-dmr-net-live.service ] || needs_reapply=1
   systemctl is-enabled --quiet allscan-reimagined-dmr-net-live.service || needs_reapply=1
+fi
+if python3 - /etc/allscan-reimagined/config.json <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(
+    0 if any(
+        isinstance(item, dict) and item.get("cardType") == "ysf_net"
+        for item in payload.get("bridges", [])
+    ) else 1
+)
+PY
+then
+  [ -f /etc/systemd/system/allscan-reimagined-ysf-net-live.service ] || needs_reapply=1
+  systemctl is-enabled --quiet allscan-reimagined-ysf-net-live.service || needs_reapply=1
+  [ -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ] || needs_reapply=1
+  [ -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ] || needs_reapply=1
+  systemctl is-enabled --quiet allscan-reimagined-ysf-hosts-refresh.timer || needs_reapply=1
 fi
 if [ -f "$MASTER_DIR/scripts/asr-release-check.py" ]; then
   [ -x /usr/local/sbin/allscan-reimagined-release-check ] || needs_reapply=1

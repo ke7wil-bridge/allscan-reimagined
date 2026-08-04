@@ -175,6 +175,11 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" 
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
 install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" /usr/local/sbin/allscan-reimagined-ysf-bridge-control
+install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
+install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
+install -d -o root -g root -m 750 /var/log/allscan-reimagined
 [ -f "$MASTER_DIR/scripts/asr-release-check.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-release-check.py" /usr/local/sbin/allscan-reimagined-release-check
 [ -f "$MASTER_DIR/scripts/asr-rollback.py" ] && \
@@ -190,6 +195,7 @@ cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
+d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
 EOF
 systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
@@ -237,6 +243,107 @@ then
 else
   systemctl disable --now allscan-reimagined-dmr-net-live.service >/dev/null 2>&1 || true
   rm -f /run/allscan-reimagined-bridge-control/bridge-live.json
+fi
+cat > /etc/systemd/system/allscan-reimagined-ysf-net-live.service <<'EOF'
+[Unit]
+Description=Collect live activity for configured ASR YSF Net Bridges
+After=network.target asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-ysf-bridge-control --watch
+Restart=on-failure
+RestartSec=2s
+Nice=10
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/allscan-reimagined-ysf-bridge-control /var/lib/allscan-reimagined/ysf-hosts
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service <<'EOF'
+[Unit]
+Description=Refresh the public YSF reflector catalog for AllScan Reimagined
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-ysf-bridge-control --refresh-public-hosts
+Nice=10
+MemoryMax=64M
+TasksMax=16
+TimeoutStartSec=45s
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mmdvm -/var/lib/allscan-reimagined/ysf-hosts
+EOF
+cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer <<'EOF'
+[Unit]
+Description=Refresh the public YSF reflector catalog daily
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=allscan-reimagined-ysf-hosts-refresh.service
+
+[Install]
+WantedBy=timers.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] \
+  && python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(
+    0 if any(
+        isinstance(item, dict) and item.get("cardType") == "ysf_net"
+        for item in payload.get("bridges", [])
+    ) else 1
+)
+PY
+then
+  systemctl daemon-reload
+  systemctl enable allscan-reimagined-ysf-hosts-refresh.timer >/dev/null
+  ysf_refresh_output=""
+  if ysf_refresh_output=$(/usr/local/sbin/allscan-reimagined-ysf-bridge-control --refresh-public-hosts); then
+    if [[ "$ysf_refresh_output" == *'"updated":true'* ]]; then
+      while IFS= read -r ysf_gateway_service; do
+        [ -n "$ysf_gateway_service" ] || continue
+        systemctl restart "$ysf_gateway_service"
+      done < <(python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import re
+import sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+for bridge in payload.get("bridges", []):
+    if not isinstance(bridge, dict) or bridge.get("cardType") != "ysf_net":
+        continue
+    service = str(bridge.get("ysfGatewayService", ""))
+    if re.fullmatch(r"[a-z0-9][a-z0-9@_.-]{0,79}\.service", service):
+        print(service)
+PY
+)
+    fi
+  else
+    echo "Public YSF hostfile refresh was unavailable; keeping the existing catalog." >&2
+  fi
+  /usr/local/sbin/allscan-reimagined-ysf-bridge-control --sync-custom-hosts >/dev/null
+  systemctl enable allscan-reimagined-ysf-net-live.service >/dev/null
+  systemctl restart allscan-reimagined-ysf-net-live.service
+else
+  systemctl disable --now allscan-reimagined-ysf-hosts-refresh.timer >/dev/null 2>&1 || true
+  systemctl disable --now allscan-reimagined-ysf-net-live.service >/dev/null 2>&1 || true
+  rm -f /run/allscan-reimagined-ysf-bridge-control/ysf-live.json
 fi
 cat > /etc/systemd/system/allscan-reimagined-release-check.service <<'EOF'
 [Unit]
@@ -436,6 +543,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-upd
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --status-json [0-9]*
