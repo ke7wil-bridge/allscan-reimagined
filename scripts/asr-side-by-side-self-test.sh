@@ -18,6 +18,7 @@ mkdir -p \
   "$TEST_ROOT/etc/allscan" \
   "$MASTER_DIR/web/assets" \
   "$MASTER_DIR/server" \
+  "$MASTER_DIR/scripts" \
   "$MASTER_DIR/compat/allscan-v1.01/include"
 
 printf '%s\n' 'stock sentinel' > "$STOCK_ALLSCAN_DIR/stock-sentinel.txt"
@@ -29,6 +30,9 @@ ln -s "$TEST_ROOT/etc/allscan/favorites.ini" "$STOCK_ALLSCAN_DIR/favorites.ini"
 printf '%s\n' '<script src="/asr/assets/index-test.js"></script>' > "$MASTER_DIR/web/index.html"
 printf '%s\n' 'console.log("asr");' > "$MASTER_DIR/web/assets/index-test.js"
 printf '%s\n' '<?php const ASR_VERSION = "1.0.0-beta.6.0";' > "$MASTER_DIR/server/asr-api.php"
+cat > "$MASTER_DIR/scripts/asr-protected-config-metadata.py" <<PY
+raise SystemExit("web-only reapply invoked protected-config metadata repair")
+PY
 printf '%s\n' '$AllScanVersion = "v1.01"; // ASR compatibility' \
   > "$MASTER_DIR/compat/allscan-v1.01/include/common.php"
 

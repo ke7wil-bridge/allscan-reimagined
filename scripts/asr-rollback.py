@@ -455,12 +455,30 @@ def run_job(job_id: str) -> int:
         payload["result"] = result
         atomic_json(JOB_ROOT / f"{job_id}.json", payload)
         return 0
-    except Exception:
+    except Exception as exc:
         payload["state"] = "failed"
         payload["finishedAt"] = utc_now()
-        payload["error"] = "Rollback failed. The previous installation was restored."
+        payload["error"] = rollback_failure_message(exc)
         atomic_json(JOB_ROOT / f"{job_id}.json", payload)
         return 1
+
+
+def rollback_failure_message(exc: Exception) -> str:
+    prefix = "Rollback failed. The previous installation was restored."
+    detail = re.sub(r"\s+", " ", str(exc)).strip()
+    return f"{prefix} Reason: {detail[:400]}" if detail else prefix
+
+
+def rollback_reapply_environment(
+    protected_config_helper: Path | None = None,
+) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["ASR_ROLLBACK_MODE"] = "1"
+    environment["ASR_INSTALL_LOCK_HELD"] = "1"
+    environment.pop("ASR_PROTECTED_CONFIG_HELPER", None)
+    if protected_config_helper is not None:
+        environment["ASR_PROTECTED_CONFIG_HELPER"] = str(protected_config_helper)
+    return environment
 
 
 def run_tar_create(arguments: list[str], destination: Path) -> None:
@@ -474,6 +492,23 @@ def run_tar_create(arguments: list[str], destination: Path) -> None:
     os.chmod(destination, 0o600)
 
 
+def safety_webroot_exclude_arguments() -> list[str]:
+    """Return the exact volatile/generated paths omitted from safety backups."""
+    return [
+        "--exclude=asr/bridge-live.json",
+        "--exclude=asr/connected-clients.json",
+        "--exclude=asr/asr-connected-clients.json",
+        "--exclude=asr/zello-status-data.json",
+        "--exclude=asr/astdb.txt",
+        "--exclude=asr/astdb.txt.*",
+        "--exclude=asr/backup-*",
+        "--exclude=asr/*.bak",
+        "--exclude=asr/*.bak.*",
+        "--exclude=asr/._*",
+        "--exclude=asr/.DS_Store",
+    ]
+
+
 def create_safety_backup(web_root: Path) -> Path:
     backup_dir = next_backup_dir(BACKUP_ROOT)
     try:
@@ -483,17 +518,7 @@ def create_safety_backup(web_root: Path) -> Path:
         web_archive = backup_dir / "asr-webroot.tar.gz"
         run_tar_create(
             [
-                "--exclude=asr/bridge-live.json",
-                "--exclude=asr/connected-clients.json",
-                "--exclude=asr/asr-connected-clients.json",
-                "--exclude=asr/zello-status-data.json",
-                "--exclude=asr/astdb.txt",
-                "--exclude=asr/astdb.txt.*",
-                "--exclude=asr/backup-*",
-                "--exclude=asr/*.bak",
-                "--exclude=asr/*.bak.*",
-                "--exclude=asr/._*",
-                "--exclude=asr/.DS_Store",
+                *safety_webroot_exclude_arguments(),
                 "-czf",
                 str(web_archive),
                 "-C",
@@ -689,6 +714,21 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
         stable_reapply = Path(stable_name)
         shutil.copy2(installed_reapply, stable_reapply)
         os.chmod(stable_reapply, 0o700)
+        stable_protected_config_helper: Path | None = None
+        installed_protected_config_helper = (
+            old_master / "scripts/asr-protected-config-metadata.py"
+        )
+        if installed_protected_config_helper.is_file():
+            helper_fd, helper_name = tempfile.mkstemp(
+                prefix="asr-rollback-protected-config-", dir=str(LOCK_PATH.parent)
+            )
+            os.close(helper_fd)
+            stable_protected_config_helper = Path(helper_name)
+            shutil.copy2(
+                installed_protected_config_helper,
+                stable_protected_config_helper,
+            )
+            os.chmod(stable_protected_config_helper, 0o700)
         version = str(manifest["pre_update_version"])
         safe_version = version.replace("/", "_")
         release_target = RELEASE_ROOT / f"{safe_version}.rollback-{backup_id}"
@@ -801,14 +841,12 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             shutil.rmtree(web_stage_parent, ignore_errors=True)
 
             if schema == 2:
-                environment = os.environ.copy()
-                environment["ASR_ROLLBACK_MODE"] = "1"
-                environment["ASR_INSTALL_LOCK_HELD"] = "1"
+                environment = rollback_reapply_environment(
+                    stable_protected_config_helper
+                )
                 run_checked(["bash", str(stable_reapply)], env=environment)
             else:
-                environment = os.environ.copy()
-                environment["ASR_ROLLBACK_MODE"] = "1"
-                environment["ASR_INSTALL_LOCK_HELD"] = "1"
+                environment = rollback_reapply_environment()
                 run_checked(
                     ["bash", str(release_target / "scripts/asr-reapply.sh")],
                     env=environment,
@@ -859,9 +897,9 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             if release_installed:
                 shutil.rmtree(release_target, ignore_errors=True)
             if stable_reapply.is_file():
-                environment = os.environ.copy()
-                environment["ASR_ROLLBACK_MODE"] = "1"
-                environment["ASR_INSTALL_LOCK_HELD"] = "1"
+                environment = rollback_reapply_environment(
+                    stable_protected_config_helper
+                )
                 subprocess.run(
                     ["bash", str(stable_reapply)],
                     check=False,
@@ -888,6 +926,8 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             if release_stage_parent.exists():
                 shutil.rmtree(release_stage_parent, ignore_errors=True)
             stable_reapply.unlink(missing_ok=True)
+            if stable_protected_config_helper is not None:
+                stable_protected_config_helper.unlink(missing_ok=True)
             if reapply_units_to_restore:
                 subprocess.run(
                     ["systemctl", "start", *reapply_units_to_restore],
@@ -909,6 +949,17 @@ def self_test() -> None:
 
     with tempfile.TemporaryDirectory(prefix="asr-rollback-self-test-") as temporary:
         root = Path(temporary)
+        stable_helper = root / "stable-protected-config-helper.py"
+        rollback_environment = rollback_reapply_environment(stable_helper)
+        assert rollback_environment["ASR_ROLLBACK_MODE"] == "1"
+        assert rollback_environment["ASR_INSTALL_LOCK_HELD"] == "1"
+        assert rollback_environment["ASR_PROTECTED_CONFIG_HELPER"] == str(stable_helper)
+        assert "ASR_PROTECTED_CONFIG_HELPER" not in rollback_reapply_environment()
+        failure_message = rollback_failure_message(
+            RollbackError("missing\nprotected-config helper")
+        )
+        assert "previous installation was restored" in failure_message
+        assert "missing protected-config helper" in failure_message
         backups = root / "backups"
         for index, version in enumerate(
             ("1.0.0-beta.6.0", "1.0.0-beta.5.11", "1.0.0-beta.5.10")
@@ -1039,6 +1090,68 @@ def self_test() -> None:
             favorite.linkname = "/etc/allscan/favorites.ini"
             archive.addfile(favorite)
         validate_archive(favorites_webroot, "webroot")
+
+        safety_source_root = root / "safety-source"
+        safety_source = safety_source_root / "asr"
+        safety_source.mkdir(parents=True)
+        (safety_source / "index.html").write_text("current\n", encoding="utf-8")
+        (safety_source / "favorites.ini").symlink_to(
+            "/etc/allscan/favorites.ini"
+        )
+        for name in (
+            "astdb.txt",
+            "astdb.txt.before-local-labels",
+            "astdb.txt.bak-local-labels-20260809-120000",
+        ):
+            (safety_source / name).symlink_to("/var/lib/asterisk/astdb.txt")
+
+        def create_test_safety_archive(destination: Path) -> None:
+            environment = dict(os.environ)
+            environment["COPYFILE_DISABLE"] = "1"
+            subprocess.run(
+                [
+                    "tar",
+                    *safety_webroot_exclude_arguments(),
+                    "-czf",
+                    str(destination),
+                    "-C",
+                    str(safety_source_root),
+                    "asr",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+        generated_aliases = root / "generated-aliases-webroot.tar.gz"
+        create_test_safety_archive(generated_aliases)
+        validate_archive(generated_aliases, "webroot")
+        with tarfile.open(generated_aliases, "r:gz") as archive:
+            generated_names = {
+                str(PurePosixPath(member.name)).removeprefix("./")
+                for member in archive.getmembers()
+            }
+        assert "asr/favorites.ini" in generated_names
+        assert not any(
+            name == "asr/astdb.txt" or name.startswith("asr/astdb.txt.")
+            for name in generated_names
+        ), "generated ASTDB aliases entered the safety backup"
+
+        (safety_source / "operator-created-link").symlink_to("/etc/passwd")
+        arbitrary_link = root / "arbitrary-link-webroot.tar.gz"
+        create_test_safety_archive(arbitrary_link)
+        with tarfile.open(arbitrary_link, "r:gz") as archive:
+            arbitrary_members = {
+                str(PurePosixPath(member.name)).removeprefix("./"): member
+                for member in archive.getmembers()
+            }
+        assert arbitrary_members["asr/operator-created-link"].issym()
+        assert arbitrary_members["asr/operator-created-link"].linkname == "/etc/passwd"
+        expect_rollback_error(
+            lambda: validate_archive(arbitrary_link, "webroot"),
+            "arbitrary webroot symbolic link was accepted",
+        )
 
         legacy_root = root / "legacy" / "20260720-120000"
         legacy_root.mkdir(parents=True)

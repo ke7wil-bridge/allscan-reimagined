@@ -6,6 +6,7 @@ CONFIG_DIR="/etc/allscan-reimagined"
 DATA_DIR="/var/lib/allscan-reimagined"
 ROLLBACK_MODE="${ASR_ROLLBACK_MODE:-0}"
 WEB_ONLY="${ASR_REAPPLY_WEB_ONLY:-0}"
+PROTECTED_CONFIG_HELPER="${ASR_PROTECTED_CONFIG_HELPER:-$MASTER_DIR/scripts/asr-protected-config-metadata.py}"
 if [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ]; then
   LOCK_PATH="${ASR_LOCK_PATH:-/run/lock/allscan-reimagined-rollback.lock}"
   mkdir -p "$(dirname "$LOCK_PATH")"
@@ -37,6 +38,21 @@ if ! getent group "$WEB_GROUP" >/dev/null 2>&1; then
   [ "$WEB_ONLY" = "1" ] || { echo "Web-server group not found." >&2; exit 1; }
   WEB_GROUP="$(id -gn)"
 fi
+
+repair_protected_config_metadata() {
+  [ "$WEB_ONLY" = "1" ] && return 0
+  # The authenticated Settings page replaces these files atomically as the
+  # web-server user. Restore the root ownership required by the privileged
+  # bridge helpers before any validation or bridge processing is attempted.
+  [ -f "$PROTECTED_CONFIG_HELPER" ] || {
+    echo "Protected-config metadata helper is missing." >&2
+    return 1
+  }
+  python3 "$PROTECTED_CONFIG_HELPER" \
+    --web-group "$WEB_GROUP"
+}
+
+repair_protected_config_metadata
 
 safe_chown_files() {
   local owner="$1"
@@ -187,10 +203,7 @@ install -d -o root -g root -m 750 /var/log/allscan-reimagined
 mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
 chmod 775 "$CONFIG_DIR"
-[ -f "$CONFIG_DIR/config.json" ] && chown "root:$WEB_GROUP" "$CONFIG_DIR/config.json"
-[ -f "$CONFIG_DIR/config.json" ] && chmod 664 "$CONFIG_DIR/config.json"
-[ -f "$CONFIG_DIR/secrets.json" ] && chown "root:$WEB_GROUP" "$CONFIG_DIR/secrets.json"
-[ -f "$CONFIG_DIR/secrets.json" ] && chmod 640 "$CONFIG_DIR/secrets.json"
+repair_protected_config_metadata
 cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
@@ -296,6 +309,7 @@ Unit=allscan-reimagined-ysf-hosts-refresh.service
 [Install]
 WantedBy=timers.target
 EOF
+repair_protected_config_metadata
 if [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] \
   && python3 - "$CONFIG_DIR/config.json" <<'PY'
 import json

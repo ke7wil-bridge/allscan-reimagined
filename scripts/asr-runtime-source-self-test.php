@@ -58,6 +58,33 @@ try {
 	}
 	asrRuntimeAssert($rejected, 'An unapproved runtime filename was accepted.');
 
+	foreach(['', '-', '--', 'unknown', 'NONE', 'N/A', 'na', 'null'] as $placeholder) {
+		asrRuntimeAssert(
+			asrClientIdentityValue($placeholder) === '',
+			'Placeholder client identity was treated as a real identity.'
+		);
+	}
+	asrRuntimeAssert(
+		asrClientIdentityValue('  K1ABC  ') === 'k1abc',
+		'A real client identity was not normalized.'
+	);
+	$fixtureKeys = [];
+	foreach([
+		['callsign' => 'K1AAA', 'name' => '-', 'dmrid' => '100001', 'id' => '100001'],
+		['callsign' => 'K2BBB', 'name' => '-', 'dmrid' => '100002', 'id' => '100002'],
+		['callsign' => 'K3CCC', 'name' => '-', 'dmrid' => '100003', 'id' => '100003'],
+	] as $row) {
+		$keys = asrClientIdentityKeys($row);
+		asrRuntimeAssert(!in_array('name:-', $keys, true), 'Placeholder name entered client identity keys.');
+		$fixtureKeys[] = $keys;
+	}
+	asrRuntimeAssert(
+		count(array_intersect($fixtureKeys[0], $fixtureKeys[1])) === 0
+		&& count(array_intersect($fixtureKeys[0], $fixtureKeys[2])) === 0
+		&& count(array_intersect($fixtureKeys[1], $fixtureKeys[2])) === 0,
+		'Distinct clients sharing a placeholder name were merged.'
+	);
+
 	echo "ASR side-by-side runtime source self-test: ok\n";
 } finally {
 	if(is_dir($root)) {

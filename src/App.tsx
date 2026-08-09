@@ -5,6 +5,7 @@ import { canPopulateNodeControl } from './lib/nodeNumbers'
 import {
   actionOptions,
   asrPath,
+  bridgeCardShowsClientDetails,
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
@@ -16,6 +17,7 @@ import {
   fetchFavoriteStats,
   fetchReleaseStatus,
   restartAsteriskCommand,
+  summarizeConnectionTotal,
   connectBridge,
   type DiagnosticsReport,
   type FavoritesFileOption,
@@ -463,6 +465,10 @@ function App({ config }: { config: RuntimeConfig }) {
       ),
     }
   }, [bridgeState.cards, config.bridges])
+  const connectionTotal = useMemo(
+    () => summarizeConnectionTotal(directCount, adjacentCount, bridgeState.cards),
+    [adjacentCount, bridgeState.cards, directCount],
+  )
 
   useEffect(() => {
     document.title = browserTitle
@@ -489,7 +495,7 @@ function App({ config }: { config: RuntimeConfig }) {
     const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
       ...card,
       status,
-      lastCaller: status === 'Source/TX' ? card.lastCaller : '-',
+      lastCaller: status === 'Relay' ? '-' : card.lastCaller,
     })
 
     return {
@@ -503,11 +509,10 @@ function App({ config }: { config: RuntimeConfig }) {
             && candidate.state !== 'message'
           ))
           : rowsByNode.get(card.node)
-        // The tunable bridge status collectors read their dedicated digital
-        // instances, so Source/TX and Relay roles are more authoritative than the
-        // alias-backed Asterisk link row. The row remains a safe fallback when
-        // the collector reports idle or has not produced data yet.
-        if (isTunableDigitalBridge && card.status !== 'Idle') {
+        // A bridge-specific Source/TX or Relay role is more authoritative than
+        // its Asterisk transport row. The row remains a safe fallback only when
+        // the bridge collector reports idle or has not produced data yet.
+        if (card.status !== 'Idle') {
           return card
         }
         if (card.cardType === 'ysf_net' && !card.controlLinked) {
@@ -936,6 +941,18 @@ function App({ config }: { config: RuntimeConfig }) {
           const aborted = error instanceof DOMException && error.name === 'AbortError'
           setNodeMessage(aborted ? 'Bridge status refresh timed out.' : 'Bridge status refresh failed.')
           failureNotified = true
+        }
+        if (!cancelled) {
+          // Counts and retained callers are certified only by a current bridge
+          // response. Do not leave either displayed indefinitely on failures.
+          setBridgeState((current) => ({
+            ...current,
+            cards: current.cards.map((card) => ({
+              ...card,
+              lastCaller: '-',
+              connectedClientCount: 0,
+            })),
+          }))
         }
       } finally {
         window.clearTimeout(timeout)
@@ -2013,10 +2030,10 @@ function App({ config }: { config: RuntimeConfig }) {
                         </tr>
                       )
                     })}
-                    {connectedCount > 0 ? (
+                    {connectionTotal.total > 0 ? (
                       <tr className="allscan-status-count-row border-b border-[rgba(255,255,255,.12)] text-[14px] leading-[19px] text-[#edf4f8]">
                         <td colSpan={6} className="px-4 py-[5px]">
-                          {connectedCount} total linked ({directCount} direct, {adjacentCount} adjacent)
+                          {connectionTotal.total} total linked ({connectionTotal.parts.join(', ')})
                         </td>
                       </tr>
                     ) : null}
@@ -2171,26 +2188,28 @@ function App({ config }: { config: RuntimeConfig }) {
                     </div>
                   ) : null}
 
-                  <div className="allscan-bridge-detail-wrap">
-                    <div className="allscan-bridge-detail-title">
-                      {compactBridgeDetailTitle(card.detailTitle)}
-                    </div>
-                    <div className="allscan-bridge-detail-box">
-                      {card.detailRows.map((detail) => (
-                        <div
-                          key={detail.key}
-                          className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}
-                        >
-                          <div className="allscan-bridge-client-user">
-                            <span>{detail.label}</span>
+                  {bridgeCardShowsClientDetails(card.cardType) ? (
+                    <div className="allscan-bridge-detail-wrap">
+                      <div className="allscan-bridge-detail-title">
+                        {compactBridgeDetailTitle(card.detailTitle)}
+                      </div>
+                      <div className="allscan-bridge-detail-box">
+                        {card.detailRows.map((detail) => (
+                          <div
+                            key={detail.key}
+                            className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}
+                          >
+                            <div className="allscan-bridge-client-user">
+                              <span>{detail.label}</span>
+                            </div>
+                            {detail.meta && (
+                              <div className="allscan-bridge-client-meta">{detail.meta}</div>
+                            )}
                           </div>
-                          {detail.meta && (
-                            <div className="allscan-bridge-client-meta">{detail.meta}</div>
-                          )}
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </article>
                 )
               })}

@@ -73,10 +73,10 @@ elements.asrNetworkMapOpen.disabled = true
 
 let lookupPayload = {
   ok: true,
-  node: '641890',
+  node: '100000',
   generatedAt: '2026-07-23T12:00:00Z',
-  bridgeNodes: ['1883'],
-  items: [{ source: 'Connection Status', label: 'N7YO', node: '2300', callsign: 'N7YO', locationHint: 'Phoenix, AZ' }],
+  bridgeNodes: ['2001'],
+  items: [{ source: 'Connection Status', label: 'N0CALL', node: '100001', callsign: 'N0CALL', locationHint: 'Example City, AZ' }],
 }
 let mapPayload = { ok: true, points: [], unmapped: [] }
 let mapFetchMode = 'success'
@@ -203,8 +203,8 @@ assert(elements.asrNetworkMapOpen.disabled === false, 'network-map button did no
 elements.asrNetworkMapOpen.dispatch('click')
 assert(elements.asrNetworkMapPanel.hidden === false, 'desktop network map did not open inline')
 assert(elements.asrNetworkMapOpen.attributes.get('aria-expanded') === 'true', 'desktop network-map expanded state was not set')
-assert(elements.asrNetworkMapImage.src.includes('/stats/641890/networkMap?nh_refresh='), 'desktop network map URL did not use the local node and cache buster')
-assert(elements.asrNetworkMapImage.alt.includes('641890'), 'network map image alt text omitted the local node')
+assert(elements.asrNetworkMapImage.src.includes('/stats/100000/networkMap?nh_refresh='), 'desktop network map URL did not use the local node and cache buster')
+assert(elements.asrNetworkMapImage.alt.includes('100000'), 'network map image alt text omitted the local node')
 assert(longTimeoutCallbacks.size === 1, 'desktop network map did not schedule its five-minute refresh')
 
 elements.asrNetworkMapImage.dispatch('error')
@@ -238,7 +238,7 @@ assert(longTimeoutCallbacks.size === 0, 'network map timer remained scheduled af
 mobileViewport = true
 elements.asrNetworkMapOpen.dispatch('click')
 assert(elements.asrNetworkMapPanel.hidden === true, 'mobile network map incorrectly opened inline')
-assert(lastOpenedWindow()[0].includes('/stats/641890/networkMap?nh_refresh='), 'mobile network map did not open a fresh full-map URL')
+assert(lastOpenedWindow()[0].includes('/stats/100000/networkMap?nh_refresh='), 'mobile network map did not open a fresh full-map URL')
 assert(lastOpenedWindow()[1] === '_blank' && lastOpenedWindow()[2] === 'noopener', 'mobile network map did not use a safe new tab')
 assert(longTimeoutCallbacks.size === 0, 'mobile network map incorrectly scheduled an inline refresh')
 mobileViewport = false
@@ -251,7 +251,7 @@ assert(elements.asrStationMapSummary.textContent === 'No connected station locat
 
 mapPayload = {
   ok: true,
-  points: [{ callsign: 'N7YO', node: '2300', name: 'Jim', location: 'Phoenix, AZ', lat: 33.45, lng: -112.07 }],
+  points: [{ callsign: 'N0CALL', node: '100001', name: 'Example Operator', location: 'Example City, AZ', lat: 10.12, lng: 20.57 }],
   unmapped: [],
 }
 await refresh()
@@ -272,21 +272,21 @@ for (const failureMode of ['http', 'network', 'json']) {
 mapFetchMode = 'success'
 mapPayload = {
   ok: true,
-  points: [{ callsign: 'N7YO', node: '2300', name: 'Jim', location: 'Phoenix, AZ', lat: 33.45, lng: -112.07 }],
+  points: [{ callsign: 'N0CALL', node: '100001', name: 'Example Operator', location: 'Example City, AZ', lat: 10.12, lng: 20.57 }],
   unmapped: [],
 }
 await refresh()
 assert(elements.asrStationMapSummary.textContent === '1 connected station location mapped.', 'successful unchanged response did not clear the stale label')
 
-mapPayload = { ok: true, points: [], unmapped: [{ callsign: 'N7YO', node: '2300', label: 'N7YO' }] }
+mapPayload = { ok: true, points: [], unmapped: [{ callsign: 'N0CALL', node: '100001', label: 'N0CALL' }] }
 await refresh()
 assert(markerGroup.markers.length === 0, 'disconnected station marker was not removed')
-assert(elements.asrStationMapUnmapped.textContent.includes('N7YO'), 'unmapped station was not displayed')
+assert(elements.asrStationMapUnmapped.textContent.includes('N0CALL'), 'unmapped station was not displayed')
 
-mapPayload = { ok: true, points: [], unmapped: [{ callsign: 'W7TEST', node: '2301', label: 'W7TEST' }] }
+mapPayload = { ok: true, points: [], unmapped: [{ callsign: 'N0NONE', node: '100002', label: 'N0NONE' }] }
 await refresh()
-assert(!elements.asrStationMapUnmapped.textContent.includes('N7YO'), 'stale unmapped station remained visible')
-assert(elements.asrStationMapUnmapped.textContent.includes('W7TEST'), 'replacement unmapped station was not displayed')
+assert(!elements.asrStationMapUnmapped.textContent.includes('N0CALL'), 'stale unmapped station remained visible')
+assert(elements.asrStationMapUnmapped.textContent.includes('N0NONE'), 'replacement unmapped station was not displayed')
 
 const older = deferredResponse()
 const newer = deferredResponse()

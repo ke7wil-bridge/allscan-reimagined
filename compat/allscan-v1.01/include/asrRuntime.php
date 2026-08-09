@@ -30,3 +30,25 @@ function asrRuntimeFilePath(
 
 	return $selected;
 }
+
+function asrClientIdentityValue(mixed $value): string {
+	$normalized = strtolower(trim((string) $value));
+	if(in_array($normalized, ['', '-', '--', 'unknown', 'none', 'n/a', 'na', 'null'], true))
+		return '';
+	return $normalized;
+}
+
+function asrClientIdentityKeys(array $row): array {
+	$keys = [];
+	foreach(['dmrid', 'dmr_id', 'id'] as $key) {
+		$id = asrClientIdentityValue($row[$key] ?? '');
+		if($id !== '')
+			$keys[] = 'id:' . $id;
+	}
+	foreach(['callsign', 'call', 'station', 'username', 'name', 'display_name', 'displayName', 'user', 'current_user'] as $key) {
+		$name = asrClientIdentityValue($row[$key] ?? '');
+		if($name !== '')
+			$keys[] = 'name:' . $name;
+	}
+	return array_values(array_unique($keys));
+}

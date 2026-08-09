@@ -8,21 +8,21 @@ type MockRoute = 'login' | 'users' | 'settings' | 'cfg' | 'reimagined' | 'instru
 
 const runtimeConfig = {
   ok: true,
-  node: '641890',
-  callsign: 'KE7WIL',
-  headerTitle: 'KE7WIL - 641890',
-  browserTitle: 'KE7WIL - 641890',
-  brandByline: 'by KE7WIL',
-  footerByline: 'customized by KE7WIL',
+  node: '100000',
+  callsign: 'N0CALL',
+  headerTitle: 'Example Node - 100000',
+  browserTitle: 'Example Node - 100000',
+  brandByline: 'Example preview',
+  footerByline: 'Synthetic test data',
   headerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 6',
+  versionLabel: 'v1.0.0 Beta 6.4',
   bridges: [
-    { id: 'dmr', node: '1883', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
-    { id: 'dmr_net', node: '1884', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
-    { id: 'ysf', node: '641892', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
-    { id: 'ysf_net', node: '1885', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
-    { id: 'zello', node: '641893', title: 'Zello Bridge', detailTitle: 'Zello Clients' },
+    { id: 'dmr', mode: 'dmr', node: '2001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
+    { id: 'dmr_net', mode: 'dmr', node: '2002', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
+    { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
+    { id: 'ysf_net', mode: 'ysf', node: '2003', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
+    { id: 'zello', mode: 'zello', node: '100003', title: 'Zello Bridge', detailTitle: 'Zello Clients' },
   ],
 }
 
@@ -72,7 +72,7 @@ const mockUsers: MockUser[] = [
     id: 1,
     name: 'mock-admin-ke7wil',
     email: 'admin.operator@example.test',
-    nodes: '641890',
+    nodes: '100000',
     permission: 'Admin',
     timezone: 'America/Phoenix',
     location: 'Phoenix, Arizona',
@@ -81,7 +81,7 @@ const mockUsers: MockUser[] = [
     id: 2,
     name: 'control-operator-west-valley',
     email: 'control.operator.west.valley@example.test',
-    nodes: '641890, 641891',
+    nodes: '100000, 100001',
     permission: 'Write',
     timezone: 'America/Denver',
     location: 'West Valley Bridge Desk, Arizona',
@@ -90,7 +90,7 @@ const mockUsers: MockUser[] = [
     id: 3,
     name: 'readonly-monitoring-station',
     email: 'readonly.monitoring.station@example.test',
-    nodes: '641890',
+    nodes: '100000',
     permission: 'Read Only',
     timezone: 'UTC',
     location: 'Remote monitoring location',
@@ -130,7 +130,7 @@ function adminMenu(current: MockRoute) {
           ${item(`${ASR_BASE}/performance/`, 'Performance Stats')}
           ${item(`${ASR_BASE}/user/`, 'Users', 'users')}
           ${item(`${ASR_BASE}/cfg/`, 'Configs', 'cfg')}
-          <a role="menuitem" href="http://stats.allstarlink.org/stats/641890">Node Status</a>
+          <a role="menuitem" href="http://stats.allstarlink.org/stats/100000">Node Status</a>
           ${item(`${ASR_BASE}/lookup/`, 'Lookup')}
           ${item(`${ASR_BASE}/?reportBug=1`, 'Report a Bug')}
           <a role="menuitem" href="${ASR_BASE}/user/?logout=1">Logout</a>
@@ -317,9 +317,9 @@ function cfgPage() {
         <tbody>
           <tr><td>1</td><td>Public Permission</td><td>[Default]</td><td>Read Only</td><td>-</td></tr>
           <tr><td>2</td><td>Favorites.ini Locations</td><td>[Default]</td><td>favorites.ini, ../supermon/favorites.ini, /etc/allscan/favorites.ini</td><td>-</td></tr>
-          <tr><td>3</td><td>Call Sign</td><td>KE7WIL</td><td>-</td><td>2025-03-07 12:54</td></tr>
+          <tr><td>3</td><td>Call Sign</td><td>N0CALL</td><td>-</td><td>2025-03-07 12:54</td></tr>
           <tr><td>4</td><td>Location</td><td>Phoenix, Arizona</td><td>-</td><td>2025-03-07 12:54</td></tr>
-          <tr><td>5</td><td>Node Title</td><td>KE7WIL</td><td>-</td><td>2025-03-07 12:54</td></tr>
+          <tr><td>5</td><td>Node Title</td><td>Example Node</td><td>-</td><td>2025-03-07 12:54</td></tr>
           <tr><td>6</td><td>DiscBeforeConn Default</td><td>Off</td><td>On</td><td>2025-05-16 04:45</td></tr>
           <tr><td>7</td><td>Node Number</td><td>[Default]</td><td>-</td><td>-</td></tr>
           <tr><td>8</td><td>AMI Host</td><td>[Default]</td><td>-</td><td>-</td></tr>
@@ -406,7 +406,7 @@ function cfgPage() {
 function reimaginedSettingsPage() {
   return adminShell('reimagined', 'Reimagined Settings', `
     <h2>Reimagined Settings</h2>
-    <p class="asr-rollback-warning"><strong>Local preview:</strong> This page uses simulated KE7WIL data. Nothing here can change the node.</p>
+    <p class="asr-rollback-warning"><strong>Local preview:</strong> This page uses synthetic test data. Nothing here can change a node.</p>
     <form class="asr-reimagined-settings-form" action="#" onsubmit="return false">
       <fieldset class="asr-settings-section is-collapsed">
         <legend><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Header &amp; Branding <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></legend>
@@ -427,7 +427,7 @@ function reimaginedSettingsPage() {
               <div class="asr-bridge-fields-grid asr-bridge-card-grid">
                 <label><span>Card Type</span><select><option>Standard Bridge</option><option selected>DMR Net Bridge</option></select></label>
                 <label><span>ID</span><input value="dmr_net"></label>
-                <label><span>Node</span><input value="1884"></label>
+                <label><span>Node</span><input value="2002"></label>
                 <label><span>Card Title</span><input value="DMR Net Bridge"></label>
                 <label><span>Detail Title</span><input value="Connected Clients"></label>
               </div>
@@ -435,9 +435,9 @@ function reimaginedSettingsPage() {
             <div class="asr-bridge-panel-section">
               <div class="asr-bridge-section-copy"><strong>DMR Net Controls</strong><span>Paths used by the Connect and Disconnect controls.</span></div>
               <div class="asr-bridge-fields-grid">
-                <label><span>ABInfo Path</span><input value="/tmp/ABInfo_34004.json"></label>
-                <label><span>DVSwitch Script</span><input value="/opt/MMDVM_Bridge_TGIFNet/dvswitch.sh"></label>
-                <label><span>Analog Bridge Config</span><input value="/opt/Analog_Bridge_TGIFNet/Analog_Bridge.ini"></label>
+                <label><span>ABInfo Path</span><input value="/tmp/ABInfo_12345.json"></label>
+                <label><span>DVSwitch Script</span><input value="/opt/MMDVM_Bridge_TestNet/dvswitch.sh"></label>
+                <label><span>Analog Bridge Config</span><input value="/opt/Analog_Bridge_TestNet/Analog_Bridge.ini"></label>
               </div>
             </div>
           </div>
@@ -559,7 +559,7 @@ const mockYsfDestinations = [
   { id: '32453', name: 'US-KCWIDE', value: 'US-KCWIDE', label: 'US-KCWIDE (32453)' },
   { id: '67874', name: 'US-NETOHOLICS', value: 'US-NETOHOLICS', label: 'US-NETOHOLICS (67874)' },
   { id: '83193', name: 'AMERICA-LINK', value: 'AMERICA-LINK', label: 'AMERICA-LINK (83193)' },
-  { id: '64189', name: 'US-KE7WIL-YSF', value: 'US-KE7WIL-YSF', label: 'US-KE7WIL-YSF (64189)' },
+  { id: '34567', name: 'US-CUSTOM-TEST', value: 'US-CUSTOM-TEST', label: 'US-CUSTOM-TEST (34567)' },
 ]
 
 function bridgeLive(state?: MockBridgeControlState) {
@@ -579,7 +579,7 @@ function bridgeLive(state?: MockBridgeControlState) {
 function connectedClients() {
   return jsonResponse({
     dmr: [{ callsign: 'N7MOCK', room: 'TG 3100', connected: '00:12:04' }],
-    dmr_net: [{ callsign: 'N7NET', room: 'TG 86753', connected: '00:03:16' }],
+    dmr_net: [{ callsign: 'N0CALL', room: 'TG 12345', connected: '00:03:16' }],
     ysf: [{ callsign: 'W7TEST', room: 'America-Link', connected: '00:03:41' }],
     ysf_net: [{ callsign: 'K7YSF', room: 'US-KCWIDE', connected: '00:01:18' }],
     zello: [],
@@ -595,7 +595,7 @@ function favoritesPayload() {
     ],
     rows: [
       { index: '1', node: '2300', label: 'Public Legacy Node', name: 'Public Legacy Node', desc: 'Four-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
-      { index: '2', node: '1883', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
+      { index: '2', node: '2001', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
       { index: '3', node: '29332', label: 'Standard Public Node', name: 'Standard Public Node', desc: 'Five-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
     ],
   })
@@ -603,15 +603,15 @@ function favoritesPayload() {
 
 function connectionFeed(state?: MockBridgeControlState) {
   const ysfNetRows = state?.ysfNetLinked
-    ? [{ node: '1885', info: 'YSF Net Bridge', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:30', last_keyed: 'Never', lnodes: [] }]
+    ? [{ node: '2003', info: 'YSF Net Bridge', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:30', last_keyed: 'Never', lnodes: [] }]
     : []
   return JSON.stringify({
-    641890: {
+    100000: {
       remote_nodes: [
-        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['2300', '1883', '1884', ...ysfNetRows.map((row) => row.node)] },
+        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['2300', '2001', '2002', ...ysfNetRows.map((row) => row.node)] },
         { node: '2300', info: 'Public Legacy Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
-        { node: '1883', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
-        { node: '1884', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
+        { node: '2001', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
+        { node: '2002', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
         ...ysfNetRows,
       ],
     },
@@ -660,7 +660,7 @@ export function allscanMockPlugin(): Plugin {
       const projectRoot = server.config.root
       let favoritesFailuresRemaining = process.env.ASR_MOCK_FAVORITES_FAIL_ONCE === '1' ? 1 : 0
       const bridgeControlState: MockBridgeControlState = {
-        dmrNetDestination: '86753',
+        dmrNetDestination: '12345',
         dmrNetLinked: true,
         ysfNetDestination: '32453',
         ysfNetLinked: true,
@@ -697,6 +697,13 @@ export function allscanMockPlugin(): Plugin {
               ok: true,
               bridge: JSON.parse(bridgeLive(bridgeControlState)),
               clients: JSON.parse(connectedClients()),
+              clientCounts: {
+                dmr: 1,
+                dmr_net: 1,
+                ysf: 1,
+                ysf_net: 1,
+                zello: 0,
+              },
               controls: {
                 dmr_net: {
                   currentDestination: bridgeControlState.dmrNetLinked ? bridgeControlState.dmrNetDestination : '',
@@ -778,9 +785,9 @@ export function allscanMockPlugin(): Plugin {
             return serveText(res, jsonResponse({
               ok: true,
               bridgeId: 'dmr_net',
-              oldTg: '67498',
-              currentTg: '86753',
-              message: 'DMR Net Bridge tuned to TG 86753.',
+              oldTg: '23456',
+              currentTg: '12345',
+              message: 'DMR Net Bridge tuned to TG 12345.',
             }), 'application/json; charset=utf-8')
           }
           return serveText(res, jsonResponse({ ok: true, message: `Mock ${action || 'request'} handled.` }), 'application/json; charset=utf-8')

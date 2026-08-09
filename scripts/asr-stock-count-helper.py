@@ -136,10 +136,10 @@ def self_test() -> None:
     }
 
     mapping_fixture = {
-        "linkedNodes": {"641890": {"Node": "641890"}, "674982": {}},
-        "visibleDirectRows": "674982, 63916 641890",
+        "linkedNodes": {"100000": {"Node": "100000"}, "200000": {}},
+        "visibleDirectRows": "200000, 300000 100000",
     }
-    assert accepted_topology(mapping_fixture) == ["63916", "641890", "674982"]
+    assert accepted_topology(mapping_fixture) == ["100000", "200000", "300000"]
 
     # Exercise an unlimited list rather than silently capping client rows.
     unlimited_fixture = {

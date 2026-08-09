@@ -110,18 +110,18 @@ def self_test() -> None:
         env_file = root / "etc/connected-clients-daemon.env"
         dropin.parent.mkdir(parents=True)
         dropin.write_text(
-            '[Service]\nEnvironment="TGIF_API_TOKEN=secret value" "TGIF_TG=86753"\n',
+            '[Service]\nEnvironment="TGIF_API_TOKEN=test-token" "TGIF_TG=12345"\n',
             encoding="utf-8",
         )
         env_file.parent.mkdir(parents=True)
         env_file.write_text('LOCAL_SETTING="preserved"\n', encoding="utf-8")
         assert migrate(dropin, env_file)
-        assert "secret value" not in dropin.read_text(encoding="utf-8")
+        assert "test-token" not in dropin.read_text(encoding="utf-8")
         assert f"EnvironmentFile=-{env_file}" in dropin.read_text(encoding="utf-8")
         assert environment_assignments(env_file) == {
             "LOCAL_SETTING": "preserved",
-            "TGIF_API_TOKEN": "secret value",
-            "TGIF_TG": "86753",
+            "TGIF_API_TOKEN": "test-token",
+            "TGIF_TG": "12345",
         }
         assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
         assert stat.S_IMODE(dropin.stat().st_mode) == 0o644

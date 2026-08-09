@@ -51,8 +51,11 @@ HOSTNAME_RE = re.compile(
 )
 LOG_ROOT_RE = re.compile(r"^YSFGateway_[A-Za-z0-9_-]+$")
 MMDVM_LOG_ROOT_RE = re.compile(r"^MMDVM_Bridge_[A-Za-z0-9_-]+$")
+YSF_CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,10}$")
+YSF_SUFFIX_RE = re.compile(r"^[A-Z0-9]{1,5}$")
 WATCH_INTERVAL = 1.0
 ACTIVITY_STALE_SECONDS = 180
+SOURCE_RETENTION_SECONDS = 300
 VERIFY_TIMEOUT = 10.0
 STATE_TRANSITION_GRACE_SECONDS = 15
 TAIL_BYTES = 262_144
@@ -342,6 +345,7 @@ def gateway_configuration(bridge: dict) -> dict:
         hosts = parser.get("YSF Network", "Hosts").strip()
         log_path = parser.get("Log", "FilePath").strip()
         log_root = parser.get("Log", "FileRoot").strip()
+        local_identities = gateway_local_identities(parser)
     except (configparser.Error, ValueError) as exc:
         raise ControlError("YSF Gateway control configuration is incomplete.") from exc
     if enabled != 1 or not 1024 <= port <= 65535:
@@ -355,7 +359,24 @@ def gateway_configuration(bridge: dict) -> dict:
         "hosts": Path(hosts),
         "logDir": Path(log_path),
         "logRoot": log_root,
+        "localIdentities": local_identities,
     }
+
+
+def gateway_local_identities(parser: configparser.ConfigParser) -> frozenset[str]:
+    try:
+        callsign = parser.get("General", "Callsign").strip().upper()
+        suffix = parser.get("General", "Suffix", fallback="").strip().upper()
+    except configparser.Error as exc:
+        raise ControlError("YSF Gateway identity configuration is incomplete.") from exc
+    if not YSF_CALLSIGN_RE.fullmatch(callsign):
+        raise ControlError("Configured YSF Gateway callsign is invalid.")
+    if suffix and not YSF_SUFFIX_RE.fullmatch(suffix):
+        raise ControlError("Configured YSF Gateway suffix is invalid.")
+    identities = {callsign}
+    if suffix:
+        identities.add(f"{callsign}-{suffix}")
+    return frozenset(identities)
 
 
 def source_hosts_path(bridge: dict, current_hosts: Path) -> Path:
@@ -1024,13 +1045,20 @@ def initial_activity_state() -> dict:
     return {
         "path": "", "inode": 0, "offset": 0, "role": "idle",
         "current_user": "", "last_user": "-", "active_start_epoch": 0,
+        "last_source_user": "", "last_source_epoch": 0,
+        "network_relay": False,
         "activity_epoch": 0, "last_event_epoch": 0,
         "gateway": {"linked": False, "destination": "", "name": "", "eventEpoch": 0},
         "service_check_epoch": 0, "service_states": {},
     }
 
 
-def apply_activity_line(state: dict, line: str, now: int) -> None:
+def apply_activity_line(
+    state: dict,
+    line: str,
+    now: int,
+    local_identities: frozenset[str] = frozenset(),
+) -> None:
     epoch = line_epoch(line) or now
     source = re.search(
         r"YSF,\s+received network (?:data|voice) from\s+([A-Za-z0-9/ -]{1,20}?)\s+to\s+",
@@ -1038,32 +1066,56 @@ def apply_activity_line(state: dict, line: str, now: int) -> None:
     )
     if source:
         caller = clean_name(source.group(1), 20).upper()
+        if caller in local_identities:
+            state.update({
+                "role": "relay", "current_user": "", "network_relay": True,
+                "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
+                "activity_epoch": epoch, "last_event_epoch": epoch,
+            })
+            return
         state.update({
             "role": "source", "current_user": caller,
             "last_user": caller or state.get("last_user", "-"),
+            "last_source_user": caller,
+            "last_source_epoch": epoch,
+            "network_relay": False,
             "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
             "activity_epoch": epoch, "last_event_epoch": epoch,
         })
         return
     if re.search(r"YSF,\s+received network end of transmission", line, re.IGNORECASE):
-        if state.get("role") == "source":
-            state.update({"role": "idle", "current_user": "", "active_start_epoch": 0})
+        if state.get("role") == "source" or state.get("network_relay"):
+            state.update({
+                "role": "idle", "current_user": "", "active_start_epoch": 0,
+                "network_relay": False,
+            })
+            if state.get("last_source_user"):
+                state["last_source_epoch"] = epoch
         state.update({"activity_epoch": epoch, "last_event_epoch": epoch})
         return
     if re.search(r"\bYSF,\s+TX state\s*=\s*ON\b", line, re.IGNORECASE):
         state.update({
             "role": "relay", "current_user": "",
+            "network_relay": False,
             "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
             "activity_epoch": epoch, "last_event_epoch": epoch,
         })
         return
     if re.search(r"\bYSF,\s+TX state\s*=\s*OFF\b", line, re.IGNORECASE):
         if state.get("role") == "relay":
-            state.update({"role": "idle", "current_user": "", "active_start_epoch": 0})
+            state.update({
+                "role": "idle", "current_user": "", "active_start_epoch": 0,
+                "network_relay": False,
+            })
         state.update({"activity_epoch": epoch, "last_event_epoch": epoch})
 
 
-def refresh_activity(bridge: dict, state: dict, now: int) -> dict:
+def refresh_activity(
+    bridge: dict,
+    state: dict,
+    now: int,
+    local_identities: frozenset[str] = frozenset(),
+) -> dict:
     settings = mmdvm_settings(bridge)
     path = latest_log(settings["logDir"], settings["logRoot"])
     if path is None:
@@ -1089,13 +1141,40 @@ def refresh_activity(bridge: dict, state: dict, now: int) -> dict:
             if changed and offset:
                 handle.readline()
             for line in handle:
-                apply_activity_line(state, line, now)
+                apply_activity_line(state, line, now, local_identities)
             state["offset"] = handle.tell()
     except OSError:
         return state
     if state.get("role") in ("source", "relay") and now - int(state.get("last_event_epoch", 0) or 0) > ACTIVITY_STALE_SECONDS:
         state.update({"role": "idle", "current_user": "", "active_start_epoch": 0})
     return state
+
+
+def clear_disconnected_activity(state: dict, linked: bool) -> None:
+    """Never retain local or remote talker evidence for an unlinked Net Bridge."""
+    if linked:
+        return
+    state.update({
+        "role": "idle",
+        "current_user": "",
+        "last_user": "-",
+        "last_source_user": "",
+        "last_source_epoch": 0,
+        "active_start_epoch": 0,
+        "network_relay": False,
+    })
+
+
+def ysf_allstar_mismatch_visible(
+    ysf_linked: bool,
+    allstar_linked: bool,
+    event_epoch: int,
+    now: int,
+) -> bool:
+    """Keep the existing 15-second event-based transition grace testable."""
+    if ysf_linked == allstar_linked:
+        return False
+    return event_epoch <= 0 or now - event_epoch > STATE_TRANSITION_GRACE_SECONDS
 
 
 def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
@@ -1119,7 +1198,13 @@ def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
         destination = str(gateway["destination"])
         name = str(gateway["name"])
         event_epoch = int(gateway["eventEpoch"])
-        state = refresh_activity(bridge, state, now)
+        state = refresh_activity(
+            bridge,
+            state,
+            now,
+            frozenset(settings.get("localIdentities", frozenset())),
+        )
+        clear_disconnected_activity(state, linked)
         service_states = state.get("service_states") if isinstance(state.get("service_states"), dict) else {}
         # A Gateway link event and its paired AllStar command do not become
         # visible atomically. Recheck Asterisk on every watcher pass while the
@@ -1147,13 +1232,7 @@ def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
             warning = "One or more configured YSF Net Bridge services are inactive."
         elif not state.get("allstar_check_ok"):
             warning = "Asterisk bridge-link status is unavailable."
-        elif (
-            linked != allstar_linked
-            and (
-                event_epoch <= 0
-                or now - event_epoch > STATE_TRANSITION_GRACE_SECONDS
-            )
-        ):
+        elif ysf_allstar_mismatch_visible(linked, allstar_linked, event_epoch, now):
             warning = "YSF and AllStar link states do not match."
     except ControlError as exc:
         state = initial_activity_state()
@@ -1169,6 +1248,8 @@ def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
         "state": "TX ACTIVE" if role == "source" else ("RELAY" if role == "relay" else ("Idle" if linked else "Disconnected")),
         "role": role, "current_user": caller, "caller": caller,
         "last_user": clean_name(str(state.get("last_user", "-")), 20) or "-",
+        "last_source_user": clean_name(str(state.get("last_source_user", "")), 20),
+        "last_source_epoch": int(state.get("last_source_epoch", 0) or 0),
         "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) if role != "idle" else 0,
         "activity_epoch": int(state.get("activity_epoch", 0) or 0),
         "event_epoch": event_epoch, "warning": warning[:160],
@@ -1196,6 +1277,12 @@ def cached_watcher_states() -> dict[str, dict]:
                 "linked": True, "destination": destination, "name": name,
                 "eventEpoch": int(entry.get("event_epoch", 0) or 0),
             }
+        source_user = clean_name(str(entry.get("last_source_user", "")), 20)
+        source_epoch = int(entry.get("last_source_epoch", 0) or 0)
+        now = int(time.time())
+        if source_user and source_epoch > 0 and source_epoch <= now + 300 and now - source_epoch <= SOURCE_RETENTION_SECONDS:
+            state["last_source_user"] = source_user
+            state["last_source_epoch"] = source_epoch
         states[str(bridge_id)] = state
     return states
 
@@ -1257,32 +1344,32 @@ def self_test() -> None:
         tmp = Path(raw_tmp)
         hosts = tmp / "YSFHosts.txt"
         hosts.write_text(
-            "# fixture\n67498;US-Netoholics;Netoholics Net;127.0.0.1;42002;000;\n"
-            "32453;US-KCWIDE;Wide Area;127.0.0.1;42000;000;\n",
+            "# fixture\n12345;US-EXAMPLE;Example Network;127.0.0.1;41002;000;\n"
+            "23456;US-TEST-WIDE;Test Wide Area;127.0.0.1;41000;000;\n",
             encoding="utf-8",
         )
         parsed = parse_destinations(hosts)
-        assert {item["id"] for item in parsed} == {"67498", "32453"}
+        assert {item["id"] for item in parsed} == {"12345", "23456"}
         custom = validate_custom_reflectors([{
-            "id": "64189", "name": "us-ke7wil-ysf",
-            "host": "ysf.example.net", "port": 42000,
-            "description": "KE7WIL private reflector",
+            "id": "34567", "name": "us-custom-test",
+            "host": "ysf.example.net", "port": 41000,
+            "description": "Synthetic test reflector",
         }])
-        assert custom[0]["name"] == "US-KE7WIL-YSF"
+        assert custom[0]["name"] == "US-CUSTOM-TEST"
         merged = tmp / "merged-YSFHosts.txt"
         merged.write_text(merged_hosts_content(hosts, custom), encoding="utf-8")
         merged_rows = parse_destinations(merged)
-        assert {item["id"] for item in merged_rows} == {"67498", "32453", "64189"}
-        assert next(item for item in merged_rows if item["id"] == "64189")["name"] == "US-KE7WIL-YSF"
+        assert {item["id"] for item in merged_rows} == {"12345", "23456", "34567"}
+        assert next(item for item in merged_rows if item["id"] == "34567")["name"] == "US-CUSTOM-TEST"
         refreshed = tmp / "refreshed-YSFHosts.txt"
         refreshed.write_text(hosts.read_text(encoding="utf-8"), encoding="utf-8")
         refreshed.write_text(merged_hosts_content(refreshed, custom), encoding="utf-8")
-        assert any(item["id"] == "64189" for item in parse_destinations(refreshed))
+        assert any(item["id"] == "34567" for item in parse_destinations(refreshed))
         for invalid in (
-            [{"id": "6418", "name": "BAD", "host": "example.net", "port": 42000}],
-            [{"id": "64189", "name": "BAD;NAME", "host": "example.net", "port": 42000}],
-            [{"id": "64189", "name": "BAD", "host": "https://example.net", "port": 42000}],
-            [{"id": "64189", "name": "BAD", "host": "example.net", "port": 70000}],
+            [{"id": "1234", "name": "BAD", "host": "example.net", "port": 41000}],
+            [{"id": "34567", "name": "BAD;NAME", "host": "example.net", "port": 41000}],
+            [{"id": "34567", "name": "BAD", "host": "https://example.net", "port": 41000}],
+            [{"id": "34567", "name": "BAD", "host": "example.net", "port": 70000}],
         ):
             try:
                 validate_custom_reflectors(invalid)
@@ -1290,59 +1377,104 @@ def self_test() -> None:
                 pass
             else:
                 raise AssertionError("invalid custom YSF reflector was accepted")
-        assert gateway_event('M: 2026-08-03 15:00:01.356 Connect by remote command to 32453 - "US-KCWIDE       "') == ("connect", "32453", "US-KCWIDE")
-        assert gateway_event("M: 2026-08-03 15:00:01.397 Linked to US-KCWIDE       ") == ("linked", "", "US-KCWIDE")
-        assert gateway_event("M: 2026-08-03 15:58:03.979 Disconnect by remote command") == ("disconnect", "", "")
+        assert gateway_event('M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "') == ("connect", "23456", "US-TEST-WIDE")
+        assert gateway_event("M: 2026-01-01 12:00:01.100 Linked to US-TEST-WIDE    ") == ("linked", "", "US-TEST-WIDE")
+        assert gateway_event("M: 2026-01-01 12:10:00.000 Disconnect by remote command") == ("disconnect", "", "")
 
         gateway_log = tmp / "gateway.log"
         gateway_log.write_text(
-            'M: 2026-08-03 15:00:01.356 Connect by remote command to 32453 - "US-KCWIDE       "\n'
-            "M: 2026-08-03 15:00:01.397 Linked to US-KCWIDE       \n",
+            'M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "\n'
+            "M: 2026-01-01 12:00:01.100 Linked to US-TEST-WIDE    \n",
             encoding="utf-8",
         )
         state = gateway_link_state(gateway_log)
-        assert state["linked"] and state["destination"] == "32453" and state["name"] == "US-KCWIDE"
+        assert state["linked"] and state["destination"] == "23456" and state["name"] == "US-TEST-WIDE"
         with gateway_log.open("a", encoding="utf-8") as handle:
-            handle.write("M: 2026-08-03 15:58:03.979 Disconnect by remote command\n")
+            handle.write("M: 2026-01-01 12:10:00.000 Disconnect by remote command\n")
         assert not gateway_link_state(gateway_log)["linked"]
         startup_log = tmp / "startup.log"
         startup_log.write_text(
-            "M: 2026-08-03 00:00:01.000 Linked to US-Netoholics\n",
+            "M: 2026-01-01 00:00:01.000 Linked to US-EXAMPLE\n",
             encoding="utf-8",
         )
         startup_state = gateway_link_state(startup_log, destinations=parsed)
-        assert startup_state["linked"] and startup_state["destination"] == "67498"
+        assert startup_state["linked"] and startup_state["destination"] == "12345"
+
+        identity_config = configparser.ConfigParser(interpolation=None, strict=False)
+        identity_config.optionxform = str
+        identity_config.read_string(
+            "[General]\nCallsign=N0CALL\nSuffix=RPT\n"
+        )
+        local_identities = gateway_local_identities(identity_config)
+        assert local_identities == frozenset({"N0CALL", "N0CALL-RPT"})
+        local_activity = initial_activity_state()
+        apply_activity_line(
+            local_activity,
+            "M: 2026-01-01 12:01:00.000 YSF, received network data from N0CALL-RPT to ALL at N0CALL",
+            1,
+            local_identities,
+        )
+        assert local_activity["role"] == "relay"
+        assert local_activity["current_user"] == ""
+        assert local_activity["last_source_user"] == ""
+        apply_activity_line(
+            local_activity,
+            "M: 2026-01-01 12:01:01.000 YSF, received network end of transmission",
+            2,
+            local_identities,
+        )
+        assert local_activity["role"] == "idle"
 
         activity = initial_activity_state()
-        apply_activity_line(activity, "M: 2026-08-03 15:25:33.932 YSF, received network data from KB8EMD     to ALL        at KB8EMD", 1)
-        assert activity["role"] == "source" and activity["current_user"] == "KB8EMD"
+        apply_activity_line(
+            activity,
+            "M: 2026-01-01 12:02:00.000 YSF, received network data from REMOTE1    to ALL        at REMOTE1",
+            1,
+            local_identities,
+        )
+        assert activity["role"] == "source" and activity["current_user"] == "REMOTE1"
+        source_epoch = activity["last_source_epoch"]
+        assert activity["last_source_user"] == "REMOTE1" and source_epoch > 0
         apply_activity_line(activity, "M: 2026-08-03 15:26:57.006 YSF, received network end of transmission", 2)
         assert activity["role"] == "idle"
+        assert activity["last_source_epoch"] >= source_epoch
         apply_activity_line(activity, "M: 2026-08-03 15:27:00.000 YSF, TX state = ON", 3)
         assert activity["role"] == "relay" and activity["current_user"] == ""
+        assert activity["last_source_user"] == "REMOTE1"
+        connected_activity = dict(activity)
+        clear_disconnected_activity(connected_activity, True)
+        assert connected_activity["last_source_user"] == "REMOTE1"
+        clear_disconnected_activity(activity, False)
+        assert activity["role"] == "idle"
+        assert activity["last_user"] == "-"
+        assert activity["last_source_user"] == ""
+        assert activity["last_source_epoch"] == 0
+        assert not ysf_allstar_mismatch_visible(True, False, 100, 115)
+        assert ysf_allstar_mismatch_visible(True, False, 100, 116)
+        assert not ysf_allstar_mismatch_visible(True, True, 0, 500)
         assert parse_lstats_links(
             "NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT STATE\n"
-            "1885      127.0.0.1:4569      0           OUT        00:00:02            ESTABLISHED\n"
-        ) == {("1885", "OUT")}
+            "4321      127.0.0.1:4569      0           OUT        00:00:02            ESTABLISHED\n"
+        ) == {("4321", "OUT")}
 
         config = {
-            "node": "674982",
+            "node": "123456",
             "bridges": [{
-                "id": "ysf_net", "node": "1885", "cardType": "ysf_net",
+                "id": "ysf_net", "node": "4321", "cardType": "ysf_net",
                 "allowTune": True,
-                "ysfGatewayConfig": "/opt/YSFGateway_YSFNet/YSFGateway.ini",
-                "mmdvmConfig": "/opt/MMDVM_Bridge_YSFNet/MMDVM_Bridge.ini",
-                "ysfGatewayService": "ysfgateway_ysfnet.service",
-                "mmdvmService": "mmdvm_bridge_ysfnet.service",
-                "analogBridgeService": "analog_bridge_ysfnet.service",
-                "emulatorService": "md380-emu-ysfnet.service",
+                "ysfGatewayConfig": "/opt/YSFGateway_TestNet/YSFGateway.ini",
+                "mmdvmConfig": "/opt/MMDVM_Bridge_TestNet/MMDVM_Bridge.ini",
+                "ysfGatewayService": "ysfgateway_testnet.service",
+                "mmdvmService": "mmdvm_bridge_testnet.service",
+                "analogBridgeService": "analog_bridge_testnet.service",
+                "emulatorService": "md380-emu-testnet.service",
                 "ysfHostsPath": "/var/lib/mmdvm/YSFHosts.txt",
                 "ysfCustomReflectors": custom,
                 "commandTransport": "remote_command",
             }],
         }
         validated = validate_bridge(config["bridges"][0], config)
-        assert validated["remoteCommand"] == Path("/opt/MMDVM_Bridge_YSFNet/RemoteCommand")
+        assert validated["remoteCommand"] == Path("/opt/MMDVM_Bridge_TestNet/RemoteCommand")
         bad = dict(config["bridges"][0], ysfGatewayService="../../bad.service")
         try:
             validate_bridge(bad, config)

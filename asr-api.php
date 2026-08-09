@@ -14,8 +14,8 @@ const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_YSF_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-ysf-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6.3';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.3';
+const ASR_VERSION = '1.0.0-beta.6.4';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.4';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -224,6 +224,21 @@ function asr_detect_bridges(): array {
     return $bridges;
 }
 
+function asr_bridge_mode(array $bridge): string {
+    foreach ([$bridge['mode'] ?? '', $bridge['type'] ?? '', $bridge['id'] ?? ''] as $value) {
+        $candidate = strtolower(trim((string) $value));
+        if ($candidate === '') continue;
+        $compact = preg_replace('/[^a-z0-9]/', '', $candidate);
+        foreach (['dstar', 'dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn'] as $knownMode) {
+            if (str_starts_with((string) $compact, $knownMode)) return $knownMode;
+        }
+        if (preg_match('/^([a-z][a-z0-9]*)(?:[_-]|$)/D', $candidate, $match)) {
+            return $match[1];
+        }
+    }
+    return 'unknown';
+}
+
 function asr_runtime_config(): array {
     global $amicfg;
 
@@ -265,6 +280,7 @@ function asr_runtime_config(): array {
         }
         $bridges[] = [
             'id' => (string) $bridge['id'],
+            'mode' => asr_bridge_mode($bridge),
             'node' => $bridgeNode,
             'linkAlias' => $linkAlias,
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
@@ -370,10 +386,11 @@ function asr_dmr_net_live_statuses(): array {
     $fileStatus = @stat($path);
     if (!is_array($fileStatus)
         || (int) ($fileStatus['uid'] ?? -1) !== 0
-        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0
-        || time() - (int) ($fileStatus['mtime'] ?? 0) > 10) {
+        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0) {
         return [];
     }
+    $liveMtime = (int) ($fileStatus['mtime'] ?? 0);
+    $liveFresh = $liveMtime > 0 && $liveMtime <= time() + 300 && time() - $liveMtime <= 10;
     $decoded = json_decode((string) @file_get_contents($path), true);
     $entries = is_array($decoded['bridges'] ?? null) ? $decoded['bridges'] : [];
     if ($entries === []) return [];
@@ -392,7 +409,7 @@ function asr_dmr_net_live_statuses(): array {
     foreach ($entries as $id => $entry) {
         $id = (string) $id;
         if (!isset($allowed[$id]) || !is_array($entry)) continue;
-        $role = strtolower((string) ($entry['role'] ?? 'idle'));
+        $role = $liveFresh ? strtolower((string) ($entry['role'] ?? 'idle')) : 'idle';
         if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
         $clean[$id] = [
             'active' => $role !== 'idle',
@@ -408,6 +425,8 @@ function asr_dmr_net_live_statuses(): array {
             'current_user' => substr((string) ($entry['current_user'] ?? ''), 0, 120),
             'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 120),
             'caller' => substr((string) ($entry['caller'] ?? ''), 0, 120),
+            'last_source_user' => substr((string) ($entry['last_source_user'] ?? ''), 0, 120),
+            'last_source_epoch' => max(0, (int) ($entry['last_source_epoch'] ?? 0)),
             'recent_users' => [],
         ];
     }
@@ -427,10 +446,12 @@ function asr_bridge_status_payload(): array {
     foreach (asr_ysf_net_live_statuses() as $id => $entry) {
         $bridge[$id] = $entry;
     }
+    $clientState = asr_bridge_clients_state();
     return [
         'ok' => true,
         'bridge' => $bridge,
-        'clients' => asr_bridge_clients_payload(),
+        'clients' => $clientState['clients'],
+        'clientCounts' => $clientState['counts'],
         'controls' => array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses()),
     ];
 }
@@ -537,18 +558,20 @@ function asr_secure_root_json(string $path): ?array {
 function asr_ysf_net_live_statuses(): array {
     $path = '/run/allscan-reimagined-ysf-bridge-control/ysf-live.json';
     $payload = asr_secure_root_json($path);
-    if (!is_array($payload)
-        || time() - (int) ($payload['updated_epoch'] ?? 0) > 10
-        || !is_array($payload['bridges'] ?? null)) {
+    if (!is_array($payload) || !is_array($payload['bridges'] ?? null)) {
         return [];
     }
+    $updatedEpoch = (int) ($payload['updated_epoch'] ?? 0);
+    $liveFresh = $updatedEpoch > 0
+        && $updatedEpoch <= time() + 300
+        && time() - $updatedEpoch <= 10;
     $clean = [];
     foreach ($payload['bridges'] as $id => $entry) {
         $id = (string) $id;
         if (!is_array($entry) || asr_ysf_net_bridge_config($id) === null) continue;
-        $role = strtolower((string) ($entry['role'] ?? 'idle'));
+        $role = $liveFresh ? strtolower((string) ($entry['role'] ?? 'idle')) : 'idle';
         if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
-        $linked = !empty($entry['linked']);
+        $linked = $liveFresh && !empty($entry['linked']);
         if (!$linked) $role = 'idle';
         $caller = $role === 'source' ? substr((string) ($entry['current_user'] ?? ''), 0, 20) : '';
         $clean[$id] = [
@@ -562,8 +585,8 @@ function asr_ysf_net_live_statuses(): array {
             'destinationName' => substr((string) ($entry['name'] ?? ''), 0, 80),
             'linked' => $linked,
             'digitalLinked' => $linked,
-            'allstarLinked' => !empty($entry['allstarLinked']),
-            'ready' => !empty($entry['ready']),
+            'allstarLinked' => $liveFresh && !empty($entry['allstarLinked']),
+            'ready' => $liveFresh && !empty($entry['ready']),
             'active_start_epoch' => max(0, (int) ($entry['active_start_epoch'] ?? 0)),
             'activity_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
             'last_time_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
@@ -571,6 +594,8 @@ function asr_ysf_net_live_statuses(): array {
             'current_user' => $caller,
             'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 20),
             'caller' => $caller,
+            'last_source_user' => substr((string) ($entry['last_source_user'] ?? ''), 0, 20),
+            'last_source_epoch' => max(0, (int) ($entry['last_source_epoch'] ?? 0)),
             'recent_users' => [],
         ];
     }
@@ -887,24 +912,61 @@ function asr_client_epoch_value(mixed $value): int {
     return $epoch === false ? 0 : $epoch;
 }
 
-function asr_client_row_is_fresh(array $row, string $bridgeId): bool {
+function asr_client_explicit_state(array $row): ?bool {
+    foreach (['active', 'current', 'connected'] as $key) {
+        if (!array_key_exists($key, $row)) continue;
+        $value = $row[$key];
+        if (is_bool($value)) return $value;
+        if (is_int($value) || is_float($value)) {
+            if ((float) $value === 1.0) return true;
+            if ((float) $value === 0.0) return false;
+            continue;
+        }
+        $text = strtolower(trim((string) $value));
+        if (in_array($text, ['1', 'true', 'yes', 'on', 'active', 'current', 'connected'], true)) return true;
+        if (in_array($text, ['0', '0.0', 'false', 'no', 'off', 'none', 'null', 'inactive', 'disconnected'], true)) return false;
+    }
+    return null;
+}
+
+function asr_client_epoch_is_fresh(int $epoch, int $maxAge, int $now): bool {
+    return $epoch > 0 && $epoch <= $now + 300 && $now - $epoch <= $maxAge;
+}
+
+function asr_client_row_is_fresh(array $row, string $bridgeId, bool $currentConnectedFeed = false): bool {
     $now = time();
     $lastSeen = asr_client_epoch_value($row['last_seen_epoch'] ?? $row['last_seen'] ?? $row['timestamp'] ?? 0);
     $lastTalk = asr_client_epoch_value($row['last_tx_epoch'] ?? $row['tx_epoch'] ?? $row['last_talk_epoch'] ?? 0);
-    $isCurrent = filter_var($row['active'] ?? $row['current'] ?? $row['connected'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $isCurrent = asr_client_explicit_state($row);
+    if ($isCurrent === false) return false;
 
     if ($bridgeId === 'zello') {
-        return $isCurrent && ($lastSeen === 0 || $now - $lastSeen <= 180);
+        if ($lastSeen > 0 || $lastTalk > 0) {
+            return asr_client_epoch_is_fresh($lastSeen, 180, $now)
+                || asr_client_epoch_is_fresh($lastTalk, 180, $now);
+        }
+        return $currentConnectedFeed || $isCurrent === true;
     }
     if ($bridgeId === 'ysf') {
-        return $lastSeen > 0 && $now - $lastSeen <= 180;
+        if ($lastSeen > 0 || $lastTalk > 0) {
+            return asr_client_epoch_is_fresh($lastSeen, 180, $now)
+                || asr_client_epoch_is_fresh($lastTalk, 300, $now);
+        }
+        return $currentConnectedFeed || $isCurrent === true;
     }
-    if ($lastSeen > 0) return $now - $lastSeen <= 180;
-    if ($lastTalk > 0) return $now - $lastTalk <= 300;
-    return $bridgeId !== 'zello' && $bridgeId !== 'ysf';
+    if ($lastSeen > 0) return asr_client_epoch_is_fresh($lastSeen, 180, $now);
+    if ($lastTalk > 0) return asr_client_epoch_is_fresh($lastTalk, 300, $now);
+    return $currentConnectedFeed || $isCurrent === true || ($bridgeId !== 'zello' && $bridgeId !== 'ysf');
 }
 
-function asr_sanitize_client_rows(array $rows, string $bridgeId = ''): array {
+function asr_client_has_identity(array $row): bool {
+    foreach (['callsign', 'call', 'station', 'username', 'name', 'display_name', 'displayName', 'user', 'current_user', 'dmrid', 'dmr_id', 'id'] as $key) {
+        if (trim((string) ($row[$key] ?? '')) !== '') return true;
+    }
+    return false;
+}
+
+function asr_sanitize_client_rows(array $rows, string $bridgeId = '', bool $currentConnectedFeed = false): array {
     $clean = [];
     foreach ($rows as $row) {
         if (is_string($row)) {
@@ -920,41 +982,98 @@ function asr_sanitize_client_rows(array $rows, string $bridgeId = ''): array {
             $value = $row[$key];
             if (is_scalar($value)) $item[$key] = is_string($value) ? substr(trim($value), 0, 160) : $value;
         }
-        if ($item !== [] && asr_client_row_is_fresh($item, $bridgeId)) $clean[] = $item;
+        if ($item !== []
+            && asr_client_has_identity($item)
+            && asr_client_row_is_fresh($item, $bridgeId, $currentConnectedFeed)) {
+            $clean[] = $item;
+        }
     }
     return $clean;
 }
 
-function asr_bridge_clients_payload(): array {
+function asr_client_identity_keys(array $row): array {
+    return asrClientIdentityKeys($row);
+}
+
+function asr_dedupe_client_rows(array $rows): array {
+    $unique = [];
+    $aliases = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $identityKeys = asr_client_identity_keys($row);
+        if ($identityKeys === []) continue;
+        $key = '';
+        foreach ($identityKeys as $identityKey) {
+            if (isset($aliases[$identityKey])) {
+                $key = $aliases[$identityKey];
+                break;
+            }
+        }
+        if ($key === '') $key = $identityKeys[0];
+        foreach ($identityKeys as $identityKey) $aliases[$identityKey] = $key;
+        $epoch = max(
+            asr_client_epoch_value($row['last_tx_epoch'] ?? $row['tx_epoch'] ?? $row['last_talk_epoch'] ?? 0),
+            asr_client_epoch_value($row['last_seen_epoch'] ?? $row['last_seen'] ?? $row['timestamp'] ?? 0),
+        );
+        $oldEpoch = isset($unique[$key]) ? max(
+            asr_client_epoch_value($unique[$key]['last_tx_epoch'] ?? $unique[$key]['tx_epoch'] ?? $unique[$key]['last_talk_epoch'] ?? 0),
+            asr_client_epoch_value($unique[$key]['last_seen_epoch'] ?? $unique[$key]['last_seen'] ?? $unique[$key]['timestamp'] ?? 0),
+        ) : -1;
+        if (!isset($unique[$key]) || $epoch > $oldEpoch) $unique[$key] = $row;
+    }
+    return array_values($unique);
+}
+
+function asr_bridge_clients_state(): array {
     $clients = [];
+    $counts = [];
 
     $readCurrentFile = static function (string $path): array {
         if (!is_readable($path)) return [];
         $mtime = (int) @filemtime($path);
-        if ($mtime <= 0 || time() - $mtime > 45) return [];
+        if ($mtime <= 0 || $mtime > time() + 300 || time() - $mtime > 45) return [];
         $payload = @file_get_contents($path);
         return is_string($payload) ? asr_decode_json_payload($payload) : [];
     };
 
     $externalPayload = $readCurrentFile(asrRuntimeFilePath('connected-clients.json'));
     $managedPayload = $readCurrentFile(__DIR__ . '/asr-connected-clients.json');
+    $externalMeta = is_array($externalPayload['_asr_meta'] ?? null) ? $externalPayload['_asr_meta'] : [];
+    $managedMeta = is_array($managedPayload['_asr_meta'] ?? null) ? $managedPayload['_asr_meta'] : [];
     $bridgeIds = array_unique(array_merge(array_keys($externalPayload), array_keys($managedPayload)));
 
     foreach ($bridgeIds as $id) {
         $id = (string) $id;
+        if ($id === '_asr_meta') continue;
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id)) continue;
 
         // A current external file is authoritative for each bridge key it
         // publishes, including an intentionally empty client list. ASR's own
         // collector fills only bridge keys that the external writer omits.
-        $rows = array_key_exists($id, $externalPayload)
+        $fromExternal = array_key_exists($id, $externalPayload);
+        $rows = $fromExternal
             ? $externalPayload[$id]
             : ($managedPayload[$id] ?? []);
         if (!is_array($rows)) continue;
-        $clients[$id] = asr_sanitize_client_rows($rows, $id);
+        $meta = $fromExternal ? ($externalMeta[$id] ?? []) : ($managedMeta[$id] ?? []);
+        $kind = is_array($meta) ? strtolower((string) ($meta['kind'] ?? '')) : '';
+        $mode = is_array($meta) && preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', (string) ($meta['mode'] ?? ''))
+            ? (string) $meta['mode']
+            : asr_bridge_mode(['id' => $id]);
+        // A flat external connected-clients file is a current-feed contract for
+        // backward compatibility. ASR-managed fallback and recent-talker rows
+        // are explicitly marked and are never certified as connected clients.
+        $currentConnectedFeed = $fromExternal ? $kind !== 'recent' && $kind !== 'fallback' : $kind === 'current';
+        $clean = asr_dedupe_client_rows(asr_sanitize_client_rows($rows, $mode, $currentConnectedFeed));
+        $clients[$id] = $clean;
+        $counts[$id] = $currentConnectedFeed ? count($clean) : 0;
     }
 
-    return $clients;
+    return ['clients' => $clients, 'counts' => $counts];
+}
+
+function asr_bridge_clients_payload(): array {
+    return asr_bridge_clients_state()['clients'];
 }
 
 function asr_extract_callsign(string $value): string {

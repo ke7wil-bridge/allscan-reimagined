@@ -79,20 +79,20 @@ function run_qrz_tests(string $sourcePath): void {
     $GLOBALS['mockHttpPayloads'][] = '<QRZDatabase><Session><Key>session-key</Key></Session></QRZDatabase>';
     assert_test(asr_qrz_session(['qrz' => ['username' => 'test', 'password' => 'valid']]) === 'session-key', 'valid QRZ credentials did not produce a session');
 
-    $GLOBALS['mockHttpPayloads'][] = '<QRZDatabase><Callsign><call>N7YO</call><fname>Jim</fname><name>Operator</name><addr2>Phoenix</addr2><state>AZ</state><country>USA</country><lat>33.448376</lat><lon>-112.074036</lon></Callsign><Session><Key>next-key</Key></Session></QRZDatabase>';
+    $GLOBALS['mockHttpPayloads'][] = '<QRZDatabase><Callsign><call>N0CALL</call><fname>Example</fname><name>Operator</name><addr2>Example City</addr2><state>AZ</state><country>USA</country><lat>10.123456</lat><lon>20.567890</lon></Callsign><Session><Key>next-key</Key></Session></QRZDatabase>';
     $session = 'session-key';
-    $station = asr_qrz_station('N7YO', $session);
+    $station = asr_qrz_station('N0CALL', $session);
     assert_test(!empty($station['resolved']), 'valid QRZ station response was not resolved');
-    assert_test(($station['lat'] ?? null) === 33.45 && ($station['lng'] ?? null) === -112.07, 'QRZ coordinates were not rounded');
+    assert_test(($station['lat'] ?? null) === 10.12 && ($station['lng'] ?? null) === 20.57, 'QRZ coordinates were not rounded');
     assert_test($session === 'next-key', 'QRZ session refresh key was not retained');
 
-    $GLOBALS['mockHttpPayloads'][] = '<QRZDatabase><Callsign><call>N7YO</call><lat>999</lat><lon>-112</lon></Callsign></QRZDatabase>';
-    $station = asr_qrz_station('N7YO', $session);
+    $GLOBALS['mockHttpPayloads'][] = '<QRZDatabase><Callsign><call>N0CALL</call><lat>999</lat><lon>20</lon></Callsign></QRZDatabase>';
+    $station = asr_qrz_station('N0CALL', $session);
     assert_test(($station['resolved'] ?? true) === false, 'invalid QRZ coordinates were accepted');
 
     $before = $GLOBALS['mockHttpCalls'];
     $emptySession = '';
-    assert_test(asr_qrz_station('N7YO', $emptySession) === [], 'empty QRZ session must return no station');
+    assert_test(asr_qrz_station('N0CALL', $emptySession) === [], 'empty QRZ session must return no station');
     assert_test($GLOBALS['mockHttpCalls'] === $before, 'empty QRZ session made an HTTP request');
 }
 
@@ -108,9 +108,9 @@ function run_map_tests(string $sourcePath): void {
     $GLOBALS['mapNominatimCalls'] = 0;
     $GLOBALS['mapNominatimResult'] = [
         'resolved' => true,
-        'location' => 'Phoenix, AZ',
-        'lat' => 33.45,
-        'lng' => -112.07,
+        'location' => 'Example City, AZ',
+        'lat' => 10.12,
+        'lng' => 20.57,
         'source' => 'nominatim',
     ];
 
@@ -128,9 +128,9 @@ function run_map_tests(string $sourcePath): void {
             'resolved' => true,
             'callsign' => $callsign,
             'name' => 'QRZ Operator',
-            'location' => 'Phoenix, AZ, USA',
-            'lat' => 33.45,
-            'lng' => -112.07,
+            'location' => 'Example City, AZ, USA',
+            'lat' => 10.12,
+            'lng' => 20.57,
             'source' => 'qrz',
         ];
     }
@@ -151,7 +151,7 @@ function run_map_tests(string $sourcePath): void {
         'asr_station_map_payload',
     ]);
 
-    $request = [['callsign' => 'N7YO', 'locationHint' => 'Phoenix, AZ']];
+    $request = [['callsign' => 'N0CALL', 'locationHint' => 'Example City, AZ']];
 
     $GLOBALS['mapQrzMode'] = 'valid';
     $payload = asr_station_map_payload($request);
@@ -169,7 +169,7 @@ function run_map_tests(string $sourcePath): void {
     assert_test($GLOBALS['mapNominatimCalls'] === 1, 'no-credential public fallback did not run exactly once');
 
     $GLOBALS['mapNominatimCalls'] = 0;
-    $secondRequest = [['callsign' => 'W7TEST', 'locationHint' => 'Tucson, AZ']];
+    $secondRequest = [['callsign' => 'N0NONE', 'locationHint' => 'Second City, AZ']];
     $payload = asr_station_map_payload($secondRequest);
     assert_test($GLOBALS['mapNominatimCalls'] === 0, 'public fallback exceeded one uncached request per 15 seconds');
     assert_test(count($payload['unmapped'] ?? []) === 1, 'rate-limited station should remain listed as unmapped');
@@ -177,22 +177,22 @@ function run_map_tests(string $sourcePath): void {
     $old = time() - (90 * 86400) - 1;
     file_put_contents(ASR_STATION_MAP_CACHE, json_encode([
         'callsigns' => [
-            'N7YO' => [
+            'N0CALL' => [
                 'resolved' => true,
-                'callsign' => 'N7YO',
-                'location' => 'Phoenix, AZ',
-                'lat' => 33.40,
-                'lng' => -112.00,
+                'callsign' => 'N0CALL',
+                'location' => 'Example City, AZ',
+                'lat' => 10.10,
+                'lng' => 20.50,
                 'source' => 'nominatim',
                 'fetchedAt' => $old,
             ],
         ],
         'geocodes' => [
-            'phoenix, az' => [
+            'example city, az' => [
                 'resolved' => true,
-                'location' => 'Phoenix, AZ',
-                'lat' => 33.40,
-                'lng' => -112.00,
+                'location' => 'Example City, AZ',
+                'lat' => 10.10,
+                'lng' => 20.50,
                 'source' => 'nominatim',
                 'fetchedAt' => $old,
             ],
@@ -200,11 +200,11 @@ function run_map_tests(string $sourcePath): void {
         'lastNominatimAt' => 0,
     ], JSON_PRETTY_PRINT));
     $GLOBALS['mapNominatimCalls'] = 0;
-    $GLOBALS['mapNominatimResult']['lat'] = 33.46;
-    $GLOBALS['mapNominatimResult']['lng'] = -112.08;
+    $GLOBALS['mapNominatimResult']['lat'] = 10.13;
+    $GLOBALS['mapNominatimResult']['lng'] = 20.58;
     $payload = asr_station_map_payload($request);
     assert_test($GLOBALS['mapNominatimCalls'] === 1, '90-day fallback cache entry was not refreshed');
-    assert_test(($payload['points'][0]['lat'] ?? null) === 33.46, 'refreshed fallback coordinates were not returned');
+    assert_test(($payload['points'][0]['lat'] ?? null) === 10.13, 'refreshed fallback coordinates were not returned');
 
     foreach ([ASR_STATION_MAP_CACHE, ASR_STATION_MAP_CACHE . '.lock'] as $path) {
         if (is_file($path)) @unlink($path);

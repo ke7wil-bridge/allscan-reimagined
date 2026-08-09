@@ -232,6 +232,8 @@ def initial_live_state() -> dict:
         "role": "idle",
         "current_user": "",
         "last_user": "-",
+        "last_source_user": "",
+        "last_source_epoch": 0,
         "active_start_epoch": 0,
         "activity_epoch": 0,
         "last_event_epoch": 0,
@@ -252,6 +254,8 @@ def apply_mmdvm_activity_line(state: dict, line: str, now: int) -> None:
         state["current_user"] = caller
         if caller:
             state["last_user"] = caller
+            state["last_source_user"] = caller
+            state["last_source_epoch"] = epoch
         state["active_start_epoch"] = (
             int(state.get("active_start_epoch", 0) or 0) or epoch
         )
@@ -268,6 +272,8 @@ def apply_mmdvm_activity_line(state: dict, line: str, now: int) -> None:
             state["role"] = "idle"
             state["current_user"] = ""
             state["active_start_epoch"] = 0
+            if state.get("last_source_user"):
+                state["last_source_epoch"] = epoch
         state["activity_epoch"] = epoch
         state["last_event_epoch"] = epoch
         return
@@ -404,6 +410,10 @@ def dmr_net_live_payload(
             "warning": "",
             "current_user": current_user,
             "last_user": clean_live_caller(str(state.get("last_user", ""))) or "-",
+            "last_source_user": clean_live_caller(
+                str(state.get("last_source_user", ""))
+            ),
+            "last_source_epoch": int(state.get("last_source_epoch", 0) or 0),
             "caller": current_user,
             "recent_users": [],
         }
@@ -822,12 +832,12 @@ def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
 
 
 def self_test() -> None:
-    assert ABINFO_RE.fullmatch("/tmp/ABInfo_34004.json")
-    assert DVSWITCH_RE.fullmatch("/opt/MMDVM_Bridge_TGIFNet/dvswitch.sh")
-    assert ANALOG_CONFIG_RE.fullmatch("/opt/Analog_Bridge_TGIFNet/Analog_Bridge.ini")
-    assert LINK_ALIAS_RE.fullmatch("999674982")
-    assert not LINK_ALIAS_RE.fullmatch("1884")
-    assert not LINK_ALIAS_RE.fullmatch("999674982;reload")
+    assert ABINFO_RE.fullmatch("/tmp/ABInfo_12345.json")
+    assert DVSWITCH_RE.fullmatch("/opt/MMDVM_Bridge_TestNet/dvswitch.sh")
+    assert ANALOG_CONFIG_RE.fullmatch("/opt/Analog_Bridge_TestNet/Analog_Bridge.ini")
+    assert LINK_ALIAS_RE.fullmatch("999123456")
+    assert not LINK_ALIAS_RE.fullmatch("4321")
+    assert not LINK_ALIAS_RE.fullmatch("999123456;reload")
     assert not DVSWITCH_RE.fullmatch("/opt/MMDVM_Bridge/dvswitch.sh")
     assert not ANALOG_CONFIG_RE.fullmatch("/opt/Analog_Bridge/Analog_Bridge.ini")
     assert DISCONNECT_TG == 4000
@@ -836,42 +846,42 @@ def self_test() -> None:
     lstats = """\
 NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT STATE
 ----      ----                ----------  ---------  ------------        -------------
-1884      127.0.0.1           0           OUT        00:01:00:000        ESTABLISHED
+4321      127.0.0.1           0           OUT        00:01:00:000        ESTABLISHED
 """
-    assert parse_lstats_links(lstats) == {("1884", "OUT")}
-    alias_lstats = lstats.replace("1884      ", "999674982 ")
-    assert parse_lstats_links(alias_lstats) == {("999674982", "OUT")}
+    assert parse_lstats_links(lstats) == {("4321", "OUT")}
+    alias_lstats = lstats.replace("4321      ", "999123456 ")
+    assert parse_lstats_links(alias_lstats) == {("999123456", "OUT")}
     inbound = lstats.replace(
         "127.0.0.1           0           OUT",
         "10.0.0.1            0           IN",
     )
-    assert parse_lstats_links(inbound) == {("1884", "IN")}
-    assert ("1884", "OUT") not in parse_lstats_links(inbound)
+    assert parse_lstats_links(inbound) == {("4321", "IN")}
+    assert ("4321", "OUT") not in parse_lstats_links(inbound)
     assert parse_lstats_links(lstats.splitlines()[0] + "\n") == set()
     with tempfile.TemporaryDirectory(prefix="asr-bridge-control-") as directory:
         config = Path(directory) / "Analog_Bridge.ini"
         config.write_text(
-            "include=/opt/Analog_Bridge_TGIFNet/Analog_Bridge.ini\n"
+            "include=/opt/Analog_Bridge_TestNet/Analog_Bridge.ini\n"
             "[AMBE_AUDIO]\n"
             "rxPort=31200 ; local control\n"
-            "txTg=86753\n",
+            "txTg=12345\n",
             encoding="utf-8",
         )
         assert analog_control_port(config) == 31200
-        assert current_tg(config) == 86753
+        assert current_tg(config) == 12345
         config.write_text("[AMBE_AUDIO]\ntxTg=999999999\n", encoding="utf-8")
         assert current_tg(config) is None
         abinfo = Path(directory) / "ABInfo.json"
-        abinfo.write_text('{"last_tune":"86753","digital":{"tg":"86753"}}\n', encoding="utf-8")
-        assert runtime_tg(abinfo) == 86753
+        abinfo.write_text('{"last_tune":"12345","digital":{"tg":"12345"}}\n', encoding="utf-8")
+        assert runtime_tg(abinfo) == 12345
         abinfo.write_text('{"last_tune":"4000","digital":{"tg":"4000"}}\n', encoding="utf-8")
         assert runtime_tg(abinfo) == DISCONNECT_TG
-        configured_abinfo = Path("/tmp/ABInfo_34004.json")
+        configured_abinfo = Path("/tmp/ABInfo_12345.json")
         fake_host_root = Path(directory) / "host-root"
-        host_abinfo = fake_host_root / "tmp/ABInfo_34004.json"
+        host_abinfo = fake_host_root / "tmp/ABInfo_12345.json"
         host_abinfo.parent.mkdir(parents=True)
         assert resolve_abinfo_path(configured_abinfo, fake_host_root) == host_abinfo
-        host_abinfo.write_text('{"last_tune":"86753"}\n', encoding="utf-8")
+        host_abinfo.write_text('{"last_tune":"12345"}\n', encoding="utf-8")
         assert resolve_abinfo_path(configured_abinfo, fake_host_root) == host_abinfo
         assert resolve_abinfo_path(
             configured_abinfo,
@@ -886,24 +896,24 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
             receiver.bind(("127.0.0.1", 0))
             receiver.settimeout(1)
-            send_tune_command(receiver.getsockname()[1], 86753)
+            send_tune_command(receiver.getsockname()[1], 12345)
             packet, sender = receiver.recvfrom(128)
             assert sender[0] == "127.0.0.1"
-            assert packet == bytes((0x05, len(b"txTg=86753"))) + b"txTg=86753"
+            assert packet == bytes((0x05, len(b"txTg=12345"))) + b"txTg=12345"
         runtime_config = Path(directory) / "config.json"
         runtime_config.write_text(
             json.dumps(
                 {
-                    "node": "674982",
+                    "node": "123456",
                     "bridges": [
                         {
                             "id": "dmr_net",
-                            "node": "1884",
-                            "linkAlias": "999674982",
+                            "node": "4321",
+                            "linkAlias": "999123456",
                             "cardType": "dmr_net",
-                            "abinfoPath": "/tmp/ABInfo_34004.json",
-                            "dvswitchScript": "/opt/MMDVM_Bridge_TGIFNet/dvswitch.sh",
-                            "analogConfig": "/opt/Analog_Bridge_TGIFNet/Analog_Bridge.ini",
+                            "abinfoPath": "/tmp/ABInfo_12345.json",
+                            "dvswitchScript": "/opt/MMDVM_Bridge_TestNet/dvswitch.sh",
+                            "analogConfig": "/opt/Analog_Bridge_TestNet/Analog_Bridge.ini",
                         }
                     ],
                 }
@@ -912,11 +922,11 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         )
         bridge = json.loads(runtime_config.read_text(encoding="utf-8"))["bridges"][0]
         assert node_numbers(bridge, runtime_config) == (
-            "674982",
-            "1884",
-            "999674982",
+            "123456",
+            "4321",
+            "999123456",
         )
-        bridge["linkAlias"] = "999123456"
+        bridge["linkAlias"] = "999654321"
         try:
             node_numbers(bridge, runtime_config)
         except ControlError:
@@ -925,10 +935,10 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             raise AssertionError("A link alias for another local node was accepted.")
         log_dir = Path(directory) / "mmdvm"
         log_dir.mkdir()
-        log_path = log_dir / "MMDVM_Bridge_TGIFNet-2026-07-23.log"
+        log_path = log_dir / "MMDVM_Bridge_TestNet-2026-07-23.log"
         log_path.write_text(
             "M: 2026-07-23 19:30:51.274 DMR Slot 2, received network voice header "
-            "from KE7WIL to TG 86753\n",
+            "from N0CALL to TG 12345\n",
             encoding="utf-8",
         )
         activity = refresh_mmdvm_activity(
@@ -938,7 +948,9 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             log_dir,
         )
         assert activity["role"] == "source"
-        assert activity["current_user"] == "KE7WIL"
+        assert activity["current_user"] == "N0CALL"
+        assert activity["last_source_user"] == "N0CALL"
+        source_epoch = activity["last_source_epoch"]
         assert activity["active_start_epoch"] == 1_784_835_051
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(
@@ -954,6 +966,8 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         )
         assert activity["role"] == "relay"
         assert activity["current_user"] == ""
+        assert activity["last_source_user"] == "N0CALL"
+        assert activity["last_source_epoch"] >= source_epoch
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(
                 "M: 2026-07-23 19:31:21.000 DMR, TX state = OFF, "
@@ -966,7 +980,8 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             log_dir,
         )
         assert activity["role"] == "idle"
-        assert activity["last_user"] == "KE7WIL"
+        assert activity["last_user"] == "N0CALL"
+        assert activity["last_source_user"] == "N0CALL"
     print("DMR Net Bridge control self-test: ok")
 
 

@@ -33,7 +33,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 6.3 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 6.4 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -145,7 +145,7 @@ pageInit();
 		<h2>YSF Net Bridge</h2>
 		<p>A YSF Net Bridge is a separate selectable YSF path. It never replaces or retunes the fixed/home YSF Bridge.</p>
 		<ol class="asr-instructions-steps">
-			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-KE7WIL-YSF</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
+			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-CUSTOM-TEST</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
 			<li><strong>Add an unlisted reflector once.</strong> In Reimagined Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the updater-owned list in a separate root-owned catalog.</li>
 			<li><strong>Select Connect.</strong> ASR sends the destination to the dedicated YSFGateway and waits for the Gateway log to confirm the exact link before linking the bridge’s private AllStar node.</li>
 			<li><strong>Confirm the result.</strong> The card shows the current reflector from the cached watcher after refresh. Source/TX, Relay, caller, warning, and error information appears only when the dedicated logs provide real evidence.</li>

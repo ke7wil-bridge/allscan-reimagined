@@ -261,6 +261,8 @@ function asrSelfTest(): void {
 			"Fresh $mode client was removed."
 		);
 	}
+	asrAssertSelfTest(asrBridgeMode(['id' => 'ysf_netbridge']) === 'ysf', 'YSF instance mode was not normalized.');
+	asrAssertSelfTest(asrBridgeMode(['id' => 'zello_primary']) === 'zello', 'Zello instance mode was not normalized.');
 
 	$durationRow = asrSanitizeClientRows([['callsign' => 'N7CURRENT', 'connected' => '00:12:04']], 'dmr');
 	asrAssertSelfTest($durationRow === [], 'Timestamp-free non-current client was retained.');
@@ -310,6 +312,11 @@ function asrSelfTest(): void {
 		array_column($sorted, 'callsign') === ['RECENT', 'OLDER', 'ALPHA', 'BRAVO'],
 		'Recent-TX sorting or identity deduplication failed.'
 	);
+	$mixedIdentity = asrDedupeAndSortClientRows([
+		['callsign' => '', 'name' => 'N7MIXED', 'last_seen_epoch' => $now - 2],
+		['name' => 'N7MIXED', 'last_seen_epoch' => $now - 1],
+	]);
+	asrAssertSelfTest(count($mixedIdentity) === 1, 'Repeated mixed-field client identity was not deduplicated.');
 
 	$secretRow = asrSanitizeClientRows([[
 		'callsign' => 'N7SAFE',
@@ -759,7 +766,12 @@ function asrIsLocalClientRow(array $row): bool {
 }
 
 function asrClientName(array $row): string {
-	return trim((string) ($row['callsign'] ?? $row['call'] ?? $row['station'] ?? $row['username'] ?? $row['name'] ?? $row['display_name'] ?? $row['displayName'] ?? $row['user'] ?? $row['current_user'] ?? ''));
+	foreach(['callsign', 'call', 'station', 'username', 'name', 'display_name', 'displayName', 'user', 'current_user'] as $key) {
+		$value = trim((string) ($row[$key] ?? ''));
+		if($value !== '')
+			return $value;
+	}
+	return '';
 }
 
 function asrClientLastTalkEpoch(array $row): int {
@@ -775,9 +787,11 @@ function asrClientActivityEpoch(array $row): int {
 
 function asrClientIdentityKey(array $row): string {
 	$name = strtolower(asrClientName($row));
-	$id = strtolower(trim((string) ($row['dmrid'] ?? $row['dmr_id'] ?? $row['id'] ?? '')));
-	if($id !== '')
-		return 'id:' . $id;
+	foreach(['dmrid', 'dmr_id', 'id'] as $key) {
+		$id = strtolower(trim((string) ($row[$key] ?? '')));
+		if($id !== '')
+			return 'id:' . $id;
+	}
 	if($name !== '')
 		return 'name:' . $name;
 	$host = strtolower(trim((string) ($row['ip'] ?? $row['address'] ?? $row['host'] ?? $row['remote_addr'] ?? '')));
@@ -1055,6 +1069,7 @@ if($lock === false) {
 $passwords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bridgeClientPasswords'] : [];
 $output = asrManagedOutputPath((string) (getenv('ASR_CONNECTED_CLIENTS_JSON') ?: ''));
 $result = [];
+$resultMeta = [];
 $dmrBridgeCount = count(array_filter(
 	$bridges,
 	static fn(array $bridge): bool => asrBridgeMode($bridge) === 'dmr'
@@ -1082,12 +1097,19 @@ foreach($bridges as $bridge) {
 	$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
 	if($rows === [] && $mode === 'zello') {
 		$rows = asrBuiltinZelloRows();
+		$feedKind = $rows === [] ? 'empty' : 'fallback';
 	}
 	if($rows === [] && $mode === 'ysf') {
 		$rows = asrSanitizeClientRows(asrBuiltinYsfRows(), 'ysf');
+		$feedKind = $rows === [] ? 'empty' : 'fallback';
 	}
 	$result[$id] = asrDedupeAndSortClientRows($rows);
+	$resultMeta[$id] = [
+		'kind' => in_array($feedKind, ['current', 'recent', 'fallback'], true) ? $feedKind : 'empty',
+		'mode' => $mode,
+	];
 }
 
+$result['_asr_meta'] = $resultMeta;
 asrWriteJsonAtomic($output, $result);
 echo "Wrote connected clients to $output" . PHP_EOL;

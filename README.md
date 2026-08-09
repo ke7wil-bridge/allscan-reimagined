@@ -1,36 +1,35 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 6.1 installs the current official AllScan backend at
+Gleason's AllScan. Beta 6.4 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 6.3** and remains a prerelease.
+This archive is **Beta 6.4** and remains a prerelease.
 
 ## Install
 
-Download, verify, and extract the current release archive, then run the
-installer directly in an interactive root shell on the AllStar node:
+Download the Beta 6.4 archive and its `.sha256` companion from the GitHub
+prerelease. Then verify, extract, and run the installer directly from an
+interactive root shell:
 
 ```bash
-set -e
+set -euo pipefail
 
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.3"
-pkg="/tmp/allscan-reimagined-1.0.0-beta.6.3.tar.gz"
-checksum="/tmp/allscan-reimagined-1.0.0-beta.6.3.tar.gz.sha256"
-stage="/tmp/asr-beta-6-3-install"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.6.4.tar.gz"
+checksum="${pkg}.sha256"
+stage="$(mktemp -d /tmp/asr-beta-6-4-install.XXXXXX)"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.4"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
-rm -rf "$stage"
-mkdir -p "$stage"
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.6.3"
+cd "$stage/allscan-reimagined-1.0.0-beta.6.4"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -51,6 +50,7 @@ python3 payload/scripts/asr-release-check.py --self-test
 python3 payload/scripts/asr-rollback.py self-test
 python3 payload/scripts/asr-bridge-control.py --self-test
 python3 payload/scripts/asr-ysf-bridge-control.py --self-test
+python3 payload/scripts/asr-protected-config-metadata.py --self-test
 python3 payload/scripts/asr-favorites-update.py --self-test
 python3 payload/scripts/asr-favorites-source.py --self-test
 php payload/scripts/asr-favorites-discovery-self-test.php
@@ -193,7 +193,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 6.3 release notes](release-notes/v1.0.0-beta.6.3.md)
+- [Beta 6.4 release notes](release-notes/v1.0.0-beta.6.4.md)
 
 ## Original AllScan
 

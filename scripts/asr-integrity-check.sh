@@ -36,6 +36,10 @@ files_match() {
 [ -f "$ASR_WEB_DIR/index.html" ] || needs_reapply=1
 [ -f "$ASR_WEB_DIR/asr-api.php" ] || needs_reapply=1
 if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" != "1" ]; then
+WEB_GROUP="www-data"
+getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
+getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
+getent group "$WEB_GROUP" >/dev/null 2>&1 || exit 1
 [ -x /usr/local/sbin/allscan-reimagined-rollback ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
@@ -46,9 +50,13 @@ if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" != "1" ]; then
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 [ -d /var/log/allscan-reimagined ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /var/log/allscan-reimagined 2>/dev/null)" = "root:root:750" ] || needs_reapply=1
-[ "$(stat -c '%U:%a' /etc/allscan-reimagined/config.json 2>/dev/null)" = "root:664" ] || needs_reapply=1
-if [ -f /etc/allscan-reimagined/secrets.json ]; then
-  [ "$(stat -c '%U:%a' /etc/allscan-reimagined/secrets.json 2>/dev/null)" = "root:640" ] || needs_reapply=1
+[ ! -L /etc/allscan-reimagined/config.json ] \
+  && [ "$(stat -c '%U:%G:%a:%h' /etc/allscan-reimagined/config.json 2>/dev/null)" = "root:$WEB_GROUP:664:1" ] \
+  || needs_reapply=1
+if [ -e /etc/allscan-reimagined/secrets.json ] || [ -L /etc/allscan-reimagined/secrets.json ]; then
+  [ ! -L /etc/allscan-reimagined/secrets.json ] \
+    && [ "$(stat -c '%U:%G:%a:%h' /etc/allscan-reimagined/secrets.json 2>/dev/null)" = "root:$WEB_GROUP:640:1" ] \
+    || needs_reapply=1
 fi
 [ -f /etc/systemd/system/allscan-reimagined-rollback@.service ] || needs_reapply=1
 if python3 - /etc/allscan-reimagined/config.json <<'PY'

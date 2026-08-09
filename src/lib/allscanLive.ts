@@ -13,6 +13,7 @@ export type BridgeId = string
 
 export type RuntimeBridgeConfig = {
   id: BridgeId
+  mode?: string
   node: string
   title: string
   detailTitle: string
@@ -44,7 +45,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 6.3',
+  versionLabel: 'v1.0.0 Beta 6.4',
   lowPowerMode: false,
   bridges: [],
 }
@@ -100,6 +101,7 @@ export type FavoritesPayload = {
 
 export type BridgeCardView = {
   id: string
+  mode: string
   node: string
   title: string
   cardType: 'standard' | 'dmr_net' | 'ysf_net'
@@ -115,6 +117,7 @@ export type BridgeCardView = {
   allstarLinked: boolean
   detailTitle: string
   detailRows: BridgeDetailItem[]
+  connectedClientCount: number
 }
 
 export type BridgeDestination = {
@@ -242,6 +245,8 @@ type BridgeEntry = {
   caller?: string
   current_user?: string
   last_user?: string
+  last_source_user?: string
+  last_source_epoch?: number
   recent_users?: Array<Record<string, unknown> & { name?: string }>
 }
 
@@ -789,17 +794,88 @@ function cleanBridgeCaller(value: string | undefined, config: RuntimeConfig) {
   return caller.trim()
 }
 
-function bridgeLastCaller(entry: BridgeEntry | undefined, status: 'Idle' | 'Source/TX' | 'Relay', config: RuntimeConfig) {
-  if (!entry || status === 'Idle') return '-'
-  if (status === 'Relay') return '-'
+export function bridgeModeLabel(mode: string) {
+  const normalized = String(mode || 'unknown').toLowerCase()
+  const labels: Record<string, string> = {
+    dmr: 'DMR',
+    ysf: 'YSF',
+    zello: 'Zello',
+    dstar: 'D-Star',
+    p25: 'P25',
+    nxdn: 'NXDN',
+    m17: 'M17',
+    unknown: 'Other',
+  }
+  return labels[normalized] || normalized.toUpperCase()
+}
 
-  const candidates = [entry.current_user, entry.caller, entry.last_user]
+export function normalizedBridgeMode(mode: string | undefined, id: string) {
+  const candidate = String(mode || id || 'unknown').toLowerCase()
+  const compact = candidate.replace(/[^a-z0-9]/g, '')
+  const known = ['dstar', 'dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn']
+    .find((value) => compact.startsWith(value))
+  return known || candidate.match(/^([a-z][a-z0-9]*)(?:[_-]|$)/)?.[1] || 'unknown'
+}
 
-  const caller = candidates
+type BridgeCountCard = Pick<BridgeCardView, 'mode' | 'connectedClientCount'> & Partial<Pick<
+  BridgeCardView,
+  'cardType' | 'controlLinked' | 'digitalLinked'
+>>
+
+function connectedNetBridgeLinkCount(card: BridgeCountCard) {
+  if (!card.cardType || card.cardType === 'standard') return 0
+  if (card.cardType === 'ysf_net') return card.digitalLinked === true ? 1 : 0
+  return card.controlLinked === true || card.digitalLinked === true ? 1 : 0
+}
+
+export function summarizeBridgeClientCounts(cards: BridgeCountCard[]) {
+  const counts = new Map<string, number>()
+  cards.forEach((card) => {
+    const clientCount = Number.isFinite(card.connectedClientCount)
+      ? Math.max(0, Math.floor(card.connectedClientCount))
+      : 0
+    const count = clientCount + connectedNetBridgeLinkCount(card)
+    if (count === 0) return
+    counts.set(card.mode, (counts.get(card.mode) || 0) + count)
+  })
+  return Array.from(counts, ([mode, count]) => ({ mode, label: bridgeModeLabel(mode), count }))
+}
+
+export function summarizeConnectionTotal(
+  directCount: number,
+  adjacentCount: number,
+  cards: BridgeCountCard[],
+) {
+  const asl = Math.max(0, Math.floor(Number(directCount) || 0))
+  const adjacent = Math.max(0, Math.floor(Number(adjacentCount) || 0))
+  const bridgeCounts = summarizeBridgeClientCounts(cards)
+  return {
+    total: asl + adjacent + bridgeCounts.reduce((total, item) => total + item.count, 0),
+    parts: [
+      `${asl} ASL`,
+      ...bridgeCounts.map((item) => `${item.count} ${item.label}`),
+      `${adjacent} adjacent`,
+    ],
+  }
+}
+
+export function resolveBridgeLastCaller(
+  entry: BridgeEntry | undefined,
+  status: 'Idle' | 'Source/TX' | 'Relay',
+  config: RuntimeConfig,
+) {
+  if (!entry) return '-'
+  if (status !== 'Source/TX') return '-'
+
+  const caller = [entry.current_user, entry.caller]
     .map((value) => String(value || '').trim())
     .find((value) => value && value !== '-')
 
   return cleanBridgeCaller(caller, config) || '-'
+}
+
+export function bridgeCardShowsClientDetails(cardType: BridgeCardView['cardType']) {
+  return cardType === 'standard'
 }
 
 type BridgeClientMode = string
@@ -894,10 +970,12 @@ export async function fetchBridgeCards(
   const payload = (await response.json()) as {
     bridge?: BridgeLiveResponse
     clients?: ConnectedClientsResponse
+    clientCounts?: Record<string, number>
     controls?: BridgeControlResponse
   }
   const bridge = normalizeBridgeRoles(payload.bridge || {})
   const clients = payload.clients || {}
+  const clientCounts = payload.clientCounts || {}
   const controls = payload.controls || {}
 
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
@@ -910,6 +988,7 @@ export async function fetchBridgeCards(
       ? liveZelloRecentTalkers(bridge.zello)
       : cachedDetailRows
     const status = mapBridgeStatus(entry)
+    const mode = normalizedBridgeMode(bridgeConfig.mode, bridgeConfig.id)
     const control = controls[bridgeConfig.id] || {}
     const cardType = bridgeConfig.cardType === 'dmr_net'
       ? 'dmr_net'
@@ -919,11 +998,12 @@ export async function fetchBridgeCards(
     const currentDestination = String(control.currentDestination || control.currentTg || '')
     return {
       id: bridgeConfig.id,
+      mode,
       node: bridgeConfig.node,
       title: bridgeConfig.title,
       cardType,
       status,
-      lastCaller: bridgeLastCaller(entry, status, config),
+      lastCaller: resolveBridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
       currentTg: String(control.currentTg || control.currentDestination || ''),
       currentDestination,
@@ -934,6 +1014,9 @@ export async function fetchBridgeCards(
       allstarLinked: control.allstarLinked === true,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(detailRows, 'None', bridgeConfig.id),
+      connectedClientCount: Number.isFinite(Number(clientCounts[bridgeConfig.id]))
+        ? Math.max(0, Math.floor(Number(clientCounts[bridgeConfig.id])))
+        : 0,
     }
   })
 

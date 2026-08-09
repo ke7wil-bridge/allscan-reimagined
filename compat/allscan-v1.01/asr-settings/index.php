@@ -324,7 +324,7 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			$rawCardType = 'standard';
 		if($rawCardType === 'dmr_net') {
 			if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
-				$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_34004.json.";
+				$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
 				return [];
 			}
 			if(!preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', $rawDvswitchScript)) {
@@ -673,7 +673,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = []) {
 				<span>Connect selects the entered talkgroup and links the AllStar node above. Disconnect exits the DMR talkgroup and unlinks the AllStar node.</span>
 			</div>
 			<div class="asr-bridge-fields-grid">
-				<label><span>ABInfo Path</span><input name="bridgeAbinfoPath[]" type="text" placeholder="/tmp/ABInfo_34004.json" value="<?php echo asrSettingsH($bridge['abinfoPath'] ?? ''); ?>"></label>
+				<label><span>ABInfo Path</span><input name="bridgeAbinfoPath[]" type="text" placeholder="/tmp/ABInfo_12345.json" value="<?php echo asrSettingsH($bridge['abinfoPath'] ?? ''); ?>"></label>
 				<label><span>DVSwitch Script</span><input name="bridgeDvswitchScript[]" type="text" placeholder="/opt/MMDVM_Bridge_DMRNet/dvswitch.sh" value="<?php echo asrSettingsH($bridge['dvswitchScript'] ?? ''); ?>"></label>
 				<label><span>Analog Bridge Config</span><input name="bridgeAnalogConfig[]" type="text" placeholder="/opt/Analog_Bridge_DMRNet/Analog_Bridge.ini" value="<?php echo asrSettingsH($bridge['analogConfig'] ?? ''); ?>"></label>
 			</div>
@@ -697,7 +697,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = []) {
 				<label><span>Analog Bridge Service</span><input name="bridgeAnalogBridgeService[]" type="text" placeholder="analog_bridge_ysfnet.service" value="<?php echo asrSettingsH($bridge['analogBridgeService'] ?? ''); ?>"></label>
 				<label><span>Emulator Service</span><input name="bridgeEmulatorService[]" type="text" placeholder="md380-emu-ysfnet.service" value="<?php echo asrSettingsH($bridge['emulatorService'] ?? ''); ?>"></label>
 				<label><span>YSF Hosts Path</span><input name="bridgeYsfHostsPath[]" type="text" placeholder="/var/lib/mmdvm/YSFHosts.txt" value="<?php echo asrSettingsH($bridge['ysfHostsPath'] ?? ''); ?>"></label>
-				<label class="asr-ysf-custom-reflectors"><span>Custom Reflectors (optional)</span><textarea name="bridgeYsfCustomReflectors[]" rows="4" placeholder="US-KE7WIL-YSF | 12345 | ysf.example.net | 42000 | My YSF Reflector"><?php echo asrSettingsH(asrSettingsCustomYsfReflectorsText($bridge['ysfCustomReflectors'] ?? [])); ?></textarea></label>
+				<label class="asr-ysf-custom-reflectors"><span>Custom Reflectors (optional)</span><textarea name="bridgeYsfCustomReflectors[]" rows="4" placeholder="US-CUSTOM-TEST | 12345 | ysf.example.net | 42000 | My YSF Reflector"><?php echo asrSettingsH(asrSettingsCustomYsfReflectorsText($bridge['ysfCustomReflectors'] ?? [])); ?></textarea></label>
 			</div>
 			<p class="asr-bridge-section-note">Enter one unlisted reflector per line as NAME | 5-DIGIT ID | HOSTNAME OR IP | PORT | OPTIONAL DESCRIPTION. ASR keeps the updater-owned hosts file untouched, builds a separate root-owned merged catalog, and reloads only this dedicated YSFGateway when the catalog changes. Enable controls only after the dedicated bridge stack is verified. The fixed/home YSF Bridge must remain a separate Standard Bridge.</p>
 		</div>
@@ -1089,7 +1089,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 					<span>Connect selects the entered talkgroup and links the AllStar node above. Disconnect exits the DMR talkgroup and unlinks the AllStar node.</span>
 				</div>
 				<div class="asr-bridge-fields-grid">
-					<label><span>ABInfo Path</span><input name="bridgeAbinfoPath[]" type="text" placeholder="/tmp/ABInfo_34004.json"></label>
+					<label><span>ABInfo Path</span><input name="bridgeAbinfoPath[]" type="text" placeholder="/tmp/ABInfo_12345.json"></label>
 					<label><span>DVSwitch Script</span><input name="bridgeDvswitchScript[]" type="text" placeholder="/opt/MMDVM_Bridge_DMRNet/dvswitch.sh"></label>
 					<label><span>Analog Bridge Config</span><input name="bridgeAnalogConfig[]" type="text" placeholder="/opt/Analog_Bridge_DMRNet/Analog_Bridge.ini"></label>
 				</div>
@@ -1110,7 +1110,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 					<label><span>Analog Bridge Service</span><input name="bridgeAnalogBridgeService[]" type="text" placeholder="analog_bridge_ysfnet.service"></label>
 					<label><span>Emulator Service</span><input name="bridgeEmulatorService[]" type="text" placeholder="md380-emu-ysfnet.service"></label>
 					<label><span>YSF Hosts Path</span><input name="bridgeYsfHostsPath[]" type="text" placeholder="/var/lib/mmdvm/YSFHosts.txt"></label>
-					<label class="asr-ysf-custom-reflectors"><span>Custom Reflectors (optional)</span><textarea name="bridgeYsfCustomReflectors[]" rows="4" placeholder="US-KE7WIL-YSF | 12345 | ysf.example.net | 42000 | My YSF Reflector"></textarea></label>
+					<label class="asr-ysf-custom-reflectors"><span>Custom Reflectors (optional)</span><textarea name="bridgeYsfCustomReflectors[]" rows="4" placeholder="US-CUSTOM-TEST | 12345 | ysf.example.net | 42000 | My YSF Reflector"></textarea></label>
 				</div>
 				<p class="asr-bridge-section-note">Enter one unlisted reflector per line as NAME | 5-DIGIT ID | HOSTNAME OR IP | PORT | OPTIONAL DESCRIPTION. ASR keeps the updater-owned hosts file untouched and reloads only the dedicated YSFGateway when the separate merged catalog changes.</p>
 			</div>
