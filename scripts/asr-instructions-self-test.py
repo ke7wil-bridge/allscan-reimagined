@@ -56,6 +56,7 @@ def main() -> int:
         "bridge-setup",
         "dmr-net-bridge",
         "ysf-net-bridge",
+        "next-digital-bridges",
         "lookup-map",
         "updates",
         "rollback",
@@ -105,9 +106,53 @@ def main() -> int:
         and "asr-instructions/#bridge-setup" in settings,
         "Settings does not link to detailed bridge help",
     )
+    require(
+        "define('ASR_MAX_BRIDGES', 16);" in settings,
+        "Settings does not support sixteen bridge cards",
+    )
+    require(
+        "if($count > ASR_MAX_BRIDGES)" in settings
+        and "Remove extra bridge cards before saving. No settings were saved." in settings,
+        "Settings does not clearly reject saves over the bridge-card limit",
+    )
+    require(
+        "min(ASR_MAX_BRIDGES" not in settings,
+        "Settings still silently truncates bridge-card data",
+    )
+    require(
+        "D-Star is not supported by ASR. Delete this bridge card before saving." in settings,
+        "Settings does not reject unsupported legacy D-Star cards clearly",
+    )
+    require(
+        "add_bridge dstar" not in (ROOT / "scripts/asr-configure.sh").read_text(encoding="utf-8")
+        and "'dstar' => ['D-Star Bridge'" not in api
+        and "dstar-clients.json" not in common
+        and "Linked D-Star Gateways" not in app,
+        "Active D-Star support remains in ASR",
+    )
+    require(
+        'name="bridgeFixedRecovery[]"' in settings
+        and "fixedBridgeRecovery" in settings
+        and "Automatically restore this fixed bridge link if it drops" in settings
+        and "Net Bridges are never managed here" in settings,
+        "Settings does not provide bounded Standard Bridge recovery controls",
+    )
+    require(
+        "Fixed Bridge Recovery" in instructions
+        and "native permanent link" in instructions
+        and "Net Bridges are excluded" in instructions,
+        "Help does not explain Standard Bridge recovery boundaries",
+    )
+    require(
+        "User=asterisk" in reapply
+        and "Group=asterisk" in reapply
+        and "SupplementaryGroups=$WEB_GROUP" in reapply,
+        "Fixed-bridge recovery does not run as the restricted Asterisk account",
+    )
     for requirement in (
         "YSF Net Bridge",
-        'value="ysf_net"',
+        'name="bridgeMode[]"',
+        'value="ysf"',
         'name="bridgeYsfGatewayConfig[]"',
         'name="bridgeMmdvmConfig[]"',
         'name="bridgeYsfGatewayService[]"',
@@ -115,10 +160,53 @@ def main() -> int:
         'name="bridgeAllowTune[]"',
         'name="bridgeYsfCustomReflectors[]"',
         "exact reflector name or five-digit ID",
-        "updater-owned hosts file untouched",
+        "Import YSFHosts.txt",
+        "https://hostfiles.refcheck.radio/",
+        "YSF Plain Text",
+        "Re-import after RefCheck adds a reflector",
         "systemctl start allscan-reimagined-reapply.service",
     ):
         require(requirement in settings, f"YSF Net Bridge Settings support is missing: {requirement}")
+    for requirement in (
+        "Choose the digital mode from Bridge ID",
+        'value="p25"',
+        'value="nxdn"',
+        'value="m17"',
+        'name="bridgePermission[]"',
+        'name="bridgeApprovedDestinations[]"',
+        'name="bridgeGatewayConfig[]"',
+        'name="bridgeMmdvmMqttName[]"',
+        'name="bridgeM17Callsign[]"',
+        "A directory listing is not bridge permission",
+        "authenticated local MQTT",
+        "Changing the Bridge ID dropdown can intentionally regenerate",
+        "$nextSecrets['bridgeClientPasswords'][$newSecretId]",
+        "$rawYsfGatewayService",
+        "$rawDigitalMmdvmService",
+    ):
+        require(requirement in settings, f"next-mode bridge Settings support is missing: {requirement}")
+    for requirement in (
+        "ASR_P25_BRIDGE_CONTROL_HELPER",
+        "ASR_NXDN_BRIDGE_CONTROL_HELPER",
+        "ASR_M17_BRIDGE_CONTROL_HELPER",
+        "function asr_next_mode_connect",
+        "function asr_next_mode_disconnect",
+    ):
+        require(requirement in api, f"next-mode bridge API support is missing: {requirement}")
+    if app_is_source:
+        require(
+            "card.cardType === 'm17_net' ? 22_000 : 7_000" in app,
+            "M17 dashboard confirmation does not allow its bounded ACK and AllStar-link window",
+        )
+    for requirement in (
+        "allscan-reimagined-p25-bridge-control",
+        "allscan-reimagined-nxdn-bridge-control",
+        "allscan-reimagined-m17-bridge-control",
+        "allscan-reimagined-m17-usrp-connector",
+        "allscan-reimagined-m17-bridge@.service",
+        "bridge-mqtt-secrets.json",
+    ):
+        require(requirement in reapply, f"next-mode install wiring is missing: {requirement}")
     for requirement in (
         "asr-bridge-drag-handle",
         "asr-bridge-move-up",
@@ -156,12 +244,18 @@ def main() -> int:
         "function asr_ysf_net_resolve_destination",
         "More than one reflector uses that name",
         "currentDestinationLabel",
+        "No valid YSF reflector list is installed",
+        "Import a current YSFHosts.txt list",
     ):
         require(requirement in api, f"YSF name resolution is missing: {requirement}")
     for requirement in (
         "CUSTOM_HOSTS_DIR",
         "def validate_custom_reflectors",
         "def merged_hosts_content",
+        "def import_hosts",
+        "def catalog_status",
+        "--import-hosts",
+        "--catalog-status",
         "--sync-custom-hosts",
     ):
         require(requirement in ysf_helper, f"persistent custom YSF support is missing: {requirement}")
@@ -170,6 +264,20 @@ def main() -> int:
         and "/var/lib/allscan-reimagined/ysf-hosts" in reapply,
         "reapply does not synchronize the managed custom YSF catalog",
     )
+    require(
+        "--refresh-public-hosts" not in ysf_helper
+        and "hostfiles.refcheck.radio/YSFHosts.txt" not in ysf_helper
+        and "cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh" not in reapply
+        and "ExecStart=/usr/local/sbin/allscan-reimagined-ysf-bridge-control --refresh" not in reapply,
+        "obsolete automatic YSF hostfile refresh wiring is still present",
+    )
+    for requirement in (
+        "Install a reflector list.",
+        "The list is a snapshot.",
+        "A rejected upload never erases the previous valid list.",
+        "YSF Plain Text",
+    ):
+        require(requirement in instructions, f"YSF reflector import help is missing: {requirement}")
     require(
         re.search(r"\.asr-reimagined-settings-form\s*\{[^}]*font-size:15px;", admin_css, re.DOTALL)
         is not None,
@@ -187,6 +295,10 @@ def main() -> int:
     rollback_requirements = [
         "Keep this page open after starting the rollback.",
         "Wait for the <strong>Rollback Completed</strong> confirmation",
+        'id="asrRollbackProgress"',
+        'id="asrRollbackProgressTitle">ROLLBACK IN PROGRESS — DO NOT LEAVE THIS PAGE',
+        'id="asrRollbackProgressMessage"',
+        "setRollbackProgress('running', 'ROLLBACK IN PROGRESS — DO NOT LEAVE THIS PAGE'",
         'id="asrRollbackCompleteDialog"',
         'role="alertdialog"',
         'id="asrRollbackCompleteTitle">Rollback Completed',
@@ -206,6 +318,12 @@ def main() -> int:
         ".asr-rollback-complete-card" in admin_css
         and ".asr-rollback-complete-button" in admin_css,
         "rollback completion dialog styling is missing",
+    )
+    require(
+        re.search(r"\.asr-rollback-progress\s*\{[^}]*position:sticky;[^}]*border:3px solid #ff6b6b;[^}]*font-size:17px;", admin_css, re.DOTALL)
+        is not None
+        and '.asr-rollback-progress[data-state="succeeded"]' in admin_css,
+        "prominent rollback progress styling is missing",
     )
     require(
         "function asrRebaseLegacyWebPath" in common

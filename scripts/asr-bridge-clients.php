@@ -139,6 +139,8 @@ function asrManagedBridges(array $bridges): array {
 	return array_values(array_filter($bridges, static function(mixed $bridge): bool {
 		if(!is_array($bridge))
 			return false;
+		if(asrBridgeMode($bridge) === 'dstar')
+			return false;
 		$source = (string) ($bridge['clientSource'] ?? 'disabled');
 		$url = trim((string) ($bridge['clientUrl'] ?? ''));
 		return in_array($source, ['local_json', 'http_api'], true) && $url !== '';
@@ -242,10 +244,10 @@ function asrSelfTest(): void {
 	];
 	$managed = asrManagedBridges($bridges);
 	$ids = array_column($managed, 'id');
-	asrAssertSelfTest($ids === ['zello', 'dstar'], 'Managed-source selection self-test failed.');
+	asrAssertSelfTest($ids === ['zello'], 'Managed-source selection or unsupported-mode exclusion self-test failed.');
 
 	$now = time();
-	foreach(['dmr', 'ysf', 'zello', 'dstar', 'p25', 'm17', 'nxdn', 'unknown'] as $mode) {
+	foreach(['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn', 'unknown'] as $mode) {
 		$stale = [
 			'callsign' => strtoupper($mode) . 'OLD',
 			'last_seen_epoch' => $now - ASR_CLIENT_MAX_SEEN_AGE - 1,

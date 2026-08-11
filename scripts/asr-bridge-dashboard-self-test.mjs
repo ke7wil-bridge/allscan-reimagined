@@ -31,7 +31,6 @@ try {
     dmr_home: 'dmr',
     ysf_netbridge: 'ysf',
     zello_primary: 'zello',
-    'dstar-link': 'dstar',
     p25_main: 'p25',
     nxdn_main: 'nxdn',
     m17_main: 'm17',
@@ -46,7 +45,6 @@ try {
     { mode: 'dmr', connectedClientCount: 1 },
     { mode: 'ysf', connectedClientCount: 3 },
     { mode: 'zello', connectedClientCount: 0 },
-    { mode: 'dstar', connectedClientCount: 0 },
     { mode: 'p25', connectedClientCount: 0 },
     { mode: 'nxdn', connectedClientCount: 0 },
     { mode: 'm17', connectedClientCount: 0 },
@@ -71,10 +69,21 @@ try {
       mode: 'dmr', connectedClientCount: 0, cardType: 'dmr_net',
       controlLinked: true, digitalLinked: false,
     },
+    {
+      mode: 'p25', connectedClientCount: 0, cardType: 'p25_net',
+      controlLinked: false, digitalLinked: false, allstarLinked: true,
+      currentDestination: '10200',
+    },
+    {
+      mode: 'm17', connectedClientCount: 0, cardType: 'm17_net',
+      controlLinked: true, digitalLinked: true,
+    },
   ])
   assert(JSON.stringify(linkedNetBridgeCounts) === JSON.stringify([
     { mode: 'ysf', label: 'YSF', count: 7 },
     { mode: 'dmr', label: 'DMR', count: 3 },
+    { mode: 'p25', label: 'P25', count: 1 },
+    { mode: 'm17', label: 'M17', count: 1 },
   ]), 'connected Net Bridge links were not included once in their mode totals')
   const summary = summarizeConnectionTotal(3, 2, [
     { mode: 'dmr', connectedClientCount: 2 },
@@ -84,6 +93,18 @@ try {
   assert(
     summary.parts.join(', ') === '3 ASL, 2 DMR, 3 YSF, 2 adjacent',
     'combined ASL/bridge/adjacent label failed',
+  )
+  const reclassifiedNetSummary = summarizeConnectionTotal(3, 0, [
+    { mode: 'ysf', connectedClientCount: 6, cardType: 'standard' },
+    {
+      mode: 'ysf', connectedClientCount: 0, cardType: 'ysf_net',
+      controlLinked: true, digitalLinked: true,
+    },
+  ])
+  assert(reclassifiedNetSummary.total === 9, 'Net Bridge transport was double-counted')
+  assert(
+    reclassifiedNetSummary.parts.join(', ') === '2 ASL, 7 YSF, 0 adjacent',
+    'Net Bridge transport was not reclassified from ASL into its digital mode',
   )
 
   const config = { node: '100000' }
@@ -102,6 +123,9 @@ try {
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
   assert(!bridgeCardShowsClientDetails('dmr_net'), 'DMR Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('ysf_net'), 'YSF Net Bridge client details were shown')
+  assert(!bridgeCardShowsClientDetails('p25_net'), 'P25 Net Bridge client details were shown')
+  assert(!bridgeCardShowsClientDetails('nxdn_net'), 'NXDN Net Bridge client details were shown')
+  assert(!bridgeCardShowsClientDetails('m17_net'), 'M17 Net Bridge client details were shown')
 
   console.log('bridge dashboard self-test: ok')
 } finally {

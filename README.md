@@ -1,35 +1,35 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 6.4 installs the current official AllScan backend at
+Gleason's AllScan. Beta 7 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 6.4** and remains a prerelease.
+This archive is **Beta 7** and remains a prerelease.
 
 ## Install
 
-Download the Beta 6.4 archive and its `.sha256` companion from the GitHub
+Download the Beta 7 archive and its `.sha256` companion from the GitHub
 prerelease. Then verify, extract, and run the installer directly from an
 interactive root shell:
 
 ```bash
 set -euo pipefail
 
-pkg="/tmp/allscan-reimagined-1.0.0-beta.6.4.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.7.tar.gz"
 checksum="${pkg}.sha256"
-stage="$(mktemp -d /tmp/asr-beta-6-4-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.6.4"
+stage="$(mktemp -d /tmp/asr-beta-7-install.XXXXXX)"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.6.4"
+cd "$stage/allscan-reimagined-1.0.0-beta.7"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -96,14 +96,19 @@ Header title | ASR
 
 Press Enter/Return at the logo prompt to use the default ASR logo. After
 installation, **Admin → Reimagined Settings** can change the header title,
-upload a PNG, JPEG, or WebP header logo under 1 MB, configure up to eight
+upload a PNG, JPEG, or WebP header logo under 1 MB, configure up to sixteen
 bridge cards and optional client sources, maintain friendly bridge names, save
-QRZ XML credentials, add persistent custom YSF reflectors, control whether ASR login is required, and roll back to
+QRZ XML credentials, opt Standard Bridges into fixed-link recovery, import a
+validated YSF reflector list, add persistent custom YSF reflectors, control whether ASR login is required, and roll back to
 one of the five newest valid previous ASR versions.
 
 **Admin → Help & Instructions** explains the dashboard, Favorites, bridge
-cards, DMR and YSF Net Bridge controls, Lookup and the station map, update notices,
+cards, isolated DMR/YSF/P25/NXDN/M17 Net Bridge controls, Lookup and the station map, update notices,
 rollback, diagnostics, and hard-refresh behavior.
+
+P25 and NXDN controls require a separately provisioned bridge stack with
+authenticated local MQTT, per-instance topic permissions, and matching
+root-only controller credentials. ASR fails closed when that boundary is absent.
 
 The Reimagined credit remains:
 
@@ -193,7 +198,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 6.4 release notes](release-notes/v1.0.0-beta.6.4.md)
+- [Beta 7 release notes](release-notes/v1.0.0-beta.7.md)
 
 ## Original AllScan
 

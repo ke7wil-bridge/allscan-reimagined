@@ -915,8 +915,27 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 .asr-bridge-toggle:focus-visible {
 	background:transparent;
 	box-shadow:none;
-	outline:1px solid rgba(85,199,255,0.45);
-	outline-offset:4px;
+	outline:0;
+}
+
+.asr-bridge-toggle .asr-settings-toggle-icon {
+	width:34px;
+	height:34px;
+	flex:0 0 34px;
+	border:1px solid rgba(85,199,255,0.68);
+	border-radius:7px;
+	background:rgba(85,199,255,0.12);
+	color:#dff5ff;
+	font-size:27px;
+	line-height:1;
+}
+
+.asr-bridge-toggle:hover .asr-settings-toggle-icon,
+.asr-bridge-toggle:focus-visible .asr-settings-toggle-icon {
+	border-color:#79d5ff;
+	background:rgba(85,199,255,0.24);
+	box-shadow:0 0 0 2px rgba(85,199,255,0.22);
+	color:#fff;
 }
 
 .asr-bridge-toggle-copy {
@@ -1898,6 +1917,50 @@ h5 {
 	color:#c7d2d9;
 }
 
+.asr-rollback-progress[hidden] {
+	display:none !important;
+}
+
+.asr-rollback-progress {
+	box-sizing:border-box;
+	position:sticky;
+	top:12px;
+	z-index:80;
+	display:grid;
+	gap:8px;
+	width:min(58rem, calc(100% - 24px));
+	margin:14px auto 18px;
+	padding:18px 20px;
+	border:3px solid #ff6b6b;
+	border-radius:10px;
+	background:linear-gradient(180deg, #8f171c 0%, #5f0f13 100%);
+	box-shadow:0 10px 32px rgba(0,0,0,0.58), 0 0 0 4px rgba(255,107,107,0.2);
+	color:#fff;
+	font-size:17px;
+	font-weight:800;
+	line-height:1.45;
+	text-align:left;
+}
+
+.asr-rollback-progress strong {
+	color:#fff;
+	font-size:22px;
+	font-weight:950;
+	letter-spacing:0.02em;
+	line-height:1.2;
+}
+
+.asr-rollback-progress[data-state="succeeded"] {
+	border-color:#70e08f;
+	background:linear-gradient(180deg, #246f3c 0%, #174b29 100%);
+	box-shadow:0 10px 32px rgba(0,0,0,0.58), 0 0 0 4px rgba(112,224,143,0.2);
+}
+
+.asr-rollback-progress[data-state="failed"] {
+	border-color:#ff9d9d;
+	background:linear-gradient(180deg, #981d23 0%, #610f14 100%);
+}
+
 .asr-rollback-warning {
 	padding:9px 11px;
 	border-left:4px solid #e68127;
@@ -2050,6 +2113,17 @@ body.asr-rollback-dialog-open {
 }
 
 @media (max-width:900px) {
+	.asr-rollback-progress {
+		top:8px;
+		width:calc(100% - 16px);
+		padding:16px;
+		font-size:16px;
+	}
+
+	.asr-rollback-progress strong {
+		font-size:19px;
+	}
+
 	.asr-rollback-current {
 		align-items:flex-start;
 	}

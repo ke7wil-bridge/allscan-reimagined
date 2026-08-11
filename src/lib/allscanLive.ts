@@ -10,6 +10,7 @@ const CONNECTION_RECONNECT_INITIAL_MS = 2000
 const CONNECTION_RECONNECT_MAX_MS = 30000
 
 export type BridgeId = string
+export type BridgeCardType = 'standard' | 'dmr_net' | 'ysf_net' | 'p25_net' | 'nxdn_net' | 'm17_net'
 
 export type RuntimeBridgeConfig = {
   id: BridgeId
@@ -18,7 +19,7 @@ export type RuntimeBridgeConfig = {
   title: string
   detailTitle: string
   friendlyName?: string
-  cardType?: 'standard' | 'dmr_net' | 'ysf_net'
+  cardType?: BridgeCardType
   linkAlias?: string
 }
 
@@ -45,7 +46,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 6.4',
+  versionLabel: 'v1.0.0 Beta 7',
   lowPowerMode: false,
   bridges: [],
 }
@@ -104,7 +105,7 @@ export type BridgeCardView = {
   mode: string
   node: string
   title: string
-  cardType: 'standard' | 'dmr_net' | 'ysf_net'
+  cardType: BridgeCardType
   status: 'Idle' | 'Source/TX' | 'Relay'
   lastCaller: string
   warning: string
@@ -233,7 +234,6 @@ type BridgeLiveResponse = {
   dmr?: BridgeEntry
   ysf?: BridgeEntry
   zello?: BridgeEntry
-  dstar?: BridgeEntry
 } & Record<string, BridgeEntry | string | number | undefined>
 
 type BridgeEntry = {
@@ -773,7 +773,6 @@ function normalizeBridgeRoles(bridge: BridgeLiveResponse): BridgeLiveResponse {
     dmr: { ...bridge.dmr },
     ysf: bridge.ysf ? { ...bridge.ysf } : bridge.ysf,
     zello: { ...bridge.zello },
-    dstar: bridge.dstar ? { ...bridge.dstar } : bridge.dstar,
   }
   const dmrRole = rawBridgeRole(next.dmr)
   const zelloRole = rawBridgeRole(next.zello)
@@ -800,7 +799,6 @@ export function bridgeModeLabel(mode: string) {
     dmr: 'DMR',
     ysf: 'YSF',
     zello: 'Zello',
-    dstar: 'D-Star',
     p25: 'P25',
     nxdn: 'NXDN',
     m17: 'M17',
@@ -812,20 +810,27 @@ export function bridgeModeLabel(mode: string) {
 export function normalizedBridgeMode(mode: string | undefined, id: string) {
   const candidate = String(mode || id || 'unknown').toLowerCase()
   const compact = candidate.replace(/[^a-z0-9]/g, '')
-  const known = ['dstar', 'dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn']
+  const known = ['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn']
     .find((value) => compact.startsWith(value))
   return known || candidate.match(/^([a-z][a-z0-9]*)(?:[_-]|$)/)?.[1] || 'unknown'
 }
 
 type BridgeCountCard = Pick<BridgeCardView, 'mode' | 'connectedClientCount'> & Partial<Pick<
   BridgeCardView,
-  'cardType' | 'controlLinked' | 'digitalLinked'
+  'cardType' | 'controlLinked' | 'digitalLinked' | 'allstarLinked' | 'currentDestination'
 >>
 
 function connectedNetBridgeLinkCount(card: BridgeCountCard) {
   if (!card.cardType || card.cardType === 'standard') return 0
-  if (card.cardType === 'ysf_net') return card.digitalLinked === true ? 1 : 0
-  return card.controlLinked === true || card.digitalLinked === true ? 1 : 0
+  if (card.controlLinked === true) return 1
+  // P25/NXDN Gateway MQTT can confirm target selection but not remote UDP
+  // reachability. Count the operator-selected Net Bridge transport only when
+  // that canonical target and its AllStar side are both present, while the
+  // card itself continues to label reachability as unverified.
+  if ((card.cardType === 'p25_net' || card.cardType === 'nxdn_net')
+    && card.allstarLinked === true
+    && String(card.currentDestination || '').trim() !== '') return 1
+  return 0
 }
 
 export function summarizeBridgeClientCounts(cards: BridgeCountCard[]) {
@@ -846,7 +851,14 @@ export function summarizeConnectionTotal(
   adjacentCount: number,
   cards: BridgeCountCard[],
 ) {
-  const asl = Math.max(0, Math.floor(Number(directCount) || 0))
+  // A linked Net Bridge's dedicated AllStar transport is already present in
+  // directCount. Reclassify that one direct link into its digital-mode bucket
+  // instead of adding a second connection to the overall total.
+  const netBridgeLinks = cards.reduce(
+    (total, card) => total + connectedNetBridgeLinkCount(card),
+    0,
+  )
+  const asl = Math.max(0, Math.floor(Number(directCount) || 0) - netBridgeLinks)
   const adjacent = Math.max(0, Math.floor(Number(adjacentCount) || 0))
   const bridgeCounts = summarizeBridgeClientCounts(cards)
   return {
@@ -990,11 +1002,10 @@ export async function fetchBridgeCards(
     const status = mapBridgeStatus(entry)
     const mode = normalizedBridgeMode(bridgeConfig.mode, bridgeConfig.id)
     const control = controls[bridgeConfig.id] || {}
-    const cardType = bridgeConfig.cardType === 'dmr_net'
-      ? 'dmr_net'
-      : bridgeConfig.cardType === 'ysf_net'
-        ? 'ysf_net'
-        : 'standard'
+    const supportedNetCardTypes: BridgeCardType[] = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net']
+    const cardType: BridgeCardType = supportedNetCardTypes.includes(bridgeConfig.cardType as BridgeCardType)
+      ? bridgeConfig.cardType as BridgeCardType
+      : 'standard'
     const currentDestination = String(control.currentDestination || control.currentTg || '')
     return {
       id: bridgeConfig.id,

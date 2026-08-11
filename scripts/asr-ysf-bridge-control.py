@@ -15,10 +15,9 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
@@ -60,9 +59,9 @@ VERIFY_TIMEOUT = 10.0
 STATE_TRANSITION_GRACE_SECONDS = 15
 TAIL_BYTES = 262_144
 MAX_CUSTOM_REFLECTORS = 32
-PUBLIC_HOSTS_URL = "https://hostfiles.refcheck.radio/YSFHosts.txt"
-MAX_PUBLIC_HOSTS_BYTES = 2_000_000
-MIN_PUBLIC_DESTINATIONS = 1000
+MAX_IMPORT_HOSTS_BYTES = 2_000_000
+MIN_IMPORT_DESTINATIONS = 1000
+CATALOG_STATE_PREFIX = "catalog-"
 
 
 class ControlError(RuntimeError):
@@ -180,7 +179,7 @@ def validate_bridge(bridge: dict, config: dict) -> dict:
         raise ControlError("Configured YSF tuning permission is invalid.")
     custom_reflectors = validate_custom_reflectors(bridge.get("ysfCustomReflectors", []))
     if custom_reflectors and not HOSTS_RE.fullmatch(str(bridge.get("ysfHostsPath", ""))):
-        raise ControlError("Custom YSF reflectors require the updater-owned YSF source hosts path.")
+        raise ControlError("Custom YSF reflectors require a configured YSF source hosts path.")
     for other in config.get("bridges", []):
         if not isinstance(other, dict) or other is bridge:
             continue
@@ -296,6 +295,8 @@ def atomic_json(path: Path, payload: object) -> None:
 
 
 def atomic_root_text(path: Path, content: str, mode: int = 0o644) -> bool:
+    if path.is_symlink() or path.parent.is_symlink():
+        raise ControlError(f"{path} must not be a symbolic link.")
     if not path.parent.exists():
         if path.parent != CUSTOM_HOSTS_DIR:
             raise ControlError(f"{path.parent} does not exist.")
@@ -466,46 +467,112 @@ def parse_destinations(path: Path) -> list[dict]:
     return sorted(destinations, key=lambda row: (row["name"].casefold(), row["id"]))
 
 
-def download_public_hosts(node: str) -> str:
-    request = urllib.request.Request(
-        PUBLIC_HOSTS_URL,
-        headers={"User-Agent": (
-            f"AllScan-Reimagined-YSF/{node or 'unknown'} "
-            "(+https://github.com/ke7wil-bridge/allscan-reimagined)"
-        )},
-    )
+def catalog_state_path(bridge_id: str) -> Path:
+    if not BRIDGE_ID_RE.fullmatch(bridge_id):
+        raise ControlError("Invalid bridge ID.")
+    return CUSTOM_HOSTS_DIR / f"{CATALOG_STATE_PREFIX}{bridge_id}.json"
+
+
+def atomic_root_json(path: Path, payload: object) -> bool:
+    return atomic_root_text(path, json.dumps(payload, separators=(",", ":")) + "\n")
+
+
+def parse_imported_hosts(content: bytes) -> tuple[str, list[dict]]:
+    if len(content) > MAX_IMPORT_HOSTS_BYTES:
+        raise ControlError("YSFHosts.txt exceeds the 2 MB safety limit; the existing catalog was kept.")
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            content = response.read(MAX_PUBLIC_HOSTS_BYTES + 1)
-    except (OSError, urllib.error.URLError) as exc:
-        raise ControlError("The public YSF hostfile could not be downloaded; the existing catalog was kept.") from exc
-    if len(content) > MAX_PUBLIC_HOSTS_BYTES:
-        raise ControlError("The public YSF hostfile exceeded the safety limit; the existing catalog was kept.")
-    try:
-        return content.decode("utf-8")
+        text = content.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ControlError("The public YSF hostfile was not valid UTF-8; the existing catalog was kept.") from exc
-
-
-def refresh_public_hosts(path: Path = CONFIG_PATH) -> dict:
-    config = load_config(path)
-    bridges = configured_bridges(path)
-    targets = sorted({
-        source_hosts_path(bridge, gateway_configuration(bridge)["hosts"])
-        for bridge in bridges
-    })
-    if not targets:
-        return {"updated": False, "destinations": 0, "paths": []}
-    content = download_public_hosts(str(config.get("node", "")))
+        raise ControlError("YSFHosts.txt must be valid UTF-8; the existing catalog was kept.") from exc
     with tempfile.TemporaryDirectory() as raw_tmp:
         candidate = Path(raw_tmp) / "YSFHosts.txt"
-        candidate.write_text(content, encoding="utf-8")
+        candidate.write_text(text, encoding="utf-8")
         destinations = parse_destinations(candidate)
-    if len(destinations) < MIN_PUBLIC_DESTINATIONS:
-        raise ControlError("The downloaded public YSF hostfile failed validation; the existing catalog was kept.")
-    updated_paths = [str(target) for target in targets if atomic_root_text(target, content)]
-    sync_all_custom_catalogs(path)
-    return {"updated": bool(updated_paths), "destinations": len(destinations), "paths": updated_paths}
+    if len(destinations) < MIN_IMPORT_DESTINATIONS:
+        raise ControlError(
+            "YSFHosts.txt does not contain enough valid semicolon-format reflectors; "
+            "the existing catalog was kept."
+        )
+    return text, destinations
+
+
+def import_hosts(bridge_id: str, content: bytes, path: Path = CONFIG_PATH) -> dict:
+    require_secure_config_file(path)
+    bridge = bridge_config(bridge_id, path)
+    settings = gateway_configuration(bridge)
+    source = source_hosts_path(bridge, settings["hosts"])
+    if source.exists() or source.is_symlink():
+        require_secure_root_file(source, "Configured YSF source hosts file")
+    text, destinations = parse_imported_hosts(content)
+    if bridge.get("ysfCustomReflectors"):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            candidate = Path(raw_tmp) / "YSFHosts.txt"
+            candidate.write_text(text, encoding="utf-8")
+            merged_hosts_content(candidate, bridge["ysfCustomReflectors"])
+    changed = atomic_root_text(source, text)
+    digest = hashlib.sha256(content).hexdigest()
+    imported_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata_saved = True
+    try:
+        atomic_root_json(catalog_state_path(bridge_id), {
+            "bridgeId": bridge_id,
+            "state": "valid",
+            "count": len(destinations),
+            "importedAt": imported_at,
+            "sha256": digest,
+        })
+    except (ControlError, OSError):
+        metadata_saved = False
+    synced = sync_custom_catalog(bridge, reload_gateway=False)
+    reload_ok = True
+    if changed or synced["changed"]:
+        try:
+            signal_gateway_reload(bridge["services"]["gateway"])
+        except ControlError:
+            reload_ok = False
+    return {
+        "ok": True,
+        "bridgeId": bridge_id,
+        "state": "valid",
+        "count": len(destinations),
+        "importedAt": imported_at,
+        "changed": changed,
+        "customCatalogChanged": synced["changed"],
+        "metadataSaved": metadata_saved,
+        "gatewayReloaded": reload_ok,
+    }
+
+
+def catalog_status(bridge_id: str, path: Path = CONFIG_PATH) -> dict:
+    require_secure_config_file(path)
+    bridge = bridge_config(bridge_id, path)
+    settings = gateway_configuration(bridge)
+    source = source_hosts_path(bridge, settings["hosts"])
+    try:
+        require_secure_root_file(source, "Configured YSF source hosts file")
+        destinations = parse_destinations(source)
+    except ControlError:
+        destinations = []
+    if not destinations:
+        return {"ok": True, "bridgeId": bridge_id, "state": "no_valid_list", "count": 0, "importedAt": ""}
+    try:
+        source_bytes = source.read_bytes()
+        source_mtime = source.stat().st_mtime
+    except OSError as exc:
+        raise ControlError("Configured YSF source hosts file could not be inspected.") from exc
+    digest = hashlib.sha256(source_bytes).hexdigest()
+    imported_at = ""
+    try:
+        metadata_path = catalog_state_path(bridge_id)
+        require_secure_root_file(metadata_path, "YSF catalog import metadata")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if isinstance(metadata, dict) and metadata.get("sha256") == digest:
+            imported_at = str(metadata.get("importedAt", ""))
+    except (OSError, ValueError):
+        pass
+    if not imported_at:
+        imported_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(source_mtime))
+    return {"ok": True, "bridgeId": bridge_id, "state": "valid", "count": len(destinations), "importedAt": imported_at}
 
 
 def merged_hosts_content(source: Path, custom_reflectors: list[dict]) -> str:
@@ -1350,6 +1417,24 @@ def self_test() -> None:
         )
         parsed = parse_destinations(hosts)
         assert {item["id"] for item in parsed} == {"12345", "23456"}
+        import_rows = "".join(
+            f"{index:05d};TEST-{index};Test reflector {index};127.0.0.1;49999;000;\n"
+            for index in range(1, MIN_IMPORT_DESTINATIONS + 1)
+        ).encode("utf-8")
+        imported_text, imported_rows = parse_imported_hosts(import_rows)
+        assert imported_text.endswith("\n")
+        assert len(imported_rows) == MIN_IMPORT_DESTINATIONS
+        for invalid_import in (
+            b"12345;TOO-SMALL;Only one reflector;127.0.0.1;49999;000;\n",
+            b"\xff\xfe\xfd",
+            b"x" * (MAX_IMPORT_HOSTS_BYTES + 1),
+        ):
+            try:
+                parse_imported_hosts(invalid_import)
+            except ControlError:
+                pass
+            else:
+                raise AssertionError("invalid YSFHosts.txt import was accepted")
         custom = validate_custom_reflectors([{
             "id": "34567", "name": "us-custom-test",
             "host": "ysf.example.net", "port": 41000,
@@ -1492,7 +1577,8 @@ def main() -> int:
     action.add_argument("--disconnect", metavar="BRIDGE_ID")
     action.add_argument("--watch", action="store_true")
     action.add_argument("--sync-custom-hosts", action="store_true")
-    action.add_argument("--refresh-public-hosts", action="store_true")
+    action.add_argument("--import-hosts", metavar="BRIDGE_ID")
+    action.add_argument("--catalog-status", metavar="BRIDGE_ID")
     action.add_argument("--self-test", action="store_true")
     parser.add_argument("destination", nargs="?")
     parser.add_argument("--user", default="unknown")
@@ -1506,8 +1592,11 @@ def main() -> int:
                 "ok": True,
                 "bridges": sync_all_custom_catalogs(),
             }, separators=(",", ":")))
-        elif args.refresh_public_hosts:
-            print(json.dumps({"ok": True, **refresh_public_hosts()}, separators=(",", ":")))
+        elif args.import_hosts:
+            content = sys.stdin.buffer.read(MAX_IMPORT_HOSTS_BYTES + 1)
+            print(json.dumps(import_hosts(args.import_hosts, content), separators=(",", ":")))
+        elif args.catalog_status:
+            print(json.dumps(catalog_status(args.catalog_status), separators=(",", ":")))
         elif args.watch:
             watch_status(once=args.once)
         elif args.connect:

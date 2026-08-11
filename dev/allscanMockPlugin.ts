@@ -16,7 +16,7 @@ const runtimeConfig = {
   footerByline: 'Synthetic test data',
   headerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 6.4',
+  versionLabel: 'v1.0.0 Beta 7',
   bridges: [
     { id: 'dmr', mode: 'dmr', node: '2001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
     { id: 'dmr_net', mode: 'dmr', node: '2002', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },

@@ -625,6 +625,168 @@ def reconcile_ysf_net_wiring(release_root: Path) -> None:
     )
 
 
+def rewrite_owned_policy_without(
+    path: Path,
+    retired_markers: tuple[str, ...],
+    *,
+    validate_sudoers: bool = False,
+) -> None:
+    """Remove exact ASR-owned capability lines without broad policy edits."""
+    if not path.exists():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise RollbackError(f"Refusing to rewrite unexpected policy path: {path}")
+    metadata = path.stat()
+    original = path.read_text(encoding="utf-8")
+    retained = "".join(
+        line for line in original.splitlines(keepends=True)
+        if not any(marker in line for marker in retired_markers)
+    )
+    if retained == original:
+        return
+    temporary = path.with_name(f".{path.name}.rollback-digital-{os.getpid()}")
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            metadata.st_mode & 0o777,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(retained)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chown(temporary, metadata.st_uid, metadata.st_gid)
+        os.chmod(temporary, metadata.st_mode & 0o777)
+        if validate_sudoers:
+            result = subprocess.run(
+                ["visudo", "-cf", str(temporary)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RollbackError(
+                    f"Rollback sudoers cleanup validation failed: {result.stderr.strip()}"
+                )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def reconcile_next_digital_wiring(release_root: Path) -> None:
+    """Remove ASR-owned P25/NXDN/M17 helpers when the restored release predates them."""
+    scripts = release_root / "scripts"
+    expected = {
+        "asr-p25-bridge-control.py": Path("/usr/local/sbin/allscan-reimagined-p25-bridge-control"),
+        "asr-nxdn-bridge-control.py": Path("/usr/local/sbin/allscan-reimagined-nxdn-bridge-control"),
+        "asr-m17-bridge-control.py": Path("/usr/local/sbin/allscan-reimagined-m17-bridge-control"),
+        "asr-m17-usrp-connector.py": Path("/usr/local/sbin/allscan-reimagined-m17-usrp-connector"),
+    }
+    missing = [name for name in expected if not (scripts / name).is_file()]
+    if not missing:
+        return
+    if any(name.startswith("asr-m17-") for name in missing):
+        wants_dir = Path("/etc/systemd/system/multi-user.target.wants")
+        for unit_link in wants_dir.glob("allscan-reimagined-m17-bridge@*.service"):
+            if not unit_link.is_symlink():
+                continue
+            subprocess.run(
+                ["systemctl", "disable", "--now", unit_link.name],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        Path("/etc/systemd/system/allscan-reimagined-m17-bridge@.service").unlink(missing_ok=True)
+        shutil.rmtree("/run/allscan-reimagined-m17", ignore_errors=True)
+    for mode, script_name in (
+        ("p25", "asr-p25-bridge-control.py"),
+        ("nxdn", "asr-nxdn-bridge-control.py"),
+    ):
+        if script_name not in missing:
+            continue
+        subprocess.run(
+            ["systemctl", "disable", "--now", f"allscan-reimagined-{mode}-bridge-status.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        Path(f"/etc/systemd/system/allscan-reimagined-{mode}-bridge-status.service").unlink(missing_ok=True)
+    for name in missing:
+        expected[name].unlink(missing_ok=True)
+    if "asr-p25-bridge-control.py" in missing:
+        shutil.rmtree("/run/allscan-reimagined-p25-bridge-control", ignore_errors=True)
+    if "asr-nxdn-bridge-control.py" in missing:
+        shutil.rmtree("/run/allscan-reimagined-nxdn-bridge-control", ignore_errors=True)
+    policy_markers = tuple(
+        marker
+        for script_name, markers in {
+            "asr-p25-bridge-control.py": (
+                "/run/allscan-reimagined-p25-bridge-control",
+                "allscan-reimagined-p25-bridge-control",
+            ),
+            "asr-nxdn-bridge-control.py": (
+                "/run/allscan-reimagined-nxdn-bridge-control",
+                "allscan-reimagined-nxdn-bridge-control",
+            ),
+            "asr-m17-bridge-control.py": (
+                "/run/allscan-reimagined-m17",
+                "allscan-reimagined-m17-bridge-control",
+            ),
+        }.items()
+        if script_name in missing
+        for marker in markers
+    )
+    if policy_markers:
+        rewrite_owned_policy_without(
+            Path("/etc/tmpfiles.d/allscan-reimagined.conf"), policy_markers
+        )
+        rewrite_owned_policy_without(
+            Path("/etc/sudoers.d/allscan-reimagined"),
+            policy_markers,
+            validate_sudoers=True,
+        )
+    subprocess.run(
+        ["systemctl", "daemon-reload"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def reconcile_fixed_bridge_recovery_wiring(
+    release_root: Path,
+    *,
+    systemd_dir: Path = Path("/etc/systemd/system"),
+    sbin_dir: Path = Path("/usr/local/sbin"),
+    runner: Any = subprocess.run,
+) -> None:
+    """Remove ASR-owned fixed-link recovery when the restored release predates it."""
+    if (release_root / "scripts/asr-fixed-bridge-recovery.py").is_file():
+        return
+    runner(
+        [
+            "systemctl", "disable", "--now",
+            "allscan-reimagined-fixed-bridge-recovery.timer",
+            "allscan-reimagined-fixed-bridge-recovery.service",
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for path in (
+        systemd_dir / "allscan-reimagined-fixed-bridge-recovery.service",
+        systemd_dir / "allscan-reimagined-fixed-bridge-recovery.timer",
+        sbin_dir / "allscan-reimagined-fixed-bridge-recovery",
+    ):
+        path.unlink(missing_ok=True)
+    runner(
+        ["systemctl", "daemon-reload"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def ensure_manager_wiring() -> None:
     helper = Path("/usr/local/sbin/allscan-reimagined-rollback")
     if helper.is_file():
@@ -852,6 +1014,8 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                     env=environment,
                 )
             reconcile_ysf_net_wiring(release_target)
+            reconcile_next_digital_wiring(release_target)
+            reconcile_fixed_bridge_recovery_wiring(release_target)
             ensure_manager_wiring()
             if detect_version(active_web / "asr-api.php") != version:
                 raise RollbackError("Served ASR version did not match after rollback")
@@ -960,6 +1124,64 @@ def self_test() -> None:
         )
         assert "previous installation was restored" in failure_message
         assert "missing protected-config helper" in failure_message
+        legacy_release = root / "legacy-release"
+        legacy_release.mkdir()
+        systemd_dir = root / "systemd"
+        sbin_dir = root / "sbin"
+        systemd_dir.mkdir()
+        sbin_dir.mkdir()
+        fixed_paths = (
+            systemd_dir / "allscan-reimagined-fixed-bridge-recovery.service",
+            systemd_dir / "allscan-reimagined-fixed-bridge-recovery.timer",
+            sbin_dir / "allscan-reimagined-fixed-bridge-recovery",
+        )
+        for path in fixed_paths:
+            path.write_text("test\n", encoding="utf-8")
+        reconciliation_commands: list[list[str]] = []
+
+        def record_reconciliation(command: list[str], **_: Any) -> None:
+            reconciliation_commands.append(command)
+
+        reconcile_fixed_bridge_recovery_wiring(
+            legacy_release,
+            systemd_dir=systemd_dir,
+            sbin_dir=sbin_dir,
+            runner=record_reconciliation,
+        )
+        assert not any(path.exists() for path in fixed_paths)
+        assert reconciliation_commands[0][0:3] == ["systemctl", "disable", "--now"]
+        assert reconciliation_commands[-1] == ["systemctl", "daemon-reload"]
+
+        current_release = root / "current-release"
+        (current_release / "scripts").mkdir(parents=True)
+        (current_release / "scripts/asr-fixed-bridge-recovery.py").write_text(
+            "test\n", encoding="utf-8"
+        )
+        reconciliation_commands.clear()
+        reconcile_fixed_bridge_recovery_wiring(
+            current_release,
+            systemd_dir=systemd_dir,
+            sbin_dir=sbin_dir,
+            runner=record_reconciliation,
+        )
+        assert reconciliation_commands == []
+        tmpfiles_policy = root / "allscan-reimagined.conf"
+        tmpfiles_policy.write_text(
+            "d /run/allscan-reimagined 1775 root www-data -\n"
+            "d /run/allscan-reimagined-p25-bridge-control 2750 root www-data -\n"
+            "d /run/allscan-reimagined-m17 0755 root root -\n",
+            encoding="utf-8",
+        )
+        rewrite_owned_policy_without(
+            tmpfiles_policy,
+            (
+                "/run/allscan-reimagined-p25-bridge-control",
+                "/run/allscan-reimagined-m17",
+            ),
+        )
+        assert tmpfiles_policy.read_text(encoding="utf-8") == (
+            "d /run/allscan-reimagined 1775 root www-data -\n"
+        )
         backups = root / "backups"
         for index, version in enumerate(
             ("1.0.0-beta.6.0", "1.0.0-beta.5.11", "1.0.0-beta.5.10")

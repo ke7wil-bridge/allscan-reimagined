@@ -150,7 +150,6 @@ function writeAutodiscPreference(checked: boolean) {
 function compactBridgeDetailTitle(title: string) {
   if (title === 'Connected DMR Clients') return 'Connected Clients'
   if (title === 'Linked YSF Gateways') return 'Linked Gateways'
-  if (title === 'Linked D-Star Gateways') return 'Linked Gateways'
   return title
 }
 
@@ -501,7 +500,7 @@ function App({ config }: { config: RuntimeConfig }) {
     return {
       ...next,
       cards: next.cards.map((card) => {
-        const isTunableDigitalBridge = card.cardType === 'dmr_net' || card.cardType === 'ysf_net'
+        const isTunableDigitalBridge = card.cardType !== 'standard'
         const row = isTunableDigitalBridge
           ? connectionRowsRef.current.find((candidate) => (
             candidate.bridgeId === card.id
@@ -515,7 +514,7 @@ function App({ config }: { config: RuntimeConfig }) {
         if (card.status !== 'Idle') {
           return card
         }
-        if (card.cardType === 'ysf_net' && !card.controlLinked) {
+        if (card.cardType !== 'standard' && card.cardType !== 'dmr_net' && !card.controlLinked) {
           return withStatus(card, 'Idle')
         }
         if (row?.state === 'talking') {
@@ -989,7 +988,7 @@ function App({ config }: { config: RuntimeConfig }) {
       let changed = false
       const next = { ...current }
       bridgeState.cards.forEach((card) => {
-        if (card.cardType !== 'ysf_net' || !card.currentDestination) return
+        if (card.cardType === 'standard' || card.cardType === 'dmr_net' || !card.currentDestination) return
         if (bridgeDestinationTouched.current.has(card.id)) return
         if (next[card.id] === card.currentDestination) return
         next[card.id] = card.currentDestination
@@ -1235,9 +1234,11 @@ function App({ config }: { config: RuntimeConfig }) {
     bridgeId: string,
     linked: boolean,
     destination = '',
+    timeoutMs = 7_000,
   ) {
     let last = applyBridgeConnectionOverrides(await fetchBridgeCards(config))
-    for (let attempt = 0; attempt < 24; attempt += 1) {
+    const attempts = Math.max(1, Math.ceil(timeoutMs / 250))
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const card = last.cards.find((item) => item.id === bridgeId)
       const confirmed = card
         && card.controlLinked === linked
@@ -1297,11 +1298,11 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
-  async function connectYsfNetCard(card: BridgeCardView) {
+  async function connectReflectorNetCard(card: BridgeCardView) {
     if (!authStatus.canModify || bridgeControlBusy) return
     const destination = String(bridgeDestinationInputs[card.id] || '').trim()
     if (!destination) {
-      appendNodeMessage('Enter an exact YSF reflector name or five-digit ID.')
+      appendNodeMessage(`Enter an approved ${card.mode.toUpperCase()} destination.`)
       return
     }
 
@@ -1310,10 +1311,23 @@ function App({ config }: { config: RuntimeConfig }) {
       setBridgeControlAction('connect')
       const result = await connectBridge(card.id, destination)
       const canonicalId = String(result.currentDestination || '').trim()
-      if (!/^\d{5}$/.test(canonicalId)) {
-        throw new Error('YSF Net Bridge returned an invalid canonical reflector ID.')
+      if (!canonicalId || canonicalId.length > 80) {
+        throw new Error(`${card.title} returned an invalid canonical destination.`)
       }
-      const canonical = await confirmBridgeControlState(card.id, true, canonicalId)
+      if (card.cardType === 'p25_net' || card.cardType === 'nxdn_net') {
+        setBridgeDestinationInputs((current) => ({ ...current, [card.id]: canonicalId }))
+        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
+        appendNodeMessage(
+          `${card.title} selected ${canonicalId} and confirmed its AllStar transport. ASR counts that selected Net Bridge locally, but Gateway selection is not proof that the remote reflector is reachable, so reflector reachability remains unverified.`,
+        )
+        return
+      }
+      const canonical = await confirmBridgeControlState(
+        card.id,
+        true,
+        canonicalId,
+        card.cardType === 'm17_net' ? 22_000 : 7_000,
+      )
       setBridgeDestinationInputs((current) => ({
         ...current,
         [card.id]: canonicalId,
@@ -1328,14 +1342,19 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
-  async function disconnectYsfNetCard(card: BridgeCardView) {
+  async function disconnectReflectorNetCard(card: BridgeCardView) {
     if (!authStatus.canModify || bridgeControlBusy) return
 
     try {
       setBridgeControlBusy(card.id)
       setBridgeControlAction('disconnect')
       await disconnectBridge(card.id)
-      await confirmBridgeControlState(card.id, false)
+      await confirmBridgeControlState(
+        card.id,
+        false,
+        '',
+        card.cardType === 'm17_net' ? 22_000 : 7_000,
+      )
       appendNodeMessage(`${card.title} disconnected.`)
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : `${card.title} disconnect failed.`)
@@ -2059,13 +2078,20 @@ function App({ config }: { config: RuntimeConfig }) {
               style={{ gridTemplateColumns: `repeat(${Math.min(bridgeState.cards.length, 4)}, minmax(0, 1fr))` }}
             >
               {bridgeState.cards.map((card) => {
-                const bridgeLinked = card.cardType === 'ysf_net' ? card.digitalLinked : card.controlLinked || rows.some(
+                const bridgeLinked = card.cardType !== 'standard' && card.cardType !== 'dmr_net'
+                  ? card.controlLinked
+                  : card.controlLinked || rows.some(
                   (row) => row.bridgeId === card.id
                     && row.direction.toUpperCase() === 'OUT'
                     && row.state !== 'message',
                 )
                 const cardBusy = bridgeControlBusy === card.id
                 const destinationInput = bridgeDestinationInputs[card.id] || ''
+                const destinationLabel = card.cardType === 'ysf_net'
+                  ? 'Reflector name or ID'
+                  : card.cardType === 'm17_net'
+                    ? 'Approved reflector and module'
+                    : `Approved ${card.mode.toUpperCase()} designator`
                 return (
                 <article
                   key={card.id}
@@ -2087,10 +2113,10 @@ function App({ config }: { config: RuntimeConfig }) {
                         <b>{bridgeLinked ? (card.currentDestinationLabel || card.currentTg || '-') : '-'}</b>
                       </div>
                     ) : null}
-                    {card.cardType === 'ysf_net' ? (
+                    {card.cardType !== 'dmr_net' && card.currentDestination ? (
                       <div className="allscan-bridge-row">
-                        <span>Current Reflector</span>
-                        <b>{bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || '-') : '-'}</b>
+                        <span>Current Destination</span>
+                        <b>{card.currentDestinationLabel || card.currentDestination}</b>
                       </div>
                     ) : null}
                     <div className="allscan-bridge-row">
@@ -2141,12 +2167,12 @@ function App({ config }: { config: RuntimeConfig }) {
                     </div>
                   ) : null}
 
-                  {card.cardType === 'ysf_net' && authStatus.canModify ? (
+                  {card.cardType !== 'standard' && card.cardType !== 'dmr_net' && authStatus.canModify ? (
                     <div className="allscan-bridge-controls">
                       <div className="allscan-bridge-tune">
-                        <label htmlFor={`ysf-net-destination-${card.id}`}>Reflector name or ID</label>
+                        <label htmlFor={`digital-net-destination-${card.id}`}>{destinationLabel}</label>
                         <input
-                          id={`ysf-net-destination-${card.id}`}
+                          id={`digital-net-destination-${card.id}`}
                           type="text"
                           autoComplete="off"
                           spellCheck={false}
@@ -2167,7 +2193,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           type="button"
                           className="allscan-action-button allscan-connect-button"
                           disabled={busy || cardBusy || !card.controlReady || destinationInput.trim() === ''}
-                          onClick={() => void connectYsfNetCard(card)}
+                          onClick={() => void connectReflectorNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
                         </button>
@@ -2180,7 +2206,7 @@ function App({ config }: { config: RuntimeConfig }) {
                             && !card.digitalLinked
                             && !card.allstarLinked
                           )}
-                          onClick={() => void disconnectYsfNetCard(card)}
+                          onClick={() => void disconnectReflectorNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
                         </button>

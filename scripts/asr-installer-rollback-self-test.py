@@ -153,6 +153,19 @@ def assert_installer_order(installer: Path) -> None:
     assert "allscan-reimagined-ysf-net-live.service" in text
     assert "allscan-reimagined-ysf-bridge-control" in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-m17-bridge-control.py" --self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-m17-usrp-connector.py" --self-test' in text
+    assert "allscan-reimagined-m17-bridge@.service" in text
+    assert "allscan-reimagined-p25-bridge-status.service" in text
+    assert "allscan-reimagined-nxdn-bridge-status.service" in text
+    assert "allscan-reimagined-fixed-bridge-recovery.service" in text
+    assert "allscan-reimagined-fixed-bridge-recovery.timer" in text
+    assert "FIXED_RECOVERY_TIMER_WAS_ENABLED" in text
+    assert "FIXED_RECOVERY_TIMER_WAS_ACTIVE" in text
+    assert "allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null" in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-fixed-bridge-recovery.py" --self-test' in text
     assert "remove_asr_managed_wiring" in text
     assert "allscan-reimagined-friendly-names.conf" in text
     assert (

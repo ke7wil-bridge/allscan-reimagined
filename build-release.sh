@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VERSION=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/package.json" | head -1)
 VERSION_LABEL="v$(printf '%s' "$VERSION" | sed -E 's/-beta\.([0-9]+)/ Beta \1/; s/-test/ Test/; s/-/ /g')"
+PUBLIC_BETA_LABEL="Beta ${VERSION##*.}"
 OUT="$ROOT/release"
 STAGE="$OUT/allscan-reimagined-$VERSION"
 PACKAGE="$OUT/allscan-reimagined-$VERSION.tar.gz"
@@ -35,10 +36,24 @@ grep -Fq '<title>AllScan Reimagined</title>' "$ROOT/index.html" || {
   echo "index.html must use the generic pre-configuration browser title." >&2
   exit 1
 }
+grep -Fq "This archive is **$PUBLIC_BETA_LABEL**" "$ROOT/README.md" || {
+  echo "README.md public release wording does not match: $PUBLIC_BETA_LABEL" >&2
+  exit 1
+}
+grep -Fq "<p>$PUBLIC_BETA_LABEL keeps the original AllScan" \
+  "$ROOT/compat/allscan-v1.01/asr-instructions/index.php" || {
+  echo "Help public release wording does not match: $PUBLIC_BETA_LABEL" >&2
+  exit 1
+}
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
+python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
+python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
+python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
+python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
+python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
@@ -93,6 +108,11 @@ install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
+install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25-bridge-control.py"
+install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
+install -m 755 scripts/asr-m17-bridge-control.py "$STAGE/payload/scripts/asr-m17-bridge-control.py"
+install -m 755 scripts/asr-m17-usrp-connector.py "$STAGE/payload/scripts/asr-m17-usrp-connector.py"
+install -m 755 scripts/asr-fixed-bridge-recovery.py "$STAGE/payload/scripts/asr-fixed-bridge-recovery.py"
 install -m 755 scripts/asr-side-by-side-self-test.sh "$STAGE/payload/scripts/asr-side-by-side-self-test.sh"
 install -m 755 scripts/asr-favorites-update.py "$STAGE/payload/scripts/asr-favorites-update.py"
 install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favorites-source.py"
@@ -113,7 +133,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.6.4.md "$STAGE/release-notes/v1.0.0-beta.6.4.md"
+install -m 644 release-notes/v1.0.0-beta.7.md "$STAGE/release-notes/v1.0.0-beta.7.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then

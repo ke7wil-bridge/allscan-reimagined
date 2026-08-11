@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.6.4"
+ASR_VERSION="1.0.0-beta.7"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -23,6 +23,8 @@ REAPPLY_PATH_WAS_ENABLED=0
 REAPPLY_PATH_WAS_ACTIVE=0
 REAPPLY_TIMER_WAS_ENABLED=0
 REAPPLY_TIMER_WAS_ACTIVE=0
+FIXED_RECOVERY_TIMER_WAS_ENABLED=0
+FIXED_RECOVERY_TIMER_WAS_ACTIVE=0
 REAPPLY_STATES_CAPTURED=0
 ALLSCAN_OLD_ARMED=0
 ALLSCAN_OLD_BACKUP=""
@@ -91,7 +93,10 @@ restore_prior_reapply_units() {
   for unit in \
     allscan-reimagined-reapply.service \
     allscan-reimagined-reapply.path \
-    allscan-reimagined-reapply.timer; do
+    allscan-reimagined-reapply.timer \
+    allscan-reimagined-fixed-bridge-recovery.service \
+    allscan-reimagined-fixed-bridge-recovery.timer \
+    allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
       install -o root -g root -m 644 "$backup" "/etc/systemd/system/$unit"
@@ -105,13 +110,22 @@ remove_asr_managed_wiring() {
   systemctl disable --now \
     allscan-reimagined-reapply.path \
     allscan-reimagined-reapply.timer \
+    allscan-reimagined-fixed-bridge-recovery.timer \
+    allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-dmr-net-live.service \
     allscan-reimagined-ysf-net-live.service \
+    allscan-reimagined-p25-bridge-status.service \
+    allscan-reimagined-nxdn-bridge-status.service \
     allscan-reimagined-ysf-hosts-refresh.service \
     allscan-reimagined-ysf-hosts-refresh.timer \
     allscan-reimagined-bridge-clients.timer \
     allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
+  systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
+  for m17_unit_link in /etc/systemd/system/multi-user.target.wants/allscan-reimagined-m17-bridge@*.service; do
+    [ -L "$m17_unit_link" ] || continue
+    systemctl disable "${m17_unit_link##*/}" >/dev/null 2>&1 || true
+  done
   command -v a2disconf >/dev/null 2>&1 \
     && a2disconf allscan-reimagined >/dev/null 2>&1 || true
   rm -f \
@@ -149,6 +163,16 @@ restore_reapply_unit_states() {
       systemctl stop "allscan-reimagined-reapply.$unit" >/dev/null 2>&1 || true
     fi
   done
+  if [ "$FIXED_RECOVERY_TIMER_WAS_ENABLED" -eq 1 ]; then
+    systemctl enable allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+  else
+    systemctl disable allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+  fi
+  if [ "$FIXED_RECOVERY_TIMER_WAS_ACTIVE" -eq 1 ]; then
+    systemctl start allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+  else
+    systemctl stop allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+  fi
 }
 
 rollback_on_error() {
@@ -212,6 +236,11 @@ rollback_on_error() {
       "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
       "scripts/asr-bridge-control.py:/usr/local/sbin/allscan-reimagined-bridge-control" \
       "scripts/asr-ysf-bridge-control.py:/usr/local/sbin/allscan-reimagined-ysf-bridge-control" \
+      "scripts/asr-p25-bridge-control.py:/usr/local/sbin/allscan-reimagined-p25-bridge-control" \
+      "scripts/asr-nxdn-bridge-control.py:/usr/local/sbin/allscan-reimagined-nxdn-bridge-control" \
+      "scripts/asr-m17-bridge-control.py:/usr/local/sbin/allscan-reimagined-m17-bridge-control" \
+      "scripts/asr-m17-usrp-connector.py:/usr/local/sbin/allscan-reimagined-m17-usrp-connector" \
+      "scripts/asr-fixed-bridge-recovery.py:/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery" \
       "scripts/asr-favorites-update.py:/usr/local/sbin/allscan-reimagined-favorites-update"; do
       helper_source=${helper_spec%%:*}
       helper_target=${helper_spec#*:}
@@ -229,7 +258,9 @@ rollback_on_error() {
       systemctl reset-failed \
         allscan-reimagined-reapply.service \
         allscan-reimagined-reapply.path \
-        allscan-reimagined-reapply.timer >/dev/null 2>&1 || true
+        allscan-reimagined-reapply.timer \
+        allscan-reimagined-fixed-bridge-recovery.service \
+        allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
       if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
         systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
       fi
@@ -325,6 +356,12 @@ fi
 if systemctl is-active --quiet allscan-reimagined-reapply.timer; then
   REAPPLY_TIMER_WAS_ACTIVE=1
 fi
+if systemctl is-enabled --quiet allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null; then
+  FIXED_RECOVERY_TIMER_WAS_ENABLED=1
+fi
+if systemctl is-active --quiet allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null; then
+  FIXED_RECOVERY_TIMER_WAS_ACTIVE=1
+fi
 REAPPLY_STATES_CAPTURED=1
 
 current_version="not installed"
@@ -353,7 +390,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 6.4"
+echo "Reimagined release:        v1.0.0 Beta 7"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -373,7 +410,10 @@ chmod 700 "$BACKUP_DIR/runtime" "$BACKUP_DIR/runtime/protected" "$BACKUP_DIR/run
 for unit in \
   allscan-reimagined-reapply.service \
   allscan-reimagined-reapply.path \
-  allscan-reimagined-reapply.timer; do
+  allscan-reimagined-reapply.timer \
+  allscan-reimagined-fixed-bridge-recovery.service \
+  allscan-reimagined-fixed-bridge-recovery.timer \
+  allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
   else
@@ -488,7 +528,12 @@ CHANGES_STARTED=1
 systemctl stop \
   allscan-reimagined-reapply.path \
   allscan-reimagined-reapply.timer \
-  allscan-reimagined-reapply.service >/dev/null 2>&1 || true
+  allscan-reimagined-reapply.service \
+  allscan-reimagined-p25-bridge-status.service \
+  allscan-reimagined-nxdn-bridge-status.service \
+  allscan-reimagined-fixed-bridge-recovery.timer \
+  allscan-reimagined-fixed-bridge-recovery.service >/dev/null 2>&1 || true
+systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
 
 echo "[2/8] Checking the official AllScan backend..."
 if [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; then
@@ -547,7 +592,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -819,6 +864,16 @@ validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
 validate_command "YSF bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test >/dev/null
+validate_command "P25 bridge-control helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test >/dev/null
+validate_command "NXDN bridge-control helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test >/dev/null
+validate_command "M17 bridge-control helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-m17-bridge-control.py" --self-test >/dev/null
+validate_command "M17 USRP connector self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-m17-usrp-connector.py" --self-test >/dev/null
+validate_command "fixed-bridge recovery helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-fixed-bridge-recovery.py" --self-test >/dev/null
 validate_command "protected configuration metadata self-test" \
   python3 "$RELEASE_DIR/scripts/asr-protected-config-metadata.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
@@ -982,7 +1037,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 6.4"
+echo "AllScan Reimagined:    v1.0.0 Beta 7"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"

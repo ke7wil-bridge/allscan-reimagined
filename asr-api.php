@@ -13,9 +13,12 @@ const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_YSF_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-ysf-bridge-control';
+const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-bridge-control';
+const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
+const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.6.4';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 6.4';
+const ASR_VERSION = '1.0.0-beta.7';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -208,7 +211,6 @@ function asr_detect_bridges(): array {
         'dmr' => ['DMR Bridge', 'Connected Clients'],
         'ysf' => ['YSF Bridge', 'Linked Gateways'],
         'zello' => ['Zello Bridge', 'Recent Talkers'],
-        'dstar' => ['D-Star Bridge', 'Linked Gateways'],
         'p25' => ['P25 Bridge', 'Linked Clients'],
         'm17' => ['M17 Bridge', 'Linked Clients'],
         'nxdn' => ['NXDN Bridge', 'Linked Clients'],
@@ -218,6 +220,7 @@ function asr_detect_bridges(): array {
         if (in_array($id, ['updated', 'updated_epoch'], true)) continue;
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) $id)) continue;
         if (!isset($payload[$id]) || !is_array($payload[$id]) || $payload[$id] === []) continue;
+        if (asr_bridge_mode(['id' => (string) $id]) === 'dstar') continue;
         [$title, $detailTitle] = $definitions[$id] ?? [ucfirst((string) $id) . ' Bridge', 'Linked Clients'];
         $bridges[] = ['id' => $id, 'node' => '', 'title' => $title, 'detailTitle' => $detailTitle];
     }
@@ -229,7 +232,8 @@ function asr_bridge_mode(array $bridge): string {
         $candidate = strtolower(trim((string) $value));
         if ($candidate === '') continue;
         $compact = preg_replace('/[^a-z0-9]/', '', $candidate);
-        foreach (['dstar', 'dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn'] as $knownMode) {
+        if (str_starts_with((string) $compact, 'dstar')) return 'dstar';
+        foreach (['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn'] as $knownMode) {
             if (str_starts_with((string) $compact, $knownMode)) return $knownMode;
         }
         if (preg_match('/^([a-z][a-z0-9]*)(?:[_-]|$)/D', $candidate, $match)) {
@@ -265,8 +269,10 @@ function asr_runtime_config(): array {
     $bridges = [];
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
+        $mode = asr_bridge_mode($bridge);
+        if ($mode === 'dstar') continue;
         $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
-        $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net', 'ysf_net'], true)
+        $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true)
             ? (string) $bridge['cardType']
             : 'standard';
         $linkAlias = '';
@@ -280,14 +286,14 @@ function asr_runtime_config(): array {
         }
         $bridges[] = [
             'id' => (string) $bridge['id'],
-            'mode' => asr_bridge_mode($bridge),
+            'mode' => $mode,
             'node' => $bridgeNode,
             'linkAlias' => $linkAlias,
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
             'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
             'friendlyName' => substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),
             'cardType' => $cardType,
-            'allowTune' => $cardType === 'ysf_net' && !empty($bridge['allowTune']),
+            'allowTune' => $cardType !== 'standard' && !empty($bridge['allowTune']),
         ];
     }
 
@@ -433,6 +439,196 @@ function asr_dmr_net_live_statuses(): array {
     return $clean;
 }
 
+function asr_next_mode_bridge_config(string $bridgeId): ?array {
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId) || !is_readable(ASR_RUNTIME_CONFIG)) return null;
+    $config = json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true);
+    foreach ((array) ($config['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge) || (string) ($bridge['id'] ?? '') !== $bridgeId) continue;
+        $cardType = (string) ($bridge['cardType'] ?? '');
+        if (!in_array($cardType, ['p25_net', 'nxdn_net', 'm17_net'], true)) return null;
+        return $bridge;
+    }
+    return null;
+}
+
+function asr_next_mode_helper_path(string $mode): string {
+    if ($mode === 'p25') return ASR_P25_BRIDGE_CONTROL_HELPER;
+    if ($mode === 'nxdn') return ASR_NXDN_BRIDGE_CONTROL_HELPER;
+    if ($mode === 'm17') return ASR_M17_BRIDGE_CONTROL_HELPER;
+    return '';
+}
+
+function asr_next_mode_helper(string $mode, string $bridgeId, array $arguments, string $fallback, bool $fatal = true): array {
+    global $user;
+    $helper = asr_next_mode_helper_path($mode);
+    if ($helper === '' || !is_executable($helper)) {
+        if ($fatal) asr_error(strtoupper($mode) . ' Net Bridge control helper is not installed.', 503);
+        return [];
+    }
+    $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg($helper);
+    if ($mode === 'm17') {
+        $command .= ' --bridge ' . escapeshellarg($bridgeId);
+        if (in_array((string) ($arguments[0] ?? ''), ['connect', 'disconnect'], true)) {
+            $command .= ' --user ' . escapeshellarg($username);
+        }
+        foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+    } else {
+        foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+        if (in_array((string) ($arguments[0] ?? ''), ['connect', 'disconnect'], true)) {
+            $command .= ' --user ' . escapeshellarg($username);
+        }
+    }
+    $lines = [];
+    $status = 1;
+    exec($command . ' 2>&1', $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) { $payload = $decoded; break; }
+    }
+    if (!is_array($payload)) {
+        if ($fatal) asr_error(strtoupper($mode) . ' Net Bridge control returned an invalid response.', 500);
+        return [];
+    }
+    if ($status !== 0 || empty($payload['ok'])) {
+        if ($fatal) asr_error((string) ($payload['error'] ?? $fallback), 500);
+        return [];
+    }
+    return $payload;
+}
+
+function asr_next_mode_statuses(): array {
+    if (!is_readable(ASR_RUNTIME_CONFIG)) return ['live' => [], 'controls' => []];
+    $config = json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true);
+    $live = [];
+    $controls = [];
+    $modeCaches = [];
+    foreach (['p25', 'nxdn'] as $cacheMode) {
+        $cache = asr_secure_root_json('/run/allscan-reimagined-' . $cacheMode . '-bridge-control/status.json');
+        $updated = (int) ($cache['updatedEpoch'] ?? 0);
+        if (is_array($cache)
+            && (string) ($cache['mode'] ?? '') === $cacheMode
+            && empty($cache['stale'])
+            && $updated > 0
+            && $updated <= time() + 30
+            && time() - $updated <= 10
+            && is_array($cache['bridges'] ?? null)) {
+            $modeCaches[$cacheMode] = $cache['bridges'];
+        }
+    }
+    $linkedNodes = [];
+    $mainNode = preg_match('/^[0-9]{3,10}$/D', (string) ($config['node'] ?? '')) ? (string) $config['node'] : '';
+    $asteriskRead = '/usr/local/sbin/allscan-reimagined-asterisk-read';
+    if ($mainNode !== '' && is_executable($asteriskRead)) {
+        foreach (asr_command_lines('sudo -n ' . escapeshellarg($asteriskRead) . ' lstats ' . escapeshellarg($mainNode), 10000) as $line) {
+            if (preg_match('/^([0-9]{3,10})\s+.*\sESTABLISHED\s*$/D', trim($line), $match)) $linkedNodes[$match[1]] = true;
+        }
+    }
+    foreach ((array) ($config['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge)) continue;
+        $id = (string) ($bridge['id'] ?? '');
+        $mode = asr_bridge_mode($bridge);
+        $cardType = (string) ($bridge['cardType'] ?? 'standard');
+        $modeCardTypes = ['standard', $mode . '_net'];
+        if (!in_array($mode, ['p25', 'nxdn', 'm17'], true)
+            || !in_array($cardType, $modeCardTypes, true)
+            || !in_array((string) ($bridge['bridgePermission'] ?? ''), ['self_owned', 'approved'], true)
+            || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
+            || !is_executable(asr_next_mode_helper_path($mode))) continue;
+        $status = $mode === 'm17'
+            ? asr_next_mode_helper($mode, $id, ['status'], 'Status unavailable.', false)
+            : (is_array($modeCaches[$mode][$id] ?? null) ? $modeCaches[$mode][$id] : []);
+        if ($status === []) continue;
+        if ($mode !== 'm17' && (empty($status['ok']) || !empty($status['stale']))) continue;
+        if ($mode === 'm17') {
+            $confirmed = is_array($status['confirmedTarget'] ?? null) ? $status['confirmedTarget'] : [];
+            $reflector = substr((string) ($confirmed['reflector'] ?? ''), 0, 16);
+            $module = substr((string) ($confirmed['module'] ?? ''), 0, 1);
+            $destination = trim($reflector . ' ' . $module);
+            $linked = (string) ($status['linkState'] ?? '') === 'linked';
+            $ready = !empty($status['audioReady']);
+            $talker = $linked ? substr((string) ($status['talker'] ?? ''), 0, 9) : '';
+            $warning = substr((string) ($status['error'] ?? ''), 0, 160);
+        } else {
+            $destination = substr((string) ($status['confirmedTarget'] ?? ''), 0, 12);
+            $linked = !empty($status['reachabilityConfirmed']);
+            $serviceState = is_array($status['serviceState'] ?? null) ? $status['serviceState'] : [];
+            $ready = !empty($status['ok']) && !empty($serviceState['ready']);
+            $talker = !empty($status['talkerEvidenceAvailable'])
+                && ($status['inboundTalkerActive'] ?? null) === true
+                ? substr((string) ($status['inboundTalker'] ?? ''), 0, 16)
+                : '';
+            $warningText = (string) ($status['talkerEvidenceReason'] ?? '');
+            if ($warningText === '') $warningText = (string) ($status['message'] ?? '');
+            $warning = substr($warningText, 0, 160);
+        }
+        $allstarLinked = isset($linkedNodes[(string) ($bridge['node'] ?? '')]);
+        $live[$id] = [
+            'active' => $talker !== '',
+            'role' => $talker !== '' ? 'source' : 'idle',
+            'state' => $talker !== '' ? 'TX ACTIVE' : ($linked ? 'Idle' : 'Disconnected'),
+            'node' => substr((string) ($bridge['node'] ?? ''), 0, 10),
+            'title' => substr((string) ($bridge['title'] ?? strtoupper($mode) . ' Net Bridge'), 0, 80),
+            'channel' => $linked ? $destination : '-',
+            'destination' => $destination,
+            'destinationName' => $destination,
+            'linked' => $linked,
+            'digitalLinked' => $linked,
+            'allstarLinked' => $allstarLinked,
+            'ready' => $ready,
+            'current_user' => $talker,
+            'caller' => $talker,
+            'last_user' => '-',
+            'warning' => $warning,
+            'recent_users' => [],
+        ];
+        $controls[$id] = [
+            'ready' => $ready,
+            'linked' => $linked && $allstarLinked,
+            'digitalLinked' => $linked,
+            'allstarLinked' => $allstarLinked,
+            'currentDestination' => $destination,
+            'currentDestinationLabel' => $destination,
+        ];
+    }
+    return ['live' => $live, 'controls' => $controls];
+}
+
+function asr_next_mode_connect(string $bridgeId, string $destination): array {
+    $bridge = asr_next_mode_bridge_config($bridgeId);
+    if ($bridge === null) asr_error('Configured P25, NXDN, or M17 Net Bridge was not found.', 404);
+    $mode = asr_bridge_mode($bridge);
+    $destination = strtoupper(trim($destination));
+    if ($mode === 'm17') {
+        if (!preg_match('/^(M17-[A-Z0-9]{3})[\s\/:]+([A-Z])$/D', $destination, $match)) {
+            asr_error('Enter an approved M17 destination as REFLECTOR MODULE, for example M17-M17 C.');
+        }
+        $payload = asr_next_mode_helper($mode, $bridgeId, [
+            'connect', '--reflector', $match[1], '--module', $match[2],
+        ], 'M17 Net Bridge connection failed.');
+        $payload['currentDestination'] = $match[1] . ' ' . $match[2];
+        $payload['currentDestinationLabel'] = $payload['currentDestination'];
+        return $payload;
+    }
+    if (!preg_match('/^[0-9]{1,6}$/D', $destination) || (int) $destination < 1) {
+        asr_error('Enter an approved numeric ' . strtoupper($mode) . ' destination.');
+    }
+    $payload = asr_next_mode_helper($mode, $bridgeId, ['connect', $bridgeId, $destination], strtoupper($mode) . ' Net Bridge connection failed.');
+    $payload['currentDestination'] = $destination;
+    $payload['currentDestinationLabel'] = $destination;
+    return $payload;
+}
+
+function asr_next_mode_disconnect(string $bridgeId): array {
+    $bridge = asr_next_mode_bridge_config($bridgeId);
+    if ($bridge === null) asr_error('Configured P25, NXDN, or M17 Net Bridge was not found.', 404);
+    $mode = asr_bridge_mode($bridge);
+    return $mode === 'm17'
+        ? asr_next_mode_helper($mode, $bridgeId, ['disconnect'], 'M17 Net Bridge disconnect failed.')
+        : asr_next_mode_helper($mode, $bridgeId, ['disconnect', $bridgeId], strtoupper($mode) . ' Net Bridge disconnect failed.');
+}
+
 function asr_bridge_status_payload(): array {
     $bridge = [];
     $path = asrRuntimeFilePath('bridge-live.json');
@@ -446,13 +642,15 @@ function asr_bridge_status_payload(): array {
     foreach (asr_ysf_net_live_statuses() as $id => $entry) {
         $bridge[$id] = $entry;
     }
+    $nextModes = asr_next_mode_statuses();
+    foreach ($nextModes['live'] as $id => $entry) $bridge[$id] = $entry;
     $clientState = asr_bridge_clients_state();
     return [
         'ok' => true,
         'bridge' => $bridge,
         'clients' => $clientState['clients'],
         'clientCounts' => $clientState['counts'],
-        'controls' => array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses()),
+        'controls' => array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses(), $nextModes['controls']),
     ];
 }
 
@@ -634,7 +832,14 @@ function asr_ysf_net_destination_rows(string $bridgeId): array {
     if (!is_array($payload)
         || (string) ($payload['bridgeId'] ?? '') !== $bridgeId
         || !is_array($payload['destinations'] ?? null)) {
-        asr_error('YSF reflector cache is not ready.', 503);
+        $catalogCommand = 'sudo -n ' . escapeshellarg(ASR_YSF_BRIDGE_CONTROL_HELPER)
+            . ' --catalog-status ' . escapeshellarg($bridgeId) . ' 2>/dev/null';
+        $catalogLines = asr_command_lines($catalogCommand, 65536);
+        $catalog = json_decode(implode("\n", $catalogLines), true);
+        if (is_array($catalog) && ($catalog['state'] ?? '') === 'no_valid_list') {
+            asr_error('No valid YSF reflector list is installed. Import YSFHosts.txt in Reimagined Settings.', 503);
+        }
+        asr_error('YSF reflector cache is still initializing. Try again shortly.', 503);
     }
     $destinations = [];
     foreach ($payload['destinations'] as $item) {
@@ -677,7 +882,7 @@ function asr_ysf_net_resolve_destination(string $bridgeId, string $query): array
             $matches[$item['id']] = $item;
         }
     }
-    if(count($matches) === 0) asr_error('YSF reflector name or ID was not found. Add an unlisted reflector in Reimagined Settings.');
+    if(count($matches) === 0) asr_error('YSF reflector name or ID was not found. Import a current YSFHosts.txt list or add an unlisted reflector in Reimagined Settings.');
     if(count($matches) > 1) asr_error('More than one reflector uses that name. Enter its five-digit ID.');
     return array_values($matches)[0];
 }
@@ -1885,7 +2090,6 @@ function asr_service_hints(string $bridgeId): array {
         'dmr' => 'mmdvm|analog_bridge|md380|dmr|brandmeister|tgif',
         'ysf' => 'ysf|mmdvm_bridge_ysf|analog_bridge_ysf|md380-emu-ysf',
         'zello' => 'zello',
-        'dstar' => 'dstar|ircddb|xlx|dplus',
         'p25' => 'p25',
         'm17' => 'm17',
         'nxdn' => 'nxdn',
@@ -2228,6 +2432,9 @@ if ($action === 'bridge-connect') {
         asr_error('Invalid bridge-control request.', 403);
     }
     $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    if (asr_next_mode_bridge_config($bridgeId) !== null) {
+        asr_json(asr_next_mode_connect($bridgeId, (string) ($_POST['destination'] ?? '')));
+    }
     if (asr_ysf_net_bridge_config($bridgeId) !== null) {
         asr_json(asr_ysf_net_connect($bridgeId, (string) ($_POST['destination'] ?? '')));
     }
@@ -2244,6 +2451,9 @@ if ($action === 'bridge-disconnect') {
         asr_error('Invalid bridge-control request.', 403);
     }
     $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    if (asr_next_mode_bridge_config($bridgeId) !== null) {
+        asr_json(asr_next_mode_disconnect($bridgeId));
+    }
     if (asr_ysf_net_bridge_config($bridgeId) !== null) {
         asr_json(asr_ysf_net_disconnect($bridgeId));
     }

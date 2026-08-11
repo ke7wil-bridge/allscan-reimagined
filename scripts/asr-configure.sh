@@ -137,7 +137,6 @@ bridge_detected() {
     dmr) { grep -E '(^|/)(dmrbridge|mmdvm_bridge|analog_bridge|md380-emu|tgif)[^/]*\.service' <<<"$service_list" | grep -Ev '(ysf|dstar|d-star)'; } >/dev/null || json_has_bridge dmr ;;
     ysf) grep -Eq 'ysf[^/]*\.service' <<<"$service_list" || json_has_bridge ysf ;;
     zello) grep -Eq 'zello[^/]*\.service' <<<"$service_list" || json_has_bridge zello ;;
-    dstar) grep -Eq '(dstar|ircddb)[^/]*\.service' <<<"$service_list" || json_has_bridge dstar ;;
     p25) grep -Eq 'p25[^/]*\.service' <<<"$service_list" || json_has_bridge p25 ;;
     m17) grep -Eq 'm17[^/]*\.service' <<<"$service_list" || json_has_bridge m17 ;;
     nxdn) grep -Eq 'nxdn[^/]*\.service' <<<"$service_list" || json_has_bridge nxdn ;;
@@ -151,7 +150,6 @@ bridge_title_from_id() {
     dmr) printf 'DMR Bridge' ;;
     ysf) printf 'YSF Bridge' ;;
     zello) printf 'Zello Bridge' ;;
-    dstar) printf 'D-Star Bridge' ;;
     p25) printf 'P25 Bridge' ;;
     m17) printf 'M17 Bridge' ;;
     nxdn) printf 'NXDN Bridge' ;;
@@ -178,6 +176,7 @@ json_bridge_ids() {
     foreach ($data as $id => $value) {
       if (in_array($id, ["updated", "updated_epoch"], true)) continue;
       if (!preg_match("/^[a-z][a-z0-9_-]{1,31}$/", (string) $id)) continue;
+      if (preg_match("/^d[-_]?star(?:[_-]|$)/", (string) $id)) continue;
       if (!is_array($value) || $value === []) continue;
       echo $id, PHP_EOL;
     }
@@ -297,7 +296,6 @@ echo "=== Bridge Detection ==="
 add_bridge dmr "DMR Bridge" "Connected Clients" 'DMR|TGIF'
 add_bridge ysf "YSF Bridge" "Linked Gateways" 'YSF'
 add_bridge zello "Zello Bridge" "Recent Talkers" 'Zello'
-add_bridge dstar "D-Star Bridge" "Linked Gateways" 'D-Star|DSTAR|DStar'
 add_bridge p25 "P25 Bridge" "Linked Clients" 'P25'
 add_bridge m17 "M17 Bridge" "Linked Clients" 'M17'
 add_bridge nxdn "NXDN Bridge" "Linked Clients" 'NXDN'

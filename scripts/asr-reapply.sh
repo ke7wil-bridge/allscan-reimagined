@@ -193,6 +193,16 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" 
 install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" /usr/local/sbin/allscan-reimagined-ysf-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-p25-bridge-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-p25-bridge-control.py" /usr/local/sbin/allscan-reimagined-p25-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-nxdn-bridge-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-nxdn-bridge-control.py" /usr/local/sbin/allscan-reimagined-nxdn-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-m17-bridge-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-bridge-control.py" /usr/local/sbin/allscan-reimagined-m17-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
+[ -f "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
 install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
@@ -204,11 +214,23 @@ mkdir -p "$CONFIG_DIR"
 chown "root:$WEB_GROUP" "$CONFIG_DIR"
 chmod 775 "$CONFIG_DIR"
 repair_protected_config_metadata
+MQTT_SECRETS_FILE="$CONFIG_DIR/bridge-mqtt-secrets.json"
+if [ -e "$MQTT_SECRETS_FILE" ] || [ -L "$MQTT_SECRETS_FILE" ]; then
+  [ -f "$MQTT_SECRETS_FILE" ] \
+    && [ ! -L "$MQTT_SECRETS_FILE" ] \
+    && [ "$(stat -c '%u:%g:%a:%h' "$MQTT_SECRETS_FILE")" = "0:0:600:1" ] || {
+      echo "Root-only bridge MQTT credential file is unsafe." >&2
+      exit 1
+    }
+fi
 cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
 d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
+d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
+d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -
+d /run/allscan-reimagined-m17 0755 root root -
 EOF
 systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
@@ -278,37 +300,10 @@ ReadWritePaths=/run/allscan-reimagined-ysf-bridge-control /var/lib/allscan-reima
 [Install]
 WantedBy=multi-user.target
 EOF
-cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service <<'EOF'
-[Unit]
-Description=Refresh the public YSF reflector catalog for AllScan Reimagined
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/allscan-reimagined-ysf-bridge-control --refresh-public-hosts
-Nice=10
-MemoryMax=64M
-TasksMax=16
-TimeoutStartSec=45s
-NoNewPrivileges=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/mmdvm -/var/lib/allscan-reimagined/ysf-hosts
-EOF
-cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer <<'EOF'
-[Unit]
-Description=Refresh the public YSF reflector catalog daily
-
-[Timer]
-OnCalendar=*-*-* 03:17:00
-RandomizedDelaySec=30m
-Persistent=true
-Unit=allscan-reimagined-ysf-hosts-refresh.service
-
-[Install]
-WantedBy=timers.target
-EOF
+systemctl disable --now allscan-reimagined-ysf-hosts-refresh.timer \
+  allscan-reimagined-ysf-hosts-refresh.service >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer \
+  /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service
 repair_protected_config_metadata
 if [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] \
   && python3 - "$CONFIG_DIR/config.json" <<'PY'
@@ -327,37 +322,166 @@ raise SystemExit(
 PY
 then
   systemctl daemon-reload
-  systemctl enable allscan-reimagined-ysf-hosts-refresh.timer >/dev/null
-  ysf_refresh_output=""
-  if ysf_refresh_output=$(/usr/local/sbin/allscan-reimagined-ysf-bridge-control --refresh-public-hosts); then
-    if [[ "$ysf_refresh_output" == *'"updated":true'* ]]; then
-      while IFS= read -r ysf_gateway_service; do
-        [ -n "$ysf_gateway_service" ] || continue
-        systemctl restart "$ysf_gateway_service"
-      done < <(python3 - "$CONFIG_DIR/config.json" <<'PY'
-import json
-import re
-import sys
-payload = json.load(open(sys.argv[1], encoding="utf-8"))
-for bridge in payload.get("bridges", []):
-    if not isinstance(bridge, dict) or bridge.get("cardType") != "ysf_net":
-        continue
-    service = str(bridge.get("ysfGatewayService", ""))
-    if re.fullmatch(r"[a-z0-9][a-z0-9@_.-]{0,79}\.service", service):
-        print(service)
-PY
-)
-    fi
-  else
-    echo "Public YSF hostfile refresh was unavailable; keeping the existing catalog." >&2
+  if ! /usr/local/sbin/allscan-reimagined-ysf-bridge-control --sync-custom-hosts >/dev/null; then
+    echo "A valid YSF reflector list is not installed yet; import YSFHosts.txt in Reimagined Settings." >&2
   fi
-  /usr/local/sbin/allscan-reimagined-ysf-bridge-control --sync-custom-hosts >/dev/null
   systemctl enable allscan-reimagined-ysf-net-live.service >/dev/null
   systemctl restart allscan-reimagined-ysf-net-live.service
 else
-  systemctl disable --now allscan-reimagined-ysf-hosts-refresh.timer >/dev/null 2>&1 || true
+  systemctl daemon-reload
   systemctl disable --now allscan-reimagined-ysf-net-live.service >/dev/null 2>&1 || true
   rm -f /run/allscan-reimagined-ysf-bridge-control/ysf-live.json
+fi
+for digital_mode in p25 nxdn; do
+  digital_label=$(printf '%s' "$digital_mode" | tr '[:lower:]' '[:upper:]')
+  digital_helper="/usr/local/sbin/allscan-reimagined-${digital_mode}-bridge-control"
+  digital_unit="allscan-reimagined-${digital_mode}-bridge-status.service"
+  cat > "/etc/systemd/system/$digital_unit" <<EOF
+[Unit]
+Description=Cache configured ASR $digital_label bridge status
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$digital_helper watch --interval 2
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/allscan-reimagined-${digital_mode}-bridge-control /var/log/allscan-reimagined
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  if [ -x "$digital_helper" ] && python3 - "$CONFIG_DIR/config.json" "$digital_mode" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+mode = sys.argv[2]
+raise SystemExit(0 if any(
+    isinstance(item, dict)
+    and item.get("digitalMode") == mode
+    and item.get("cardType") in {"standard", f"{mode}_net"}
+    and item.get("bridgePermission") in {"self_owned", "approved"}
+    for item in payload.get("bridges", [])
+) else 1)
+PY
+  then
+    systemctl enable --now "$digital_unit" >/dev/null
+    systemctl restart "$digital_unit"
+  else
+    systemctl disable --now "$digital_unit" >/dev/null 2>&1 || true
+    rm -f "/run/allscan-reimagined-${digital_mode}-bridge-control/status.json"
+  fi
+done
+cat > /etc/systemd/system/allscan-reimagined-m17-bridge@.service <<'EOF'
+[Unit]
+Description=Run isolated ASR M17 bridge instance %i
+After=network-online.target asterisk.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-m17-usrp-connector --bridge %i --run
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/allscan-reimagined-m17
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+for m17_unit_link in /etc/systemd/system/multi-user.target.wants/allscan-reimagined-m17-bridge@*.service; do
+  [ -L "$m17_unit_link" ] || continue
+  systemctl disable --now "${m17_unit_link##*/}" >/dev/null 2>&1 || true
+done
+if [ -x /usr/local/sbin/allscan-reimagined-m17-bridge-control ] \
+  && [ -x /usr/local/sbin/allscan-reimagined-m17-usrp-connector ]; then
+  while IFS= read -r bridge_id; do
+    [ -n "$bridge_id" ] || continue
+    if /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge "$bridge_id" validate >/dev/null \
+      && /usr/local/sbin/allscan-reimagined-m17-usrp-connector --bridge "$bridge_id" --check >/dev/null; then
+      systemctl enable --now "allscan-reimagined-m17-bridge@${bridge_id}.service" >/dev/null
+    else
+      echo "M17 bridge $bridge_id is not qualified; its connector remains stopped." >&2
+    fi
+  done < <(python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import re
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+for bridge in payload.get("bridges", []):
+    if not isinstance(bridge, dict):
+        continue
+    bridge_id = str(bridge.get("id", ""))
+    if (
+        bridge.get("mode") == "m17"
+        and bridge.get("cardType") in {"standard", "m17_net"}
+        and bridge.get("m17AudioQualified") is True
+        and re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id)
+    ):
+        print(bridge_id)
+PY
+  )
+fi
+cat > /etc/systemd/system/allscan-reimagined-fixed-bridge-recovery.service <<EOF
+[Unit]
+Description=Restore opted-in fixed ASR bridge links
+After=asterisk.service
+ConditionPathExists=/etc/allscan-reimagined/config.json
+ConditionPathExists=/etc/asterisk/rpt.conf
+
+[Service]
+Type=oneshot
+User=asterisk
+Group=asterisk
+SupplementaryGroups=$WEB_GROUP
+ExecStart=/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --once
+Nice=10
+TimeoutStartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+EOF
+cat > /etc/systemd/system/allscan-reimagined-fixed-bridge-recovery.timer <<'EOF'
+[Unit]
+Description=Check opted-in fixed ASR bridge links
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15s
+AccuracySec=2s
+Unit=allscan-reimagined-fixed-bridge-recovery.service
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+if [ -f "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" ] \
+  && [ -x /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery ] \
+  && /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --has-fallback-targets; then
+  systemctl enable --now allscan-reimagined-fixed-bridge-recovery.timer >/dev/null
+  if ! systemctl start allscan-reimagined-fixed-bridge-recovery.service; then
+    echo "Fixed-bridge recovery is enabled, but its first check did not complete; the timer will retry." >&2
+  fi
+else
+  systemctl disable --now allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+  systemctl stop allscan-reimagined-fixed-bridge-recovery.service >/dev/null 2>&1 || true
 fi
 cat > /etc/systemd/system/allscan-reimagined-release-check.service <<'EOF'
 [Unit]
@@ -559,6 +683,15 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-contro
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --import-hosts [a-zA-Z0-9_-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --catalog-status [a-zA-Z0-9_-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-p25-bridge-control connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-p25-bridge-control disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-control connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-control disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* status
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* connect --reflector M17-[A-Z0-9]* --module [A-Z]
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* disconnect
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*

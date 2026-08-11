@@ -25,6 +25,7 @@ pageInit();
 		<a href="#bridge-setup">Bridge Setup</a>
 		<a href="#dmr-net-bridge">DMR Net Bridge</a>
 		<a href="#ysf-net-bridge">YSF Net Bridge</a>
+		<a href="#next-digital-bridges">P25, NXDN, and M17</a>
 		<a href="#lookup-map">Lookup &amp; Map</a>
 		<a href="#updates">Update Notices</a>
 		<a href="#rollback">Rollback</a>
@@ -33,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 6.4 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 7 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -92,8 +93,9 @@ pageInit();
 		<h2>Bridge Cards</h2>
 		<p>Bridge Cards tell ASR which already-working bridges to display. A card does not install or configure the underlying digital bridge.</p>
 		<dl class="asr-instructions-definitions">
-			<div><dt>Card Type</dt><dd>Use Standard Bridge for normal monitoring cards. Use DMR Net Bridge or YSF Net Bridge only for a separately installed, isolated tunable bridge.</dd></div>
-			<div><dt>ID</dt><dd>A unique lowercase ASR identifier such as dmr, dmr_net, ysf, ysf_net, zello, dstar, p25, m17, or nxdn.</dd></div>
+			<div><dt>Bridge ID</dt><dd>Choose DMR, YSF, Zello, P25, NXDN, or M17 from the mode dropdown. The Card Title remains freely editable.</dd></div>
+			<div><dt>Card Type</dt><dd>Use Standard Bridge for a fixed path. Use Net Bridge only for a separately installed, isolated path whose destination may be changed.</dd></div>
+			<div><dt>Fixed Bridge Recovery</dt><dd>For a Standard Bridge that should always remain linked, enable automatic recovery. ASR checks that the configured bridge node is local, restores only a missing link, and stays out of the way when Asterisk already has a native permanent link. Net Bridges are excluded.</dd></div>
 			<div><dt>Node</dt><dd>The AllStar bridge node ASR matches against live connection status. This is not a DMR talkgroup.</dd></div>
 			<div><dt>Card Title</dt><dd>The heading displayed on the main ASR bridge card.</dd></div>
 			<div><dt>Detail Title</dt><dd>The label above the card’s client or activity details, usually Connected Clients.</dd></div>
@@ -108,7 +110,7 @@ pageInit();
 		<ul class="asr-instructions-list">
 			<li>Install and test the bridge software, private AllStar node, services, ports, IDs, credentials, and network forwarding before adding its ASR card.</li>
 			<li>Do not share USRP, TLV, DMR-network, or vocoder ports between active bridge instances.</li>
-			<li>ASR shows real bridge-client identities only when the bridge provides real data. It does not invent D-Star, Zello, or other client names from local metadata.</li>
+			<li>ASR shows real bridge-client identities only when the bridge provides real data. It does not invent Zello or other client names from local metadata.</li>
 			<li>Local loopback bridge plumbing is not a public connected client.</li>
 			<li>Use Bridge Diagnostics after saving to confirm paths, services, and optional client sources without displaying passwords or tokens.</li>
 		</ul>
@@ -145,13 +147,28 @@ pageInit();
 		<h2>YSF Net Bridge</h2>
 		<p>A YSF Net Bridge is a separate selectable YSF path. It never replaces or retunes the fixed/home YSF Bridge.</p>
 		<ol class="asr-instructions-steps">
+			<li><strong>Install a reflector list.</strong> Open <a href="https://hostfiles.refcheck.radio/" target="_blank" rel="noopener noreferrer">RefCheck Hostfiles</a>, complete its access form, choose <strong>YSF Plain Text</strong>, and download YSFHosts.txt. In Reimagined Settings, open the saved YSF Net Bridge card and import that file. ASR validates the complete file before replacing an existing valid list.</li>
+			<li><strong>Keep the list current.</strong> The list is a snapshot. If a newly registered reflector cannot be found, download a current YSF Plain Text file and import it again. Settings shows the current valid-reflector count and list date.</li>
+			<li><strong>No list means no destination controls.</strong> ASR keeps Connect unavailable until a valid reflector list exists. A rejected upload never erases the previous valid list.</li>
 			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-CUSTOM-TEST</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
-			<li><strong>Add an unlisted reflector once.</strong> In Reimagined Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the updater-owned list in a separate root-owned catalog.</li>
+			<li><strong>Add an unlisted reflector once.</strong> In Reimagined Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the imported list in a separate root-owned catalog.</li>
 			<li><strong>Select Connect.</strong> ASR sends the destination to the dedicated YSFGateway and waits for the Gateway log to confirm the exact link before linking the bridge’s private AllStar node.</li>
 			<li><strong>Confirm the result.</strong> The card shows the current reflector from the cached watcher after refresh. Source/TX, Relay, caller, warning, and error information appears only when the dedicated logs provide real evidence.</li>
 			<li><strong>Select Disconnect when finished.</strong> ASR attempts both the YSF unlink and local AllStar unlink and reports a partial failure rather than claiming success.</li>
 		</ol>
-		<p class="asr-instructions-callout"><strong>Isolation required:</strong> The YSF Net Bridge needs its own AllStar node, YSFGateway, MMDVM Bridge, Analog Bridge, emulator, configuration files, ports, logs, and RemoteCommand path. ASR does not install or remove that external bridge stack. When custom reflectors are configured, ASR points only the dedicated YSFGateway at its separate merged catalog and safely reloads that Gateway when the catalog changes; the updater-owned hosts file remains untouched.</p>
+		<p class="asr-instructions-callout"><strong>Isolation required:</strong> The YSF Net Bridge needs its own AllStar node, YSFGateway, MMDVM Bridge, Analog Bridge, emulator, configuration files, ports, logs, and RemoteCommand path. ASR does not install or remove that external bridge stack. When custom reflectors are configured, ASR points only the dedicated YSFGateway at its separate merged catalog and safely reloads that Gateway when the imported or custom catalog changes.</p>
+	</section>
+
+	<section id="next-digital-bridges" class="asr-instructions-section">
+		<h2>P25, NXDN, and M17 Bridges</h2>
+		<p>Each supported mode can use a Standard Bridge card or an isolated Net Bridge card. P25 and NXDN use numeric destination designators. M17 uses an unencrypted reflector and module through a qualified Codec2/USRP audio path.</p>
+		<ol class="asr-instructions-steps">
+			<li><strong>Install and isolate the bridge first.</strong> Every card needs its own local node, configuration, services, ports, and runtime identity. P25/NXDN also require authenticated local MQTT, per-instance topic permissions, and root-only ASR controller credentials. ASR does not create the external gateway stack or display those credentials.</li>
+			<li><strong>Confirm permission.</strong> Choose Self-owned target or Target owner approved. Being listed in a public directory is not permission to cross-mode bridge a destination.</li>
+			<li><strong>Limit Net Bridge choices.</strong> Save only destinations that the owner has approved. ASR blocks unknown, denied, reserved, encrypted, duplicate, or conflicting destinations.</li>
+			<li><strong>Verify real state.</strong> Gateway command acceptance is not proof that a remote reflector is reachable. A card must not report fully linked until both digital-side evidence and the AllStar link agree.</li>
+		</ol>
+		<p class="asr-instructions-callout"><strong>Compatibility:</strong> P25, NXDN, and M17 are not categorically incompatible with the other ASR modes. The deciding factors are target-owner policy, isolated resources, and loop-free topology. If a target forbids cross-mode or external bridges, ASR must not connect it.</p>
 	</section>
 
 	<section id="lookup-map" class="asr-instructions-section">
