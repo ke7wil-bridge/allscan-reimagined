@@ -152,6 +152,7 @@ def assert_installer_order(installer: Path) -> None:
     assert "allscan-reimagined-reapply.timer" in text
     assert "allscan-reimagined-ysf-net-live.service" in text
     assert "allscan-reimagined-ysf-bridge-control" in text
+    assert 'php "$RELEASE_DIR/scripts/asr-bridge-clients.php" --self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test' in text

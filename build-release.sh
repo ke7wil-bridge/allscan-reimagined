@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VERSION=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/package.json" | head -1)
 VERSION_LABEL="v$(printf '%s' "$VERSION" | sed -E 's/-beta\.([0-9]+)/ Beta \1/; s/-test/ Test/; s/-/ /g')"
-PUBLIC_BETA_LABEL="Beta ${VERSION##*.}"
+PUBLIC_BETA_LABEL="Beta ${VERSION#*-beta.}"
 OUT="$ROOT/release"
 STAGE="$OUT/allscan-reimagined-$VERSION"
 PACKAGE="$OUT/allscan-reimagined-$VERSION.tar.gz"
@@ -66,6 +66,7 @@ python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
+	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-favorites-discovery-self-test.php"
   php "$ROOT/scripts/asr-runtime-source-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
@@ -133,7 +134,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.7.md "$STAGE/release-notes/v1.0.0-beta.7.md"
+install -m 644 release-notes/v1.0.0-beta.7.1.md "$STAGE/release-notes/v1.0.0-beta.7.1.md"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then

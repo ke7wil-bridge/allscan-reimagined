@@ -17,8 +17,8 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.7';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7';
+const ASR_VERSION = '1.0.0-beta.7.1';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.1';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';

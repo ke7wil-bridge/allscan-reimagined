@@ -562,7 +562,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 chmod 644 /etc/cron.d/allscan-reimagined-manager-perms
 if [ "$ROLLBACK_MODE" != "1" ]; then
-cat > /etc/systemd/system/allscan-reimagined-bridge-clients.service <<'EOF'
+cat > /etc/systemd/system/allscan-reimagined-bridge-clients.service <<EOF
 [Unit]
 Description=Collect AllScan Reimagined bridge connected-client status
 After=network-online.target
@@ -576,16 +576,25 @@ CPUQuota=25%
 MemoryMax=128M
 TimeoutStartSec=30s
 ExecStart=/usr/local/sbin/allscan-reimagined-bridge-clients --once
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/allscan-reimagined $ASR_WEB_DIR
 EOF
 cat > /etc/systemd/system/allscan-reimagined-bridge-clients.timer <<'EOF'
 [Unit]
 Description=Refresh AllScan Reimagined bridge connected-client status
 
 [Timer]
-OnBootSec=1min
-OnUnitInactiveSec=1min
-AccuracySec=5s
-RandomizedDelaySec=10s
+OnBootSec=20s
+OnUnitInactiveSec=20s
+AccuracySec=2s
 Unit=allscan-reimagined-bridge-clients.service
 
 [Install]
@@ -596,9 +605,19 @@ bridge_client_source_count=$(php -r '
   $data = json_decode((string) @file_get_contents($argv[1]), true);
   $count = 0;
   foreach ((array) ($data["bridges"] ?? []) as $bridge) {
+    $mode = strtolower((string) ($bridge["mode"] ?? $bridge["id"] ?? ""));
+    $mode = preg_replace("/[^a-z0-9].*$/", "", $mode);
+    $cardType = (string) ($bridge["cardType"] ?? "standard");
     $source = (string) ($bridge["clientSource"] ?? "disabled");
     $url = trim((string) ($bridge["clientUrl"] ?? ""));
-    if (in_array($source, ["local_json", "http_api"], true) && $url !== "") $count++;
+    $explicit = $cardType === "standard"
+      && in_array($source, ["local_json", "http_api"], true)
+      && $url !== "";
+    $builtin = $cardType === "standard"
+      && in_array($mode, ["p25", "nxdn", "m17"], true)
+      && $source === "disabled"
+      && $url === "";
+    if ($explicit || $builtin) $count++;
   }
   echo $count;
 ' "$CONFIG_DIR/config.json" 2>/dev/null || printf '0')

@@ -23,6 +23,10 @@ const ASR_YSF_LOG_DIR = '/var/log/YSFReflector';
 const ASR_CLIENT_MAX_SEEN_AGE = 180;
 const ASR_CLIENT_MAX_TALK_AGE = 300;
 const ASR_CLOCK_FUTURE_TOLERANCE = 300;
+const ASR_REFLECTOR_SNAPSHOT_MAX_AGE = 180;
+const ASR_M17_JSON_MAX_AGE = 45;
+const ASR_REFLECTOR_LOG_TAIL_BYTES = 2097152;
+const ASR_REFLECTOR_LOG_TAIL_LINES = 12000;
 const ASR_DMR_CONFIG_GLOBS = [
 	'/opt/MMDVM_Bridge*/MMDVM_Bridge.ini',
 	'/etc/MMDVM_Bridge*.ini',
@@ -139,12 +143,24 @@ function asrManagedBridges(array $bridges): array {
 	return array_values(array_filter($bridges, static function(mixed $bridge): bool {
 		if(!is_array($bridge))
 			return false;
-		if(asrBridgeMode($bridge) === 'dstar')
+		$mode = asrBridgeMode($bridge);
+		if($mode === 'dstar' || (string) ($bridge['cardType'] ?? 'standard') !== 'standard')
 			return false;
 		$source = (string) ($bridge['clientSource'] ?? 'disabled');
 		$url = trim((string) ($bridge['clientUrl'] ?? ''));
-		return in_array($source, ['local_json', 'http_api'], true) && $url !== '';
+		$explicitSource = in_array($source, ['local_json', 'http_api'], true) && $url !== '';
+		$builtInOwnedReflector = in_array($mode, ['p25', 'nxdn', 'm17'], true)
+			&& $source === 'disabled'
+			&& $url === '';
+		return $explicitSource || $builtInOwnedReflector;
 	}));
+}
+
+function asrUsesBuiltinOwnedReflector(array $bridge): bool {
+	return (string) ($bridge['cardType'] ?? 'standard') === 'standard'
+		&& in_array(asrBridgeMode($bridge), ['p25', 'nxdn', 'm17'], true)
+		&& (string) ($bridge['clientSource'] ?? 'disabled') === 'disabled'
+		&& trim((string) ($bridge['clientUrl'] ?? '')) === '';
 }
 
 function asrAssertSelfTest(bool $condition, string $message): void {
@@ -241,10 +257,19 @@ function asrSelfTest(): void {
 		['id' => 'ysf', 'clientSource' => 'local_json', 'clientUrl' => ''],
 		['id' => 'zello', 'clientSource' => 'local_json', 'clientUrl' => '/var/www/html/allscan/zello-talkers.json'],
 		['id' => 'dstar', 'clientSource' => 'http_api', 'clientUrl' => 'https://example.invalid/clients'],
+		['id' => 'p25', 'mode' => 'p25', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
+		['id' => 'nxdn_net', 'mode' => 'nxdn', 'cardType' => 'nxdn_net', 'clientSource' => 'local_json', 'clientUrl' => '/asr/nxdn.json'],
+		['id' => 'm17', 'mode' => 'm17', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
 	];
 	$managed = asrManagedBridges($bridges);
 	$ids = array_column($managed, 'id');
-	asrAssertSelfTest($ids === ['zello'], 'Managed-source selection or unsupported-mode exclusion self-test failed.');
+	asrAssertSelfTest($ids === ['zello', 'p25', 'm17'], 'Managed-source selection or Net/unsupported-mode exclusion self-test failed.');
+	asrAssertSelfTest(
+		asrUsesBuiltinOwnedReflector($managed[1])
+			&& asrUsesBuiltinOwnedReflector($managed[2])
+			&& !asrUsesBuiltinOwnedReflector($managed[0]),
+		'Built-in owned-reflector eligibility self-test failed.'
+	);
 
 	$now = time();
 	foreach(['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn', 'unknown'] as $mode) {
@@ -446,7 +471,82 @@ INI);
 		'Non-2xx HTTP JSON was accepted.'
 	);
 
-	echo "bridge-client source, freshness, sorting, port, and redaction self-test: ok" . PHP_EOL;
+	$m17Rows = asrM17RowsFromPayload([
+		'Clients' => [
+			['Callsign' => 'N7LOCAL N', 'IP' => '127.0.0.1', 'Protocol' => 'M17'],
+			['Callsign' => 'N7REMOTE', 'IP' => '198.51.100.8', 'Protocol' => 'M17', 'LastHeardTime' => 1],
+		],
+		'Peers' => [['Callsign' => 'PEERDECOY', 'IP' => '198.51.100.9']],
+		'Users' => [['Callsign' => 'USERDECOY', 'IP' => '198.51.100.10']],
+	], ['127.0.0.1' => true, '::1' => true]);
+	asrAssertSelfTest(
+		is_array($m17Rows)
+			&& array_column($m17Rows, 'callsign') === ['N7REMOTE']
+			&& !isset($m17Rows[0]['IP'])
+			&& !isset($m17Rows[0]['address']),
+		'M17 current-client parsing, loopback exclusion, or address redaction failed.'
+	);
+	asrAssertSelfTest(asrM17RowsFromPayload(['Clients' => []]) === [], 'Empty current M17 client list was not authoritative.');
+	asrAssertSelfTest(asrM17RowsFromPayload(['Users' => []]) === null, 'Invalid M17 schema was treated as current.');
+
+	$logNow = strtotime('2026-08-11 20:02:30 UTC');
+	$reflectorLines = [
+		'M: 2026-08-11 20:00:30.000 Currently linked repeaters:',
+		'M: 2026-08-11 20:00:30.000     N7LOCAL   : 127.0.0.1:12345 0/120',
+		'M: 2026-08-11 20:00:30.000     N7OLD     : 198.51.100.11:41000 0/120',
+		'M: 2026-08-11 20:01:00.000 Adding N7NEW     (198.51.100.12:42000)',
+		'M: 2026-08-11 20:01:10.000 Removing N7OLD     (198.51.100.11:41000) unlinked',
+	];
+	$reflectorAvailable = false;
+	$reflectorRows = asrReflectorRowsFromLogLines(
+		$reflectorLines,
+		'p25',
+		(int) $logNow,
+		['127.0.0.1' => true, '::1' => true],
+		$reflectorAvailable
+	);
+	asrAssertSelfTest(
+		$reflectorAvailable
+			&& array_column($reflectorRows, 'callsign') === ['N7NEW']
+			&& !isset($reflectorRows[0]['address']),
+		'P25/NXDN snapshot, event replay, loopback exclusion, or address redaction failed.'
+	);
+	$emptyAvailable = false;
+	$emptyRows = asrReflectorRowsFromLogLines(
+		['M: 2026-08-11 20:02:00.000 No repeaters linked'],
+		'nxdn',
+		(int) $logNow,
+		[],
+		$emptyAvailable
+	);
+	asrAssertSelfTest($emptyAvailable && $emptyRows === [], 'Authoritative empty NXDN snapshot was rejected.');
+	$incompleteAvailable = false;
+	asrReflectorRowsFromLogLines(
+		['M: 2026-08-11 20:02:00.000 Currently linked repeaters:'],
+		'p25',
+		(int) $logNow,
+		[],
+		$incompleteAvailable
+	);
+	asrAssertSelfTest(!$incompleteAvailable, 'Incomplete reflector snapshot was accepted.');
+	$restartAvailable = false;
+	asrReflectorRowsFromLogLines(
+		array_merge($reflectorLines, ['M: 2026-08-11 20:02:05.000 Starting P25Reflector-20210912']),
+		'p25',
+		(int) $logNow,
+		[],
+		$restartAvailable
+	);
+	asrAssertSelfTest(!$restartAvailable, 'Pre-restart reflector snapshot was retained.');
+	$ipv6Rows = asrM17RowsFromPayload([
+		'Clients' => [
+			['Callsign' => 'N7V6LOCAL', 'IP' => '::1', 'Protocol' => 'M17'],
+			['Callsign' => 'N7V6REMOTE', 'IP' => '2001:db8::7', 'Protocol' => 'M17'],
+		],
+	], ['::1' => true]);
+	asrAssertSelfTest(is_array($ipv6Rows) && array_column($ipv6Rows, 'callsign') === ['N7V6REMOTE'], 'IPv6 loopback exclusion failed.');
+
+	echo "bridge-client source, freshness, owned-reflector, sorting, port, and redaction self-test: ok" . PHP_EOL;
 }
 
 function asrRemoveSelfTestTree(string $path): void {
@@ -822,6 +922,324 @@ function asrDedupeAndSortClientRows(array $rows): array {
 	return $clean;
 }
 
+function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): string {
+	if($path === '' || strpos($path, "\0") !== false || $path[0] !== '/' || is_link($path))
+		return '';
+	$real = realpath($path);
+	if($real === false || $real !== $path || !is_file($real) || !is_readable($real))
+		return '';
+	$stat = @lstat($real);
+	if(!is_array($stat)
+		|| (($stat['mode'] ?? 0) & 0170000) !== 0100000
+		|| (int) ($stat['nlink'] ?? 0) !== 1
+		|| (($stat['mode'] ?? 0) & 0022) !== 0
+		|| ($requireRootOwner && (int) ($stat['uid'] ?? -1) !== 0))
+		return '';
+
+	$directory = dirname($real);
+	while($directory !== '/') {
+		$dirStat = @lstat($directory);
+		if(!is_array($dirStat)
+			|| (($dirStat['mode'] ?? 0) & 0170000) !== 0040000
+			|| (($dirStat['mode'] ?? 0) & 0022) !== 0)
+			return '';
+		$parent = dirname($directory);
+		if($parent === $directory)
+			return '';
+		$directory = $parent;
+	}
+	return $real;
+}
+
+function asrRunningReflectorConfig(string $binaryName): string {
+	if(!preg_match('/^(?:P25Reflector|NXDNReflector|mrefd)$/D', $binaryName))
+		return '';
+	$configs = [];
+	foreach(glob('/proc/[0-9]*/cmdline') ?: [] as $cmdlinePath) {
+		$raw = @file_get_contents($cmdlinePath, false, null, 0, 65536);
+		if(!is_string($raw) || $raw === '')
+			continue;
+		$arguments = array_values(array_filter(explode("\0", $raw), static fn(string $value): bool => $value !== ''));
+		if($arguments === [] || basename($arguments[0]) !== $binaryName)
+			continue;
+		foreach(array_slice($arguments, 1) as $argument) {
+			if(!is_string($argument) || !preg_match('#^/[^\0]+\.(?:ini|cfg|conf)$#iD', $argument))
+				continue;
+			$trusted = asrTrustedReadableFile($argument, true);
+			if($trusted !== '')
+				$configs[$trusted] = true;
+		}
+	}
+	return count($configs) === 1 ? (string) array_key_first($configs) : '';
+}
+
+function asrSafeClientCallsign(mixed $value): string {
+	$callsign = strtoupper(trim((string) $value));
+	if(!preg_match('/^[A-Z0-9][A-Z0-9 .\/-]{1,15}$/D', $callsign))
+		return '';
+	return $callsign;
+}
+
+function asrEndpointHost(string $endpoint): string {
+	$endpoint = trim($endpoint);
+	if($endpoint === '')
+		return '';
+	if(preg_match('/^\[([^\]]+)\](?::\d+)?$/D', $endpoint, $match))
+		return strtolower($match[1]);
+	if(filter_var($endpoint, FILTER_VALIDATE_IP) !== false)
+		return strtolower($endpoint);
+	if(preg_match('/^(.+):(\d+)$/D', $endpoint, $match)
+		&& filter_var($match[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false)
+		return strtolower($match[1]);
+	return '';
+}
+
+function asrLocalIpAddresses(): array {
+	$addresses = ['127.0.0.1' => true, '::1' => true, '::ffff:127.0.0.1' => true];
+	foreach(array_unique([gethostname() ?: '', php_uname('n')]) as $hostname) {
+		if($hostname === '')
+			continue;
+		foreach(gethostbynamel($hostname) ?: [] as $address)
+			$addresses[strtolower($address)] = true;
+	}
+	return $addresses;
+}
+
+function asrEndpointIsLocal(string $endpoint, ?array $localAddresses = null): bool {
+	$host = asrEndpointHost($endpoint);
+	if($host === '')
+		return false;
+	if(str_starts_with($host, '127.') || $host === '::1' || str_starts_with($host, '::ffff:127.'))
+		return true;
+	$localAddresses ??= asrLocalIpAddresses();
+	return isset($localAddresses[$host]);
+}
+
+function asrM17RowsFromPayload(array $payload, array $localAddresses = []): ?array {
+	if(!array_key_exists('Clients', $payload) || !is_array($payload['Clients']) || !asrArrayIsList($payload['Clients']))
+		return null;
+	$rows = [];
+	foreach($payload['Clients'] as $client) {
+		if(!is_array($client))
+			continue;
+		$callsign = asrSafeClientCallsign($client['Callsign'] ?? '');
+		$address = trim((string) ($client['IP'] ?? ''));
+		if($callsign === '' || $address === '' || asrEndpointIsLocal($address, $localAddresses))
+			continue;
+		$protocol = strtoupper(trim((string) ($client['Protocol'] ?? 'M17')));
+		if($protocol !== '' && $protocol !== 'M17')
+			continue;
+		$rows[] = ['callsign' => $callsign, 'connected' => true];
+	}
+	return asrDedupeAndSortClientRows($rows);
+}
+
+function asrM17JsonPathFromConfig(string $configPath): string {
+	$configPath = asrTrustedReadableFile($configPath, true);
+	if($configPath === '')
+		return '';
+	foreach(@file($configPath, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+		if(!preg_match('/^\s*JsonPath\s*=\s*(\/[^\0\r\n]+?)\s*$/iD', (string) $line, $match))
+			continue;
+		return asrTrustedReadableFile(trim($match[1]), false);
+	}
+	return '';
+}
+
+function asrBuiltinM17Rows(?bool &$available = null): array {
+	$available = false;
+	$configPath = asrRunningReflectorConfig('mrefd');
+	$jsonPath = $configPath === '' ? '' : asrM17JsonPathFromConfig($configPath);
+	if($jsonPath === '')
+		return [];
+	$mtime = (int) @filemtime($jsonPath);
+	if($mtime <= 0 || time() - $mtime > ASR_M17_JSON_MAX_AGE || $mtime > time() + ASR_CLOCK_FUTURE_TOLERANCE)
+		return [];
+	$payload = asrReadJson($jsonPath);
+	$rows = asrM17RowsFromPayload($payload);
+	if($rows === null)
+		return [];
+	$available = true;
+	return $rows;
+}
+
+function asrIniValue(array $payload, string $sectionName, string $keyName): string {
+	foreach($payload as $section => $values) {
+		if(strcasecmp((string) $section, $sectionName) !== 0 || !is_array($values))
+			continue;
+		foreach($values as $key => $value) {
+			if(strcasecmp((string) $key, $keyName) === 0)
+				return trim((string) $value);
+		}
+	}
+	return '';
+}
+
+function asrReflectorLogPathFromConfig(string $configPath): string {
+	$configPath = asrTrustedReadableFile($configPath, true);
+	if($configPath === '')
+		return '';
+	$ini = @parse_ini_file($configPath, true, INI_SCANNER_RAW);
+	if(!is_array($ini))
+		return '';
+	$directory = asrIniValue($ini, 'Log', 'FilePath');
+	$root = asrIniValue($ini, 'Log', 'FileRoot');
+	if(!preg_match('#^/[^\0]+$#D', $directory) || !preg_match('/^[A-Za-z0-9_.-]{1,100}$/D', $root))
+		return '';
+	$candidates = array_filter(glob(rtrim($directory, '/') . '/' . $root . '*.log') ?: [], 'is_file');
+	usort($candidates, static fn(string $left, string $right): int => ((int) @filemtime($right)) <=> ((int) @filemtime($left)));
+	if($candidates === [])
+		return '';
+	return asrTrustedReadableFile($candidates[0], false);
+}
+
+function asrTailLines(string $path): array {
+	$path = asrTrustedReadableFile($path, false);
+	if($path === '')
+		return [];
+	$handle = @fopen($path, 'rb');
+	if($handle === false)
+		return [];
+	try {
+		$size = (int) (@filesize($path) ?: 0);
+		$offset = max(0, $size - ASR_REFLECTOR_LOG_TAIL_BYTES);
+		if($offset > 0) {
+			fseek($handle, $offset);
+			fgets($handle);
+		}
+		$lines = [];
+		while(($line = fgets($handle)) !== false)
+			$lines[] = rtrim($line, "\r\n");
+		if(count($lines) > ASR_REFLECTOR_LOG_TAIL_LINES)
+			$lines = array_slice($lines, -ASR_REFLECTOR_LOG_TAIL_LINES);
+		return $lines;
+	} finally {
+		fclose($handle);
+	}
+}
+
+function asrReflectorLogLine(string $line): ?array {
+	if(!preg_match('/^[A-Z]:\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+(.*)$/D', $line, $match))
+		return null;
+	$epoch = strtotime($match[1] . ' UTC');
+	return $epoch === false ? null : [(int) $epoch, (string) $match[2]];
+}
+
+function asrReflectorRowsFromLogLines(
+	array $lines,
+	string $mode,
+	int $now,
+	array $localAddresses = [],
+	?bool &$available = null
+): array {
+	$available = false;
+	if(!in_array($mode, ['p25', 'nxdn'], true))
+		return [];
+	$state = [];
+	$baselineEpoch = 0;
+	$pendingEpoch = 0;
+	$pendingRows = [];
+	$pendingHeader = false;
+
+	$finishPending = static function() use (&$state, &$baselineEpoch, &$pendingEpoch, &$pendingRows, &$pendingHeader): void {
+		if(!$pendingHeader)
+			return;
+		if($pendingRows !== []) {
+			$state = $pendingRows;
+			$baselineEpoch = $pendingEpoch;
+		}
+		$pendingEpoch = 0;
+		$pendingRows = [];
+		$pendingHeader = false;
+	};
+
+	foreach($lines as $line) {
+		$parsed = asrReflectorLogLine((string) $line);
+		if($parsed === null)
+			continue;
+		[$epoch, $message] = $parsed;
+		if($pendingHeader) {
+			if($epoch === $pendingEpoch
+				&& preg_match('/^\s*([A-Z0-9][A-Z0-9 .\/-]{1,15})\s+:\s+(\S+)\s+(\d+)\/(\d+)\s*$/D', $message, $rowMatch)) {
+				$timer = (int) $rowMatch[3];
+				$timeout = (int) $rowMatch[4];
+				$callsign = asrSafeClientCallsign($rowMatch[1]);
+				$endpoint = trim($rowMatch[2]);
+				if($callsign !== '' && $endpoint !== '' && $timeout > 0 && $timer >= 0 && $timer < $timeout)
+					$pendingRows[$endpoint] = $callsign;
+				continue;
+			}
+			$finishPending();
+		}
+
+		if(preg_match('/^Starting\s+' . strtoupper($mode) . 'Reflector-/iD', $message)) {
+			$state = [];
+			$baselineEpoch = 0;
+			continue;
+		}
+		if($message === 'Currently linked repeaters:') {
+			$pendingHeader = true;
+			$pendingEpoch = $epoch;
+			$pendingRows = [];
+			continue;
+		}
+		if($message === 'No repeaters linked') {
+			$state = [];
+			$baselineEpoch = $epoch;
+			continue;
+		}
+		if($baselineEpoch <= 0 || $epoch < $baselineEpoch)
+			continue;
+		if(preg_match('/^Adding\s+(.+?)\s+\(([^)]+)\)\s*$/D', $message, $eventMatch)) {
+			$callsign = asrSafeClientCallsign($eventMatch[1]);
+			$endpoint = trim($eventMatch[2]);
+			if($callsign !== '' && $endpoint !== '')
+				$state[$endpoint] = $callsign;
+			continue;
+		}
+		if(preg_match('/^Removing\s+.+?\s+\(([^)]+)\)\s+(?:unlinked|disappeared)\s*$/D', $message, $eventMatch))
+			unset($state[trim($eventMatch[1])]);
+	}
+	$finishPending();
+
+	if($baselineEpoch <= 0
+		|| $baselineEpoch > $now + ASR_CLOCK_FUTURE_TOLERANCE
+		|| $now - $baselineEpoch > ASR_REFLECTOR_SNAPSHOT_MAX_AGE)
+		return [];
+	$available = true;
+	$rows = [];
+	foreach($state as $endpoint => $callsign) {
+		if(asrEndpointIsLocal((string) $endpoint, $localAddresses))
+			continue;
+		$rows[] = ['callsign' => (string) $callsign, 'connected' => true];
+	}
+	return asrDedupeAndSortClientRows($rows);
+}
+
+function asrBuiltinP25OrNxdnRows(string $mode, ?bool &$available = null): array {
+	$available = false;
+	$binary = $mode === 'p25' ? 'P25Reflector' : ($mode === 'nxdn' ? 'NXDNReflector' : '');
+	if($binary === '')
+		return [];
+	$configPath = asrRunningReflectorConfig($binary);
+	$logPath = $configPath === '' ? '' : asrReflectorLogPathFromConfig($configPath);
+	if($logPath === '')
+		return [];
+	$mtime = (int) @filemtime($logPath);
+	if($mtime <= 0 || $mtime > time() + ASR_CLOCK_FUTURE_TOLERANCE || time() - $mtime > ASR_REFLECTOR_SNAPSHOT_MAX_AGE)
+		return [];
+	return asrReflectorRowsFromLogLines(asrTailLines($logPath), $mode, time(), [], $available);
+}
+
+function asrBuiltinOwnedReflectorRows(string $mode, ?bool &$available = null): array {
+	if($mode === 'm17')
+		return asrBuiltinM17Rows($available);
+	if(in_array($mode, ['p25', 'nxdn'], true))
+		return asrBuiltinP25OrNxdnRows($mode, $available);
+	$available = false;
+	return [];
+}
+
 function asrBuiltinZelloRows(): array {
 	$rows = [];
 	foreach(ASR_ZELLO_SOURCE_FILES as $file) {
@@ -1031,8 +1449,11 @@ function asrWriteJsonAtomic(string $path, array $payload): void {
 	if(!is_dir($dir))
 		mkdir($dir, 0775, true);
 	$encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
-	if(is_readable($path) && (string) file_get_contents($path) === $encoded)
+	if(is_readable($path) && (string) file_get_contents($path) === $encoded) {
+		@touch($path);
+		@chmod($path, 0664);
 		return;
+	}
 	$tmp = tempnam($dir, '.connected-clients.');
 	if($tmp === false)
 		throw new RuntimeException("Could not create temporary file in $dir.");
@@ -1054,13 +1475,6 @@ $config = asrReadJson(ASR_CONFIG_FILE);
 $secrets = asrReadJson(ASR_SECRETS_FILE);
 $bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
 $bridges = asrManagedBridges($bridges);
-$timerUnit = 'allscan-reimagined-bridge-clients.timer';
-if(function_exists('posix_geteuid') && posix_geteuid() === 0) {
-	if($bridges === [])
-		@shell_exec('systemctl disable --now ' . escapeshellarg($timerUnit) . ' 2>/dev/null');
-	else
-		@shell_exec('systemctl enable --now ' . escapeshellarg($timerUnit) . ' 2>/dev/null');
-}
 
 $lock = asrAcquireLock();
 if($lock === false) {
@@ -1072,6 +1486,12 @@ $passwords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bri
 $output = asrManagedOutputPath((string) (getenv('ASR_CONNECTED_CLIENTS_JSON') ?: ''));
 $result = [];
 $resultMeta = [];
+$builtInModeCounts = ['p25' => 0, 'nxdn' => 0, 'm17' => 0];
+foreach($bridges as $bridge) {
+	if(!asrUsesBuiltinOwnedReflector($bridge))
+		continue;
+	$builtInModeCounts[asrBridgeMode($bridge)]++;
+}
 $dmrBridgeCount = count(array_filter(
 	$bridges,
 	static fn(array $bridge): bool => asrBridgeMode($bridge) === 'dmr'
@@ -1086,17 +1506,26 @@ foreach($bridges as $bridge) {
 
 	$source = (string) ($bridge['clientSource'] ?? 'disabled');
 	$payload = [];
+	$rows = [];
+	$feedKind = '';
+	$usedBuiltIn = false;
 	if($source === 'local_json') {
 		$path = asrSafeLocalJsonPath((string) ($bridge['clientUrl'] ?? ''));
 		if($path !== '')
 			$payload = asrReadFreshJson($path);
 	} elseif($source === 'http_api') {
 		$payload = asrHttpPayload($bridge, (string) ($passwords[$id] ?? ''));
+	} elseif(asrUsesBuiltinOwnedReflector($bridge) && ($builtInModeCounts[$mode] ?? 0) === 1) {
+		$available = false;
+		$rows = asrBuiltinOwnedReflectorRows($mode, $available);
+		$feedKind = $available ? 'current' : 'empty';
+		$usedBuiltIn = true;
 	}
 
-	$feedKind = '';
-	$payloadRows = asrClientRowsFromPayload($payload, $id, $ports, $feedKind);
-	$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
+	if(!$usedBuiltIn) {
+		$payloadRows = asrClientRowsFromPayload($payload, $id, $ports, $feedKind);
+		$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
+	}
 	if($rows === [] && $mode === 'zello') {
 		$rows = asrBuiltinZelloRows();
 		$feedKind = $rows === [] ? 'empty' : 'fallback';

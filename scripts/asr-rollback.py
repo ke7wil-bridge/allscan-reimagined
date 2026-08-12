@@ -35,7 +35,6 @@ VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2}(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$
 RUNTIME_FILES = (
     "bridge-live.json",
     "connected-clients.json",
-    "asr-connected-clients.json",
     "zello-status-data.json",
 )
 RUNTIME_DIRS = ("img", "asr-user-content")

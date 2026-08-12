@@ -46,7 +46,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 7',
+  versionLabel: 'v1.0.0 Beta 7.1',
   lowPowerMode: false,
   bridges: [],
 }
