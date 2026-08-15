@@ -1,41 +1,48 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 7.1 installs the current official AllScan backend at
+Gleason's AllScan. Beta 7.2 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 7.1** and remains a prerelease.
+This archive is **Beta 7.2** and remains a prerelease.
 
 ## Install
 
-Download the Beta 7.1 archive and its `.sha256` companion from the GitHub
+Download the Beta 7.2 archive and its `.sha256` companion from the GitHub
 prerelease. Then verify, extract, and run the installer directly from an
 interactive root shell:
 
 ```bash
 set -euo pipefail
 
-pkg="/tmp/allscan-reimagined-1.0.0-beta.7.1.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.7.2.tar.gz"
 checksum="${pkg}.sha256"
-stage="$(mktemp -d /tmp/asr-beta-7-1-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.1"
+stage="$(mktemp -d /tmp/asr-beta-7-2-install.XXXXXX)"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.2"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.7.1"
+cd "$stage/allscan-reimagined-1.0.0-beta.7.2"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
 php -l payload/compat/allscan-v1.01/asr-instructions/index.php
+php -l payload/compat/allscan-v1.01/astapi/AMI.php
+php -l payload/compat/allscan-v1.01/astapi/server.php
+php -l payload/compat/allscan-v1.01/astapi/asrEchoLink.php
+php -l payload/compat/allscan-v1.01/include/asrBridgeStatus.php
 php -l payload/scripts/asr-bridge-clients.php
 php payload/scripts/asr-bridge-clients.php --self-test
+php payload/scripts/asr-settings-bridge-self-test.php
+php payload/scripts/asr-bridge-status-privacy-self-test.php
+php payload/scripts/asr-echolink-self-test.php
 php payload/scripts/asr-access-policy-self-test.php
 php payload/scripts/asr-lookup-map-self-test.php
 sh -n payload/scripts/asr-asterisk-read.sh
@@ -46,6 +53,8 @@ bash payload/scripts/asr-side-by-side-self-test.sh
 python3 payload/scripts/asr-patch-connected-clients.py --self-test
 python3 payload/scripts/asr-patch-allscan-index.py --self-test
 python3 payload/scripts/asr-migrate-tgif-environment.py --self-test
+python3 payload/scripts/asr-bridge-lifecycle.py self-test
+python3 payload/scripts/asr-startup-bridge-summary.py --self-test
 python3 payload/scripts/asr-release-check.py --self-test
 python3 payload/scripts/asr-rollback.py self-test
 python3 payload/scripts/asr-bridge-control.py --self-test
@@ -198,8 +207,9 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 7.1 release notes](release-notes/v1.0.0-beta.7.1.md)
-- [Beta 7 release notes](release-notes/v1.0.0-beta.7.md)
+- [Beta 7.2 release notes](release-notes/v1.0.0-beta.7.2.md)
+- [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)
+- [Beta 7 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.md)
 
 ## Original AllScan
 

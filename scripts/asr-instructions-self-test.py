@@ -120,6 +120,12 @@ def main() -> int:
         "Settings still silently truncates bridge-card data",
     )
     require(
+        "$panelTitle = $id !== '' ? strtoupper($id) . ' Bridge' : 'New Digital Bridge';" in settings
+        and 'placeholder="New Digital Bridge"' in settings
+        and "if(!text && !isUnsaved && modeLabel)" in settings,
+        "A new untitled bridge does not retain the New Digital Bridge label",
+    )
+    require(
         "D-Star is not supported by ASR. Delete this bridge card before saving." in settings,
         "Settings does not reject unsupported legacy D-Star cards clearly",
     )
@@ -143,6 +149,28 @@ def main() -> int:
         and "Net Bridges are excluded" in instructions,
         "Help does not explain Standard Bridge recovery boundaries",
     )
+    for requirement in (
+        'name="announceStartupBridgeSummary"',
+        'name="announceNoConnectedBridges"',
+        "data-delete-preview",
+        "ASR WILL REMOVE",
+        "ASR WILL NOT TOUCH",
+        "ownership manifest",
+        "has no ownership manifest",
+    ):
+        require(requirement in settings, f"Bridge lifecycle Settings support is missing: {requirement}")
+    require(
+        "Deleting a card" in instructions
+        and "never adopts a pre-existing bridge resource" in instructions
+        and "Startup bridge summary" in instructions,
+        "Help does not explain bridge deletion ownership or startup-summary boundaries",
+    )
+    require(
+        "allscan-reimagined-bridge-lifecycle preview-all" in reapply
+        and "allscan-reimagined-bridge-lifecycle queue-deletion" in reapply
+        and "allscan-reimagined-startup-bridge-summary.service" in reapply,
+        "Reapply does not install lifecycle preview or startup-summary wiring",
+    )
     require(
         "User=asterisk" in reapply
         and "Group=asterisk" in reapply
@@ -152,7 +180,7 @@ def main() -> int:
     for requirement in (
         "YSF Net Bridge",
         'name="bridgeMode[]"',
-        'value="ysf"',
+        "asrSettingsSourceOption($mode, 'ysf', 'YSF')",
         'name="bridgeYsfGatewayConfig[]"',
         'name="bridgeMmdvmConfig[]"',
         'name="bridgeYsfGatewayService[]"',
@@ -168,23 +196,47 @@ def main() -> int:
     ):
         require(requirement in settings, f"YSF Net Bridge Settings support is missing: {requirement}")
     for requirement in (
-        "Choose the digital mode from Bridge ID",
-        'value="p25"',
-        'value="nxdn"',
-        'value="m17"',
+        "<span>Digital Mode</span>",
+        "Card Basics",
+        "Destination and Permission",
+        "Backend Readiness",
+        "Advanced Details",
+        "Connected Clients and Talker Source",
+        'name="bridgeBackendMode[]"',
+        "asrSettingsSourceOption($mode, 'p25', 'P25')",
+        "asrSettingsSourceOption($mode, 'nxdn', 'NXDN')",
+        "asrSettingsSourceOption($mode, 'm17', 'M17')",
         'name="bridgePermission[]"',
         'name="bridgeApprovedDestinations[]"',
         'name="bridgeGatewayConfig[]"',
         'name="bridgeMmdvmMqttName[]"',
         'name="bridgeM17Callsign[]"',
-        "A directory listing is not bridge permission",
-        "authenticated local MQTT",
-        "Changing the Bridge ID dropdown can intentionally regenerate",
+        "Catalog availability alone is not permission",
+        "Authenticated MQTT credentials",
+        "ASR-owned managed rows are locked by the mutation validator",
         "$nextSecrets['bridgeClientPasswords'][$newSecretId]",
         "$rawYsfGatewayService",
         "$rawDigitalMmdvmService",
     ):
         require(requirement in settings, f"next-mode bridge Settings support is missing: {requirement}")
+    require('id="asr-bridge-row-template"' not in settings, "retired Add Bridge template remains in Settings")
+    require("data-m17-audio-qualified-checkbox" not in settings, "M17 qualification is still operator-editable")
+    require('name="bridgeM17AudioQualified[]"' not in settings, "M17 qualification still accepts a Settings form value")
+    for requirement in (
+        "asrSettingsSaveCsrfToken",
+        "asrSettingsRollbackPostIsSameOrigin(true)",
+        "asrSettingsValidateDeletionPlan",
+        "asrSettingsValidateOwnedBridgeMutations",
+        "bridgeDeletionConfirmations",
+        "queue-deletion",
+        "data-ownership-state",
+        "Bridge ownership unknown",
+    ):
+        require(requirement in settings, f"Settings deletion authorization is missing: {requirement}")
+    save_handler = settings.index("elseif($submit === SAVE_REIMAGINED_SETTINGS)")
+    queue_call = settings.index("asrSettingsQueueBridgeDeletion($request", save_handler)
+    config_write = settings.index("asrSettingsWriteConfig($next", save_handler)
+    require(queue_call < config_write, "Settings writes config before exact deletion intent is queued")
     for requirement in (
         "ASR_P25_BRIDGE_CONTROL_HELPER",
         "ASR_NXDN_BRIDGE_CONTROL_HELPER",
@@ -233,13 +285,15 @@ def main() -> int:
     ]
     if app_is_source:
         app_requirements.extend([
-            "maxLength={80}",
+            "approvedDestinations.map",
+            "approvedDestinationValues.has",
+            "Choose approved destination",
             "[card.id]: event.target.value",
             "result.currentDestination",
         ])
     for requirement in app_requirements:
         require(requirement in app, f"name-or-ID YSF reflector UI is missing: {requirement}")
-    require("ysf-net-destinations" not in app, "YSF reflector dropdown suggestions are still present")
+    require("type=\"text\"" not in app[app.find('digital-net-destination-'):app.find('digital-net-destination-') + 500], "Net Bridge destination is still unrestricted text")
     for requirement in (
         "function asr_ysf_net_resolve_destination",
         "More than one reflector uses that name",

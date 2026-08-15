@@ -6,6 +6,8 @@ CONFIG_DIR="/etc/allscan-reimagined"
 DATA_DIR="/var/lib/allscan-reimagined"
 ROLLBACK_MODE="${ASR_ROLLBACK_MODE:-0}"
 WEB_ONLY="${ASR_REAPPLY_WEB_ONLY:-0}"
+BRIDGE_LIFECYCLE_FAILED=0
+STARTUP_BRIDGE_SUMMARY_FAILED=0
 PROTECTED_CONFIG_HELPER="${ASR_PROTECTED_CONFIG_HELPER:-$MASTER_DIR/scripts/asr-protected-config-metadata.py}"
 if [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ]; then
   LOCK_PATH="${ASR_LOCK_PATH:-/run/lock/allscan-reimagined-rollback.lock}"
@@ -74,28 +76,67 @@ safe_chmod_files() {
   done
 }
 
+is_stock_status_artifact() {
+  local relative="${1#./}"
+  case "$relative" in
+    */*) return 1 ;;
+  esac
+  case "$relative" in
+    bridge-live.json|bridge-live.json.tmp|connected-clients.json|asr-connected-clients.json|\
+    zello-status-data.json|zello-stream-debug.json|zello-talkers.json|dstar-clients.json|\
+    public-status.json|.public-status-talkers.json|.public-status.*.json|\
+    .connected-clients.*.json|.*-public-status-push.json|\
+    .*-public-status-talker-live.json|.*-public-status-live-push.json|\
+    .*-public-status-live-push.json.tmp)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+is_stock_digest_excluded() {
+  is_stock_status_artifact "$1" && return 0
+  case "$1" in
+    ./astdb.txt|./favorites.ini|./favorites.ini.bak) return 0 ;;
+  esac
+  return 1
+}
+
 tree_digest() {
   local target="$1"
   (
     cd "$target"
     # Live status and user-data files can legitimately change while /asr is
-    # being staged. They are copied/preserved separately and are not stock
-    # application code, so exclude them from the stock-code isolation guard.
-    find . -type f \
-      ! -path './bridge-live.json' \
-      ! -path './connected-clients.json' \
-      ! -path './asr-connected-clients.json' \
-      ! -path './zello-status-data.json' \
-      ! -path './zello-stream-debug.json' \
-      ! -path './zello-talkers.json' \
-      ! -path './astdb.txt' \
-      ! -path './favorites.ini' \
-      ! -path './favorites.ini.bak' \
-      -print0 | LC_ALL=C sort -z | \
-      xargs -0 -r sha256sum
+    # being staged. They are not stock application code, so exclude only the
+    # bounded root-level runtime contracts from the stock-code guard.
+    while IFS= read -r -d '' file; do
+      is_stock_digest_excluded "$file" && continue
+      sha256sum -- "$file"
+    done < <(find . -type f -print0 | LC_ALL=C sort -z)
     find . -type l -print0 | LC_ALL=C sort -z | \
       while IFS= read -r -d '' link; do printf '%s  %s\n' "$(readlink "$link")" "$link"; done
   ) | sha256sum | awk '{print $1}'
+}
+
+copy_stable_stock_tree() {
+  local destination="$1" source relative
+  while IFS= read -r -d '' source; do
+    relative=".${source#"$STOCK_ALLSCAN_DIR"}"
+    if is_stock_status_artifact "$relative"; then
+      if [ -L "$source" ]; then
+        echo "Refusing stock runtime path symlink: $relative" >&2
+        return 1
+      fi
+      # Atomic writers can remove or replace these regular files between the
+      # directory scan and this check. Never open or copy them into /asr.
+      if [ -f "$source" ] || [ ! -e "$source" ]; then
+        continue
+      fi
+      echo "Refusing non-regular stock runtime path: $relative" >&2
+      return 1
+    fi
+    cp -a -- "$source" "$destination/"
+  done < <(find "$STOCK_ALLSCAN_DIR" -mindepth 1 -maxdepth 1 -print0)
 }
 
 stage_asr_web() {
@@ -104,7 +145,7 @@ stage_asr_web() {
   trap 'rm -rf -- "$stage"' RETURN
   stock_before=$(tree_digest "$STOCK_ALLSCAN_DIR")
 
-  cp -a "$STOCK_ALLSCAN_DIR/." "$stage/"
+  copy_stable_stock_tree "$stage" || return 1
   if [ -d "$ASR_WEB_DIR" ]; then
     for relative in \
       bridge-live.json connected-clients.json asr-connected-clients.json \
@@ -203,9 +244,17 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
 [ -f "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
+[ -f "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" /usr/local/sbin/allscan-reimagined-bridge-lifecycle
+[ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
 install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-ownership
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-tombstones
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-deletion-queue
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-creation-intents
 [ -f "$MASTER_DIR/scripts/asr-release-check.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-release-check.py" /usr/local/sbin/allscan-reimagined-release-check
 [ -f "$MASTER_DIR/scripts/asr-rollback.py" ] && \
@@ -236,6 +285,13 @@ systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
 install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
+if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
+  && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ]; then
+  if ! /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile; then
+    BRIDGE_LIFECYCLE_FAILED=1
+    echo "One or more deleted bridges still have registered resources. ASR preserved their ownership manifests and will retry cleanup on the next reapply." >&2
+  fi
+fi
 cat > /etc/systemd/system/allscan-reimagined-dmr-net-live.service <<'EOF'
 [Unit]
 Description=Collect live activity for configured ASR DMR Net Bridges
@@ -483,6 +539,83 @@ else
   systemctl disable --now allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
   systemctl stop allscan-reimagined-fixed-bridge-recovery.service >/dev/null 2>&1 || true
 fi
+STARTUP_SUMMARY_SOUND_DIR=/usr/share/asterisk/sounds/en/custom/allscan-reimagined
+STARTUP_SUMMARY_MARKER="$STARTUP_SUMMARY_SOUND_DIR/.asr-startup-summary-owner.json"
+STARTUP_SUMMARY_SOUND_READY=1
+if [ -L "$STARTUP_SUMMARY_SOUND_DIR" ] || { [ -e "$STARTUP_SUMMARY_SOUND_DIR" ] && [ ! -d "$STARTUP_SUMMARY_SOUND_DIR" ]; }; then
+  echo "The startup bridge summary sound directory is unsafe; it was preserved." >&2
+  STARTUP_SUMMARY_SOUND_READY=0
+elif [ ! -e "$STARTUP_SUMMARY_SOUND_DIR" ]; then
+  install -d -o asterisk -g asterisk -m 750 "$STARTUP_SUMMARY_SOUND_DIR"
+  printf '%s\n' '{"createdBy":"allscan-reimagined","purpose":"startup-bridge-summary","schema":1}' > "$STARTUP_SUMMARY_MARKER"
+  chown root:asterisk "$STARTUP_SUMMARY_MARKER"
+  chmod 640 "$STARTUP_SUMMARY_MARKER"
+elif [ "$(stat -c '%U:%G:%a' "$STARTUP_SUMMARY_SOUND_DIR" 2>/dev/null)" != "asterisk:asterisk:750" ] \
+  || [ -L "$STARTUP_SUMMARY_MARKER" ] || [ ! -f "$STARTUP_SUMMARY_MARKER" ] \
+  || [ "$(stat -c '%U:%G:%a:%h' "$STARTUP_SUMMARY_MARKER" 2>/dev/null)" != "root:asterisk:640:1" ] \
+  || ! python3 - "$STARTUP_SUMMARY_MARKER" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+expected = {"schema": 1, "createdBy": "allscan-reimagined", "purpose": "startup-bridge-summary"}
+raise SystemExit(0 if payload == expected else 1)
+PY
+then
+  echo "The pre-existing startup bridge summary sound directory is not ASR-owned; it was preserved." >&2
+  STARTUP_SUMMARY_SOUND_READY=0
+fi
+cat > /etc/systemd/system/allscan-reimagined-startup-bridge-summary.service <<'EOF'
+[Unit]
+Description=Announce established Standard ASR digital bridges once after startup
+After=network-online.target asterisk.service asl-startup-announce.service allscan-reimagined-fixed-bridge-recovery.service
+Wants=network-online.target allscan-reimagined-fixed-bridge-recovery.service
+ConditionPathExists=/etc/allscan-reimagined/config.json
+
+[Service]
+Type=oneshot
+User=asterisk
+Group=asterisk
+ExecStart=/usr/local/sbin/allscan-reimagined-startup-bridge-summary
+TimeoutStartSec=150s
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/usr/share/asterisk/sounds/en/custom/allscan-reimagined
+
+[Install]
+WantedBy=multi-user.target
+EOF
+startup_bridge_summary_enabled=$(python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+print("1" if payload.get("announceStartupBridgeSummary") is True else "0")
+PY
+)
+systemctl daemon-reload
+if [ "$startup_bridge_summary_enabled" = "1" ] \
+  && [ "$STARTUP_SUMMARY_SOUND_READY" = "1" ] \
+  && [ -x /usr/local/sbin/allscan-reimagined-startup-bridge-summary ] \
+  && [ -x /usr/bin/flite ] \
+  && [ -x /usr/bin/sox ]; then
+  # This is deliberately enabled without starting it. It runs once on the
+  # next boot, after Asterisk and fixed-link recovery have settled.
+  systemctl enable allscan-reimagined-startup-bridge-summary.service >/dev/null
+else
+  systemctl disable allscan-reimagined-startup-bridge-summary.service >/dev/null 2>&1 || true
+  if [ "$startup_bridge_summary_enabled" = "1" ]; then
+    STARTUP_BRIDGE_SUMMARY_FAILED=1
+    echo "Startup bridge summary is enabled, but its helper, flite, or sox is unavailable." >&2
+  fi
+fi
 cat > /etc/systemd/system/allscan-reimagined-release-check.service <<'EOF'
 [Unit]
 Description=Check for a newer AllScan Reimagined release
@@ -608,16 +741,20 @@ bridge_client_source_count=$(php -r '
     $mode = strtolower((string) ($bridge["mode"] ?? $bridge["id"] ?? ""));
     $mode = preg_replace("/[^a-z0-9].*$/", "", $mode);
     $cardType = (string) ($bridge["cardType"] ?? "standard");
-    $source = (string) ($bridge["clientSource"] ?? "disabled");
+    $source = (string) ($bridge["clientSource"] ?? "auto");
     $url = trim((string) ($bridge["clientUrl"] ?? ""));
     $explicit = $cardType === "standard"
       && in_array($source, ["local_json", "http_api"], true)
       && $url !== "";
     $builtin = $cardType === "standard"
       && in_array($mode, ["p25", "nxdn", "m17"], true)
-      && $source === "disabled"
+      && in_array($source, ["auto", "disabled"], true)
       && $url === "";
-    if ($explicit || $builtin) $count++;
+    $simpleAuto = $cardType === "standard"
+      && in_array($mode, ["ysf", "zello"], true)
+      && in_array($source, ["auto", "disabled"], true)
+      && $url === "";
+    if ($explicit || $builtin || $simpleAuto) $count++;
   }
   echo $count;
 ' "$CONFIG_DIR/config.json" 2>/dev/null || printf '0')
@@ -711,6 +848,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-c
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* connect --reflector M17-[A-Z0-9]* --module [A-Z]
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* disconnect
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
@@ -834,4 +974,12 @@ EOF
   systemctl reload apache2
 fi
 
+if [ "$BRIDGE_LIFECYCLE_FAILED" = "1" ]; then
+  echo "AllScan Reimagined was reapplied, but deleted-bridge cleanup is incomplete. Review /run/allscan-reimagined/bridge-lifecycle.json." >&2
+  exit 1
+fi
+if [ "$STARTUP_BRIDGE_SUMMARY_FAILED" = "1" ]; then
+  echo "AllScan Reimagined was reapplied, but the optional startup bridge summary is not ready." >&2
+  exit 1
+fi
 echo "AllScan Reimagined interface and security protections are active."

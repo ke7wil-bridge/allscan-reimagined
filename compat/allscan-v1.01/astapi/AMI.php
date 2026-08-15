@@ -53,6 +53,40 @@ function command($fp, $cmdString, $debug=false) {
 	return "Get node $cmdString failed";
 }
 
+function commandOutput($fp, $cmdString, $debug=false) {
+	$actionID = 'cpAction_' . mt_rand();
+	if((fwrite($fp, "ACTION: COMMAND\r\nCOMMAND: $cmdString\r\nActionID: $actionID\r\n\r\n")) <= 0)
+		return "Get node $cmdString failed";
+	$res = $this->getResponse($fp, $actionID, $debug);
+	if(!is_array($res))
+		return $res;
+	$ok = true;
+	$msg = [];
+	foreach($res as $line) {
+		if($line === 'Response: Error') {
+			$ok = false;
+			continue;
+		}
+		if(preg_match('/^Output:\s?(.*)$/', $line, $match) == 1) {
+			if($match[1] !== '' && $match[1] !== '--END COMMAND--')
+				$msg[] = $match[1];
+			continue;
+		}
+		if(strpos($line, 'Response: ') === 0
+			|| strpos($line, 'ActionID: ') === 0
+			|| $line === 'Privilege: Command'
+			|| $line === 'Command output follows'
+			|| $line === '--END COMMAND--')
+			continue;
+		$msg[] = $line;
+	}
+	if(!$ok)
+		return 'ERROR';
+	if(count($msg))
+		return implode(NL, $msg);
+	return 'OK';
+}
+
 /* 	Example ASL2 AMI response:
 		Response: Follows
 		Privilege: Command

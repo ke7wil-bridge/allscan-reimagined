@@ -146,20 +146,23 @@ function asrManagedBridges(array $bridges): array {
 		$mode = asrBridgeMode($bridge);
 		if($mode === 'dstar' || (string) ($bridge['cardType'] ?? 'standard') !== 'standard')
 			return false;
-		$source = (string) ($bridge['clientSource'] ?? 'disabled');
+		$source = (string) ($bridge['clientSource'] ?? 'auto');
 		$url = trim((string) ($bridge['clientUrl'] ?? ''));
 		$explicitSource = in_array($source, ['local_json', 'http_api'], true) && $url !== '';
 		$builtInOwnedReflector = in_array($mode, ['p25', 'nxdn', 'm17'], true)
-			&& $source === 'disabled'
+			&& in_array($source, ['auto', 'disabled'], true)
 			&& $url === '';
-		return $explicitSource || $builtInOwnedReflector;
+		$autoDetectedSimpleSource = in_array($mode, ['ysf', 'zello'], true)
+			&& in_array($source, ['auto', 'disabled'], true)
+			&& $url === '';
+		return $explicitSource || $builtInOwnedReflector || $autoDetectedSimpleSource;
 	}));
 }
 
 function asrUsesBuiltinOwnedReflector(array $bridge): bool {
 	return (string) ($bridge['cardType'] ?? 'standard') === 'standard'
 		&& in_array(asrBridgeMode($bridge), ['p25', 'nxdn', 'm17'], true)
-		&& (string) ($bridge['clientSource'] ?? 'disabled') === 'disabled'
+		&& in_array((string) ($bridge['clientSource'] ?? 'auto'), ['auto', 'disabled'], true)
 		&& trim((string) ($bridge['clientUrl'] ?? '')) === '';
 }
 
@@ -1504,7 +1507,7 @@ foreach($bridges as $bridge) {
 	$mode = asrBridgeMode($bridge);
 	$ports = asrConfiguredDmrPorts($bridge, $dmrBridgeCount <= 1);
 
-	$source = (string) ($bridge['clientSource'] ?? 'disabled');
+	$source = (string) ($bridge['clientSource'] ?? 'auto');
 	$payload = [];
 	$rows = [];
 	$feedKind = '';

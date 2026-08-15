@@ -21,6 +21,8 @@ const server = await createServer({
 try {
   const {
     bridgeCardShowsClientDetails,
+    bridgeCardWarningText,
+    bridgeDestinationPlaceholder,
     normalizedBridgeMode,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
@@ -126,6 +128,31 @@ try {
   assert(!bridgeCardShowsClientDetails('p25_net'), 'P25 Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('nxdn_net'), 'NXDN Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('m17_net'), 'M17 Net Bridge client details were shown')
+  assert(
+    bridgeCardWarningText('-') === '-',
+    'healthy backend readiness text was shown as a warning',
+  )
+  assert(
+    bridgeCardWarningText('') === '-',
+    'empty warning was not normalized',
+  )
+  assert(
+    bridgeCardWarningText('Bridge status needs attention. Review Bridge Settings.')
+      === 'Bridge status needs attention. Review Bridge Settings.',
+    'generic Net Bridge warning was hidden',
+  )
+  assert(
+    bridgeCardWarningText('Audio path unavailable.') === 'Audio path unavailable.',
+    'live bridge warning was hidden',
+  )
+  assert(
+    bridgeDestinationPlaceholder(0, 'Choose approved destination') === '',
+    'empty Net Bridge dropdown showed placeholder text',
+  )
+  assert(
+    bridgeDestinationPlaceholder(2, 'Choose approved destination') === 'Choose approved destination',
+    'populated Net Bridge dropdown lost its selection prompt',
+  )
 
   console.log('bridge dashboard self-test: ok')
 } finally {

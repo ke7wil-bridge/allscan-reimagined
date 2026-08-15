@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.7.1"
+ASR_VERSION="1.0.0-beta.7.2"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -96,6 +96,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-reapply.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-fixed-bridge-recovery.timer \
+    allscan-reimagined-startup-bridge-summary.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
@@ -112,6 +113,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-reapply.timer \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
+    allscan-reimagined-startup-bridge-summary.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-dmr-net-live.service \
     allscan-reimagined-ysf-net-live.service \
@@ -232,8 +234,9 @@ rollback_on_error() {
       fi
     fi
     for helper_spec in \
-      "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
-      "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
+          "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
+          "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
+          "scripts/asr-asterisk-read.sh:/usr/local/sbin/allscan-reimagined-asterisk-read" \
       "scripts/asr-bridge-control.py:/usr/local/sbin/allscan-reimagined-bridge-control" \
       "scripts/asr-ysf-bridge-control.py:/usr/local/sbin/allscan-reimagined-ysf-bridge-control" \
       "scripts/asr-p25-bridge-control.py:/usr/local/sbin/allscan-reimagined-p25-bridge-control" \
@@ -241,6 +244,8 @@ rollback_on_error() {
       "scripts/asr-m17-bridge-control.py:/usr/local/sbin/allscan-reimagined-m17-bridge-control" \
       "scripts/asr-m17-usrp-connector.py:/usr/local/sbin/allscan-reimagined-m17-usrp-connector" \
       "scripts/asr-fixed-bridge-recovery.py:/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery" \
+      "scripts/asr-bridge-lifecycle.py:/usr/local/sbin/allscan-reimagined-bridge-lifecycle" \
+      "scripts/asr-startup-bridge-summary.py:/usr/local/sbin/allscan-reimagined-startup-bridge-summary" \
       "scripts/asr-favorites-update.py:/usr/local/sbin/allscan-reimagined-favorites-update"; do
       helper_source=${helper_spec%%:*}
       helper_target=${helper_spec#*:}
@@ -260,7 +265,8 @@ rollback_on_error() {
         allscan-reimagined-reapply.path \
         allscan-reimagined-reapply.timer \
         allscan-reimagined-fixed-bridge-recovery.service \
-        allscan-reimagined-fixed-bridge-recovery.timer >/dev/null 2>&1 || true
+        allscan-reimagined-fixed-bridge-recovery.timer \
+        allscan-reimagined-startup-bridge-summary.service >/dev/null 2>&1 || true
       if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
         systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
       fi
@@ -390,7 +396,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 7.1"
+echo "Reimagined release:        v1.0.0 Beta 7.2"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -413,6 +419,7 @@ for unit in \
   allscan-reimagined-reapply.timer \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
+  allscan-reimagined-startup-bridge-summary.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
@@ -532,7 +539,8 @@ systemctl stop \
   allscan-reimagined-p25-bridge-status.service \
   allscan-reimagined-nxdn-bridge-status.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
-  allscan-reimagined-fixed-bridge-recovery.service >/dev/null 2>&1 || true
+  allscan-reimagined-fixed-bridge-recovery.service \
+  allscan-reimagined-startup-bridge-summary.service >/dev/null 2>&1 || true
 systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
 
 echo "[2/8] Checking the official AllScan backend..."
@@ -592,7 +600,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -855,6 +863,11 @@ validate_command "ASR API PHP syntax" php -l "$ASR_WEB_DIR/asr-api.php" >/dev/nu
 validate_command "stock entry-point PHP syntax under /asr" php -l "$ASR_WEB_DIR/index.php" >/dev/null
 validate_command "rollback status PHP syntax" php -l "$ASR_WEB_DIR/asr-settings/rollback-status.php" >/dev/null
 validate_command "instructions PHP syntax" php -l "$ASR_WEB_DIR/asr-instructions/index.php" >/dev/null
+validate_command "Asterisk Manager PHP syntax" php -l "$ASR_WEB_DIR/astapi/AMI.php" >/dev/null
+validate_command "ASTAPI server PHP syntax" php -l "$ASR_WEB_DIR/astapi/server.php" >/dev/null
+validate_command "EchoLink helper PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php" >/dev/null
+validate_command "Bridge-status privacy helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php" >/dev/null
+validate_command "Bridge-status privacy self-test" php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"
 echo "  Checking release notification, rollback, bridge, Favorites, and access helpers..."
 validate_command "release-check helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-release-check.py" --self-test >/dev/null
@@ -862,6 +875,10 @@ validate_command "rollback helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test >/dev/null
 validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
+validate_command "bridge Settings self-test" \
+  php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php" >/dev/null
+validate_command "EchoLink connected-callsign self-test" \
+  php "$RELEASE_DIR/scripts/asr-echolink-self-test.php" >/dev/null
 validate_command "bridge connected-client collector self-test" \
   php "$RELEASE_DIR/scripts/asr-bridge-clients.php" --self-test >/dev/null
 validate_command "YSF bridge-control helper self-test" \
@@ -876,6 +893,10 @@ validate_command "M17 USRP connector self-test" \
   python3 "$RELEASE_DIR/scripts/asr-m17-usrp-connector.py" --self-test >/dev/null
 validate_command "fixed-bridge recovery helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-fixed-bridge-recovery.py" --self-test >/dev/null
+validate_command "bridge lifecycle helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-bridge-lifecycle.py" self-test >/dev/null
+validate_command "startup bridge summary helper self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-startup-bridge-summary.py" --self-test >/dev/null
 validate_command "protected configuration metadata self-test" \
   python3 "$RELEASE_DIR/scripts/asr-protected-config-metadata.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
@@ -898,6 +919,12 @@ validate_command "ASR access-policy self-test" \
   php "$RELEASE_DIR/scripts/asr-access-policy-self-test.php" >/dev/null
 validate_command "AllScan client helper shell syntax" \
   bash -n /usr/local/bin/allscan_wt_clients.sh
+validate_command "restricted Asterisk reader shell syntax" \
+  sh -n /usr/local/sbin/allscan-reimagined-asterisk-read
+validate_command "restricted Asterisk reader self-test" \
+  /usr/local/sbin/allscan-reimagined-asterisk-read --self-test >/dev/null
+validate_command "restricted EchoLink reader access" \
+  sudo -u "$WEB_GROUP" sudo -n /usr/local/sbin/allscan-reimagined-asterisk-read echolink-nodes >/dev/null
 echo "  Enabling the daily release-notification timer..."
 validate_command "enable/start release-check timer" \
   systemctl enable --now allscan-reimagined-release-check.timer >/dev/null
@@ -1039,7 +1066,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 7.1"
+echo "AllScan Reimagined:    v1.0.0 Beta 7.2"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"

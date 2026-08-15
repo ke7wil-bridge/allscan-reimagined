@@ -41,8 +41,14 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || exit 1
 [ -x /usr/local/sbin/allscan-reimagined-rollback ] || needs_reapply=1
+[ ! -L /usr/local/sbin/allscan-reimagined-asterisk-read ] \
+  && [ -f /usr/local/sbin/allscan-reimagined-asterisk-read ] \
+  && [ "$(stat -c '%U:%G:%a:%h' /usr/local/sbin/allscan-reimagined-asterisk-read 2>/dev/null)" = "root:root:755:1" ] \
+  || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ] || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-startup-bridge-summary ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-favorites-update ] || needs_reapply=1
 [ -d /run/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
@@ -50,6 +56,18 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || exit 1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 [ -d /var/log/allscan-reimagined ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /var/log/allscan-reimagined 2>/dev/null)" = "root:root:750" ] || needs_reapply=1
+for lifecycle_dir in bridge-ownership bridge-tombstones bridge-deletion-queue bridge-creation-intents; do
+  [ "$(stat -c '%U:%G:%a' "/var/lib/allscan-reimagined/$lifecycle_dir" 2>/dev/null)" = "root:root:700" ] || needs_reapply=1
+done
+[ -f /etc/systemd/system/allscan-reimagined-startup-bridge-summary.service ] || needs_reapply=1
+[ ! -L /etc/sudoers.d/allscan-reimagined ] \
+  && [ -f /etc/sudoers.d/allscan-reimagined ] \
+  && [ "$(stat -c '%U:%G:%a:%h' /etc/sudoers.d/allscan-reimagined 2>/dev/null)" = "root:root:440:1" ] \
+  || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 [ ! -L /etc/allscan-reimagined/config.json ] \
   && [ "$(stat -c '%U:%G:%a:%h' /etc/allscan-reimagined/config.json 2>/dev/null)" = "root:$WEB_GROUP:664:1" ] \
   || needs_reapply=1
@@ -110,6 +128,10 @@ if [ "$needs_reapply" -eq 0 ]; then
   files_match "$MASTER_DIR/server/asr-api.php" "$ASR_WEB_DIR/asr-api.php" || needs_reapply=1
 fi
 if [ "$needs_reapply" -eq 0 ]; then
+  files_match "$MASTER_DIR/scripts/asr-asterisk-read.sh" \
+    /usr/local/sbin/allscan-reimagined-asterisk-read || needs_reapply=1
+fi
+if [ "$needs_reapply" -eq 0 ]; then
   while IFS= read -r master_file; do
     relative=${master_file#"$MASTER_DIR/web/"}
     files_match "$master_file" "$ASR_WEB_DIR/$relative" || { needs_reapply=1; break; }
@@ -128,6 +150,7 @@ if [ "$needs_reapply" -eq 0 ]; then
     include/dbUtils.php \
     include/CfgModel.php \
     include/UserModel.php \
+    include/asrBridgeStatus.php \
     user/settings/index.php \
     asr-settings/index.php \
     asr-settings/rollback-status.php \
@@ -137,6 +160,7 @@ if [ "$needs_reapply" -eq 0 ]; then
     performance/index.php \
     css/asr-admin.css \
     astapi/server.php \
+    astapi/asrEchoLink.php \
     astapi/AMI.php; do
     [ -f "$compat_dir/$relative" ] || continue
     files_match "$compat_dir/$relative" "$ASR_WEB_DIR/$relative" || { needs_reapply=1; break; }
@@ -155,6 +179,13 @@ fi
 
 if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" = "1" ]; then
   exit 0
+fi
+
+if [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] && [ "${ASR_ROLLBACK_MODE:-0}" != "1" ] \
+  && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ] \
+  && compgen -G '/var/lib/allscan-reimagined/bridge-deletion-queue/*.json' >/dev/null; then
+  /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile \
+    || { logger -t allscan-reimagined "Explicitly queued bridge cleanup remains incomplete"; exit 1; }
 fi
 
 if [ -x /usr/local/sbin/allscan-reimagined-patch-connected-clients ]; then

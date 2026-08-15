@@ -73,6 +73,21 @@ def validate_paths(bridge: dict) -> None:
         raise ControlError("Configured Analog Bridge path is not allowed.")
 
 
+def approved_talkgroups(bridge: dict) -> set[int]:
+    if bridge.get("bridgePermission") not in {"self_owned", "approved"}:
+        raise ControlError("DMR Net Bridge permission is not confirmed.")
+    values = bridge.get("approvedDestinations")
+    if not isinstance(values, list) or not values:
+        raise ControlError("DMR Net Bridge has no approved talkgroups.")
+    approved: set[int] = set()
+    for value in values:
+        text = str(value)
+        if not text.isdigit() or not 1 <= int(text) <= MAX_TG or int(text) == DISCONNECT_TG:
+            raise ControlError("DMR Net Bridge approved talkgroup list is invalid.")
+        approved.add(int(text))
+    return approved
+
+
 def current_tg(path: Path) -> int | None:
     try:
         contents = path.read_text(encoding="utf-8", errors="replace")
@@ -460,6 +475,7 @@ def require_secure_root_file(path: Path, label: str, executable: bool = False) -
 
 def public_status(bridge_id: str, path: Path = CONFIG_PATH) -> dict:
     bridge = bridge_config(bridge_id, path)
+    approved_talkgroups(bridge)
     node_numbers(bridge, path)
     analog_config = Path(str(bridge["analogConfig"]))
     script = Path(str(bridge["dvswitchScript"]))
@@ -640,6 +656,8 @@ def connect(bridge_id: str, tg_text: str, user: str, path: Path = CONFIG_PATH) -
         raise ControlError("TG 4000 is reserved for Disconnect.")
 
     bridge = bridge_config(bridge_id, path)
+    if target_tg not in approved_talkgroups(bridge):
+        raise ControlError("That DMR talkgroup is not in this bridge card's approved list.")
     local_node, bridge_node, link_alias = node_numbers(bridge, path)
     script = Path(str(bridge["dvswitchScript"]))
     abinfo = resolve_abinfo_path(Path(str(bridge["abinfoPath"])))
@@ -743,6 +761,7 @@ def connect(bridge_id: str, tg_text: str, user: str, path: Path = CONFIG_PATH) -
 
 def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
     bridge = bridge_config(bridge_id, path)
+    approved_talkgroups(bridge)
     local_node, bridge_node, link_alias = node_numbers(bridge, path)
     script = Path(str(bridge["dvswitchScript"]))
     abinfo = resolve_abinfo_path(Path(str(bridge["abinfoPath"])))
@@ -853,7 +872,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
     assert parse_lstats_links(alias_lstats) == {("999123456", "OUT")}
     inbound = lstats.replace(
         "127.0.0.1           0           OUT",
-        "10.0.0.1            0           IN",
+        "peer.example        0           IN",
     )
     assert parse_lstats_links(inbound) == {("4321", "IN")}
     assert ("4321", "OUT") not in parse_lstats_links(inbound)
@@ -914,6 +933,8 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
                             "abinfoPath": "/tmp/ABInfo_12345.json",
                             "dvswitchScript": "/opt/MMDVM_Bridge_TestNet/dvswitch.sh",
                             "analogConfig": "/opt/Analog_Bridge_TestNet/Analog_Bridge.ini",
+                            "bridgePermission": "self_owned",
+                            "approvedDestinations": ["12345"],
                         }
                     ],
                 }
@@ -921,6 +942,13 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             encoding="utf-8",
         )
         bridge = json.loads(runtime_config.read_text(encoding="utf-8"))["bridges"][0]
+        assert approved_talkgroups(bridge) == {12345}
+        try:
+            approved_talkgroups(dict(bridge, bridgePermission=""))
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("DMR Net Bridge without permission was accepted.")
         assert node_numbers(bridge, runtime_config) == (
             "123456",
             "4321",

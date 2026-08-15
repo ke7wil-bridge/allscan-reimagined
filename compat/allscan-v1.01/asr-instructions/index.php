@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 7.1 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 7.2 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -93,7 +93,7 @@ pageInit();
 		<h2>Bridge Cards</h2>
 		<p>Bridge Cards tell ASR which already-working bridges to display. A card does not install or configure the underlying digital bridge.</p>
 		<dl class="asr-instructions-definitions">
-			<div><dt>Bridge ID</dt><dd>Choose DMR, YSF, Zello, P25, NXDN, or M17 from the mode dropdown. The Card Title remains freely editable.</dd></div>
+			<div><dt>Digital Mode</dt><dd>Choose DMR, YSF, Zello, P25, NXDN, or M17. The Card Title remains freely editable.</dd></div>
 			<div><dt>Card Type</dt><dd>Use Standard Bridge for a fixed path. Use Net Bridge only for a separately installed, isolated path whose destination may be changed.</dd></div>
 			<div><dt>Fixed Bridge Recovery</dt><dd>For a Standard Bridge that should always remain linked, enable automatic recovery. ASR checks that the configured bridge node is local, restores only a missing link, and stays out of the way when Asterisk already has a native permanent link. Net Bridges are excluded.</dd></div>
 			<div><dt>Node</dt><dd>The AllStar bridge node ASR matches against live connection status. This is not a DMR talkgroup.</dd></div>
@@ -102,7 +102,9 @@ pageInit();
 			<div><dt>Connection Status Name</dt><dd>The friendly label shown for the bridge node in Connection Status.</dd></div>
 		</dl>
 		<p><strong>Maintain bridge friendly names</strong> keeps the configured Connection Status names in place across updates, restarts, and reboots.</p>
+		<p><strong>Startup bridge summary</strong> is optional. At startup it waits for Asterisk and fixed-link recovery, then announces only configured Standard bridges that are actually established. It never announces Net Bridges, display-only cards, destinations, ports, credentials, or arbitrary remote nodes.</p>
 		<p><strong>Connected Client Source</strong> should stay Disabled unless the bridge supplies a real client list. Local JSON / file accepts a readable local JSON source. HTTP API accepts a JSON status endpoint. ASR caches the result so every browser does not repeatedly contact the bridge.</p>
+		<p><strong>Deleting a card:</strong> ASR shows both what it will remove and what it will not touch. Only a managed bridge created by ASR with an intact bridge-specific ownership manifest can have its dedicated resources retired. Without that proof, deleting the card removes ASR metadata only and leaves manual or pre-existing services, Asterisk configuration, files, firewall rules, ports, packages, and shared components untouched.</p>
 	</section>
 
 	<section id="bridge-setup" class="asr-instructions-section">
@@ -113,6 +115,7 @@ pageInit();
 			<li>ASR shows real bridge-client identities only when the bridge provides real data. It does not invent Zello or other client names from local metadata.</li>
 			<li>Local loopback bridge plumbing is not a public connected client.</li>
 			<li>Use Bridge Diagnostics after saving to confirm paths, services, and optional client sources without displaying passwords or tokens.</li>
+			<li>ASR never adopts a pre-existing bridge resource merely because its path, unit name, node, or port matches. Bridge ownership is recorded only when ASR creates a new dedicated resource.</li>
 		</ul>
 	</section>
 

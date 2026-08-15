@@ -786,6 +786,71 @@ def reconcile_fixed_bridge_recovery_wiring(
     )
 
 
+def reconcile_bridge_lifecycle_wiring(
+    release_root: Path,
+    *,
+    systemd_dir: Path = Path("/etc/systemd/system"),
+    sbin_dir: Path = Path("/usr/local/sbin"),
+    sudoers_path: Path = Path("/etc/sudoers.d/allscan-reimagined"),
+    sound_dir: Path = Path("/usr/share/asterisk/sounds/en/custom/allscan-reimagined"),
+    runner: Any = subprocess.run,
+) -> None:
+    """Retire executables/units when the restored release predates lifecycle support.
+
+    Ownership manifests and tombstones are intentionally preserved. They are
+    protected state needed if a later ASR version resumes an incomplete delete.
+    """
+    scripts = release_root / "scripts"
+    lifecycle_present = (scripts / "asr-bridge-lifecycle.py").is_file()
+    startup_present = (scripts / "asr-startup-bridge-summary.py").is_file()
+    changed = False
+    if not startup_present:
+        runner(
+            ["systemctl", "disable", "--now", "allscan-reimagined-startup-bridge-summary.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        (systemd_dir / "allscan-reimagined-startup-bridge-summary.service").unlink(missing_ok=True)
+        (sbin_dir / "allscan-reimagined-startup-bridge-summary").unlink(missing_ok=True)
+        marker = sound_dir / ".asr-startup-summary-owner.json"
+        expected_marker = {
+            "schema": 1,
+            "createdBy": "allscan-reimagined",
+            "purpose": "startup-bridge-summary",
+        }
+        try:
+            payload = json.loads(marker.read_text(encoding="utf-8")) \
+                if sound_dir.is_dir() and not sound_dir.is_symlink() \
+                and marker.is_file() and not marker.is_symlink() else None
+        except (OSError, ValueError):
+            payload = None
+        if payload == expected_marker:
+            target = sound_dir / "startup-bridge-summary.gsm"
+            allowed = {marker, target}
+            contents = set(sound_dir.iterdir())
+            if contents.issubset(allowed) and (not target.exists() or (target.is_file() and not target.is_symlink())):
+                target.unlink(missing_ok=True)
+                marker.unlink()
+                sound_dir.rmdir()
+        changed = True
+    if not lifecycle_present:
+        (sbin_dir / "allscan-reimagined-bridge-lifecycle").unlink(missing_ok=True)
+        rewrite_owned_policy_without(
+            sudoers_path,
+            ("allscan-reimagined-bridge-lifecycle",),
+            validate_sudoers=sudoers_path == Path("/etc/sudoers.d/allscan-reimagined"),
+        )
+        changed = True
+    if changed:
+        runner(
+            ["systemctl", "daemon-reload"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
 def ensure_manager_wiring() -> None:
     helper = Path("/usr/local/sbin/allscan-reimagined-rollback")
     if helper.is_file():
@@ -1015,6 +1080,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             reconcile_ysf_net_wiring(release_target)
             reconcile_next_digital_wiring(release_target)
             reconcile_fixed_bridge_recovery_wiring(release_target)
+            reconcile_bridge_lifecycle_wiring(release_target)
             ensure_manager_wiring()
             if detect_version(active_web / "asr-api.php") != version:
                 raise RollbackError("Served ASR version did not match after rollback")
@@ -1164,6 +1230,54 @@ def self_test() -> None:
             runner=record_reconciliation,
         )
         assert reconciliation_commands == []
+        lifecycle_systemd = root / "lifecycle-systemd"
+        lifecycle_sbin = root / "lifecycle-sbin"
+        lifecycle_systemd.mkdir()
+        lifecycle_sbin.mkdir()
+        lifecycle_unit = lifecycle_systemd / "allscan-reimagined-startup-bridge-summary.service"
+        lifecycle_helper = lifecycle_sbin / "allscan-reimagined-bridge-lifecycle"
+        startup_helper = lifecycle_sbin / "allscan-reimagined-startup-bridge-summary"
+        for path in (lifecycle_unit, lifecycle_helper, startup_helper):
+            path.write_text("test\n", encoding="utf-8")
+        lifecycle_sudoers = root / "lifecycle-sudoers"
+        lifecycle_sudoers.write_text(
+            "www-data ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all\n"
+            "www-data ALL=(root) NOPASSWD: /usr/local/sbin/keep\n",
+            encoding="utf-8",
+        )
+        lifecycle_commands: list[list[str]] = []
+        lifecycle_sound = root / "lifecycle-sounds"
+        lifecycle_sound.mkdir()
+        (lifecycle_sound / ".asr-startup-summary-owner.json").write_text(
+            json.dumps({
+                "schema": 1, "createdBy": "allscan-reimagined",
+                "purpose": "startup-bridge-summary",
+            }), encoding="utf-8",
+        )
+        (lifecycle_sound / "startup-bridge-summary.gsm").write_text("test\n", encoding="utf-8")
+        preserved_state = root / "lifecycle-state"
+        for name in ("bridge-ownership", "bridge-tombstones", "bridge-deletion-queue"):
+            directory = preserved_state / name
+            directory.mkdir(parents=True)
+            (directory / "evidence.json").write_text("{}\n", encoding="utf-8")
+
+        def record_lifecycle(command: list[str], **_: Any) -> None:
+            lifecycle_commands.append(command)
+
+        reconcile_bridge_lifecycle_wiring(
+            legacy_release,
+            systemd_dir=lifecycle_systemd,
+            sbin_dir=lifecycle_sbin,
+            sudoers_path=lifecycle_sudoers,
+            sound_dir=lifecycle_sound,
+            runner=record_lifecycle,
+        )
+        assert not any(path.exists() for path in (lifecycle_unit, lifecycle_helper, startup_helper))
+        assert "bridge-lifecycle" not in lifecycle_sudoers.read_text(encoding="utf-8")
+        assert not lifecycle_sound.exists()
+        assert all((preserved_state / name / "evidence.json").exists()
+                   for name in ("bridge-ownership", "bridge-tombstones", "bridge-deletion-queue"))
+        assert lifecycle_commands[-1] == ["systemctl", "daemon-reload"]
         tmpfiles_policy = root / "allscan-reimagined.conf"
         tmpfiles_policy.write_text(
             "d /run/allscan-reimagined 1775 root www-data -\n"

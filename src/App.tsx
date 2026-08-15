@@ -6,9 +6,12 @@ import {
   actionOptions,
   asrPath,
   bridgeCardShowsClientDetails,
+  bridgeCardWarningText,
+  bridgeDestinationPlaceholder,
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
+  fetchBridgeDestinations,
   fetchAuthStatus,
   fetchCpuTemp,
   fetchDiagnosticsReport,
@@ -25,6 +28,7 @@ import {
   sendNodeCommand,
   subscribeConnectionFeed,
   type BridgeCardView,
+  type BridgeDestination,
   type AuthStatus,
   type DropClientEntry,
   type FavoriteNode,
@@ -373,6 +377,7 @@ function App({ config }: { config: RuntimeConfig }) {
   })
   const [dmrTalkgroupInputs, setDmrTalkgroupInputs] = useState<Record<string, string>>({})
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
+  const [bridgeDestinations, setBridgeDestinations] = useState<Record<string, BridgeDestination[]>>({})
   const [bridgeControlBusy, setBridgeControlBusy] = useState('')
   const [bridgeControlAction, setBridgeControlAction] = useState<'connect' | 'disconnect' | ''>('')
   const [nodeMessage, setNodeMessage] = useState('Loading live status...')
@@ -997,6 +1002,28 @@ function App({ config }: { config: RuntimeConfig }) {
       return changed ? next : current
     })
   }, [bridgeState.cards])
+
+  useEffect(() => {
+    let cancelled = false
+    const netCards = config.bridges.filter((bridge) => bridge.cardType && bridge.cardType !== 'standard')
+    const load = () => {
+      void Promise.all(netCards.map(async (bridge) => {
+        try {
+          return [bridge.id, await fetchBridgeDestinations(bridge.id)] as const
+        } catch {
+          return [bridge.id, []] as const
+        }
+      })).then((entries) => {
+        if (!cancelled) setBridgeDestinations(Object.fromEntries(entries))
+      })
+    }
+    load()
+    const timer = window.setInterval(load, 10_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [config.bridges])
 
   useEffect(() => {
     let cancelled = false
@@ -2087,6 +2114,11 @@ function App({ config }: { config: RuntimeConfig }) {
                 )
                 const cardBusy = bridgeControlBusy === card.id
                 const destinationInput = bridgeDestinationInputs[card.id] || ''
+                const approvedDestinations = bridgeDestinations[card.id] || []
+                const approvedDestinationValues = new Set(approvedDestinations.map((destination) => destination.value))
+                const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] ?? (bridgeLinked ? card.currentTg : '')
+                const approvedDmrTalkgroup = approvedDestinationValues.has(dmrTalkgroupCandidate) ? dmrTalkgroupCandidate : ''
+                const approvedDestinationInput = approvedDestinationValues.has(destinationInput) ? destinationInput : ''
                 const destinationLabel = card.cardType === 'ysf_net'
                   ? 'Reflector name or ID'
                   : card.cardType === 'm17_net'
@@ -2113,7 +2145,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         <b>{bridgeLinked ? (card.currentDestinationLabel || card.currentTg || '-') : '-'}</b>
                       </div>
                     ) : null}
-                    {card.cardType !== 'dmr_net' && card.currentDestination ? (
+                    {card.cardType !== 'standard' && card.cardType !== 'dmr_net' && card.currentDestination ? (
                       <div className="allscan-bridge-row">
                         <span>Current Destination</span>
                         <b>{card.currentDestinationLabel || card.currentDestination}</b>
@@ -2125,32 +2157,36 @@ function App({ config }: { config: RuntimeConfig }) {
                     </div>
                     <div className="allscan-bridge-row">
                       <span>Warning / Error</span>
-                      <b>{card.warning}</b>
+                      <b>{bridgeCardWarningText(card.warning)}</b>
                     </div>
                   </div>
 
                   {card.cardType === 'dmr_net' && authStatus.canModify ? (
                     <div className="allscan-bridge-controls">
                       <div className="allscan-bridge-tune">
-                        <label htmlFor={`dmr-net-tg-${card.id}`}>Talkgroup</label>
-                        <input
+                        <label htmlFor={`dmr-net-tg-${card.id}`}>Approved Talkgroup</label>
+                        <select
                           id={`dmr-net-tg-${card.id}`}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          spellCheck={false}
-                          maxLength={8}
-                          value={dmrTalkgroupInputs[card.id] ?? (bridgeLinked ? card.currentTg : '')}
+                          value={approvedDmrTalkgroup}
+                          disabled={approvedDestinations.length === 0}
                           onChange={(event) => {
-                            const value = event.target.value.replace(/\D/g, '').slice(0, 8)
-                            setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: value }))
+                            setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: event.target.value }))
                           }}
-                        />
+                        >
+                          <option value="">{bridgeDestinationPlaceholder(
+                            approvedDestinations.length,
+                            'Choose approved talkgroup',
+                          )}</option>
+                          {approvedDestinations.map((destination) => (
+                            <option key={destination.value} value={destination.value}>{destination.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="allscan-bridge-link-buttons">
                         <button
                           type="button"
                           className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !card.controlReady}
+                          disabled={busy || cardBusy || !card.controlReady || approvedDmrTalkgroup === ''}
                           onClick={() => void connectDmrNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
@@ -2171,14 +2207,10 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className="allscan-bridge-controls">
                       <div className="allscan-bridge-tune">
                         <label htmlFor={`digital-net-destination-${card.id}`}>{destinationLabel}</label>
-                        <input
+                        <select
                           id={`digital-net-destination-${card.id}`}
-                          type="text"
-                          autoComplete="off"
-                          spellCheck={false}
-                          maxLength={80}
-                          value={destinationInput}
-                          disabled={busy || cardBusy}
+                          value={approvedDestinationInput}
+                          disabled={busy || cardBusy || approvedDestinations.length === 0}
                           onChange={(event) => {
                             bridgeDestinationTouched.current.add(card.id)
                             setBridgeDestinationInputs((current) => ({
@@ -2186,13 +2218,21 @@ function App({ config }: { config: RuntimeConfig }) {
                               [card.id]: event.target.value,
                             }))
                           }}
-                        />
+                        >
+                          <option value="">{bridgeDestinationPlaceholder(
+                            approvedDestinations.length,
+                            'Choose approved destination',
+                          )}</option>
+                          {approvedDestinations.map((destination) => (
+                            <option key={destination.value} value={destination.value}>{destination.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="allscan-bridge-link-buttons">
                         <button
                           type="button"
                           className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !card.controlReady || destinationInput.trim() === ''}
+                          disabled={busy || cardBusy || !card.controlReady || approvedDestinationInput === ''}
                           onClick={() => void connectReflectorNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}

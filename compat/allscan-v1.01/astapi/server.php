@@ -8,6 +8,7 @@ date_default_timezone_set('America/New_York');
 require_once('../include/apiInit.php');
 require_once('AMI.php');
 require_once('nodeInfo.php');
+require_once(__DIR__ . '/asrEchoLink.php');
 
 if(!readOk()) {
 	statErr('Insufficient user permission to retrieve data.');
@@ -53,6 +54,8 @@ if($sharedHandle !== false && !$sharedLeader) {
 }
 
 $ami = new AMI();
+$asrEchoLinkConnectedCache = ['expires' => 0.0, 'rows' => []];
+$asrEchoLinkCliCache = ['expires' => 0.0, 'output' => ''];
 $fp = [];
 $chandriver = 'Unknown';
 $amicd = '';
@@ -344,6 +347,27 @@ function sortNodes($nodes) {
 	return $sortedNodes;
 }
 
+function asrGetAstInfo($fp, $node) {
+	global $ami, $asrEchoLinkConnectedCache, $asrEchoLinkCliCache;
+	$number = asrEchoLinkNodeNumber($node);
+	if($number !== '') {
+		$rows = asrEchoLinkConnectedRowsCached(
+			$asrEchoLinkConnectedCache,
+			function() use ($ami, $fp, &$asrEchoLinkCliCache) {
+				return asrEchoLinkConnectedOutput(
+					$ami->commandOutput($fp, 'echolink show nodes'),
+					'asrEchoLinkCliOutput',
+					$asrEchoLinkCliCache
+				);
+			}
+		);
+		$label = asrEchoLinkConnectedLabel($rows, $node);
+		if($label !== '')
+			return $label;
+	}
+	return getAstInfo($fp, $node);
+}
+
 function parseNode($fp, $rptStatus, $sawStatus) {
 	$curNodes = [];
 	$conns = []; // Directly connected nodes
@@ -404,7 +428,7 @@ function parseNode($fp, $rptStatus, $sawStatus) {
 		foreach($conns as $node) {
 			$n = $node[0];
 			$curNodes[$n]['node'] = $node[0];
-			$curNodes[$n]['info'] = getAstInfo($fp, $node[0]);
+			$curNodes[$n]['info'] = asrGetAstInfo($fp, $node[0]);
 			$curNodes[$n]['ip'] = $node[1];
 			if(isset($node[5])) {
 				$curNodes[$n]['direction'] = $node[3];

@@ -21,6 +21,7 @@ export type RuntimeBridgeConfig = {
   friendlyName?: string
   cardType?: BridgeCardType
   linkAlias?: string
+  backendMode?: 'display_only' | 'managed'
 }
 
 export type RuntimeConfig = {
@@ -46,7 +47,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 7.1',
+  versionLabel: 'v1.0.0 Beta 7.2',
   lowPowerMode: false,
   bridges: [],
 }
@@ -890,6 +891,17 @@ export function bridgeCardShowsClientDetails(cardType: BridgeCardView['cardType'
   return cardType === 'standard'
 }
 
+export function bridgeCardWarningText(
+  warning: string,
+) {
+  const normalized = String(warning || '').trim()
+  return normalized && normalized !== '-' ? normalized : '-'
+}
+
+export function bridgeDestinationPlaceholder(optionCount: number, prompt: string) {
+  return optionCount > 0 ? prompt : ''
+}
+
 type BridgeClientMode = string
 
 function relativeBridgeTime(epoch: number) {
@@ -1060,7 +1072,8 @@ export async function fetchBridgeDestinations(bridgeId: string): Promise<BridgeD
       value: String(destination.value || (destination as Partial<BridgeDestination>).name || '').trim(),
       label: String(destination.label || destination.value || '').trim(),
     }))
-    .filter((destination) => /^\d{5}$/.test(destination.id) && destination.name && destination.value && destination.label)
+    .filter((destination) => destination.id.length > 0 && destination.id.length <= 80
+      && destination.name && destination.value && destination.label)
 }
 
 export async function connectBridge(bridgeId: string, destination: string) {

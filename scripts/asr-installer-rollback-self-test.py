@@ -154,6 +154,16 @@ def assert_installer_order(installer: Path) -> None:
     assert "allscan-reimagined-ysf-bridge-control" in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-clients.php" --self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-ysf-bridge-control.py" --self-test' in text
+    assert 'php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php"' in text
+    assert 'php "$RELEASE_DIR/scripts/asr-echolink-self-test.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/astapi/AMI.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php"' in text
+    assert 'php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"' in text
+    assert 'sh -n /usr/local/sbin/allscan-reimagined-asterisk-read' in text
+    assert 'allscan-reimagined-asterisk-read --self-test' in text
+    assert 'allscan-reimagined-asterisk-read echolink-nodes' in text
+    assert 'scripts/asr-asterisk-read.sh:/usr/local/sbin/allscan-reimagined-asterisk-read' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-m17-bridge-control.py" --self-test' in text
@@ -167,6 +177,10 @@ def assert_installer_order(installer: Path) -> None:
     assert "FIXED_RECOVERY_TIMER_WAS_ACTIVE" in text
     assert "allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null" in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-fixed-bridge-recovery.py" --self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-bridge-lifecycle.py" self-test' in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-startup-bridge-summary.py" --self-test' in text
+    assert "allscan-reimagined-startup-bridge-summary.service" in text
+    assert "allscan-reimagined-bridge-lifecycle" in text
     assert "remove_asr_managed_wiring" in text
     assert "allscan-reimagined-friendly-names.conf" in text
     assert (
@@ -189,6 +203,33 @@ def assert_installer_order(installer: Path) -> None:
     stock_policy_check = text.index('validate_command "stock /allscan access policy"')
     assert text.index("new CfgModel($db);", stock_policy_check) > stock_policy_check
     assert "Validation failed: /asr runtime-config endpoint" in text
+
+
+def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
+    text = reapply.read_text(encoding="utf-8")
+    assert '[ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ]' in text
+    assert "bridge-deletion-queue" in text and "bridge-creation-intents" in text
+    assert "allscan-reimagined-bridge-lifecycle queue-deletion" in text
+    assert "User=asterisk" in text and "Group=asterisk" in text
+    assert "Wants=network-online.target allscan-reimagined-fixed-bridge-recovery.service" in text
+    assert "ReadWritePaths=/usr/share/asterisk/sounds/en/custom/allscan-reimagined" in text
+    integrity_text = integrity.read_text(encoding="utf-8")
+    assert "bridge-deletion-queue/*.json" in integrity_text
+    assert "ASR_ROLLBACK_MODE" in integrity_text
+    assert "allscan-reimagined-bridge-lifecycle reconcile" in integrity_text
+    assert "astapi/asrEchoLink.php" in integrity_text
+    assert "astapi/AMI.php" in integrity_text
+    assert "include/asrBridgeStatus.php" in integrity_text
+    assert "allscan-reimagined-asterisk-read" in integrity_text
+    assert "[ ! -L /usr/local/sbin/allscan-reimagined-asterisk-read ]" in integrity_text
+    assert (
+        "stat -c '%U:%G:%a:%h' /usr/local/sbin/allscan-reimagined-asterisk-read"
+        in integrity_text
+    )
+    assert '"root:root:755:1"' in integrity_text
+    assert "[ ! -L /etc/sudoers.d/allscan-reimagined ]" in integrity_text
+    assert "stat -c '%U:%G:%a:%h' /etc/sudoers.d/allscan-reimagined" in integrity_text
+    assert '"root:root:440:1"' in integrity_text
 
 
 def exercise_migration_failure(root: Path) -> None:
@@ -257,7 +298,7 @@ def exercise_live_schema1_cleanup(root: Path) -> None:
         "reapply.timer": (False, True),
     }
 
-    # Failed migration artifacts observed on KE7WIL.
+    # Simulate incomplete artifacts left by an interrupted older migration.
     (web / "asr").mkdir()
     for name in (
         "release-check.service",
@@ -358,15 +399,31 @@ def exercise_orphan_wiring_cleanup(root: Path) -> None:
 def self_test(*, model_only: bool = False) -> None:
     if not model_only:
         script_path = Path(__file__).resolve()
-        installer_candidates = [
-            script_path.parents[1] / "install.sh",
-            script_path.parents[2] / "install.sh",
+        layout_candidates = [
+            (
+                script_path.parents[1] / "install.sh",
+                script_path.parents[1] / "scripts",
+            ),
+            (
+                script_path.parents[2] / "install.sh",
+                script_path.parent,
+            ),
         ]
-        installer = next(
-            (candidate for candidate in installer_candidates if candidate.is_file()),
-            installer_candidates[0],
+        installer, scripts_dir = next(
+            (
+                (candidate_installer, candidate_scripts)
+                for candidate_installer, candidate_scripts in layout_candidates
+                if candidate_installer.is_file()
+                and (candidate_scripts / "asr-reapply.sh").is_file()
+                and (candidate_scripts / "asr-integrity-check.sh").is_file()
+            ),
+            layout_candidates[0],
         )
         assert_installer_order(installer)
+        assert_lifecycle_reapply_contract(
+            scripts_dir / "asr-reapply.sh",
+            scripts_dir / "asr-integrity-check.sh",
+        )
     cases = (
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_previous_move"),
         ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "before_release_install"),
