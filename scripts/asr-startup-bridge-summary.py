@@ -279,11 +279,12 @@ def self_test() -> None:
             assert "requires executable" in str(exc)
         else:
             raise AssertionError("missing speech tools were accepted")
-        fake_flite = sound_dir / "flite"
-        fake_sox = sound_dir / "sox"
-        for tool in (fake_flite, fake_sox):
-            tool.write_text("test\n", encoding="utf-8")
-            tool.chmod(0o755)
+        # Use existing executables outside the temporary directory so this
+        # self-test also works when the system temp directory is mounted
+        # noexec. The injected runner below intercepts both commands.
+        fake_flite = Path(sys.executable)
+        fake_sox = Path("/bin/sh")
+        assert fake_flite != fake_sox
         rendered_commands: list[list[str]] = []
 
         def render_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -302,8 +303,6 @@ def self_test() -> None:
         assert target.is_file() and not target.is_symlink() and target.read_bytes() == b"gsm"
         assert rendered_commands[-1][-1] == "rpt localplay 100000 custom/allscan-reimagined/startup-bridge-summary"
         target.unlink()
-        fake_flite.unlink()
-        fake_sox.unlink()
         marker.write_text('{"schema":0}', encoding="utf-8")
         try:
             verify_sound_directory(sound_dir)
