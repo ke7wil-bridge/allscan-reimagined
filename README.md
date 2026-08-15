@@ -10,6 +10,26 @@ AllScan Reimagined is customized by KE7WIL.
 
 This archive is **Beta 7.2** and remains a prerelease.
 
+## What's New in Beta 7.2
+
+- DMR, YSF, Zello, P25, NXDN, and M17 Bridge Cards now use clearer,
+  expandable settings.
+- New cards begin as **New Digital Bridge**, while Digital Mode and Card Title
+  remain separate.
+- Cards show only the options, permissions, destinations, and readiness details
+  that apply to them.
+- ASR removes only bridge items it can prove it created. Existing, manual, and
+  shared bridge installations remain untouched.
+- An optional one-time startup summary can announce connected local Standard
+  bridges. It is off by default.
+- Dashboard warnings no longer expose internal backend details, and empty Net
+  Bridge destination lists display as blank dropdowns.
+- EchoLink callsign display is more dependable when the normal lookup provides
+  incomplete information.
+- Installation, integrity, update, and rollback checks are stronger.
+
+[Read the complete Beta 7.2 release notes](release-notes/v1.0.0-beta.7.2.md).
+
 ## Install
 
 Download the Beta 7.2 archive and its `.sha256` companion from the GitHub
