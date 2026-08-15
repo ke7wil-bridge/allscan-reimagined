@@ -17,8 +17,8 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.7.2';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.2';
+const ASR_VERSION = '1.0.0-beta.7.3';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.3';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -699,8 +699,7 @@ function asr_valid_ysf_net_config(array $bridge): bool {
         || (string) ($bridge['commandTransport'] ?? '') !== 'remote_command'
         || (isset($bridge['allowTune']) && !is_bool($bridge['allowTune']))
         || !preg_match('/^[0-9]{3,10}$/D', (string) ($bridge['node'] ?? ''))
-        || !asr_bridge_permission_is_confirmed($bridge)
-        || count(asr_bridge_approved_values($bridge)) === 0) {
+        || !asr_bridge_permission_is_confirmed($bridge)) {
         return false;
     }
     foreach (['ysfGatewayService', 'mmdvmService'] as $key) {
@@ -851,7 +850,7 @@ function asr_ysf_net_control_statuses(): array {
         $configValid = asr_valid_ysf_net_config($bridge);
         $entry = is_array($live[$id] ?? null) ? $live[$id] : [];
         $reasons = [];
-        if (!$configValid) $reasons[] = 'Configured YSF paths, services, permission, or approved reflector list are invalid.';
+        if (!$configValid) $reasons[] = 'Configured YSF paths, services, or permission are invalid.';
         if (empty($bridge['allowTune'])) $reasons[] = 'Dashboard controls are disabled in Settings.';
         if (!is_executable(ASR_YSF_BRIDGE_CONTROL_HELPER)) $reasons[] = 'The YSF control helper is not installed.';
         if (empty($entry['ready'])) $reasons[] = trim((string) ($entry['warning'] ?? 'The configured YSF services, Remote Commands, catalog, or isolated resources are not ready.'));
@@ -890,12 +889,6 @@ function asr_ysf_net_destination_rows(string $bridgeId): array {
         if (!is_array($item)
             || !preg_match('/^[0-9]{5}$/D', (string) ($item['id'] ?? ''))
             || trim((string) ($item['name'] ?? '')) === '') {
-            continue;
-        }
-        $bridge = asr_ysf_net_bridge_config($bridgeId);
-        if (!is_array($bridge)
-            || (!asr_bridge_destination_is_approved($bridge, (string) $item['id'])
-                && !asr_bridge_destination_is_approved($bridge, (string) $item['name']))) {
             continue;
         }
         $destinations[] = [
@@ -1064,7 +1057,6 @@ function asr_dmr_net_control_statuses(): array {
         $reasons = [];
         if (!$pathsValid) $reasons[] = 'One or more configured DMR backend paths are invalid.';
         if (!asr_bridge_permission_is_confirmed($bridge)) $reasons[] = 'Bridge permission is not confirmed.';
-        if (count(asr_bridge_approved_values($bridge)) === 0) $reasons[] = 'No approved DMR talkgroups are saved.';
         if (!$linkAliasValid) $reasons[] = 'The generated internal link alias is missing or invalid.';
         if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) $reasons[] = 'The DMR control helper is not installed.';
         if (!is_file($script) || !is_executable($script)) $reasons[] = 'The configured DVSwitch script is missing or not executable.';
@@ -1091,7 +1083,6 @@ function asr_dmr_net_connect(string $bridgeId, string $talkgroup): array {
     $bridge = asr_bridge_config_by_id($bridgeId);
     if (!is_array($bridge) || (string) ($bridge['cardType'] ?? '') !== 'dmr_net') asr_error('Configured DMR Net Bridge was not found.', 404);
     if (!asr_bridge_permission_is_confirmed($bridge)) asr_error('DMR Net Bridge permission is not confirmed.', 403);
-    if (!asr_bridge_destination_is_approved($bridge, $talkgroup)) asr_error('That DMR talkgroup is not in this bridge card\'s approved list.', 403);
     if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
 
     $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);

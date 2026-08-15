@@ -659,10 +659,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			}
 			$approvedDestinations = asrSettingsApprovedDmrTalkgroups($rawApprovedDestinations, $error, "DMR Net Bridge \"$id\"");
 			if($error !== '') return [];
-			if(empty($approvedDestinations)) {
-				$error = "DMR Net Bridge \"$id\" needs at least one approved talkgroup.";
-				return [];
-			}
 			if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
 				$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
 				return [];
@@ -690,10 +686,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			}
 			$approvedDestinations = asrSettingsApprovedYsfTargets($rawApprovedDestinations, $error, "YSF Net Bridge \"$id\"");
 			if($error !== '') return [];
-			if(empty($approvedDestinations)) {
-				$error = "YSF Net Bridge \"$id\" needs at least one approved reflector.";
-				return [];
-			}
 			$customYsfReflectors = asrSettingsParseCustomYsfReflectors($rawYsfCustomReflectors, $error, $id);
 			if($error !== '') return [];
 			if(!preg_match('#^/opt/YSFGateway_([A-Za-z0-9_-]+)/YSFGateway\.ini$#D', $rawYsfGatewayConfig, $gatewayMatch)) {
@@ -1570,9 +1562,9 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Host</span><input name="bridgeM17Host[]" type="text" value="<?php echo asrSettingsH($bridge['m17Host'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Port</span><input name="bridgeM17Port[]" inputmode="numeric" type="text" value="<?php echo asrSettingsH($bridge['m17Port'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Module</span><input name="bridgeM17Module[]" type="text" maxlength="1" value="<?php echo asrSettingsH($bridge['m17Module'] ?? ''); ?>"></label>
-				<label class="asr-approved-destinations-field"><span>Approved Net Destinations</span><textarea name="bridgeApprovedDestinations[]" rows="4"><?php echo asrSettingsH($approvedDestinationText); ?></textarea></label>
+				<label class="asr-approved-destinations-field"<?php echo $cardRole === 'net' && !in_array($mode, ['dmr', 'ysf'], true) ? '' : ' hidden'; ?>><span>Approved Net Destinations</span><textarea name="bridgeApprovedDestinations[]" rows="4"><?php echo asrSettingsH($approvedDestinationText); ?></textarea></label>
 			</div>
-			<p class="asr-bridge-section-note asr-approved-destination-help">DMR uses approved talkgroup numbers. YSF uses exact names or five-digit IDs, one per line. P25/NXDN use approved numeric designators. M17 uses REFLECTOR | HOST | PORT | MODULE. Catalog availability alone is not permission.</p>
+			<p class="asr-bridge-section-note asr-approved-destination-help">DMR talkgroups and YSF reflector names or IDs are entered manually on the dashboard. P25/NXDN use approved numeric designators. M17 uses REFLECTOR | HOST | PORT | MODULE. Catalog availability alone is not permission.</p>
 		</div>
 
 		<div class="asr-bridge-panel-section asr-backend-readiness-section">
@@ -2339,7 +2331,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				field.hidden = currentMode !== 'nxdn';
 			});
 			row.querySelectorAll('.asr-approved-destinations-field').forEach(function(field) {
-				field.hidden = isStandard;
+				field.hidden = isStandard || currentMode === 'dmr' || currentMode === 'ysf';
 			});
 			row.querySelectorAll('.asr-detail-title-field').forEach(function(field) {
 				field.hidden = !isStandard;

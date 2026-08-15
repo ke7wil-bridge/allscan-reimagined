@@ -47,7 +47,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 7.2',
+  versionLabel: 'v1.0.0 Beta 7.3',
   lowPowerMode: false,
   bridges: [],
 }
@@ -896,10 +896,6 @@ export function bridgeCardWarningText(
 ) {
   const normalized = String(warning || '').trim()
   return normalized && normalized !== '-' ? normalized : '-'
-}
-
-export function bridgeDestinationPlaceholder(optionCount: number, prompt: string) {
-  return optionCount > 0 ? prompt : ''
 }
 
 type BridgeClientMode = string

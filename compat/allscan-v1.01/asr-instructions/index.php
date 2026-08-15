@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 7.2 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 7.3 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -168,7 +168,7 @@ pageInit();
 		<ol class="asr-instructions-steps">
 			<li><strong>Install and isolate the bridge first.</strong> Every card needs its own local node, configuration, services, ports, and runtime identity. P25/NXDN also require authenticated local MQTT, per-instance topic permissions, and root-only ASR controller credentials. ASR does not create the external gateway stack or display those credentials.</li>
 			<li><strong>Confirm permission.</strong> Choose Self-owned target or Target owner approved. Being listed in a public directory is not permission to cross-mode bridge a destination.</li>
-			<li><strong>Limit Net Bridge choices.</strong> Save only destinations that the owner has approved. ASR blocks unknown, denied, reserved, encrypted, duplicate, or conflicting destinations.</li>
+			<li><strong>Use only permitted destinations.</strong> DMR talkgroups and YSF reflector names or IDs are entered manually; the selected permission confirms that every destination entered is authorized. P25, NXDN, and M17 remain limited to saved approved destinations. ASR still blocks invalid, reserved, encrypted, duplicate, or conflicting destinations.</li>
 			<li><strong>Verify real state.</strong> Gateway command acceptance is not proof that a remote reflector is reachable. A card must not report fully linked until both digital-side evidence and the AllStar link agree.</li>
 		</ol>
 		<p class="asr-instructions-callout"><strong>Compatibility:</strong> P25, NXDN, and M17 are not categorically incompatible with the other ASR modes. The deciding factors are target-owner policy, isolated resources, and loop-free topology. If a target forbids cross-mode or external bridges, ASR must not connect it.</p>

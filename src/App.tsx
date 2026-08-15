@@ -7,7 +7,6 @@ import {
   asrPath,
   bridgeCardShowsClientDetails,
   bridgeCardWarningText,
-  bridgeDestinationPlaceholder,
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
@@ -425,7 +424,6 @@ function App({ config }: { config: RuntimeConfig }) {
   const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
   const reportBugParamHandled = useRef(false)
   const nodeMessagesArmed = useRef(false)
-  const bridgeDestinationTouched = useRef(new Set<string>())
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
 
@@ -989,23 +987,9 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [config])
 
   useEffect(() => {
-    setBridgeDestinationInputs((current) => {
-      let changed = false
-      const next = { ...current }
-      bridgeState.cards.forEach((card) => {
-        if (card.cardType === 'standard' || card.cardType === 'dmr_net' || !card.currentDestination) return
-        if (bridgeDestinationTouched.current.has(card.id)) return
-        if (next[card.id] === card.currentDestination) return
-        next[card.id] = card.currentDestination
-        changed = true
-      })
-      return changed ? next : current
-    })
-  }, [bridgeState.cards])
-
-  useEffect(() => {
     let cancelled = false
-    const netCards = config.bridges.filter((bridge) => bridge.cardType && bridge.cardType !== 'standard')
+    const netCards = config.bridges.filter((bridge) => bridge.cardType
+      && !['standard', 'dmr_net', 'ysf_net'].includes(bridge.cardType))
     const load = () => {
       void Promise.all(netCards.map(async (bridge) => {
         try {
@@ -1283,7 +1267,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
   async function connectDmrNetCard(card: BridgeCardView) {
     if (!authStatus.canModify || bridgeControlBusy) return
-    const talkgroup = String(dmrTalkgroupInputs[card.id] ?? card.currentTg).trim()
+    const talkgroup = String(dmrTalkgroupInputs[card.id] || '').trim()
     if (!/^\d{1,8}$/.test(talkgroup) || Number(talkgroup) < 1 || Number(talkgroup) > 16777215) {
       appendNodeMessage('Enter a valid DMR talkgroup.')
       return
@@ -1297,7 +1281,7 @@ function App({ config }: { config: RuntimeConfig }) {
       setBridgeControlAction('connect')
       await connectBridge(card.id, talkgroup)
       const canonical = await confirmBridgeControlState(card.id, true, talkgroup)
-      setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: canonical.currentDestination }))
+      setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: '' }))
       appendNodeMessage(`DMR Net Bridge connected to ${canonical.currentDestinationLabel || `TG ${canonical.currentDestination}`}.`)
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'DMR Net Bridge connection failed.')
@@ -1329,7 +1313,9 @@ function App({ config }: { config: RuntimeConfig }) {
     if (!authStatus.canModify || bridgeControlBusy) return
     const destination = String(bridgeDestinationInputs[card.id] || '').trim()
     if (!destination) {
-      appendNodeMessage(`Enter an approved ${card.mode.toUpperCase()} destination.`)
+      appendNodeMessage(card.cardType === 'ysf_net'
+        ? 'Enter an exact YSF reflector name or five-digit ID.'
+        : `Enter an approved ${card.mode.toUpperCase()} destination.`)
       return
     }
 
@@ -1342,7 +1328,7 @@ function App({ config }: { config: RuntimeConfig }) {
         throw new Error(`${card.title} returned an invalid canonical destination.`)
       }
       if (card.cardType === 'p25_net' || card.cardType === 'nxdn_net') {
-        setBridgeDestinationInputs((current) => ({ ...current, [card.id]: canonicalId }))
+        setBridgeDestinationInputs((current) => ({ ...current, [card.id]: '' }))
         setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
         appendNodeMessage(
           `${card.title} selected ${canonicalId} and confirmed its AllStar transport. ASR counts that selected Net Bridge locally, but Gateway selection is not proof that the remote reflector is reachable, so reflector reachability remains unverified.`,
@@ -1357,9 +1343,8 @@ function App({ config }: { config: RuntimeConfig }) {
       )
       setBridgeDestinationInputs((current) => ({
         ...current,
-        [card.id]: canonicalId,
+        [card.id]: '',
       }))
-      bridgeDestinationTouched.current.delete(card.id)
       appendNodeMessage(`${card.title} connected to ${canonical.currentDestinationLabel || canonical.currentDestination}.`)
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : `${card.title} connection failed.`)
@@ -1382,6 +1367,7 @@ function App({ config }: { config: RuntimeConfig }) {
         '',
         card.cardType === 'm17_net' ? 22_000 : 7_000,
       )
+      setBridgeDestinationInputs((current) => ({ ...current, [card.id]: '' }))
       appendNodeMessage(`${card.title} disconnected.`)
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : `${card.title} disconnect failed.`)
@@ -2116,9 +2102,15 @@ function App({ config }: { config: RuntimeConfig }) {
                 const destinationInput = bridgeDestinationInputs[card.id] || ''
                 const approvedDestinations = bridgeDestinations[card.id] || []
                 const approvedDestinationValues = new Set(approvedDestinations.map((destination) => destination.value))
-                const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] ?? (bridgeLinked ? card.currentTg : '')
-                const approvedDmrTalkgroup = approvedDestinationValues.has(dmrTalkgroupCandidate) ? dmrTalkgroupCandidate : ''
+                const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] || ''
+                const validDmrTalkgroup = /^\d{1,8}$/.test(dmrTalkgroupCandidate)
+                  && Number(dmrTalkgroupCandidate) >= 1
+                  && Number(dmrTalkgroupCandidate) <= 16777215
+                  && Number(dmrTalkgroupCandidate) !== 4000
                 const approvedDestinationInput = approvedDestinationValues.has(destinationInput) ? destinationInput : ''
+                const connectDestination = card.cardType === 'ysf_net'
+                  ? destinationInput.trim()
+                  : approvedDestinationInput
                 const destinationLabel = card.cardType === 'ysf_net'
                   ? 'Reflector name or ID'
                   : card.cardType === 'm17_net'
@@ -2164,29 +2156,28 @@ function App({ config }: { config: RuntimeConfig }) {
                   {card.cardType === 'dmr_net' && authStatus.canModify ? (
                     <div className="allscan-bridge-controls">
                       <div className="allscan-bridge-tune">
-                        <label htmlFor={`dmr-net-tg-${card.id}`}>Approved Talkgroup</label>
-                        <select
+                        <label htmlFor={`dmr-net-tg-${card.id}`}>Talkgroup</label>
+                        <input
                           id={`dmr-net-tg-${card.id}`}
-                          value={approvedDmrTalkgroup}
-                          disabled={approvedDestinations.length === 0}
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          spellCheck={false}
+                          maxLength={8}
+                          value={dmrTalkgroupCandidate}
+                          placeholder=""
+                          disabled={busy || cardBusy}
                           onChange={(event) => {
-                            setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: event.target.value }))
+                            const talkgroup = event.target.value.replace(/\D/g, '').slice(0, 8)
+                            setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: talkgroup }))
                           }}
-                        >
-                          <option value="">{bridgeDestinationPlaceholder(
-                            approvedDestinations.length,
-                            'Choose approved talkgroup',
-                          )}</option>
-                          {approvedDestinations.map((destination) => (
-                            <option key={destination.value} value={destination.value}>{destination.label}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                       <div className="allscan-bridge-link-buttons">
                         <button
                           type="button"
                           className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !card.controlReady || approvedDmrTalkgroup === ''}
+                          disabled={busy || cardBusy || !card.controlReady || !validDmrTalkgroup}
                           onClick={() => void connectDmrNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
@@ -2207,32 +2198,47 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className="allscan-bridge-controls">
                       <div className="allscan-bridge-tune">
                         <label htmlFor={`digital-net-destination-${card.id}`}>{destinationLabel}</label>
-                        <select
-                          id={`digital-net-destination-${card.id}`}
-                          value={approvedDestinationInput}
-                          disabled={busy || cardBusy || approvedDestinations.length === 0}
-                          onChange={(event) => {
-                            bridgeDestinationTouched.current.add(card.id)
-                            setBridgeDestinationInputs((current) => ({
-                              ...current,
-                              [card.id]: event.target.value,
-                            }))
-                          }}
-                        >
-                          <option value="">{bridgeDestinationPlaceholder(
-                            approvedDestinations.length,
-                            'Choose approved destination',
-                          )}</option>
-                          {approvedDestinations.map((destination) => (
-                            <option key={destination.value} value={destination.value}>{destination.label}</option>
-                          ))}
-                        </select>
+                        {card.cardType === 'ysf_net' ? (
+                          <input
+                            id={`digital-net-destination-${card.id}`}
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            maxLength={80}
+                            value={destinationInput}
+                            placeholder=""
+                            disabled={busy || cardBusy}
+                            onChange={(event) => {
+                              setBridgeDestinationInputs((current) => ({
+                                ...current,
+                                [card.id]: event.target.value.slice(0, 80),
+                              }))
+                            }}
+                          />
+                        ) : (
+                          <select
+                            id={`digital-net-destination-${card.id}`}
+                            value={approvedDestinationInput}
+                            disabled={busy || cardBusy || approvedDestinations.length === 0}
+                            onChange={(event) => {
+                              setBridgeDestinationInputs((current) => ({
+                                ...current,
+                                [card.id]: event.target.value,
+                              }))
+                            }}
+                          >
+                            <option value=""></option>
+                            {approvedDestinations.map((destination) => (
+                              <option key={destination.value} value={destination.value}>{destination.label}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div className="allscan-bridge-link-buttons">
                         <button
                           type="button"
                           className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !card.controlReady || approvedDestinationInput === ''}
+                          disabled={busy || cardBusy || !card.controlReady || connectDestination === ''}
                           onClick={() => void connectReflectorNetCard(card)}
                         >
                           {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}

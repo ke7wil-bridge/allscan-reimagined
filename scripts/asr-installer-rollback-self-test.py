@@ -220,6 +220,11 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "astapi/asrEchoLink.php" in integrity_text
     assert "astapi/AMI.php" in integrity_text
     assert "include/asrBridgeStatus.php" in integrity_text
+    assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ]" in integrity_text
+    assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ]" in integrity_text
+    assert "allscan-reimagined-ysf-hosts-refresh.service -p LoadState" in integrity_text
+    assert "allscan-reimagined-ysf-hosts-refresh.timer -p LoadState" in integrity_text
+    assert "systemctl reset-failed allscan-reimagined-ysf-hosts-refresh.timer" in text
     assert "allscan-reimagined-asterisk-read" in integrity_text
     assert "[ ! -L /usr/local/sbin/allscan-reimagined-asterisk-read ]" in integrity_text
     assert (

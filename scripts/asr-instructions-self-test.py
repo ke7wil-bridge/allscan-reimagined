@@ -287,13 +287,15 @@ def main() -> int:
         app_requirements.extend([
             "approvedDestinations.map",
             "approvedDestinationValues.has",
-            "Choose approved destination",
+            'placeholder=""',
+            '<option value=""></option>',
+            "card.cardType === 'ysf_net'",
+            "!['standard', 'dmr_net', 'ysf_net'].includes",
             "[card.id]: event.target.value",
             "result.currentDestination",
         ])
     for requirement in app_requirements:
         require(requirement in app, f"name-or-ID YSF reflector UI is missing: {requirement}")
-    require("type=\"text\"" not in app[app.find('digital-net-destination-'):app.find('digital-net-destination-') + 500], "Net Bridge destination is still unrestricted text")
     for requirement in (
         "function asr_ysf_net_resolve_destination",
         "More than one reflector uses that name",

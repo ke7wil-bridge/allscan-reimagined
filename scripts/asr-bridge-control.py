@@ -33,6 +33,7 @@ ANALOG_CONFIG_RE = re.compile(r"^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\
 USERNAME_RE = re.compile(r"[^A-Za-z0-9_.@+-]")
 MAX_TG = 16_777_215
 DISCONNECT_TG = 4000
+MAX_ABINFO_BYTES = 64 * 1024
 LIVE_STATUS_INTERVAL = 0.75
 LIVE_STATUS_STALE_SECONDS = 180
 LIVE_STATUS_INITIAL_TAIL_BYTES = 262_144
@@ -73,19 +74,9 @@ def validate_paths(bridge: dict) -> None:
         raise ControlError("Configured Analog Bridge path is not allowed.")
 
 
-def approved_talkgroups(bridge: dict) -> set[int]:
+def require_permission(bridge: dict) -> None:
     if bridge.get("bridgePermission") not in {"self_owned", "approved"}:
         raise ControlError("DMR Net Bridge permission is not confirmed.")
-    values = bridge.get("approvedDestinations")
-    if not isinstance(values, list) or not values:
-        raise ControlError("DMR Net Bridge has no approved talkgroups.")
-    approved: set[int] = set()
-    for value in values:
-        text = str(value)
-        if not text.isdigit() or not 1 <= int(text) <= MAX_TG or int(text) == DISCONNECT_TG:
-            raise ControlError("DMR Net Bridge approved talkgroup list is invalid.")
-        approved.add(int(text))
-    return approved
 
 
 def current_tg(path: Path) -> int | None:
@@ -100,13 +91,49 @@ def current_tg(path: Path) -> int | None:
     return value if 1 <= value <= MAX_TG else None
 
 
-def runtime_tg(path: Path) -> int | None:
+def abinfo_snapshot(path: Path) -> tuple[int, int | None] | None:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    # A hostile FIFO must not block the root control helper before fstat can
+    # reject it as a non-regular file.
+    flags |= getattr(os, "O_NONBLOCK", 0)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ControlError("DMR live ABInfo state is unsafe or unreadable.") from exc
+    try:
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_nlink != 1
+            or details.st_uid != os.geteuid()
+            or stat.S_IMODE(details.st_mode) & 0o022
+        ):
+            raise ControlError(
+                "DMR live ABInfo state must be a single-link regular file owned by the control service and not group/world-writable."
+            )
+        if details.st_size < 0 or details.st_size > MAX_ABINFO_BYTES:
+            raise ControlError("DMR live ABInfo state exceeds the safety limit.")
+        chunks: list[bytes] = []
+        remaining = MAX_ABINFO_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_ABINFO_BYTES:
+            raise ControlError("DMR live ABInfo state exceeds the safety limit.")
+    finally:
+        os.close(descriptor)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        payload = None
     if not isinstance(payload, dict):
-        return None
+        return details.st_mtime_ns, None
     digital = payload.get("digital")
     values = [
         payload.get("last_tune"),
@@ -118,8 +145,13 @@ def runtime_tg(path: Path) -> int | None:
         except (TypeError, ValueError):
             continue
         if 1 <= talkgroup <= MAX_TG:
-            return talkgroup
-    return None
+            return details.st_mtime_ns, talkgroup
+    return details.st_mtime_ns, None
+
+
+def runtime_tg(path: Path) -> int | None:
+    snapshot = abinfo_snapshot(path)
+    return snapshot[1] if snapshot is not None else None
 
 
 def resolve_abinfo_path(path: Path, host_root: Path = HOST_ROOT) -> Path:
@@ -475,7 +507,7 @@ def require_secure_root_file(path: Path, label: str, executable: bool = False) -
 
 def public_status(bridge_id: str, path: Path = CONFIG_PATH) -> dict:
     bridge = bridge_config(bridge_id, path)
-    approved_talkgroups(bridge)
+    require_permission(bridge)
     node_numbers(bridge, path)
     analog_config = Path(str(bridge["analogConfig"]))
     script = Path(str(bridge["dvswitchScript"]))
@@ -576,7 +608,14 @@ def set_direct_link(local_node: str, link_alias: str, linked: bool) -> None:
     raise ControlError(f"Asterisk did not confirm the bridge-node {action}.")
 
 
-def audit(user: str, bridge_id: str, old_tg: int | None, new_tg: int, result: str) -> None:
+def audit(
+    user: str,
+    bridge_id: str,
+    old_tg: int | None,
+    new_tg: int,
+    result: str,
+    audit_log: Path = AUDIT_LOG,
+) -> None:
     safe_user = USERNAME_RE.sub("_", user)[:80] or "unknown"
     safe_result = re.sub(r"[\r\n\t]+", " ", result).strip()[:240]
     line = (
@@ -584,10 +623,33 @@ def audit(user: str, bridge_id: str, old_tg: int | None, new_tg: int, result: st
         f"user={safe_user} bridge={bridge_id} old_tg={old_tg or 'unknown'} "
         f"new_tg={new_tg} result={safe_result}\n"
     )
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with AUDIT_LOG.open("a", encoding="utf-8") as handle:
-        handle.write(line)
-    os.chmod(AUDIT_LOG, 0o640)
+    try:
+        parent_info = audit_log.parent.lstat()
+    except OSError as exc:
+        raise OSError("DMR audit directory is unavailable") from exc
+    if (
+        not stat.S_ISDIR(parent_info.st_mode)
+        or parent_info.st_uid != os.geteuid()
+        or stat.S_IMODE(parent_info.st_mode) & 0o022
+    ):
+        raise OSError("DMR audit directory is unsafe")
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(audit_log, flags, 0o640)
+    try:
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_nlink != 1
+            or details.st_uid != os.geteuid()
+            or stat.S_IMODE(details.st_mode) & 0o022
+        ):
+            raise OSError("DMR audit log is unsafe")
+        os.write(descriptor, line.encode("utf-8"))
+        os.fsync(descriptor)
+        os.fchmod(descriptor, 0o640)
+    finally:
+        os.close(descriptor)
 
 
 def analog_control_port(path: Path) -> int:
@@ -624,21 +686,17 @@ def tune_with_retry(
     port = analog_control_port(analog_config)
     sent = False
     for _attempt in range(2):
-        try:
-            before_mtime = abinfo.stat().st_mtime_ns
-        except OSError:
-            before_mtime = -1
+        before = abinfo_snapshot(abinfo)
+        before_mtime = before[0] if before is not None else -1
         try:
             send_tune_command(port, target_tg)
             sent = True
         except ControlError:
             continue
         for _ in range(40):
-            try:
-                refreshed = abinfo.stat().st_mtime_ns > before_mtime
-            except OSError:
-                refreshed = False
-            if refreshed and runtime_tg(abinfo) == target_tg:
+            snapshot = abinfo_snapshot(abinfo)
+            refreshed = snapshot is not None and snapshot[0] > before_mtime
+            if refreshed and snapshot[1] == target_tg:
                 return True
             time.sleep(0.25)
     if not sent:
@@ -656,8 +714,7 @@ def connect(bridge_id: str, tg_text: str, user: str, path: Path = CONFIG_PATH) -
         raise ControlError("TG 4000 is reserved for Disconnect.")
 
     bridge = bridge_config(bridge_id, path)
-    if target_tg not in approved_talkgroups(bridge):
-        raise ControlError("That DMR talkgroup is not in this bridge card's approved list.")
+    require_permission(bridge)
     local_node, bridge_node, link_alias = node_numbers(bridge, path)
     script = Path(str(bridge["dvswitchScript"]))
     abinfo = resolve_abinfo_path(Path(str(bridge["abinfoPath"])))
@@ -761,7 +818,7 @@ def connect(bridge_id: str, tg_text: str, user: str, path: Path = CONFIG_PATH) -
 
 def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
     bridge = bridge_config(bridge_id, path)
-    approved_talkgroups(bridge)
+    require_permission(bridge)
     local_node, bridge_node, link_alias = node_numbers(bridge, path)
     script = Path(str(bridge["dvswitchScript"]))
     abinfo = resolve_abinfo_path(Path(str(bridge["abinfoPath"])))
@@ -895,6 +952,98 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         assert runtime_tg(abinfo) == 12345
         abinfo.write_text('{"last_tune":"4000","digital":{"tg":"4000"}}\n', encoding="utf-8")
         assert runtime_tg(abinfo) == DISCONNECT_TG
+        abinfo.chmod(0o666)
+        try:
+            runtime_tg(abinfo)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("Group/world-writable ABInfo state was accepted.")
+        abinfo.chmod(0o644)
+        hardlink = Path(directory) / "ABInfo-hardlink.json"
+        os.link(abinfo, hardlink)
+        try:
+            runtime_tg(abinfo)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("Hard-linked ABInfo state was accepted.")
+        hardlink.unlink()
+        symlink = Path(directory) / "ABInfo-symlink.json"
+        symlink.symlink_to(abinfo)
+        try:
+            runtime_tg(symlink)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("Symlinked ABInfo state was accepted.")
+        directory_state = Path(directory) / "ABInfo-directory"
+        directory_state.mkdir()
+        try:
+            runtime_tg(directory_state)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("Non-regular ABInfo state was accepted.")
+        fifo_state = Path(directory) / "ABInfo-fifo"
+        os.mkfifo(fifo_state, 0o600)
+        try:
+            runtime_tg(fifo_state)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("FIFO ABInfo state was accepted.")
+        oversized = Path(directory) / "ABInfo-oversized.json"
+        oversized.write_bytes(b"x" * (MAX_ABINFO_BYTES + 1))
+        try:
+            runtime_tg(oversized)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("Oversized ABInfo state was accepted.")
+        if os.geteuid() == 0:
+            wrong_owner = Path(directory) / "ABInfo-wrong-owner.json"
+            wrong_owner.write_text('{"last_tune":"12345"}\n', encoding="utf-8")
+            os.chown(wrong_owner, 65534, -1)
+            try:
+                runtime_tg(wrong_owner)
+            except ControlError:
+                pass
+            else:
+                raise AssertionError("ABInfo state owned by another account was accepted.")
+        audit_dir = Path(directory) / "audit"
+        audit_dir.mkdir(mode=0o700)
+        audit_log = audit_dir / "bridge-control.log"
+        audit("bad\nuser", "dmr_net", 91, 3100, "success\tclean", audit_log)
+        audit_text = audit_log.read_text(encoding="utf-8")
+        assert "user=bad_user" in audit_text and "result=success clean" in audit_text
+        audit_log.chmod(0o666)
+        try:
+            audit("tester", "dmr_net", 91, 3100, "unsafe", audit_log)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("Group/world-writable DMR audit log was accepted.")
+        audit_log.unlink()
+        audit_target = audit_dir / "target.log"
+        audit_target.write_text("preserve\n", encoding="utf-8")
+        audit_symlink = audit_dir / "bridge-control-symlink.log"
+        audit_symlink.symlink_to(audit_target)
+        try:
+            audit("tester", "dmr_net", 91, 3100, "unsafe", audit_symlink)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("Symlinked DMR audit log was accepted.")
+        assert audit_target.read_text(encoding="utf-8") == "preserve\n"
+        audit_hardlink = audit_dir / "bridge-control-hardlink.log"
+        os.link(audit_target, audit_hardlink)
+        try:
+            audit("tester", "dmr_net", 91, 3100, "unsafe", audit_hardlink)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("Hard-linked DMR audit log was accepted.")
         configured_abinfo = Path("/tmp/ABInfo_12345.json")
         fake_host_root = Path(directory) / "host-root"
         host_abinfo = fake_host_root / "tmp/ABInfo_12345.json"
@@ -934,7 +1083,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
                             "dvswitchScript": "/opt/MMDVM_Bridge_TestNet/dvswitch.sh",
                             "analogConfig": "/opt/Analog_Bridge_TestNet/Analog_Bridge.ini",
                             "bridgePermission": "self_owned",
-                            "approvedDestinations": ["12345"],
+                            "approvedDestinations": [],
                         }
                     ],
                 }
@@ -942,9 +1091,9 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             encoding="utf-8",
         )
         bridge = json.loads(runtime_config.read_text(encoding="utf-8"))["bridges"][0]
-        assert approved_talkgroups(bridge) == {12345}
+        require_permission(bridge)
         try:
-            approved_talkgroups(dict(bridge, bridgePermission=""))
+            require_permission(dict(bridge, bridgePermission=""))
         except ControlError:
             pass
         else:

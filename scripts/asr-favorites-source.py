@@ -209,7 +209,7 @@ def self_test() -> None:
         migrations = root / "migrations"
         canonical.parent.mkdir(parents=True)
         stock.parent.mkdir(parents=True)
-        canonical.write_text('label[] = "Canonical 29332"\n', encoding="utf-8")
+        canonical.write_text('label[] = "Canonical 12345"\n', encoding="utf-8")
         stock.write_text('label[] = "Stock 2300"\n', encoding="utf-8")
         canonical_before = digest(canonical)
         stock_before = digest(stock)

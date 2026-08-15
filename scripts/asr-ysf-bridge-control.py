@@ -159,8 +159,8 @@ def validate_bridge(bridge: dict, config: dict) -> dict:
         raise ControlError("Selected bridge is not a YSF Net Bridge.")
     if bridge.get("bridgePermission") not in {"self_owned", "approved"}:
         raise ControlError("YSF Net Bridge permission is not confirmed.")
-    approved = bridge.get("approvedDestinations")
-    if not isinstance(approved, list) or not approved or any(
+    approved = bridge.get("approvedDestinations", [])
+    if not isinstance(approved, list) or any(
         not isinstance(value, (str, int)) or not str(value).strip() for value in approved
     ):
         raise ControlError("YSF Net Bridge approved reflector list is invalid.")
@@ -975,11 +975,6 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
         raise ControlError("YSF Net Bridge tuning is disabled by configuration.")
     settings = prepare_control(bridge)
     item = destination_by_id(settings, destination)
-    if not any(
-        str(value).casefold() in {str(item["id"]).casefold(), str(item["name"]).casefold()}
-        for value in bridge["approvedDestinations"]
-    ):
-        raise ControlError("That YSF reflector is not in this bridge card's approved list.")
     lock_path = RUN_DIR / f"ysf-control-{bridge_id}.lock"
     with lock_path.open("w", encoding="utf-8") as lock:
         try:
@@ -1570,17 +1565,18 @@ def self_test() -> None:
                 "ysfCustomReflectors": custom,
                 "commandTransport": "remote_command",
                 "bridgePermission": "self_owned",
-                "approvedDestinations": ["12345", "US-TEST"],
+                "approvedDestinations": [],
             }],
         }
         validated = validate_bridge(config["bridges"][0], config)
         assert validated["remoteCommand"] == Path("/opt/MMDVM_Bridge_TestNet/RemoteCommand")
+        assert validated["approvedDestinations"] == []
         try:
-            validate_bridge(dict(config["bridges"][0], approvedDestinations=[]), config)
+            validate_bridge(dict(config["bridges"][0], approvedDestinations=[""]), config)
         except ControlError:
             pass
         else:
-            raise AssertionError("YSF Net Bridge without an approved reflector was accepted")
+            raise AssertionError("YSF Net Bridge accepted a malformed optional reflector list")
         bad = dict(config["bridges"][0], ysfGatewayService="../../bad.service")
         try:
             validate_bridge(bad, config)

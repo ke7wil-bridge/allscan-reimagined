@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs'
 import { createServer } from 'vite'
 
 globalThis.DOMParser = class {
@@ -22,7 +23,6 @@ try {
   const {
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
-    bridgeDestinationPlaceholder,
     normalizedBridgeMode,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
@@ -145,13 +145,48 @@ try {
     bridgeCardWarningText('Audio path unavailable.') === 'Audio path unavailable.',
     'live bridge warning was hidden',
   )
+  const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const dmrControls = appSource.match(
+    /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
+  )?.[0] || ''
+  assert(dmrControls.includes('<input'), 'DMR Net talkgroup is not a typeable input')
+  assert(dmrControls.includes('inputMode="numeric"'), 'DMR Net talkgroup lost its numeric keyboard hint')
+  assert(dmrControls.includes('placeholder=""'), 'empty DMR Net input shows placeholder text')
+  assert(!dmrControls.includes('<select'), 'DMR Net talkgroup regressed to a dropdown')
+  assert(!dmrControls.includes('approvedDestinations.length'), 'DMR Net input still depends on an approved list')
   assert(
-    bridgeDestinationPlaceholder(0, 'Choose approved destination') === '',
-    'empty Net Bridge dropdown showed placeholder text',
+    dmrControls.includes("event.target.value.replace(/\\D/g, '').slice(0, 8)"),
+    'DMR Net talkgroup input is not restricted to eight digits',
   )
   assert(
-    bridgeDestinationPlaceholder(2, 'Choose approved destination') === 'Choose approved destination',
-    'populated Net Bridge dropdown lost its selection prompt',
+    appSource.includes("card.cardType === 'ysf_net' ? (")
+      && appSource.match(/card\.cardType === 'ysf_net' \? \([\s\S]+?placeholder=""/)
+      && appSource.includes('event.target.value.slice(0, 80)'),
+    'YSF Net reflector is not a typeable bounded input',
+  )
+  assert(
+    appSource.includes("!['standard', 'dmr_net', 'ysf_net'].includes(bridge.cardType)"),
+    'manual DMR/YSF controls still poll approved destination lists',
+  )
+  assert(
+    appSource.includes('<option value=""></option>')
+      && !appSource.includes('Choose approved destination'),
+    'a Net Bridge dropdown still shows placeholder text',
+  )
+  assert(
+    appSource.includes("const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] || ''")
+      && !appSource.includes('bridgeLinked ? card.currentTg')
+      && !appSource.includes('next[card.id] = card.currentDestination'),
+    'a Net Bridge destination field is still prefilled from the current connection',
+  )
+  assert(
+    !appSource.includes('[card.id]: canonicalId')
+      && !appSource.includes('[card.id]: canonical.currentDestination'),
+    'a Net Bridge destination field is not cleared after connecting',
+  )
+  assert(
+    (appSource.match(/\[card\.id\]: ''/g) || []).length >= 5,
+    'a Net Bridge destination field is not cleared after connect and disconnect actions',
   )
 
   console.log('bridge dashboard self-test: ok')

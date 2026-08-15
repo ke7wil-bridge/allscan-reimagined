@@ -125,12 +125,12 @@ def self_test() -> None:
         validated = validate_file(str(favorites), favorites_dir)
         lock_file = root / "run" / "favorites.lock"
 
-        assert update_favorites(validated, "add", "29332", "WL7LP 29332", lock_file)
-        assert not update_favorites(validated, "add", "29332", "WL7LP 29332", lock_file)
-        assert "29332" in favorites.read_text(encoding="utf-8")
-        assert update_favorites(validated, "delete", "29332", "", lock_file)
-        assert "29332" not in favorites.read_text(encoding="utf-8")
-        assert "29332" in Path(str(favorites) + ".bak").read_text(encoding="utf-8")
+        assert update_favorites(validated, "add", "12345", "N0TEST 12345", lock_file)
+        assert not update_favorites(validated, "add", "12345", "N0TEST 12345", lock_file)
+        assert "12345" in favorites.read_text(encoding="utf-8")
+        assert update_favorites(validated, "delete", "12345", "", lock_file)
+        assert "12345" not in favorites.read_text(encoding="utf-8")
+        assert "12345" in Path(str(favorites) + ".bak").read_text(encoding="utf-8")
         assert stat.S_IMODE(favorites.stat().st_mode) == 0o664
 
         outside = root / "favorites.ini"

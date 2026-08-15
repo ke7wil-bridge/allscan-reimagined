@@ -360,6 +360,9 @@ systemctl disable --now allscan-reimagined-ysf-hosts-refresh.timer \
   allscan-reimagined-ysf-hosts-refresh.service >/dev/null 2>&1 || true
 rm -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer \
   /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service
+systemctl daemon-reload
+systemctl reset-failed allscan-reimagined-ysf-hosts-refresh.timer \
+  allscan-reimagined-ysf-hosts-refresh.service >/dev/null 2>&1 || true
 repair_protected_config_metadata
 if [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] \
   && python3 - "$CONFIG_DIR/config.json" <<'PY'

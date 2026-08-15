@@ -16,12 +16,12 @@ const runtimeConfig = {
   footerByline: 'Synthetic test data',
   headerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
-  versionLabel: 'v1.0.0 Beta 7.2',
+  versionLabel: 'v1.0.0 Beta 7.3',
   bridges: [
-    { id: 'dmr', mode: 'dmr', node: '2001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
-    { id: 'dmr_net', mode: 'dmr', node: '2002', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
+    { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
+    { id: 'dmr_net', mode: 'dmr', node: '100004', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
     { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
-    { id: 'ysf_net', mode: 'ysf', node: '2003', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
+    { id: 'ysf_net', mode: 'ysf', node: '100005', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
     { id: 'zello', mode: 'zello', node: '100003', title: 'Zello Bridge', detailTitle: 'Zello Clients' },
   ],
 }
@@ -75,7 +75,7 @@ const mockUsers: MockUser[] = [
     nodes: '100000',
     permission: 'Admin',
     timezone: 'America/Phoenix',
-    location: 'Phoenix, Arizona',
+    location: 'Example City, Example Region',
   },
   {
     id: 2,
@@ -84,7 +84,7 @@ const mockUsers: MockUser[] = [
     nodes: '100000, 100001',
     permission: 'Write',
     timezone: 'America/Denver',
-    location: 'West Valley Bridge Desk, Arizona',
+    location: 'Example Bridge Desk',
   },
   {
     id: 3,
@@ -270,9 +270,9 @@ function settingsPage() {
         <legend>Update Settings</legend>
         <table class="grid">
           <tbody>
-            <tr><th>Name</th><td><input name="name" type="text" value="Lucas KM7ETV"></td></tr>
-            <tr><th>Email</th><td><input name="email" type="text" value="lucasoptura@gmail.com"></td></tr>
-            <tr><th>Location</th><td><input name="location" type="text" value="Phoenix, Arizona"></td></tr>
+            <tr><th>Name</th><td><input name="name" type="text" value="Example Operator N0TEST"></td></tr>
+            <tr><th>Email</th><td><input name="email" type="text" value="operator@example.test"></td></tr>
+            <tr><th>Location</th><td><input name="location" type="text" value="Example City, Example Region"></td></tr>
             <tr><th>Node #s</th><td><input name="nodenums" type="text" value=""></td></tr>
             <tr><th>Permission</th><td><select name="permission"><option>Read Only</option><option>Write</option><option>Admin</option><option selected>Superuser</option></select></td></tr>
             <tr><th>Time Zone</th><td><select name="timezone_id"><option selected>America/Phoenix</option><option>America/Denver</option><option>UTC</option></select></td></tr>
@@ -318,7 +318,7 @@ function cfgPage() {
           <tr><td>1</td><td>Public Permission</td><td>[Default]</td><td>Read Only</td><td>-</td></tr>
           <tr><td>2</td><td>Favorites.ini Locations</td><td>[Default]</td><td>favorites.ini, ../supermon/favorites.ini, /etc/allscan/favorites.ini</td><td>-</td></tr>
           <tr><td>3</td><td>Call Sign</td><td>N0CALL</td><td>-</td><td>2025-03-07 12:54</td></tr>
-          <tr><td>4</td><td>Location</td><td>Phoenix, Arizona</td><td>-</td><td>2025-03-07 12:54</td></tr>
+          <tr><td>4</td><td>Location</td><td>Example City, Example Region</td><td>-</td><td>2025-03-07 12:54</td></tr>
           <tr><td>5</td><td>Node Title</td><td>Example Node</td><td>-</td><td>2025-03-07 12:54</td></tr>
           <tr><td>6</td><td>DiscBeforeConn Default</td><td>Off</td><td>On</td><td>2025-05-16 04:45</td></tr>
           <tr><td>7</td><td>Node Number</td><td>[Default]</td><td>-</td><td>-</td></tr>
@@ -427,7 +427,7 @@ function reimaginedSettingsPage() {
               <div class="asr-bridge-fields-grid asr-bridge-card-grid">
                 <label><span>Card Type</span><select><option>Standard Bridge</option><option selected>DMR Net Bridge</option></select></label>
                 <label><span>ID</span><input value="dmr_net"></label>
-                <label><span>Node</span><input value="2002"></label>
+                <label><span>Node</span><input value="100004"></label>
                 <label><span>Card Title</span><input value="DMR Net Bridge"></label>
                 <label><span>Detail Title</span><input value="Connected Clients"></label>
               </div>
@@ -556,9 +556,9 @@ type MockBridgeControlState = {
 }
 
 const mockYsfDestinations = [
-  { id: '32453', name: 'US-KCWIDE', value: 'US-KCWIDE', label: 'US-KCWIDE (32453)' },
-  { id: '67874', name: 'US-NETOHOLICS', value: 'US-NETOHOLICS', label: 'US-NETOHOLICS (67874)' },
-  { id: '83193', name: 'AMERICA-LINK', value: 'AMERICA-LINK', label: 'AMERICA-LINK (83193)' },
+  { id: '12340', name: 'TEST-ALPHA', value: 'TEST-ALPHA', label: 'TEST-ALPHA (12340)' },
+  { id: '12341', name: 'TEST-BRAVO', value: 'TEST-BRAVO', label: 'TEST-BRAVO (12341)' },
+  { id: '12342', name: 'TEST-CHARLIE', value: 'TEST-CHARLIE', label: 'TEST-CHARLIE (12342)' },
   { id: '34567', name: 'US-CUSTOM-TEST', value: 'US-CUSTOM-TEST', label: 'US-CUSTOM-TEST (34567)' },
 ]
 
@@ -566,11 +566,11 @@ function bridgeLive(state?: MockBridgeControlState) {
   return jsonResponse({
     updated: '2026-06-25T17:15:30Z',
     updated_epoch: 1782417330,
-    dmr: { active: true, role: 'source', state: 'Source/TX', caller: 'N7MOCK', recent_users: [{ name: 'N7MOCK' }, { name: 'W7TEST' }] },
+    dmr: { active: true, role: 'source', state: 'Source/TX', caller: 'N0TEST', recent_users: [{ name: 'N0TEST' }, { name: 'N1TEST' }] },
     dmr_net: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
-    ysf: { active: true, role: 'relay', state: 'Relay', caller: 'W7TEST', recent_users: [{ name: 'W7TEST' }] },
+    ysf: { active: true, role: 'relay', state: 'Relay', caller: 'N1TEST', recent_users: [{ name: 'N1TEST' }] },
     ysf_net: state?.ysfNetLinked
-      ? { active: true, role: 'source', state: 'Source/TX', caller: 'K7YSF', current_user: 'K7YSF', recent_users: [{ name: 'K7YSF' }] }
+      ? { active: true, role: 'source', state: 'Source/TX', caller: 'N2TEST', current_user: 'N2TEST', recent_users: [{ name: 'N2TEST' }] }
       : { active: false, role: 'idle', state: 'Idle', caller: '', warning: '', recent_users: [] },
     zello: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
   })
@@ -578,10 +578,10 @@ function bridgeLive(state?: MockBridgeControlState) {
 
 function connectedClients() {
   return jsonResponse({
-    dmr: [{ callsign: 'N7MOCK', room: 'TG 3100', connected: '00:12:04' }],
+    dmr: [{ callsign: 'N0TEST', room: 'TG 3100', connected: '00:12:04' }],
     dmr_net: [{ callsign: 'N0CALL', room: 'TG 12345', connected: '00:03:16' }],
-    ysf: [{ callsign: 'W7TEST', room: 'America-Link', connected: '00:03:41' }],
-    ysf_net: [{ callsign: 'K7YSF', room: 'US-KCWIDE', connected: '00:01:18' }],
+    ysf: [{ callsign: 'N1TEST', room: 'TEST-CHARLIE', connected: '00:03:41' }],
+    ysf_net: [{ callsign: 'N2TEST', room: 'TEST-ALPHA', connected: '00:01:18' }],
     zello: [],
   })
 }
@@ -594,24 +594,24 @@ function favoritesPayload() {
       { value: '/etc/allscan/favorites.ini', label: 'favorites.ini', selected: true },
     ],
     rows: [
-      { index: '1', node: '2300', label: 'Public Legacy Node', name: 'Public Legacy Node', desc: 'Four-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
-      { index: '2', node: '2001', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
-      { index: '3', node: '29332', label: 'Standard Public Node', name: 'Standard Public Node', desc: 'Five-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
+      { index: '1', node: '100010', label: 'Public Test Node', name: 'Public Test Node', desc: 'Selection test', location: 'Test', rx: '', lcnt: '', href: '' },
+      { index: '2', node: '100011', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
+      { index: '3', node: '12345', label: 'Standard Public Node', name: 'Standard Public Node', desc: 'Five-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
     ],
   })
 }
 
 function connectionFeed(state?: MockBridgeControlState) {
   const ysfNetRows = state?.ysfNetLinked
-    ? [{ node: '2003', info: 'YSF Net Bridge', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:30', last_keyed: 'Never', lnodes: [] }]
+    ? [{ node: '100005', info: 'YSF Net Bridge', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:30', last_keyed: 'Never', lnodes: [] }]
     : []
   return JSON.stringify({
     100000: {
       remote_nodes: [
-        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['2300', '2001', '2002', ...ysfNetRows.map((row) => row.node)] },
-        { node: '2300', info: 'Public Legacy Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
-        { node: '2001', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
-        { node: '2002', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
+        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['100010', '100011', '100004', ...ysfNetRows.map((row) => row.node)] },
+        { node: '100010', info: 'Public Test Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
+        { node: '100011', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
+        { node: '100004', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
         ...ysfNetRows,
       ],
     },
@@ -662,7 +662,7 @@ export function allscanMockPlugin(): Plugin {
       const bridgeControlState: MockBridgeControlState = {
         dmrNetDestination: '12345',
         dmrNetLinked: true,
-        ysfNetDestination: '32453',
+        ysfNetDestination: '12340',
         ysfNetLinked: true,
       }
 

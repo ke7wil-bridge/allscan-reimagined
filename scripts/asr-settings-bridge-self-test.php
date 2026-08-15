@@ -83,20 +83,40 @@ check($nxdn['cardType'] === 'nxdn_net' && $nxdn['approvedDestinations'] === ['65
 
 $dmr = postedBridge([
 	'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
-	'bridgeApprovedDestinations' => ['31665, 91'], 'bridgeAbinfoPath' => ['/tmp/ABInfo_12345.json'],
+	'bridgeApprovedDestinations' => [''], 'bridgeAbinfoPath' => ['/tmp/ABInfo_12345.json'],
 	'bridgeDvswitchScript' => ['/opt/MMDVM_Bridge_Test/dvswitch.sh'],
 	'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
 ]);
-check($dmr['linkAlias'] === '999123456' && $dmr['approvedDestinations'] === ['31665', '91'], 'DMR Net alias or approved TG list was not generated.');
+check($dmr['linkAlias'] === '999123456' && $dmr['approvedDestinations'] === [], 'DMR Net manual-entry card required an approved TG list.');
 
 $ysf = postedBridge([
 	'bridgeMode' => ['ysf'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
-	'bridgeApprovedDestinations' => ["12345\nUS-TEST"], 'bridgeAllowTune' => ['1'],
+	'bridgeApprovedDestinations' => [''], 'bridgeAllowTune' => ['1'],
 	'bridgeYsfGatewayConfig' => ['/opt/YSFGateway_test/YSFGateway.ini'],
 	'bridgeMmdvmConfig' => ['/opt/MMDVM_Bridge_test/MMDVM_Bridge.ini'],
 	'bridgeYsfGatewayService' => ['ysfgateway_test.service'], 'bridgeMmdvmService' => ['mmdvm_test.service'],
 ]);
-check($ysf['approvedDestinations'] === ['12345', 'US-TEST'], 'YSF Net approved reflector list was not preserved.');
+check($ysf['approvedDestinations'] === [], 'YSF Net manual-entry card required an approved reflector list.');
+
+expectFailure(static function (): void {
+	postedBridge([
+		'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
+		'bridgeApprovedDestinations' => [''], 'bridgeAbinfoPath' => ['/tmp/ABInfo_12345.json'],
+		'bridgeDvswitchScript' => ['/opt/MMDVM_Bridge_Test/dvswitch.sh'],
+		'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
+	]);
+}, 'requires confirmed permission');
+
+expectFailure(static function (): void {
+	postedBridge([
+		'bridgeMode' => ['ysf'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
+		'bridgeApprovedDestinations' => [''], 'bridgeAllowTune' => ['1'],
+		'bridgeYsfGatewayConfig' => ['/opt/YSFGateway_test/YSFGateway.ini'],
+		'bridgeMmdvmConfig' => ['/opt/MMDVM_Bridge_test/MMDVM_Bridge.ini'],
+		'bridgeYsfGatewayService' => ['ysfgateway_test.service'],
+		'bridgeMmdvmService' => ['mmdvm_test.service'],
+	]);
+}, 'requires confirmed permission');
 
 $m17 = postedBridge([
 	'bridgeMode' => ['m17'], 'bridgeBackendMode' => ['managed'], 'bridgePermission' => ['self_owned'],

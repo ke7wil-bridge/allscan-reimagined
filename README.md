@@ -1,55 +1,52 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 7.2 installs the current official AllScan backend at
+Gleason's AllScan. Beta 7.3 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 7.2** and remains a prerelease.
+This archive is **Beta 7.3** and remains a prerelease.
 
-## What's New in Beta 7.2
+## What's New in Beta 7.3
 
-- DMR, YSF, Zello, P25, NXDN, and M17 Bridge Cards now use clearer,
-  expandable settings.
-- New cards begin as **New Digital Bridge**, while Digital Mode and Card Title
-  remain separate.
-- Cards show only the options, permissions, destinations, and readiness details
-  that apply to them.
-- ASR removes only bridge items it can prove it created. Existing, manual, and
-  shared bridge installations remain untouched.
-- An optional one-time startup summary can announce connected local Standard
-  bridges. It is off by default.
-- Dashboard warnings no longer expose internal backend details, and empty Net
-  Bridge destination lists display as blank dropdowns.
-- EchoLink callsign display is more dependable when the normal lookup provides
-  incomplete information.
-- Installation, integrity, update, and rollback checks are stronger.
+- Digital Bridge Cards have clearer expandable settings, stronger ownership
+  safeguards, safer deletion, and an optional one-time startup summary.
+- Dashboard warnings protect backend details, and EchoLink callsign display is
+  more dependable when its normal lookup is incomplete.
+- DMR Net Bridge operators can manually type a talkgroup number.
+- YSF Net Bridge operators can manually type an exact reflector name or
+  five-digit ID.
+- P25, NXDN, and M17 Net Bridges keep their approved-destination dropdowns.
+- Every Net Bridge destination box starts blank and clears after Connect or
+  Disconnect; the current destination is shown separately.
+- Installation self-tests now work on systems that secure temporary folders
+  with the `noexec` option.
 
-[Read the complete Beta 7.2 release notes](release-notes/v1.0.0-beta.7.2.md).
+[Read the complete Beta 7.3 release notes](release-notes/v1.0.0-beta.7.3.md).
 
 ## Install
 
-Download the Beta 7.2 archive and its `.sha256` companion from the GitHub
+Download the Beta 7.3 archive and its `.sha256` companion from the GitHub
 prerelease. Then verify, extract, and run the installer directly from an
 interactive root shell:
 
 ```bash
 set -euo pipefail
 
-pkg="/tmp/allscan-reimagined-1.0.0-beta.7.2.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.7.3.tar.gz"
 checksum="${pkg}.sha256"
-stage="$(mktemp -d /tmp/asr-beta-7-2-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.2"
+stage="$(mktemp -d /tmp/asr-beta-7-3-install.XXXXXX)"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.3"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.7.2"
+cd "$stage/allscan-reimagined-1.0.0-beta.7.3"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -227,7 +224,7 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 7.2 release notes](release-notes/v1.0.0-beta.7.2.md)
+- [Beta 7.3 release notes](release-notes/v1.0.0-beta.7.3.md)
 - [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)
 - [Beta 7 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.md)
 

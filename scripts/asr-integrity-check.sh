@@ -112,9 +112,10 @@ PY
 then
   [ -f /etc/systemd/system/allscan-reimagined-ysf-net-live.service ] || needs_reapply=1
   systemctl is-enabled --quiet allscan-reimagined-ysf-net-live.service || needs_reapply=1
-  [ -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ] || needs_reapply=1
-  [ -f /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ] || needs_reapply=1
-  systemctl is-enabled --quiet allscan-reimagined-ysf-hosts-refresh.timer || needs_reapply=1
+  [ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ] || needs_reapply=1
+  [ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ] || needs_reapply=1
+  [ "$(systemctl show allscan-reimagined-ysf-hosts-refresh.service -p LoadState --value 2>/dev/null)" = "not-found" ] || needs_reapply=1
+  [ "$(systemctl show allscan-reimagined-ysf-hosts-refresh.timer -p LoadState --value 2>/dev/null)" = "not-found" ] || needs_reapply=1
 fi
 if [ -f "$MASTER_DIR/scripts/asr-release-check.py" ]; then
   [ -x /usr/local/sbin/allscan-reimagined-release-check ] || needs_reapply=1

@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ASR_INSTALLED_VERSION = "1.0.0-beta.7.2"
-ASR_INSTALLED_LABEL = "v1.0.0 Beta 7.2"
+ASR_INSTALLED_VERSION = "1.0.0-beta.7.3"
+ASR_INSTALLED_LABEL = "v1.0.0 Beta 7.3"
 ASR_RELEASES_API = (
     "https://api.github.com/repos/ke7wil-bridge/allscan-reimagined/releases?per_page=20"
 )
