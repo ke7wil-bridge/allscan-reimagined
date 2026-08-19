@@ -221,6 +221,28 @@ The release archive and SHA-256 checksum are written under:
 release/
 ```
 
+## Layered Install
+
+The installer treats stock AllScan as the base layer and then overlays AllScan Reimagined on top of it. When the target node does not already have the required official AllScan backend, `install.sh` runs the upstream AllScan installer/updater first and then applies the Reimagined layer so `/asr/` shares the original application's users, data, and node settings.
+
+The repository itself does not vendor the full upstream AllScan source tree. The compat snapshot under `compat/allscan-v1.01/` contains the files needed for the overlay layer.
+
+## Docker Layered Stack
+
+This repository now includes a Docker stack that pulls stock AllScan from the upstream GitHub repository at runtime and then layers AllScan Reimagined into `/asr/` while keeping stock AllScan at `/allscan/`.
+
+1. Copy `.env.example` to `.env` and set your AMI credentials (`ASR_AMI_PASS`) plus node values.
+2. Ensure your ASL3 container is running on the `asl3-docker_default` network.
+3. Build and run:
+
+```bash
+docker compose up --build
+```
+
+4. Open:
+  - `http://localhost:4173/allscan/` (stock AllScan)
+  - `http://localhost:4173/asr/` (AllScan Reimagined overlay)
+
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
