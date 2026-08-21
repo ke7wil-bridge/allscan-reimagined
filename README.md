@@ -1,52 +1,64 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 7.3 installs the current official AllScan backend at
+Gleason's AllScan. Beta 7.4 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 7.3** and remains a prerelease.
+This archive is **Beta 7.4** and remains a prerelease.
 
-## What's New in Beta 7.3
+## What's New in Beta 7.4
 
-- Digital Bridge Cards have clearer expandable settings, stronger ownership
-  safeguards, safer deletion, and an optional one-time startup summary.
-- Dashboard warnings protect backend details, and EchoLink callsign display is
-  more dependable when its normal lookup is incomplete.
-- DMR Net Bridge operators can manually type a talkgroup number.
-- YSF Net Bridge operators can manually type an exact reflector name or
-  five-digit ID.
-- P25, NXDN, and M17 Net Bridges keep their approved-destination dropdowns.
-- Every Net Bridge destination box starts blank and clears after Connect or
-  Disconnect; the current destination is shown separately.
-- Installation self-tests now work on systems that secure temporary folders
-  with the `noexec` option.
+- DMR and YSF Talking status now ends only on real end/watchdog evidence or,
+  when fresh Asterisk keyed telemetry is available, a verified unkeyed sample
+  after a short grace period. Legitimate long transmissions are not hidden by
+  a blind timeout.
+- Expanded Favorites can stay above or below Connection Status. The accessible
+  setting is stored per browser and keeps the panel in normal page flow on
+  desktop, tablet, and mobile.
+- ST:ASL now includes Logout in its visible Admin menu while keeping the
+  existing Logout placement in every other theme and responsive layout.
+- Installer guidance starts with `sudo -i`, an immediate root check, and a
+  deterministic `022` umask. The DMR self-test fixtures remain secure under
+  caller umasks `0022`, `0002`, and `0000`.
+- A fresh install can run the official AllScan installer when stock
+  `/allscan/` is absent. ASR verifies the resulting version and compatibility
+  layer before creating `/asr/`, and preserves official-installer ownership on
+  failure.
+- Beta 7.3 Bridge Cards, controls, ownership boundaries, and manual/shared
+  bridge behavior remain unchanged. Beta 7.4 does not provision or adopt
+  managed bridges, and existing manual/shared bridges remain external and
+  untouched. Guided ASR-managed bridge creation remains separate Beta 8 work,
+  with immutable ownership recorded at creation and retire/recreate required
+  for managed mode or role changes.
 
-[Read the complete Beta 7.3 release notes](release-notes/v1.0.0-beta.7.3.md).
+[Read the complete Beta 7.4 release notes](release-notes/v1.0.0-beta.7.4.md).
 
 ## Install
 
-Download the Beta 7.3 archive and its `.sha256` companion from the GitHub
-prerelease. Then verify, extract, and run the installer directly from an
-interactive root shell:
+First run `sudo -i` by itself. Confirm the new prompt begins with `root@` and
+ends with `#`; stop if it does not. Then download the Beta 7.4 archive and its
+`.sha256` companion from the GitHub prerelease, verify it, and run the installer
+directly from that interactive root shell:
 
 ```bash
 set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." >&2; exit 1; }
 
-pkg="/tmp/allscan-reimagined-1.0.0-beta.7.3.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.7.4.tar.gz"
 checksum="${pkg}.sha256"
-stage="$(mktemp -d /tmp/asr-beta-7-3-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.3"
+stage="$(mktemp -d /tmp/asr-beta-7-4-install.XXXXXX)"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.4"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.7.3"
+cd "$stage/allscan-reimagined-1.0.0-beta.7.4"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -74,7 +86,9 @@ python3 payload/scripts/asr-bridge-lifecycle.py self-test
 python3 payload/scripts/asr-startup-bridge-summary.py --self-test
 python3 payload/scripts/asr-release-check.py --self-test
 python3 payload/scripts/asr-rollback.py self-test
+python3 payload/scripts/asr-installer-rollback-self-test.py --self-test
 python3 payload/scripts/asr-bridge-control.py --self-test
+python3 payload/scripts/asr-bridge-stale-status-self-test.py
 python3 payload/scripts/asr-ysf-bridge-control.py --self-test
 python3 payload/scripts/asr-protected-config-metadata.py --self-test
 python3 payload/scripts/asr-favorites-update.py --self-test
@@ -224,7 +238,8 @@ release/
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 7.3 release notes](release-notes/v1.0.0-beta.7.3.md)
+- [Beta 7.4 release notes](release-notes/v1.0.0-beta.7.4.md)
+- [Beta 7.3 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.3.md)
 - [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)
 - [Beta 7 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.md)
 

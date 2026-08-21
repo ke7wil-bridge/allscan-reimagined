@@ -1,7 +1,13 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-ASR_VERSION="1.0.0-beta.7.3"
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  echo "ERROR: Root is required. Run sudo -i, confirm a root@...# prompt, then run this installer again." >&2
+  exit 1
+fi
+umask 022
+
+ASR_VERSION="1.0.0-beta.7.4"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -30,6 +36,8 @@ ALLSCAN_OLD_ARMED=0
 ALLSCAN_OLD_BACKUP=""
 ASR_WEB_WAS_PRESENT=0
 ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT=0
+OFFICIAL_INSTALL_ATTEMPTED=0
+OFFICIAL_SHARED_BASELINE_CAPTURED=0
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 validate_command() {
@@ -51,12 +59,20 @@ restore_runtime_backup() {
 }
 
 restore_shared_backup() {
+  local restore_stock_shared=1
   [ -d "$BACKUP_DIR/runtime" ] || return 0
-  if [ -f "$BACKUP_DIR/runtime/etc-favorites.ini" ]; then
-    mkdir -p /etc/allscan
-    install -o root -g "$WEB_GROUP" -m 664 "$BACKUP_DIR/runtime/etc-favorites.ini" /etc/allscan/favorites.ini
-  elif [ -f "$BACKUP_DIR/runtime/etc-favorites.ini.absent" ]; then
-    rm -f /etc/allscan/favorites.ini
+  if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \
+    && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then
+    restore_stock_shared=0
+    echo "Preserving shared files from the incomplete official AllScan installation." >&2
+  fi
+  if [ "$restore_stock_shared" -eq 1 ]; then
+    if [ -f "$BACKUP_DIR/runtime/etc-favorites.ini" ]; then
+      mkdir -p /etc/allscan
+      install -o root -g "$WEB_GROUP" -m 664 "$BACKUP_DIR/runtime/etc-favorites.ini" /etc/allscan/favorites.ini
+    elif [ -f "$BACKUP_DIR/runtime/etc-favorites.ini.absent" ]; then
+      rm -f /etc/allscan/favorites.ini
+    fi
   fi
   if [ -f "$BACKUP_DIR/runtime/tgif-daemon-environment" ]; then
     mkdir -p /etc/allscan-reimagined
@@ -70,12 +86,14 @@ restore_shared_backup() {
   elif [ -f "$BACKUP_DIR/runtime/tgif-token-dropin.absent" ]; then
     rm -f /etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf
   fi
-  if [ -f "$BACKUP_DIR/allscan.db" ]; then
-    install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan
-    install -o "$WEB_GROUP" -g "$WEB_GROUP" -m 660 \
-      "$BACKUP_DIR/allscan.db" /etc/allscan/allscan.db
-  elif [ -f "$BACKUP_DIR/allscan.db.absent" ]; then
-    rm -f /etc/allscan/allscan.db
+  if [ "$restore_stock_shared" -eq 1 ]; then
+    if [ -f "$BACKUP_DIR/allscan.db" ]; then
+      install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan
+      install -o "$WEB_GROUP" -g "$WEB_GROUP" -m 660 \
+        "$BACKUP_DIR/allscan.db" /etc/allscan/allscan.db
+    elif [ -f "$BACKUP_DIR/allscan.db.absent" ]; then
+      rm -f /etc/allscan/allscan.db
+    fi
   fi
   install -d -o root -g root -m 755 /etc/allscan-reimagined
   for protected in config.json secrets.json station-map-cache.json; do
@@ -88,6 +106,37 @@ restore_shared_backup() {
   systemctl daemon-reload 2>/dev/null || true
 }
 
+capture_official_shared_baseline() {
+  local stage="$BACKUP_DIR/.official-shared-baseline.new.$$"
+  rm -rf "$stage"
+  install -d -m 700 "$stage/runtime"
+  if [ -f /etc/allscan/favorites.ini ]; then
+    install -m 600 /etc/allscan/favorites.ini "$stage/runtime/etc-favorites.ini"
+  else
+    : > "$stage/runtime/etc-favorites.ini.absent"
+  fi
+  if [ -f /etc/allscan/allscan.db ]; then
+    install -m 600 /etc/allscan/allscan.db "$stage/allscan.db"
+  else
+    : > "$stage/allscan.db.absent"
+  fi
+
+  # Invalidate the rollback entry before replacing its shared-file baseline.
+  # If anything below fails, the incomplete backup cannot be selected later.
+  rm -f "$BACKUP_DIR/manifest.json"
+  rm -f \
+    "$BACKUP_DIR/runtime/etc-favorites.ini" \
+    "$BACKUP_DIR/runtime/etc-favorites.ini.absent" \
+    "$BACKUP_DIR/allscan.db" \
+    "$BACKUP_DIR/allscan.db.absent"
+  cp -a "$stage/runtime/." "$BACKUP_DIR/runtime/"
+  find "$stage" -mindepth 1 -maxdepth 1 -type f -exec cp -p {} "$BACKUP_DIR/" \;
+  rm -rf "$stage"
+  python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
+    finalize-backup "$BACKUP_DIR" "$PRE_UPDATE_ASR_VERSION"
+  OFFICIAL_SHARED_BASELINE_CAPTURED=1
+}
+
 restore_prior_reapply_units() {
   local unit backup
   for unit in \
@@ -97,6 +146,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-startup-bridge-summary.service \
+    allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
@@ -115,6 +165,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-startup-bridge-summary.service \
     allscan-reimagined-release-check.timer \
+    allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-dmr-net-live.service \
     allscan-reimagined-ysf-net-live.service \
     allscan-reimagined-p25-bridge-status.service \
@@ -132,6 +183,7 @@ remove_asr_managed_wiring() {
     && a2disconf allscan-reimagined >/dev/null 2>&1 || true
   rm -f \
     /usr/local/bin/allscan_wt_clients.sh \
+    /usr/local/sbin/asr_bridge_status.py \
     /usr/local/sbin/allscan-reimagined-* \
     /etc/systemd/system/allscan-reimagined-*.service \
     /etc/systemd/system/allscan-reimagined-*.path \
@@ -181,6 +233,10 @@ rollback_on_error() {
   status="${1:-$?}"
   trap - ERR INT TERM
   set +e
+  if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \
+    && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then
+    rm -f "$BACKUP_DIR/manifest.json"
+  fi
   [ -n "$RELEASE_STAGE" ] && rm -rf "$RELEASE_STAGE"
   if [ "$RELEASE_REPLACED" -eq 1 ]; then
     rm -rf "$RELEASE_DIR"
@@ -234,9 +290,10 @@ rollback_on_error() {
       fi
     fi
     for helper_spec in \
-          "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
-          "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
-          "scripts/asr-asterisk-read.sh:/usr/local/sbin/allscan-reimagined-asterisk-read" \
+      "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
+      "scripts/asr-rollback.py:/usr/local/sbin/allscan-reimagined-rollback" \
+      "scripts/asr-asterisk-read.sh:/usr/local/sbin/allscan-reimagined-asterisk-read" \
+      "scripts/asr_bridge_status.py:/usr/local/sbin/allscan-reimagined-standard-bridge-status" \
       "scripts/asr-bridge-control.py:/usr/local/sbin/allscan-reimagined-bridge-control" \
       "scripts/asr-ysf-bridge-control.py:/usr/local/sbin/allscan-reimagined-ysf-bridge-control" \
       "scripts/asr-p25-bridge-control.py:/usr/local/sbin/allscan-reimagined-p25-bridge-control" \
@@ -255,6 +312,14 @@ rollback_on_error() {
         rm -f "$helper_target"
       fi
     done
+    if [ "$PRIOR_ASR_CAN_REAPPLY" -eq 1 ] \
+      && [ -f "$CURRENT_LINK_PREVIOUS/scripts/asr_bridge_status.py" ]; then
+      install -o root -g root -m 644 \
+        "$CURRENT_LINK_PREVIOUS/scripts/asr_bridge_status.py" \
+        /usr/local/sbin/asr_bridge_status.py
+    else
+      rm -f /usr/local/sbin/asr_bridge_status.py
+    fi
     if [ "$PRIOR_ASR_WIRING_VALID" -eq 1 ]; then
       restore_prior_reapply_units
       systemctl daemon-reload 2>/dev/null || true
@@ -266,7 +331,8 @@ rollback_on_error() {
         allscan-reimagined-reapply.timer \
         allscan-reimagined-fixed-bridge-recovery.service \
         allscan-reimagined-fixed-bridge-recovery.timer \
-        allscan-reimagined-startup-bridge-summary.service >/dev/null 2>&1 || true
+        allscan-reimagined-startup-bridge-summary.service \
+        allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
       if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
         systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
       fi
@@ -322,7 +388,6 @@ prune_old_backups() {
   fi
 }
 
-[ "${EUID:-$(id -u)}" -eq 0 ] || fail "Run this installer with sudo."
 [ -d "$PAYLOAD_DIR/web" ] || fail "Installer payload is incomplete."
 [[ "$ASR_BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]] || fail "ASR_BACKUP_RETENTION must be a positive integer."
 
@@ -396,7 +461,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 7.3"
+echo "Reimagined release:        v1.0.0 Beta 7.4"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -420,6 +485,7 @@ for unit in \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-standard-bridge-status.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
@@ -540,7 +606,8 @@ systemctl stop \
   allscan-reimagined-nxdn-bridge-status.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-fixed-bridge-recovery.service \
-  allscan-reimagined-startup-bridge-summary.service >/dev/null 2>&1 || true
+  allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
 systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
 
 echo "[2/8] Checking the official AllScan backend..."
@@ -559,10 +626,17 @@ if [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" -e
   if ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
     official_installer_dir=$(mktemp -d /tmp/allscan-official-installer.XXXXXX)
     official_installer="$official_installer_dir/AllScanInstallUpdate.php"
-    curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"
+    if ! curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"; then
+      rm -rf "$official_installer_dir"
+      fail "The official AllScan installer could not be downloaded; /asr was not installed."
+    fi
     chmod 755 "$official_installer"
     echo "The official installer will explain and confirm its own update steps."
-    php "$official_installer"
+    OFFICIAL_INSTALL_ATTEMPTED=1
+    if ! php "$official_installer"; then
+      rm -rf "$official_installer_dir"
+      fail "The official AllScan installer failed; ASR was not installed. Review the official installer output before retrying."
+    fi
     rm -rf "$official_installer_dir"
     [ -d "$STOCK_ALLSCAN_DIR" ] || fail "The official installer did not create clean stock /allscan."
   else
@@ -573,10 +647,15 @@ else
 fi
 
 [ -d "$STOCK_ALLSCAN_DIR" ] || fail "Official AllScan installation was not completed."
+[ -r "$STOCK_ALLSCAN_DIR/include/common.php" ] \
+  || fail "Official AllScan did not provide readable version metadata; /asr was not installed."
 installed_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' "$STOCK_ALLSCAN_DIR/include/common.php" | head -1)
 [ "$installed_version" = "$latest_version" ] || fail "Official AllScan is still $installed_version; expected $latest_version."
 [ -f "$PAYLOAD_DIR/compat/allscan-$installed_version/include/common.php" ] \
   || fail "This ASR release has no exact compatibility layer for stock AllScan $installed_version; /asr was not changed."
+if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ]; then
+  capture_official_shared_baseline
+fi
 
 if [ -d "$BACKUP_DIR/runtime" ]; then
   for runtime_file in bridge-live.json connected-clients.json asr-connected-clients.json zello-status-data.json; do
@@ -600,7 +679,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -875,6 +954,8 @@ validate_command "rollback helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test >/dev/null
 validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
+validate_command "DMR/YSF stale Talking status self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-bridge-stale-status-self-test.py" >/dev/null
 validate_command "bridge Settings self-test" \
   php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php" >/dev/null
 validate_command "EchoLink connected-callsign self-test" \
@@ -960,6 +1041,27 @@ else
 fi
 validate_command "rollback job unit was installed" \
   test -f /etc/systemd/system/allscan-reimagined-rollback@.service
+if python3 - /etc/allscan-reimagined/config.json <<'PY'
+import json
+import re
+import sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+raise SystemExit(
+    0 if any(
+        isinstance(item, dict)
+        and item.get("cardType", "standard") == "standard"
+        and re.sub(
+            r"[^a-z0-9]", "",
+            str(item.get("mode", item.get("id", ""))).lower(),
+        ).startswith(("dmr", "ysf"))
+        for item in payload.get("bridges", [])
+    ) else 1
+)
+PY
+then
+  validate_command "configured Standard DMR/YSF status service is active" \
+    systemctl is-active --quiet allscan-reimagined-standard-bridge-status.service
+fi
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
 import json
 import sys
@@ -1066,7 +1168,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 7.3"
+echo "AllScan Reimagined:    v1.0.0 Beta 7.4"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"

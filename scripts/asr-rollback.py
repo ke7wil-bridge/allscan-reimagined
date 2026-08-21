@@ -786,6 +786,46 @@ def reconcile_fixed_bridge_recovery_wiring(
     )
 
 
+def reconcile_standard_bridge_status_wiring(
+    release_root: Path,
+    *,
+    systemd_dir: Path = Path("/etc/systemd/system"),
+    sbin_dir: Path = Path("/usr/local/sbin"),
+    run_dir: Path = Path("/run/allscan-reimagined-standard-bridge-status"),
+    tmpfiles_path: Path = Path("/etc/tmpfiles.d/allscan-reimagined.conf"),
+    runner: Any = subprocess.run,
+) -> None:
+    """Remove Beta 7.4 Standard status wiring from older rollback targets."""
+    if (release_root / "scripts/asr_bridge_status.py").is_file():
+        return
+    runner(
+        [
+            "systemctl", "disable", "--now",
+            "allscan-reimagined-standard-bridge-status.service",
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for path in (
+        systemd_dir / "allscan-reimagined-standard-bridge-status.service",
+        sbin_dir / "allscan-reimagined-standard-bridge-status",
+        sbin_dir / "asr_bridge_status.py",
+    ):
+        path.unlink(missing_ok=True)
+    shutil.rmtree(run_dir, ignore_errors=True)
+    rewrite_owned_policy_without(
+        tmpfiles_path,
+        ("/run/allscan-reimagined-standard-bridge-status",),
+    )
+    runner(
+        ["systemctl", "daemon-reload"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def reconcile_bridge_lifecycle_wiring(
     release_root: Path,
     *,
@@ -1080,6 +1120,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             reconcile_ysf_net_wiring(release_target)
             reconcile_next_digital_wiring(release_target)
             reconcile_fixed_bridge_recovery_wiring(release_target)
+            reconcile_standard_bridge_status_wiring(release_target)
             reconcile_bridge_lifecycle_wiring(release_target)
             ensure_manager_wiring()
             if detect_version(active_web / "asr-api.php") != version:
@@ -1227,6 +1268,56 @@ def self_test() -> None:
             current_release,
             systemd_dir=systemd_dir,
             sbin_dir=sbin_dir,
+            runner=record_reconciliation,
+        )
+        assert reconciliation_commands == []
+
+        standard_systemd = root / "standard-systemd"
+        standard_sbin = root / "standard-sbin"
+        standard_run = root / "standard-run"
+        standard_systemd.mkdir()
+        standard_sbin.mkdir()
+        standard_run.mkdir()
+        standard_paths = (
+            standard_systemd / "allscan-reimagined-standard-bridge-status.service",
+            standard_sbin / "allscan-reimagined-standard-bridge-status",
+            standard_sbin / "asr_bridge_status.py",
+            standard_run / "bridge-live.json",
+        )
+        for path in standard_paths:
+            path.write_text("test\n", encoding="utf-8")
+        standard_tmpfiles = root / "standard-tmpfiles.conf"
+        standard_tmpfiles.write_text(
+            "d /run/allscan-reimagined-standard-bridge-status 0755 root root -\n"
+            "d /run/keep 0755 root root -\n",
+            encoding="utf-8",
+        )
+        reconciliation_commands.clear()
+        reconcile_standard_bridge_status_wiring(
+            legacy_release,
+            systemd_dir=standard_systemd,
+            sbin_dir=standard_sbin,
+            run_dir=standard_run,
+            tmpfiles_path=standard_tmpfiles,
+            runner=record_reconciliation,
+        )
+        assert not any(path.exists() for path in standard_paths)
+        assert not standard_run.exists()
+        assert "standard-bridge-status" not in standard_tmpfiles.read_text(encoding="utf-8")
+        assert "/run/keep" in standard_tmpfiles.read_text(encoding="utf-8")
+        assert reconciliation_commands[0][0:3] == ["systemctl", "disable", "--now"]
+        assert reconciliation_commands[-1] == ["systemctl", "daemon-reload"]
+
+        (current_release / "scripts/asr_bridge_status.py").write_text(
+            "test\n", encoding="utf-8"
+        )
+        reconciliation_commands.clear()
+        reconcile_standard_bridge_status_wiring(
+            current_release,
+            systemd_dir=standard_systemd,
+            sbin_dir=standard_sbin,
+            run_dir=standard_run,
+            tmpfiles_path=standard_tmpfiles,
             runner=record_reconciliation,
         )
         assert reconciliation_commands == []

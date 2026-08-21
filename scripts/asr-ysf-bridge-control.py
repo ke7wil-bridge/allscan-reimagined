@@ -19,6 +19,8 @@ import sys
 import tempfile
 import time
 
+from asr_bridge_status import astapi_key_states, reconcile_keyed_source, watchdog_event
+
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-ysf-bridge-control")
@@ -53,7 +55,6 @@ MMDVM_LOG_ROOT_RE = re.compile(r"^MMDVM_Bridge_[A-Za-z0-9_-]+$")
 YSF_CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,10}$")
 YSF_SUFFIX_RE = re.compile(r"^[A-Z0-9]{1,5}$")
 WATCH_INTERVAL = 1.0
-ACTIVITY_STALE_SECONDS = 180
 SOURCE_RETENTION_SECONDS = 300
 VERIFY_TIMEOUT = 10.0
 STATE_TRANSITION_GRACE_SECONDS = 15
@@ -1123,6 +1124,7 @@ def initial_activity_state() -> dict:
         "last_source_user": "", "last_source_epoch": 0,
         "network_relay": False,
         "activity_epoch": 0, "last_event_epoch": 0,
+        "source_observed_at": 0.0,
         "gateway": {"linked": False, "destination": "", "name": "", "eventEpoch": 0},
         "service_check_epoch": 0, "service_states": {},
     }
@@ -1140,11 +1142,14 @@ def apply_activity_line(
         line, re.IGNORECASE,
     )
     if source:
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         caller = clean_name(source.group(1), 20).upper()
         if caller in local_identities:
             state.update({
                 "role": "relay", "current_user": "", "network_relay": True,
                 "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
+                "source_observed_at": float(now),
                 "activity_epoch": epoch, "last_event_epoch": epoch,
             })
             return
@@ -1155,10 +1160,17 @@ def apply_activity_line(
             "last_source_epoch": epoch,
             "network_relay": False,
             "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
+            "source_observed_at": float(now),
             "activity_epoch": epoch, "last_event_epoch": epoch,
         })
         return
-    if re.search(r"YSF,\s+received network end of transmission", line, re.IGNORECASE):
+    end = re.search(r"YSF,\s+received network end of transmission", line, re.IGNORECASE)
+    watchdog = watchdog_event(line, "ysf", now)
+    if end or watchdog:
+        if watchdog:
+            epoch = watchdog[0]
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         if state.get("role") == "source" or state.get("network_relay"):
             state.update({
                 "role": "idle", "current_user": "", "active_start_epoch": 0,
@@ -1169,6 +1181,8 @@ def apply_activity_line(
         state.update({"activity_epoch": epoch, "last_event_epoch": epoch})
         return
     if re.search(r"\bYSF,\s+TX state\s*=\s*ON\b", line, re.IGNORECASE):
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         state.update({
             "role": "relay", "current_user": "",
             "network_relay": False,
@@ -1177,6 +1191,8 @@ def apply_activity_line(
         })
         return
     if re.search(r"\bYSF,\s+TX state\s*=\s*OFF\b", line, re.IGNORECASE):
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         if state.get("role") == "relay":
             state.update({
                 "role": "idle", "current_user": "", "active_start_epoch": 0,
@@ -1220,8 +1236,6 @@ def refresh_activity(
             state["offset"] = handle.tell()
     except OSError:
         return state
-    if state.get("role") in ("source", "relay") and now - int(state.get("last_event_epoch", 0) or 0) > ACTIVITY_STALE_SECONDS:
-        state.update({"role": "idle", "current_user": "", "active_start_epoch": 0})
     return state
 
 
@@ -1252,7 +1266,12 @@ def ysf_allstar_mismatch_visible(
     return event_epoch <= 0 or now - event_epoch > STATE_TRANSITION_GRACE_SECONDS
 
 
-def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
+def bridge_status(
+    bridge: dict,
+    state: dict,
+    now: int,
+    keyed: bool | None = None,
+) -> tuple[dict, dict]:
     warning = ""
     ready = False
     linked = False
@@ -1279,6 +1298,7 @@ def bridge_status(bridge: dict, state: dict, now: int) -> tuple[dict, dict]:
             now,
             frozenset(settings.get("localIdentities", frozenset())),
         )
+        reconcile_keyed_source(state, keyed, now)
         clear_disconnected_activity(state, linked)
         service_states = state.get("service_states") if isinstance(state.get("service_states"), dict) else {}
         # A Gateway link event and its paired AllStar command do not become
@@ -1371,12 +1391,21 @@ def watch_status(path: Path = CONFIG_PATH, once: bool = False) -> None:
         now = int(time.time())
         entries = {}
         bridges = configured_bridges(path)
+        config = load_config(path)
+        keyed_states = astapi_key_states(
+            str(config.get("node", "")),
+            {str(bridge.get("node", "")) for bridge in bridges},
+            now,
+        )
         configured_ids = set()
         for bridge in bridges:
             bridge_id = bridge["id"]
             configured_ids.add(bridge_id)
             entry, state = bridge_status(
-                bridge, states.get(bridge_id, initial_activity_state()), now
+                bridge,
+                states.get(bridge_id, initial_activity_state()),
+                now,
+                keyed_states.get(str(bridge.get("node", ""))),
             )
             entries[bridge_id] = entry
             states[bridge_id] = state
