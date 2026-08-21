@@ -44,7 +44,12 @@ DMR_END_RE = re.compile(
     re.IGNORECASE,
 )
 DMR_TX_ON_RE = re.compile(LINE_PREFIX + r"DMR,\s+TX state\s*=\s*ON\b", re.IGNORECASE)
-DMR_TX_OFF_RE = re.compile(LINE_PREFIX + r"DMR,\s+TX state\s*=\s*OFF\b", re.IGNORECASE)
+DMR_TX_OFF_RE = re.compile(
+    LINE_PREFIX
+    + r"DMR,\s+TX state\s*=\s*OFF\b"
+    r"(?:,\s+DMR frame count was\s+\d+\s+frames?)?\s*$",
+    re.IGNORECASE,
+)
 YSF_SOURCE_RE = re.compile(
     LINE_PREFIX
     + r"YSF,\s+received network (?:data|voice) from\s+"
@@ -58,7 +63,12 @@ YSF_END_RE = re.compile(
     re.IGNORECASE,
 )
 YSF_TX_ON_RE = re.compile(LINE_PREFIX + r"YSF,\s+TX state\s*=\s*ON\b", re.IGNORECASE)
-YSF_TX_OFF_RE = re.compile(LINE_PREFIX + r"YSF,\s+TX state\s*=\s*OFF\b", re.IGNORECASE)
+YSF_TX_OFF_RE = re.compile(
+    LINE_PREFIX
+    + r"YSF,\s+TX state\s*=\s*OFF\b"
+    r"(?:,\s+YSF frame count was\s+\d+\s+frames?)?\s*$",
+    re.IGNORECASE,
+)
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
 ASTAPI_MAX_AGE_SECONDS = 5.0
 MAX_JSON_BYTES = 2 * 1024 * 1024
