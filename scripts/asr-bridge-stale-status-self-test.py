@@ -42,12 +42,30 @@ def dmr_watchdog(at: str, slot: int = 2) -> str:
     return f"W: 2026-08-21 {at}.000 DMR Slot {slot}, network watchdog has expired, 1.5 seconds"
 
 
+def dmr_tx_on(at: str) -> str:
+    return f"M: 2026-08-21 {at}.000 DMR, TX state = ON"
+
+
+def dmr_tx_off(at: str, details: str = "DMR frame count was 118 frames") -> str:
+    suffix = f", {details}" if details else ""
+    return f"M: 2026-08-21 {at}.000 DMR, TX state = OFF{suffix}"
+
+
 def ysf_source(at: str, caller: str = "W1YSF") -> str:
     return f"M: 2026-08-21 {at}.000 YSF, received network data from {caller}    to ALL        at {caller}"
 
 
 def ysf_watchdog(at: str) -> str:
     return f"W: 2026-08-21 {at}.000 YSF, network watchdog has expired, 1.5 seconds"
+
+
+def ysf_tx_on(at: str) -> str:
+    return f"M: 2026-08-21 {at}.000 YSF, TX state = ON"
+
+
+def ysf_tx_off(at: str, details: str = "YSF frame count was 42 frames") -> str:
+    suffix = f", {details}" if details else ""
+    return f"M: 2026-08-21 {at}.000 YSF, TX state = OFF{suffix}"
 
 
 def test_shared_state_machine() -> None:
@@ -92,6 +110,73 @@ def test_shared_state_machine() -> None:
     assert ysf["role"] == "source", "DMR evidence changed YSF state"
     status.apply_activity_line(ysf, ysf_watchdog("13:00:02"), "ysf", 602)
     assert ysf["role"] == "idle" and ysf["current_user"] == ""
+
+
+def test_relay_tx_off_evidence() -> None:
+    # Real MMDVM TX OFF lines append frame-count details. They must still end
+    # Relay, including when the collector replays a completed pair at startup.
+    config = {
+        "node": "123456",
+        "bridges": [
+            {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+            {"id": "ysf", "mode": "ysf", "cardType": "standard", "node": "2222"},
+        ],
+    }
+    lines = [
+        dmr_tx_on("19:31:00"),
+        dmr_tx_off("19:31:07"),
+        ysf_tx_on("19:32:00"),
+        ysf_tx_off("19:32:08"),
+    ]
+    with tempfile.TemporaryDirectory(prefix="asr-relay-replay-") as raw:
+        root = Path(raw)
+        root.chmod(0o755)
+        log = root / "MMDVM_Bridge-2026-08-21.log"
+        log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        log.chmod(0o644)
+        replayed = status.MmdvmFollower(root).read_lines()
+        payload = status.standard_live_payload(config, {}, replayed, 1200, root)
+    assert payload["bridges"]["dmr"]["role"] == "idle"
+    assert payload["bridges"]["dmr"]["active"] is False
+    assert payload["bridges"]["dmr"]["active_start_epoch"] == 0
+    assert payload["bridges"]["ysf"]["role"] == "idle"
+    assert payload["bridges"]["ysf"]["active"] is False
+    assert payload["bridges"]["ysf"]["active_start_epoch"] == 0
+
+    # Bare/singular/trailing-space forms remain valid, while incidental or
+    # arbitrary suffixes and OFFLINE stay rejected.
+    state = status.initial_activity_state()
+    status.apply_activity_line(state, dmr_tx_on("19:33:00"), "dmr", 1201)
+    status.apply_activity_line(state, dmr_tx_off("19:33:01", ""), "dmr", 1202)
+    assert state["role"] == "idle"
+    status.apply_activity_line(state, "prefix " + dmr_tx_on("19:33:02"), "dmr", 1203)
+    assert state["role"] == "idle"
+    status.apply_activity_line(state, dmr_tx_on("19:33:03"), "dmr", 1204)
+    status.apply_activity_line(
+        state, dmr_tx_off("19:33:04", "DMR frame count was 1 frame") + "  ", "dmr", 1205
+    )
+    assert state["role"] == "idle"
+    for bad in (
+        "prefix " + dmr_tx_off("19:33:05"),
+        dmr_tx_off("19:33:05", "unexpected detail"),
+        "M: 2026-08-21 19:33:05.000 DMR, TX state = OFFLINE",
+    ):
+        status.apply_activity_line(state, dmr_tx_on("19:33:04"), "dmr", 1206)
+        status.apply_activity_line(state, bad, "dmr", 1207)
+        assert state["role"] == "relay"
+
+    # Mode isolation and TX OFF must not clear a received network source.
+    status.apply_activity_line(state, ysf_tx_off("19:33:06"), "dmr", 1208)
+    assert state["role"] == "relay"
+    source = status.initial_activity_state()
+    status.apply_activity_line(source, dmr_source("19:33:07"), "dmr", 1209)
+    status.apply_activity_line(source, dmr_tx_off("19:33:08"), "dmr", 1210)
+    assert source["role"] == "source"
+
+    # An older delayed OFF cannot clear a newer Relay event.
+    status.apply_activity_line(state, dmr_tx_on("19:34:00"), "dmr", 1211)
+    status.apply_activity_line(state, dmr_tx_off("19:33:59"), "dmr", 1212)
+    assert state["role"] == "relay"
 
 
 def test_astapi_tri_state() -> None:
@@ -340,6 +425,7 @@ def test_wiring_contracts() -> None:
 
 def main() -> None:
     test_shared_state_machine()
+    test_relay_tx_off_evidence()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
     test_log_follower_safety()
