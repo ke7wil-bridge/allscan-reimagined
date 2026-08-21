@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 7.3 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 7.4 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -62,7 +62,7 @@ pageInit();
 			</article>
 			<article>
 				<h3>Favorites</h3>
-				<p>One click selects a Favorite and closes the menu. It does not connect automatically. Add and Delete Favorite remain separate actions, and double-click does not send a Connect command.</p>
+				<p>One click selects a Favorite and closes the menu. It does not connect automatically. Add and Delete Favorite remain separate actions, and double-click does not send a Connect command. When Favorites is expanded, <strong>Keep below Connection Status on this browser</strong> moves the panel below the full status table and remembers that choice in the current browser. Clear it to restore the normal position above Connection Status.</p>
 			</article>
 			<article>
 				<h3>Timers and Counts</h3>
@@ -86,6 +86,10 @@ pageInit();
 				<h3>Low-Power Node Mode</h3>
 				<p>Use this on smaller nodes to reduce background work and disable animated themes. It does not change Asterisk or bridge audio settings.</p>
 			</article>
+			<article>
+				<h3>Themes and Logout</h3>
+				<p>In the desktop ST:ASL theme, open <strong>Admin</strong> and select <strong>Logout</strong>. Other themes and smaller screens keep Logout in the main Menu.</p>
+			</article>
 		</div>
 	</section>
 
@@ -104,6 +108,7 @@ pageInit();
 		<p><strong>Maintain bridge friendly names</strong> keeps the configured Connection Status names in place across updates, restarts, and reboots.</p>
 		<p><strong>Startup bridge summary</strong> is optional. At startup it waits for Asterisk and fixed-link recovery, then announces only configured Standard bridges that are actually established. It never announces Net Bridges, display-only cards, destinations, ports, credentials, or arbitrary remote nodes.</p>
 		<p><strong>Connected Client Source</strong> should stay Disabled unless the bridge supplies a real client list. Local JSON / file accepts a readable local JSON source. HTTP API accepts a JSON status endpoint. ASR caches the result so every browser does not repeatedly contact the bridge.</p>
+		<p><strong>DMR and YSF Talking status</strong> follows real bridge evidence. A matching end-of-transmission or anchored MMDVM network-watchdog event ends the source. When fresh Asterisk keyed telemetry is explicitly available, a verified unkeyed sample can clear a missing end event after a short grace period. Keyed, unknown, or unavailable telemetry is preserved, and ASR does not hide a legitimate long transmission with a blind timeout.</p>
 		<p><strong>Deleting a card:</strong> ASR shows both what it will remove and what it will not touch. Only a managed bridge created by ASR with an intact bridge-specific ownership manifest can have its dedicated resources retired. Without that proof, deleting the card removes ASR metadata only and leaves manual or pre-existing services, Asterisk configuration, files, firewall rules, ports, packages, and shared components untouched.</p>
 	</section>
 
@@ -184,6 +189,11 @@ pageInit();
 		<h2>Update Notifications</h2>
 		<p>When a newer ASR release is available, a prominent notice appears near the top of the main dashboard. It shows the installed version, available version, release-notes link, package name, and SHA-256 checksum.</p>
 		<ul class="asr-instructions-list">
+			<li><strong>Start in a root shell.</strong> Run <code>sudo -i</code> first, then confirm the prompt begins with <code>root@</code> and ends with <code>#</code>. Stop if it does not.</li>
+			<li><strong>Check root before preflight.</strong> Run <code>[ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." &gt;&amp;2; exit 1; }</code> before the package lint and self-tests.</li>
+			<li><strong>Use the complete release command.</strong> Copy the full install block from that release so the package URL, SHA-256 check, preflight tests, and interactive <code>bash ./install.sh</code> stay together.</li>
+			<li><strong>Fresh installation.</strong> If stock <code>/allscan/</code> is absent, ASR offers to run the official AllScan installer first. It verifies the installed stock version and an exact compatibility layer before creating <code>/asr/</code>. Declining or failing that step leaves <code>/asr/</code> uninstalled; review the official installer output before retrying.</li>
+			<li><strong>No bridge is required.</strong> ASR installs normally without a configured digital bridge; bridge-specific service checks run only for bridge types present in Reimagined Settings.</li>
 			<li>The node checks at a low frequency using a cached background service. Opening more browser tabs does not create more GitHub checks.</li>
 			<li><strong>Nothing installs automatically.</strong> The notice is informational and installation still requires deliberate manual approval.</li>
 			<li>If GitHub is offline, rate-limited, or the release is incomplete, ASR quietly keeps the previous valid result instead of displaying an unverified package.</li>

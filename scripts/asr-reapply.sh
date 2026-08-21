@@ -231,6 +231,10 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
+[ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ] && \
+  install -o root -g root -m 644 "$MASTER_DIR/scripts/asr_bridge_status.py" /usr/local/sbin/asr_bridge_status.py
+[ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr_bridge_status.py" /usr/local/sbin/allscan-reimagined-standard-bridge-status
 install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-ysf-bridge-control.py" /usr/local/sbin/allscan-reimagined-ysf-bridge-control
@@ -249,6 +253,7 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
 install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
+install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
 install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-ownership
@@ -276,6 +281,7 @@ cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
+d /run/allscan-reimagined-standard-bridge-status 0755 root root -
 d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
 d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
 d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -
@@ -291,6 +297,57 @@ if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
     BRIDGE_LIFECYCLE_FAILED=1
     echo "One or more deleted bridges still have registered resources. ASR preserved their ownership manifests and will retry cleanup on the next reapply." >&2
   fi
+fi
+cat > /etc/systemd/system/allscan-reimagined-standard-bridge-status.service <<'EOF'
+[Unit]
+Description=Reconcile live activity for configured Standard DMR and YSF bridges
+After=network.target asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-standard-bridge-status --watch
+Restart=on-failure
+RestartSec=2s
+Nice=10
+MemoryMax=64M
+TasksMax=16
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=true
+ReadWritePaths=/run/allscan-reimagined-standard-bridge-status
+
+[Install]
+WantedBy=multi-user.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-standard-bridge-status ] \
+  && python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import re
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if any(
+    isinstance(item, dict)
+    and item.get("cardType", "standard") == "standard"
+    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf"))
+    for item in payload.get("bridges", [])
+) else 1)
+PY
+then
+  systemctl daemon-reload
+  systemctl enable allscan-reimagined-standard-bridge-status.service >/dev/null
+  systemctl restart allscan-reimagined-standard-bridge-status.service
+else
+  systemctl disable --now allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
+  rm -f /run/allscan-reimagined-standard-bridge-status/bridge-live.json
 fi
 cat > /etc/systemd/system/allscan-reimagined-dmr-net-live.service <<'EOF'
 [Unit]

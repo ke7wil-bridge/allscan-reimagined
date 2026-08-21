@@ -18,6 +18,8 @@ import subprocess
 import tempfile
 import time
 
+from asr_bridge_status import astapi_key_states, reconcile_keyed_source, watchdog_event
+
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-bridge-control")
 LIVE_STATUS_PATH = RUN_DIR / "bridge-live.json"
@@ -35,7 +37,6 @@ MAX_TG = 16_777_215
 DISCONNECT_TG = 4000
 MAX_ABINFO_BYTES = 64 * 1024
 LIVE_STATUS_INTERVAL = 0.75
-LIVE_STATUS_STALE_SECONDS = 180
 LIVE_STATUS_INITIAL_TAIL_BYTES = 262_144
 
 
@@ -284,41 +285,58 @@ def initial_live_state() -> dict:
         "active_start_epoch": 0,
         "activity_epoch": 0,
         "last_event_epoch": 0,
+        "source_slot": 0,
+        "source_observed_at": 0.0,
     }
 
 
 def apply_mmdvm_activity_line(state: dict, line: str, now: int) -> None:
     epoch = mmdvm_line_epoch(line) or now
     source = re.search(
-        r"DMR Slot \d+,\s+received network "
+        r"DMR Slot ([12]),\s+received network "
         r"(?:voice header|late entry) from\s+(.+?)\s+to TG\s+\d+\b",
         line,
         re.IGNORECASE,
     )
     if source:
-        caller = clean_live_caller(source.group(1))
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
+        caller = clean_live_caller(source.group(2))
         state["role"] = "source"
         state["current_user"] = caller
         if caller:
             state["last_user"] = caller
             state["last_source_user"] = caller
             state["last_source_epoch"] = epoch
-        state["active_start_epoch"] = (
-            int(state.get("active_start_epoch", 0) or 0) or epoch
-        )
+        state["active_start_epoch"] = epoch
         state["activity_epoch"] = epoch
         state["last_event_epoch"] = epoch
+        state["source_slot"] = int(source.group(1))
+        state["source_observed_at"] = float(now)
         return
 
-    if re.search(
-        r"DMR Slot \d+,\s+received network end of voice transmission",
+    end = re.search(
+        r"DMR Slot ([12]),\s+received network end of voice transmission\b",
         line,
         re.IGNORECASE,
-    ):
-        if state.get("role") == "source":
+    )
+    watchdog = watchdog_event(line, "dmr", now)
+    if end or watchdog:
+        end_slot = watchdog[1] if watchdog else int(end.group(1))
+        if watchdog:
+            epoch = watchdog[0]
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
+        same_slot = int(state.get("source_slot", 0) or 0) in (0, end_slot)
+        if (
+            state.get("role") == "source"
+            and same_slot
+            and epoch >= int(state.get("active_start_epoch", 0) or 0)
+        ):
             state["role"] = "idle"
             state["current_user"] = ""
             state["active_start_epoch"] = 0
+            state["source_slot"] = 0
             if state.get("last_source_user"):
                 state["last_source_epoch"] = epoch
         state["activity_epoch"] = epoch
@@ -326,16 +344,19 @@ def apply_mmdvm_activity_line(state: dict, line: str, now: int) -> None:
         return
 
     if re.search(r"\bDMR,\s+TX state\s*=\s*ON\b", line, re.IGNORECASE):
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         state["role"] = "relay"
         state["current_user"] = ""
-        state["active_start_epoch"] = (
-            int(state.get("active_start_epoch", 0) or 0) or epoch
-        )
+        state["active_start_epoch"] = epoch
+        state["source_slot"] = 0
         state["activity_epoch"] = epoch
         state["last_event_epoch"] = epoch
         return
 
     if re.search(r"\bDMR,\s+TX state\s*=\s*OFF\b", line, re.IGNORECASE):
+        if epoch < int(state.get("last_event_epoch", 0) or 0):
+            return
         if state.get("role") == "relay":
             state["role"] = "idle"
             state["current_user"] = ""
@@ -380,14 +401,6 @@ def refresh_mmdvm_activity(
     except OSError:
         return state
 
-    if (
-        state.get("role") in ("source", "relay")
-        and now - int(state.get("last_event_epoch", 0) or 0)
-        > LIVE_STATUS_STALE_SECONDS
-    ):
-        state["role"] = "idle"
-        state["current_user"] = ""
-        state["active_start_epoch"] = 0
     return state
 
 
@@ -417,7 +430,17 @@ def dmr_net_live_payload(
     now = int(time.time())
     entries = {}
     configured_ids = set()
-    for bridge in configured_dmr_net_bridges(path):
+    bridges = configured_dmr_net_bridges(path)
+    try:
+        local_node = str(load_config(path).get("node", ""))
+    except ControlError:
+        local_node = ""
+    keyed_states = astapi_key_states(
+        local_node,
+        {str(bridge.get("linkAlias") or bridge.get("node", "")) for bridge in bridges},
+        now,
+    )
+    for bridge in bridges:
         bridge_id = str(bridge["id"])
         configured_ids.add(bridge_id)
         state = refresh_mmdvm_activity(
@@ -425,6 +448,11 @@ def dmr_net_live_payload(
             states.get(bridge_id, initial_live_state()),
             now,
             log_dir,
+        )
+        reconcile_keyed_source(
+            state,
+            keyed_states.get(str(bridge.get("linkAlias") or bridge.get("node", ""))),
+            now,
         )
         states[bridge_id] = state
         talkgroup = cached_tg(bridge_id)
@@ -949,6 +977,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         assert current_tg(config) is None
         abinfo = Path(directory) / "ABInfo.json"
         abinfo.write_text('{"last_tune":"12345","digital":{"tg":"12345"}}\n', encoding="utf-8")
+        abinfo.chmod(0o600)
         assert runtime_tg(abinfo) == 12345
         abinfo.write_text('{"last_tune":"4000","digital":{"tg":"4000"}}\n', encoding="utf-8")
         assert runtime_tg(abinfo) == DISCONNECT_TG
@@ -959,7 +988,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             pass
         else:
             raise AssertionError("Group/world-writable ABInfo state was accepted.")
-        abinfo.chmod(0o644)
+        abinfo.chmod(0o600)
         hardlink = Path(directory) / "ABInfo-hardlink.json"
         os.link(abinfo, hardlink)
         try:
@@ -995,6 +1024,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             raise AssertionError("FIFO ABInfo state was accepted.")
         oversized = Path(directory) / "ABInfo-oversized.json"
         oversized.write_bytes(b"x" * (MAX_ABINFO_BYTES + 1))
+        oversized.chmod(0o600)
         try:
             runtime_tg(oversized)
         except ControlError:
@@ -1004,6 +1034,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         if os.geteuid() == 0:
             wrong_owner = Path(directory) / "ABInfo-wrong-owner.json"
             wrong_owner.write_text('{"last_tune":"12345"}\n', encoding="utf-8")
+            wrong_owner.chmod(0o600)
             os.chown(wrong_owner, 65534, -1)
             try:
                 runtime_tg(wrong_owner)
@@ -1027,6 +1058,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         audit_log.unlink()
         audit_target = audit_dir / "target.log"
         audit_target.write_text("preserve\n", encoding="utf-8")
+        audit_target.chmod(0o600)
         audit_symlink = audit_dir / "bridge-control-symlink.log"
         audit_symlink.symlink_to(audit_target)
         try:
@@ -1050,6 +1082,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         host_abinfo.parent.mkdir(parents=True)
         assert resolve_abinfo_path(configured_abinfo, fake_host_root) == host_abinfo
         host_abinfo.write_text('{"last_tune":"12345"}\n', encoding="utf-8")
+        host_abinfo.chmod(0o600)
         assert resolve_abinfo_path(configured_abinfo, fake_host_root) == host_abinfo
         assert resolve_abinfo_path(
             configured_abinfo,

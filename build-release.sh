@@ -82,6 +82,7 @@ python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
+python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
@@ -92,6 +93,7 @@ python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
@@ -152,6 +154,8 @@ install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
+install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
+install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25-bridge-control.py"
 install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
 install -m 755 scripts/asr-m17-bridge-control.py "$STAGE/payload/scripts/asr-m17-bridge-control.py"
@@ -184,7 +188,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.7.3.md "$STAGE/release-notes/v1.0.0-beta.7.3.md"
+install -m 644 release-notes/v1.0.0-beta.7.4.md "$STAGE/release-notes/v1.0.0-beta.7.4.md"
 
 if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
@@ -197,6 +201,7 @@ fi
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test
 python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
+python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then

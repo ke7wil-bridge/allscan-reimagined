@@ -150,6 +150,26 @@ def main() -> int:
         "Help does not explain Standard Bridge recovery boundaries",
     )
     for requirement in (
+        "Run <code>sudo -i</code> first",
+        "prompt begins with <code>root@</code> and ends with <code>#</code>",
+        "Check root before preflight",
+        'Run <code>[ "$(id -u)" -eq 0 ]',
+        "If stock <code>/allscan/</code> is absent",
+        "exact compatibility layer before creating <code>/asr/</code>",
+        "leaves <code>/asr/</code> uninstalled",
+        "No bridge is required",
+        "bridge-specific service checks run only for bridge types present",
+    ):
+        require(requirement in instructions, f"root-first or no-bridge install help is missing: {requirement}")
+    for requirement in (
+        "Keep below Connection Status on this browser",
+        "remembers that choice in the current browser",
+        "anchored MMDVM network-watchdog event",
+        "verified unkeyed sample can clear a missing end event after a short grace period",
+        "does not hide a legitimate long transmission with a blind timeout",
+    ):
+        require(requirement in instructions, f"Beta 7.4 behavior help is missing: {requirement}")
+    for requirement in (
         'name="announceStartupBridgeSummary"',
         'name="announceNoConnectedBridges"',
         "data-delete-preview",
