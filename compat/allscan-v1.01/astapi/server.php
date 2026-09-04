@@ -234,9 +234,12 @@ function writeSharedStatus($path, $current, $nodeTime) {
 	if($payload === false)
 		return;
 	$tmp = $path . '.' . getmypid() . '.tmp';
-	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false)
+	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
+		// The root status collector accepts explicit ASTAPI evidence only from a
+		// regular cache that cannot be changed by its group or other users.
+		@chmod($tmp, 0644);
 		@rename($tmp, $path);
-	else
+	} else
 		@unlink($tmp);
 }
 

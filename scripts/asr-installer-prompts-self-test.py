@@ -15,6 +15,14 @@ INSTALLER = next(
     (candidate for candidate in INSTALLER_CANDIDATES if candidate.is_file()),
     INSTALLER_CANDIDATES[0],
 )
+CONFIGURE_CANDIDATES = [
+    SCRIPT_PATH.parent / "asr-configure.sh",
+    SCRIPT_PATH.parents[1] / "scripts/asr-configure.sh",
+]
+CONFIGURE = next(
+    (candidate for candidate in CONFIGURE_CANDIDATES if candidate.is_file()),
+    CONFIGURE_CANDIDATES[0],
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -24,6 +32,25 @@ def require(condition: bool, message: str) -> None:
 
 def main() -> int:
     installer = INSTALLER.read_text(encoding="utf-8")
+    configure = CONFIGURE.read_text(encoding="utf-8")
+
+    root_check = 'if [ "${EUID:-$(id -u)}" -ne 0 ]; then'
+    root_message = (
+        "ERROR: Root is required. Run sudo -i, confirm a root@...# prompt, "
+        "then run this installer again."
+    )
+    require(root_check in installer, "installer does not stop immediately when run as non-root")
+    require(root_message in installer, "installer root guidance is not plain and copy-ready")
+    require("umask 022" in installer, "installer does not set a deterministic secure umask")
+    require(
+        installer.index(root_check) < installer.index('ASR_VERSION=')
+        and installer.index("umask 022") < installer.index('ASR_VERSION='),
+        "root and umask preflight must run before installer setup",
+    )
+    require(
+        installer.index("sudo -i") < installer.index("payload is incomplete"),
+        "root guidance does not precede the remaining installer preflight",
+    )
 
     required_text = [
         "LOGIN AND PUBLIC MONITORING",
@@ -81,6 +108,26 @@ def main() -> int:
     require(
         "curl -fsS http://127.0.0.1/asr" not in installer,
         "installer still uses redirect-unsafe raw HTTP endpoint validation",
+    )
+
+    dmr_condition = 'item.get("cardType") == "dmr_net"'
+    dmr_validation = 'validate_command "configured DMR Net live service is active"'
+    ysf_condition = 'item.get("cardType") == "ysf_net"'
+    ysf_validation = 'validate_command "configured YSF Net live service is active"'
+    require(
+        installer.count(dmr_validation) == 1
+        and installer.index(dmr_condition) < installer.index(dmr_validation),
+        "DMR live-service validation is not conditional on a configured DMR Net bridge",
+    )
+    require(
+        installer.count(ysf_validation) == 1
+        and installer.index(ysf_condition) < installer.index(ysf_validation),
+        "YSF live-service validation is not conditional on a configured YSF Net bridge",
+    )
+    require(
+        'bridge_detected "$id" || return 0' in configure
+        and '[ -s "$bridge_file" ] || echo "No bridges detected; bridge cards will be hidden."' in configure,
+        "no-bridge configuration no longer completes with bridge cards hidden",
     )
 
     print("ASR installer prompts self-test: ok")

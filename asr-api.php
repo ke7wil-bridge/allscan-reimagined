@@ -17,8 +17,8 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
-const ASR_VERSION = '1.0.0-beta.7.3';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.3';
+const ASR_VERSION = '1.0.0-beta.7.4';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.4';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -665,6 +665,9 @@ function asr_bridge_status_payload(): array {
         $decoded = json_decode((string) file_get_contents($path), true);
         if (is_array($decoded)) $bridge = $decoded;
     }
+    foreach (asr_standard_bridge_live_statuses() as $id => $entry) {
+        $bridge[$id] = array_merge(is_array($bridge[$id] ?? null) ? $bridge[$id] : [], $entry);
+    }
     foreach (asr_dmr_net_live_statuses() as $id => $entry) {
         $bridge[$id] = $entry;
     }
@@ -782,12 +785,60 @@ function asr_secure_root_json(string $path): ?array {
     $fileStatus = @stat($path);
     if (is_link($path)
         || !is_array($fileStatus)
+        || (((int) ($fileStatus['mode'] ?? 0)) & 0170000) !== 0100000
+        || (int) ($fileStatus['nlink'] ?? 0) !== 1
         || (int) ($fileStatus['uid'] ?? -1) !== 0
-        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0) {
+        || (((int) ($fileStatus['mode'] ?? 0)) & 0022) !== 0
+        || (int) ($fileStatus['size'] ?? -1) < 0
+        || (int) ($fileStatus['size'] ?? 0) > 2 * 1024 * 1024) {
         return null;
     }
     $decoded = json_decode((string) @file_get_contents($path), true);
     return is_array($decoded) ? $decoded : null;
+}
+
+function asr_standard_bridge_live_statuses(): array {
+    $payload = asr_secure_root_json('/run/allscan-reimagined-standard-bridge-status/bridge-live.json');
+    if (!is_array($payload) || !is_array($payload['bridges'] ?? null)) return [];
+    $updatedEpoch = (int) ($payload['updated_epoch'] ?? 0);
+    if ($updatedEpoch <= 0 || $updatedEpoch > time() + 300 || time() - $updatedEpoch > 10) return [];
+
+    $allowed = [];
+    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge) || (string) ($bridge['cardType'] ?? 'standard') !== 'standard') continue;
+        $id = (string) ($bridge['id'] ?? '');
+        $mode = asr_bridge_mode($bridge);
+        $node = (string) ($bridge['node'] ?? '');
+        if (in_array($mode, ['dmr', 'ysf'], true)
+            && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
+            && preg_match('/^[0-9]{3,10}$/D', $node)) {
+            $allowed[$id] = $node;
+        }
+    }
+
+    $clean = [];
+    foreach ($payload['bridges'] as $id => $entry) {
+        $id = (string) $id;
+        if (!isset($allowed[$id]) || !is_array($entry)
+            || !hash_equals($allowed[$id], (string) ($entry['node'] ?? ''))) continue;
+        $role = strtolower((string) ($entry['role'] ?? 'idle'));
+        if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
+        $caller = $role === 'source' ? substr((string) ($entry['current_user'] ?? ''), 0, 120) : '';
+        $clean[$id] = [
+            'active' => $role !== 'idle',
+            'role' => $role,
+            'state' => $role === 'source' ? 'TX ACTIVE' : ($role === 'relay' ? 'RELAY' : 'Idle'),
+            'active_start_epoch' => $role === 'idle' ? 0 : max(0, (int) ($entry['active_start_epoch'] ?? 0)),
+            'activity_epoch' => max(0, (int) ($entry['activity_epoch'] ?? 0)),
+            'last_time_epoch' => max(0, (int) ($entry['last_time_epoch'] ?? 0)),
+            'current_user' => $caller,
+            'caller' => $caller,
+            'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 120),
+            'last_source_user' => substr((string) ($entry['last_source_user'] ?? ''), 0, 120),
+            'last_source_epoch' => max(0, (int) ($entry['last_source_epoch'] ?? 0)),
+        ];
+    }
+    return $clean;
 }
 
 function asr_ysf_net_live_statuses(): array {

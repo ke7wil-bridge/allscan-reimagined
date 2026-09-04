@@ -46,12 +46,20 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || exit 1
   && [ "$(stat -c '%U:%G:%a:%h' /usr/local/sbin/allscan-reimagined-asterisk-read 2>/dev/null)" = "root:root:755:1" ] \
   || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-bridge-control ] || needs_reapply=1
+if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then
+  [ -x /usr/local/sbin/allscan-reimagined-standard-bridge-status ] || needs_reapply=1
+  [ -r /usr/local/sbin/asr_bridge_status.py ] || needs_reapply=1
+fi
 [ -x /usr/local/sbin/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-startup-bridge-summary ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-favorites-update ] || needs_reapply=1
 [ -d /run/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
+if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then
+  [ -d /run/allscan-reimagined-standard-bridge-status ] || needs_reapply=1
+  [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-standard-bridge-status 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
+fi
 [ -d /run/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 [ -d /var/log/allscan-reimagined ] || needs_reapply=1

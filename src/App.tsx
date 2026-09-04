@@ -44,6 +44,7 @@ const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
+const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 
 const loggedOutAuth: AuthStatus = {
@@ -61,6 +62,8 @@ type ThemeSettings = {
   theme?: string
   mode?: 'dark' | 'light'
 }
+
+type FavoritesPlacement = 'above' | 'below'
 
 const themeOptions = [
   { value: 'standard', label: 'Dark Side', mode: 'dark' },
@@ -145,6 +148,28 @@ function writeAutodiscPreference(checked: boolean) {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(AUTODISC_PREFERENCE_KEY, checked ? 'true' : 'false')
+  } catch {
+    // Ignore preference write failures.
+  }
+}
+
+function normalizeFavoritesPlacement(value: string | null): FavoritesPlacement {
+  return value === 'below' ? 'below' : 'above'
+}
+
+function readFavoritesPlacement(): FavoritesPlacement {
+  if (typeof window === 'undefined') return 'above'
+  try {
+    return normalizeFavoritesPlacement(window.localStorage.getItem(FAVORITES_PLACEMENT_KEY))
+  } catch {
+    return 'above'
+  }
+}
+
+function writeFavoritesPlacement(placement: FavoritesPlacement) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(FAVORITES_PLACEMENT_KEY, placement)
   } catch {
     // Ignore preference write failures.
   }
@@ -388,6 +413,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
   const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [favoritesPlacement, setFavoritesPlacement] = useState<FavoritesPlacement>(readFavoritesPlacement)
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
     key: 'index' | 'node' | 'name' | 'desc' | 'location'
@@ -426,6 +452,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
+  const favoritesPlacementRef = useRef<HTMLInputElement>(null)
+  const restoreFavoritesPlacementFocus = useRef(false)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -757,6 +785,13 @@ function App({ config }: { config: RuntimeConfig }) {
   useEffect(() => {
     applyThemeSettings(themeSettings, config.lowPowerMode)
   }, [themeSettings, config.lowPowerMode])
+
+  useEffect(() => {
+    if (!restoreFavoritesPlacementFocus.current) return
+    restoreFavoritesPlacementFocus.current = false
+    const frame = window.requestAnimationFrame(() => favoritesPlacementRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [favoritesPlacement])
 
   useEffect(() => {
     const handleResize = () => setDesktopThemeViewport(isDesktopThemeViewport())
@@ -1461,6 +1496,144 @@ function App({ config }: { config: RuntimeConfig }) {
     window.location.href = `mailto:${diagnosticsReport.email}?subject=${subject}&body=${body}`
   }
 
+  const favoritesPanel = favoritesOpen ? (
+    <section
+      id="allscan-favorites-panel"
+      className="allscan-main-section allscan-favorites-panel"
+      aria-label="Favorites"
+    >
+      <div className="allscan-favorites-inner">
+        <div className="allscan-favorites-options">
+          <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
+            <label htmlFor="allscan-favsfile">Favorites File</label>
+            <select
+              id="allscan-favsfile"
+              value={selectedFavoriteFile}
+              onChange={(event) => setSelectedFavoriteFile(event.target.value)}
+            >
+              {favoriteFiles.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </form>
+          <label className="allscan-favorites-placement">
+            <input
+              ref={favoritesPlacementRef}
+              type="checkbox"
+              checked={favoritesPlacement === 'below'}
+              onChange={(event) => {
+                const placement = event.target.checked ? 'below' : 'above'
+                restoreFavoritesPlacementFocus.current = true
+                setFavoritesPlacement(placement)
+                writeFavoritesPlacement(placement)
+              }}
+            />
+            Keep below Connection Status on this browser
+          </label>
+        </div>
+        <div className="allscan-favorites-legend">
+          <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
+          <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
+          <span><i className="allscan-fav-rxbar" />Rx Busy</span>
+          <span><i className="allscan-fav-dot allscan-fav-dot-links" />Links</span>
+          <span><i className="allscan-fav-underline" />Scanning</span>
+        </div>
+        <div className="allscan-favorites-table-wrap">
+        <table className="allscan-favorites-table">
+          <thead>
+            <tr>
+              <th aria-sort={favoriteSort.key === 'index' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'index' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('index')}>
+                  <span>#</span>
+                  <span className="allscan-sort-badge allscan-favorites-sort-badge">
+                    <ArrowUpDown className="allscan-sort-icon" />
+                  </span>
+                </button>
+              </th>
+              <th aria-sort={favoriteSort.key === 'node' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'node' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('node')}>
+                  <span>Node</span>
+                  <span className="allscan-sort-badge allscan-favorites-sort-badge">
+                    <ArrowUpDown className="allscan-sort-icon" />
+                  </span>
+                </button>
+              </th>
+              <th aria-sort={favoriteSort.key === 'name' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'name' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('name')}>
+                  <span>Name</span>
+                  <span className="allscan-sort-badge allscan-favorites-sort-badge">
+                    <ArrowUpDown className="allscan-sort-icon" />
+                  </span>
+                </button>
+              </th>
+              <th aria-sort={favoriteSort.key === 'desc' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'desc' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('desc')}>
+                  <span>Desc</span>
+                  <span className="allscan-sort-badge allscan-favorites-sort-badge">
+                    <ArrowUpDown className="allscan-sort-icon" />
+                  </span>
+                </button>
+              </th>
+              <th aria-sort={favoriteSort.key === 'location' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'location' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('location')}>
+                  <span>Location</span>
+                  <span className="allscan-sort-badge allscan-favorites-sort-badge">
+                    <ArrowUpDown className="allscan-sort-icon" />
+                  </span>
+                </button>
+              </th>
+              <th><small>Rx%</small></th>
+              <th><small>LCnt</small></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedFavorites.map((favorite) => {
+              const stats = favoriteStats[favorite.node]
+              const scanning = sortedFavorites[favoritesScanIndex]?.node === favorite.node
+              const networked = isNetworkedFavorite(favorite.node)
+              const txActive = stats?.keyed || Number(stats?.txPct || 0) > 5
+              const favCellClass = txActive ? 'allscan-fav-cell-source' : undefined
+              const nodeCellClass = networked ? 'allscan-fav-cell-networked' : undefined
+              const rxText = String(stats?.busyPct ?? favorite.rx ?? '').trim()
+              const rxBusy = Number(rxText || 0)
+              const fallbackLinkCount = linkedNodeCounts[favorite.node]
+              const hasStatsLinkCount = stats && Number.isFinite(stats.linkCnt)
+              const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
+              const linkCount = Number(linkText || 0)
+              return (
+              <tr key={favorite.node}>
+                <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
+                  <span>{favorite.index}</span>
+                </td>
+                <td
+                  className={nodeCellClass}
+                  onClick={() => {
+                    if (!canPopulateNodeControl(favorite.node)) return
+                    setNodeValue(favorite.node)
+                    setFavoritesOpen(isAddDeleteFavoriteAction)
+                  }}
+                >
+                  {favorite.node}
+                </td>
+                <td>
+                  {favorite.href ? (
+                    <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
+                  ) : favorite.name}
+                </td>
+                <td>{favorite.desc}</td>
+                <td>{favorite.location}</td>
+                <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText}</td>
+                <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>{linkText}</td>
+              </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </section>
+  ) : null
+
   return (
     <div className="allscan-app min-h-screen bg-[#151515] text-[#eaf4f8]">
       <div className="w-full px-0 pb-6">
@@ -1656,6 +1829,11 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
+                  {authStatus.loggedIn
+                    && effectiveThemeSettings.theme === 'lcars-frame'
+                    && desktopThemeViewport ? (
+                      <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
+                    ) : null}
                   {!authStatus.loggedIn ? (
                     <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Login</a>
                   ) : null}
@@ -1767,8 +1945,10 @@ function App({ config }: { config: RuntimeConfig }) {
                 </button>
                 <div className="allscan-favorites-wrap">
                   <button
+                    type="button"
                     className={`allscan-favs-button${favoritesOpen ? ' is-open' : ''}`}
                     aria-expanded={favoritesOpen ? 'true' : 'false'}
+                    aria-controls="allscan-favorites-panel"
                     disabled={busy}
                     onClick={() => setFavoritesOpen((open) => !open)}
                   >
@@ -1844,126 +2024,9 @@ function App({ config }: { config: RuntimeConfig }) {
               </details>
             </div>
 
-            {favoritesOpen ? (
-              <section className="allscan-favorites-panel">
-                <div className="allscan-favorites-inner">
-                  <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
-                    <label htmlFor="allscan-favsfile">Favorites File</label>
-                    <select
-                      id="allscan-favsfile"
-                      value={selectedFavoriteFile}
-                      onChange={(event) => setSelectedFavoriteFile(event.target.value)}
-                    >
-                      {favoriteFiles.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </form>
-                  <div className="allscan-favorites-legend">
-                    <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
-                    <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
-                    <span><i className="allscan-fav-rxbar" />Rx Busy</span>
-                    <span><i className="allscan-fav-dot allscan-fav-dot-links" />Links</span>
-                    <span><i className="allscan-fav-underline" />Scanning</span>
-                  </div>
-                  <div className="allscan-favorites-table-wrap">
-                  <table className="allscan-favorites-table">
-                    <thead>
-                      <tr>
-                        <th aria-sort={favoriteSort.key === 'index' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                          <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'index' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('index')}>
-                            <span>#</span>
-                            <span className="allscan-sort-badge allscan-favorites-sort-badge">
-                              <ArrowUpDown className="allscan-sort-icon" />
-                            </span>
-                          </button>
-                        </th>
-                        <th aria-sort={favoriteSort.key === 'node' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                          <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'node' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('node')}>
-                            <span>Node</span>
-                            <span className="allscan-sort-badge allscan-favorites-sort-badge">
-                              <ArrowUpDown className="allscan-sort-icon" />
-                            </span>
-                          </button>
-                        </th>
-                        <th aria-sort={favoriteSort.key === 'name' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                          <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'name' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('name')}>
-                            <span>Name</span>
-                            <span className="allscan-sort-badge allscan-favorites-sort-badge">
-                              <ArrowUpDown className="allscan-sort-icon" />
-                            </span>
-                          </button>
-                        </th>
-                        <th aria-sort={favoriteSort.key === 'desc' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                          <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'desc' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('desc')}>
-                            <span>Desc</span>
-                            <span className="allscan-sort-badge allscan-favorites-sort-badge">
-                              <ArrowUpDown className="allscan-sort-icon" />
-                            </span>
-                          </button>
-                        </th>
-                        <th aria-sort={favoriteSort.key === 'location' ? (favoriteSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                          <button type="button" className={`allscan-favorites-sort-button${favoriteSort.key === 'location' ? ' is-active' : ''}`} onClick={() => toggleFavoriteSort('location')}>
-                            <span>Location</span>
-                            <span className="allscan-sort-badge allscan-favorites-sort-badge">
-                              <ArrowUpDown className="allscan-sort-icon" />
-                            </span>
-                          </button>
-                        </th>
-                        <th><small>Rx%</small></th>
-                        <th><small>LCnt</small></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedFavorites.map((favorite) => {
-                        const stats = favoriteStats[favorite.node]
-                        const scanning = sortedFavorites[favoritesScanIndex]?.node === favorite.node
-                        const networked = isNetworkedFavorite(favorite.node)
-                        const txActive = stats?.keyed || Number(stats?.txPct || 0) > 5
-                        const favCellClass = txActive ? 'allscan-fav-cell-source' : undefined
-                        const nodeCellClass = networked ? 'allscan-fav-cell-networked' : undefined
-                        const rxText = String(stats?.busyPct ?? favorite.rx ?? '').trim()
-                        const rxBusy = Number(rxText || 0)
-                        const fallbackLinkCount = linkedNodeCounts[favorite.node]
-                        const hasStatsLinkCount = stats && Number.isFinite(stats.linkCnt)
-                        const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
-                        const linkCount = Number(linkText || 0)
-                        return (
-                        <tr
-                          key={favorite.node}
-                        >
-                          <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
-                            <span>{favorite.index}</span>
-                          </td>
-                          <td
-                            className={nodeCellClass}
-                            onClick={() => {
-                              if (!canPopulateNodeControl(favorite.node)) return
-                              setNodeValue(favorite.node)
-                              setFavoritesOpen(isAddDeleteFavoriteAction)
-                            }}
-                          >
-                            {favorite.node}
-                          </td>
-                          <td>
-                            {favorite.href ? (
-                              <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
-                            ) : favorite.name}
-                          </td>
-                          <td>{favorite.desc}</td>
-                          <td>{favorite.location}</td>
-                          <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText}</td>
-                          <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>{linkText}</td>
-                        </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                  </div>
-                </div>
-              </section>
-            ) : null}
           </section>
+
+          {favoritesPlacement === 'above' ? favoritesPanel : null}
 
           <section className="allscan-main-section allscan-connection-section">
             <h2 className="allscan-section-title" data-lcars-title={`CONNECTION STATUS - NODE ${config.node}`}>
@@ -2074,6 +2137,8 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             </div>
           </section>
+
+          {favoritesPlacement === 'below' ? favoritesPanel : null}
 
           {bridgeState.cards.length ? <section className="allscan-main-section allscan-bridge-section">
             <h2

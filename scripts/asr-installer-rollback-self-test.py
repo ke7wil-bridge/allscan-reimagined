@@ -180,6 +180,25 @@ def assert_installer_order(installer: Path) -> None:
     assert 'python3 "$RELEASE_DIR/scripts/asr-bridge-lifecycle.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-startup-bridge-summary.py" --self-test' in text
     assert "allscan-reimagined-startup-bridge-summary.service" in text
+    assert "allscan-reimagined-standard-bridge-status.service" in text
+    assert "scripts/asr_bridge_status.py:/usr/local/sbin/allscan-reimagined-standard-bridge-status" in text
+    assert "/usr/local/sbin/asr_bridge_status.py" in text
+    standard_active_check = text.index(
+        'validate_command "configured Standard DMR/YSF status service is active"'
+    )
+    dmr_net_active_check = text.index(
+        'validate_command "configured DMR Net live service is active"'
+    )
+    assert standard_active_check < dmr_net_active_check
+    standard_active_condition = text.rfind(
+        "if python3 - /etc/allscan-reimagined/config.json <<'PY'",
+        0,
+        standard_active_check,
+    )
+    assert standard_active_condition >= 0
+    standard_active_block = text[standard_active_condition:standard_active_check]
+    assert 'item.get("cardType", "standard") == "standard"' in standard_active_block
+    assert '.startswith(("dmr", "ysf"))' in standard_active_block
     assert "allscan-reimagined-bridge-lifecycle" in text
     assert "remove_asr_managed_wiring" in text
     assert "allscan-reimagined-friendly-names.conf" in text
@@ -192,6 +211,14 @@ def assert_installer_order(installer: Path) -> None:
     backup_creation = text.index('install -d -o root -g root -m 700 "$BACKUP_DIR"')
     assert state_capture < backup_creation
     assert 'if [ "$CHANGES_STARTED" -eq 1 ]; then\n    remove_asr_managed_wiring' in text
+    remove_start = text.index("remove_asr_managed_wiring()")
+    remove_end = text.index("restore_reapply_unit_states()", remove_start)
+    remove_block = text[remove_start:remove_end]
+    assert "allscan-reimagined-standard-bridge-status.service" in remove_block
+    assert "/usr/local/sbin/asr_bridge_status.py" in remove_block
+    stop_start = text.index("CHANGES_STARTED=1")
+    stop_end = text.index('echo "[2/8] Checking the official AllScan backend..."', stop_start)
+    assert "allscan-reimagined-standard-bridge-status.service" in text[stop_start:stop_end]
     assert (
         'bash "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" >/dev/null 2>&1 || true'
         not in text
@@ -203,6 +230,229 @@ def assert_installer_order(installer: Path) -> None:
     stock_policy_check = text.index('validate_command "stock /allscan access policy"')
     assert text.index("new CfgModel($db);", stock_policy_check) > stock_policy_check
     assert "Validation failed: /asr runtime-config endpoint" in text
+    official_run = text.index('if ! php "$official_installer"; then')
+    stock_complete = text.index(
+        '[ -d "$STOCK_ALLSCAN_DIR" ] || fail "Official AllScan installation was not completed."'
+    )
+    version_metadata = text.index(
+        '[ -r "$STOCK_ALLSCAN_DIR/include/common.php" ]', stock_complete
+    )
+    compatibility = text.index(
+        '[ -f "$PAYLOAD_DIR/compat/allscan-$installed_version/include/common.php" ]'
+    )
+    release_stage = text.index('RELEASE_STAGE="${RELEASE_DIR}.new.$$"')
+    configure = text.index('"$RELEASE_DIR/scripts/asr-configure.sh"')
+    apply_asr = text.index('"$RELEASE_DIR/scripts/asr-reapply.sh"', configure)
+    assert official_run < stock_complete < version_metadata < compatibility
+    assert compatibility < release_stage < configure < apply_asr
+    official_attempt = text.index("OFFICIAL_INSTALL_ATTEMPTED=1", official_run - 500)
+    capture_shared = text.index("capture_official_shared_baseline", compatibility)
+    assert official_attempt < official_run
+    assert compatibility < capture_shared < release_stage
+    assert (
+        'if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \\\n'
+        '    && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then'
+    ) in text
+    assert "Preserving shared files from the incomplete official AllScan installation." in text
+    assert 'OFFICIAL_SHARED_BASELINE_CAPTURED=1' in text
+    assert text.count('rm -f "$BACKUP_DIR/manifest.json"') >= 2
+    assert (
+        'finalize-backup "$BACKUP_DIR" "$PRE_UPDATE_ASR_VERSION"' in text
+    )
+    assert "The official AllScan installer could not be downloaded; /asr was not installed." in text
+    assert "The official AllScan installer failed; ASR was not installed." in text
+    assert "Official AllScan did not provide readable version metadata" in text
+    assert "Official AllScan is still $installed_version; expected $latest_version." in text
+    assert "no exact compatibility layer" in text and "/asr was not changed" in text
+
+
+def capture_shared_state(shared: Path, backup: Path) -> None:
+    backup.mkdir(parents=True, exist_ok=True)
+    for name in ("favorites.ini", "allscan.db"):
+        saved = backup / name
+        absent = backup / f"{name}.absent"
+        remove_path(saved)
+        remove_path(absent)
+        source = shared / name
+        if source.is_file():
+            shutil.copy2(source, saved)
+        else:
+            absent.touch()
+
+
+def restore_shared_state(
+    shared: Path,
+    backup: Path,
+    *,
+    official_attempted: bool,
+    official_baseline_captured: bool,
+) -> None:
+    if official_attempted and not official_baseline_captured:
+        return
+    shared.mkdir(parents=True, exist_ok=True)
+    for name in ("favorites.ini", "allscan.db"):
+        saved = backup / name
+        absent = backup / f"{name}.absent"
+        target = shared / name
+        if saved.is_file():
+            shutil.copy2(saved, target)
+        elif absent.is_file():
+            remove_path(target)
+
+
+def exercise_fresh_install_path(root: Path, outcome: str) -> None:
+    """Model the external installer boundary without network or host changes."""
+    web = root / "www"
+    stock = web / "allscan"
+    asr = web / "asr"
+    shared = root / "etc/allscan"
+    shared_backup = root / "backup/shared"
+    manifest = root / "backup/manifest.json"
+    web.mkdir()
+    shared.mkdir(parents=True)
+    capture_shared_state(shared, shared_backup)
+    manifest.write_text("initial rollback manifest\n", encoding="utf-8")
+    latest_version = "v1.01" if outcome != "incompatible" else "v1.02"
+    reported_version = "v1.00" if outcome == "wrong-version" else latest_version
+    events: list[str] = []
+    error = ""
+    official_attempted = False
+    official_baseline_captured = False
+
+    try:
+        if outcome == "declined":
+            raise InjectedFailure("Official AllScan installation/update was declined.")
+        if outcome == "download-failed":
+            raise InjectedFailure(
+                "The official AllScan installer could not be downloaded; /asr was not installed."
+            )
+        official_attempted = True
+        if outcome == "installer-failed":
+            stock.mkdir()
+            (stock / "partial-official-install.txt").write_text(
+                "official installer owns cleanup\n", encoding="utf-8"
+            )
+            (shared / "favorites.ini").write_text(
+                "partial official favorite\n", encoding="utf-8"
+            )
+            (shared / "allscan.db").write_text(
+                "partial official database\n", encoding="utf-8"
+            )
+            raise InjectedFailure(
+                "The official AllScan installer failed; ASR was not installed."
+            )
+        if outcome != "missing-stock":
+            common = stock / "include/common.php"
+            common.parent.mkdir(parents=True)
+            if outcome != "missing-metadata":
+                common.write_text(
+                    f'$AllScanVersion = "{reported_version}";\n', encoding="utf-8"
+                )
+            elif common.exists():
+                common.unlink()
+            (shared / "favorites.ini").write_text(
+                "official stock favorite\n", encoding="utf-8"
+            )
+            (shared / "allscan.db").write_text(
+                "official stock database\n", encoding="utf-8"
+            )
+            events.append("official-stock-created")
+        if not stock.is_dir():
+            raise InjectedFailure(
+                "The official installer did not create clean stock /allscan."
+            )
+        common = stock / "include/common.php"
+        if not common.is_file():
+            raise InjectedFailure(
+                "Official AllScan did not provide readable version metadata; /asr was not installed."
+            )
+        installed_version = common.read_text(encoding="utf-8").split('"', 2)[1]
+        if installed_version != latest_version:
+            raise InjectedFailure(
+                f"Official AllScan is still {installed_version}; expected {latest_version}."
+            )
+        compatible_versions = {"v1.01"}
+        if installed_version not in compatible_versions:
+            raise InjectedFailure(
+                f"This ASR release has no exact compatibility layer for stock AllScan {installed_version}; /asr was not changed."
+            )
+        manifest.unlink()
+        capture_shared_state(shared, shared_backup)
+        manifest.write_text("official stock baseline\n", encoding="utf-8")
+        official_baseline_captured = True
+        events.append("compatibility-confirmed")
+        assert stock.is_dir() and not asr.exists()
+        asr.mkdir()
+        (asr / "config.json").write_text('{"bridges":[]}\n', encoding="utf-8")
+        if outcome == "asr-failed-after-official":
+            (shared / "favorites.ini").write_text(
+                "incomplete ASR favorite\n", encoding="utf-8"
+            )
+            (shared / "allscan.db").write_text(
+                "incomplete ASR database\n", encoding="utf-8"
+            )
+            raise InjectedFailure("later ASR failure")
+        events.append("asr-created-with-no-bridges")
+    except InjectedFailure as exc:
+        error = str(exc)
+        remove_path(asr)
+        if official_attempted and not official_baseline_captured:
+            remove_path(manifest)
+        restore_shared_state(
+            shared,
+            shared_backup,
+            official_attempted=official_attempted,
+            official_baseline_captured=official_baseline_captured,
+        )
+
+    if outcome == "success":
+        assert not error
+        assert events == [
+            "official-stock-created",
+            "compatibility-confirmed",
+            "asr-created-with-no-bridges",
+        ]
+        assert stock.is_dir() and asr.is_dir()
+        assert manifest.is_file()
+        assert (asr / "config.json").read_text(encoding="utf-8") == '{"bridges":[]}\n'
+        return
+
+    assert error and not asr.exists()
+    if outcome in {"declined", "download-failed", "missing-stock"}:
+        assert not stock.exists()
+    elif outcome == "installer-failed":
+        assert (stock / "partial-official-install.txt").is_file()
+        assert (shared / "favorites.ini").read_text(encoding="utf-8") == "partial official favorite\n"
+        assert (shared / "allscan.db").read_text(encoding="utf-8") == "partial official database\n"
+    else:
+        assert stock.is_dir()
+    if outcome == "incompatible":
+        assert "no exact compatibility layer" in error and "/asr was not changed" in error
+    if outcome == "asr-failed-after-official":
+        assert manifest.is_file()
+        assert (shared / "favorites.ini").read_text(encoding="utf-8") == "official stock favorite\n"
+        assert (shared / "allscan.db").read_text(encoding="utf-8") == "official stock database\n"
+    if official_attempted and not official_baseline_captured:
+        assert not manifest.exists()
+
+
+def exercise_existing_shared_baseline(root: Path) -> None:
+    shared = root / "etc/allscan"
+    backup = root / "backup/shared"
+    shared.mkdir(parents=True)
+    (shared / "favorites.ini").write_text("existing ASR favorite\n", encoding="utf-8")
+    (shared / "allscan.db").write_text("existing ASR database\n", encoding="utf-8")
+    capture_shared_state(shared, backup)
+    (shared / "favorites.ini").write_text("failed change\n", encoding="utf-8")
+    (shared / "allscan.db").write_text("failed change\n", encoding="utf-8")
+    restore_shared_state(
+        shared,
+        backup,
+        official_attempted=False,
+        official_baseline_captured=False,
+    )
+    assert (shared / "favorites.ini").read_text(encoding="utf-8") == "existing ASR favorite\n"
+    assert (shared / "allscan.db").read_text(encoding="utf-8") == "existing ASR database\n"
 
 
 def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
@@ -232,6 +482,23 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
         in integrity_text
     )
     assert '"root:root:755:1"' in integrity_text
+    collector_guard = 'if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then'
+    assert integrity_text.count(collector_guard) == 2
+    helper_guard = integrity_text.index(collector_guard)
+    helper_guard_end = integrity_text.index("\nfi", helper_guard)
+    helper_guard_text = integrity_text[helper_guard:helper_guard_end]
+    assert "allscan-reimagined-standard-bridge-status" in helper_guard_text
+    assert "/usr/local/sbin/asr_bridge_status.py" in helper_guard_text
+    run_guard = integrity_text.index(collector_guard, helper_guard_end)
+    run_guard_end = integrity_text.index("\nfi", run_guard)
+    run_guard_text = integrity_text[run_guard:run_guard_end]
+    assert "/run/allscan-reimagined-standard-bridge-status" in run_guard_text
+    assert integrity_text.index(
+        "[ -x /usr/local/sbin/allscan-reimagined-standard-bridge-status ]"
+    ) > helper_guard
+    assert integrity_text.index(
+        "[ -d /run/allscan-reimagined-standard-bridge-status ]"
+    ) > run_guard
     assert "[ ! -L /etc/sudoers.d/allscan-reimagined ]" in integrity_text
     assert "stat -c '%U:%G:%a:%h' /etc/sudoers.d/allscan-reimagined" in integrity_text
     assert '"root:root:440:1"' in integrity_text
@@ -451,6 +718,25 @@ def self_test(*, model_only: bool = False) -> None:
                 new_version=new,
                 failure_step=failure,
             )
+    for outcome in (
+        "success",
+        "declined",
+        "download-failed",
+        "installer-failed",
+        "missing-stock",
+        "missing-metadata",
+        "wrong-version",
+        "incompatible",
+        "asr-failed-after-official",
+    ):
+        with tempfile.TemporaryDirectory(
+            prefix=f"asr-installer-fresh-{outcome}."
+        ) as temporary:
+            exercise_fresh_install_path(Path(temporary), outcome)
+    with tempfile.TemporaryDirectory(
+        prefix="asr-installer-existing-shared-baseline."
+    ) as temporary:
+        exercise_existing_shared_baseline(Path(temporary))
     with tempfile.TemporaryDirectory(
         prefix="asr-installer-migration-failure-self-test."
     ) as temporary:
