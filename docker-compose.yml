@@ -1,0 +1,26 @@
+services:
+  layered-allscan:
+    build:
+      context: .
+      dockerfile: Dockerfile.layered
+    env_file:
+      - .env
+    ports:
+      - "4173:80"
+    networks:
+      - default
+      - asl3
+    volumes:
+      - layered-web:/var/www/html
+      - layered-allscan-data:/etc/allscan
+      - layered-asr-config:/etc/allscan-reimagined
+
+volumes:
+  layered-web:
+  layered-allscan-data:
+  layered-asr-config:
+
+networks:
+  asl3:
+    external: true
+    name: asl3-docker_default
