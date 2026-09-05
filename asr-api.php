@@ -1922,7 +1922,8 @@ function asr_safe_favorites_file(string $requested = ''): string {
 function asr_ini_values(string $contents, string $key): array {
     preg_match_all('/^\s*' . preg_quote($key, '/') . '\s*\[\]\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|(.+?))\s*$/mi', $contents, $matches, PREG_SET_ORDER);
     return array_map(static function (array $match): string {
-        return trim($match[1] !== '' ? $match[1] : ($match[2] !== '' ? $match[2] : $match[3]));
+        $value = ($match[1] ?? '') !== '' ? $match[1] : (($match[2] ?? '') !== '' ? $match[2] : ($match[3] ?? ''));
+        return trim($value);
     }, $matches);
 }
 
