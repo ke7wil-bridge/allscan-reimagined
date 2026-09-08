@@ -13,13 +13,45 @@ import tempfile
 DEFAULT_TARGET = Path("/usr/local/sbin/connected-clients-daemon.py")
 PATCH_MARKER = "ASR Beta 5.6: close every failed TGIF Socket.IO client"
 AUTH_MARKER = "ASR Beta 7.5: require authenticated TGIF session handshake"
+SESSION_MARKER = "ASR Beta 7.5: retain TGIF sessions until explicit removal"
 
 
 class PatchError(RuntimeError):
     pass
 
 
+def patch_session_roster(source):
+    if SESSION_MARKER in source:
+        return source, False
+    old = """def update_dmr_session(data):
+    if not data or not data.get("uuid"):
+        return
+    if str(data.get("state", "")) == "0":
+        return
+    if str(data.get("ts1_talkgroup", "")) != TGIF_TG and str(data.get("ts2_talkgroup", "")) != TGIF_TG:
+        return
+"""
+    new = """def update_dmr_session(data):
+    # ASR Beta 7.5: retain TGIF sessions until explicit removal
+    if not data or not data.get("uuid"):
+        return
+    session_id = str(data.get("uuid", "")).strip()
+    if str(data.get("state", "")) == "0":
+        dmr_seen.pop(session_id, None)
+        return
+    if str(data.get("ts1_talkgroup", "")) != TGIF_TG and str(data.get("ts2_talkgroup", "")) != TGIF_TG:
+        dmr_seen.pop(session_id, None)
+        return
+"""
+    if old not in source:
+        return source, False
+    source = source.replace(old, new, 1)
+    source = source.replace('apply_dmr_mmdvm_last_tx(fresh(list(dmr_seen.values()), max_age=45))', 'apply_dmr_mmdvm_last_tx(list(dmr_seen.values()))')
+    return source, True
+
+
 def patched_source(source):
+    source, roster_changed = patch_session_roster(source)
     function_markers = (
         "def socket_thread():\n    if not TGIF_TOKEN:",
         "def socket_thread():\n    # ASR Beta 7.5: TGIF accepts anonymous session handshakes",
@@ -126,7 +158,7 @@ def patched_source(source):
         if updated != source:
             compile(updated, "connected-clients-daemon.py", "exec")
             return updated, True
-        return source, False
+        return source, roster_changed
 
     if old_client in block:
         block = block.replace(old_client, new_client, 1)
@@ -187,6 +219,23 @@ def apply_patch(path):
 
 
 def self_test():
+    roster_fixture = (
+        'dmr_seen = {}\nTGIF_TG = "123"\n'
+        'def update_dmr_session(data):\n'
+        '    if not data or not data.get("uuid"):\n        return\n'
+        '    if str(data.get("state", "")) == "0":\n        return\n'
+        '    if str(data.get("ts1_talkgroup", "")) != TGIF_TG and str(data.get("ts2_talkgroup", "")) != TGIF_TG:\n        return\n'
+        '    dmr_seen[str(data.get("uuid"))] = data\n'
+        'rows = apply_dmr_mmdvm_last_tx(fresh(list(dmr_seen.values()), max_age=45))\n'
+    )
+    roster_repaired, roster_changed = patch_session_roster(roster_fixture)
+    if not roster_changed or SESSION_MARKER not in roster_repaired:
+        raise PatchError("self-test did not patch TGIF session roster lifecycle")
+    if "dmr_seen.pop(session_id, None)" not in roster_repaired:
+        raise PatchError("self-test did not add explicit TGIF session removal")
+    if "max_age=45" in roster_repaired:
+        raise PatchError("self-test retained the invalid TGIF session TTL")
+
     vulnerable = '''import socketio
 import threading
 import time
