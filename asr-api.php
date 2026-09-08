@@ -17,6 +17,7 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
+const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_VERSION = '1.0.0-beta.7.4';
 const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.4';
 
@@ -88,6 +89,40 @@ function asr_require_modify(): void {
 
 function asr_require_admin(): void {
     if (!asr_logged_in() || !adminUser()) asr_error('Login with admin permission required.', 403);
+}
+
+function asr_tgif_user_id(): string {
+    global $user;
+    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
+    return (string) $user->user_id;
+}
+
+function asr_tgif_user_command(string $verb, array $args = [], string $stdin = ''): array {
+    $allowed = ['status', 'login', 'logout'];
+    if (!in_array($verb, $allowed, true)) asr_error('Invalid TGIF user-session action.', 400);
+    $command = 'sudo -n ' . escapeshellarg(ASR_TGIF_USER_HELPER) . ' ' . escapeshellarg($verb)
+        . ' ' . escapeshellarg(asr_tgif_user_id());
+    foreach ($args as $arg) $command .= ' ' . escapeshellarg((string) $arg);
+    $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $process = @proc_open($command, $spec, $pipes);
+    if (!is_resource($process)) asr_error('TGIF session helper is unavailable.', 503);
+    fwrite($pipes[0], $stdin);
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+    $status = proc_close($process);
+    $payload = json_decode((string) $stdout, true);
+    if ($status !== 0 || !is_array($payload)) {
+        $message = trim((string) $stderr);
+        if ($message === '') $message = 'TGIF authentication or session request failed.';
+        asr_error(substr($message, 0, 180), 502);
+    }
+    return $payload;
+}
+
+function asr_tgif_user_status(): array {
+    if (!asr_logged_in()) return ['ok' => true, 'configured' => false, 'clients' => [], 'updatedEpoch' => 0];
+    return asr_tgif_user_command('status');
 }
 
 function asr_origin_host(string $value): string {
@@ -1429,6 +1464,28 @@ function asr_bridge_clients_state(): array {
         $counts[$id] = $currentConnectedFeed ? count($clean) : 0;
     }
 
+    $tgif = asr_tgif_user_status();
+    $tgifRows = is_array($tgif['clients'] ?? null) ? $tgif['clients'] : [];
+    $tgifConfigured = !empty($tgif['configured']);
+    $dmrStandardIds = [];
+    if (array_key_exists('dmr', $clients)) $dmrStandardIds['dmr'] = true;
+    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridgeConfig) {
+        if (!is_array($bridgeConfig)) continue;
+        $id = (string) ($bridgeConfig['id'] ?? '');
+        $mode = asr_bridge_mode($bridgeConfig);
+        $cardType = (string) ($bridgeConfig['cardType'] ?? 'standard');
+        if ($mode === 'dmr' && $cardType === 'standard' && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) {
+            $dmrStandardIds[$id] = true;
+        }
+    }
+    foreach (array_keys($dmrStandardIds) as $id) {
+        $clean = $tgifConfigured
+            ? asr_dedupe_client_rows(asr_sanitize_client_rows($tgifRows, 'dmr', true))
+            : [];
+        $clients[$id] = $clean;
+        $counts[$id] = $tgifConfigured ? count($clean) : 0;
+    }
+
     return ['clients' => $clients, 'counts' => $counts];
 }
 
@@ -2344,43 +2401,18 @@ function asr_root_file_brief(string $path): array {
 }
 
 function asr_tgif_tracking_diagnostics(): array {
-    $dropin = '/etc/systemd/system/connected-clients-daemon.service.d/tgif-token.conf';
-    $tokenEnvironment = '/etc/allscan-reimagined/connected-clients-daemon.env';
-    $loginEnv = '/root/tgif-login.env';
-    $refreshScript = '/usr/local/sbin/tgif-refresh-token.py';
-    $daemonScript = '/usr/local/sbin/connected-clients-daemon.py';
-    $dropinInfo = asr_root_file_brief($dropin);
-    $tokenEnvironmentInfo = asr_root_file_brief($tokenEnvironment);
-    // Never infer that a credential exists merely because a protected file or
-    // systemd drop-in exists. The web process intentionally cannot read the
-    // protected environment file, so report null (protected/unknown) unless
-    // the credential can actually be verified without exposing its value.
-    $tokenConfigured = null;
-    if (is_readable($tokenEnvironment)) {
-        $contents = (string) file_get_contents($tokenEnvironment);
-        $tokenConfigured = preg_match('/^\s*TGIF_API_TOKEN=.+/m', $contents) === 1;
-    } elseif (is_readable($dropin)) {
-        $contents = (string) file_get_contents($dropin);
-        if (preg_match('/^\s*Environment=TGIF_API_TOKEN=.+/m', $contents) === 1) {
-            $tokenConfigured = true;
-        } elseif (($tokenEnvironmentInfo['status'] ?? '') === 'missing') {
-            $tokenConfigured = false;
-        }
-    } elseif (($tokenEnvironmentInfo['status'] ?? '') === 'missing'
-        && ($dropinInfo['status'] ?? '') === 'missing') {
-        $tokenConfigured = false;
-    }
-
+    $legacyEnvironment = '/etc/allscan-reimagined/connected-clients-daemon.env';
+    $userStatus = asr_logged_in() ? asr_tgif_user_status() : ['configured' => false, 'callsign' => '', 'updatedEpoch' => 0, 'clients' => []];
     return [
-        'refreshTimer' => asr_unit_state('tgif-refresh-token.timer'),
-        'refreshService' => asr_unit_state('tgif-refresh-token.service'),
-        'clientDaemon' => asr_unit_state('connected-clients-daemon.service'),
-        'loginEnv' => asr_root_file_brief($loginEnv),
-        'refreshScript' => asr_root_file_brief($refreshScript),
-        'daemonScript' => asr_root_file_brief($daemonScript),
-        'tokenDropin' => $dropinInfo,
-        'tokenEnvironment' => $tokenEnvironmentInfo,
-        'tokenConfigured' => $tokenConfigured,
+        'mode' => 'per_user',
+        'helper' => asr_root_file_brief(ASR_TGIF_USER_HELPER),
+        'refreshTimer' => asr_unit_state('allscan-reimagined-tgif-user-sessions.timer'),
+        'refreshService' => asr_unit_state('allscan-reimagined-tgif-user-sessions.service'),
+        'currentUserConfigured' => !empty($userStatus['configured']),
+        'currentUserCallsign' => substr((string) ($userStatus['callsign'] ?? ''), 0, 20),
+        'currentUserUpdatedEpoch' => max(0, (int) ($userStatus['updatedEpoch'] ?? 0)),
+        'currentUserClientCount' => is_array($userStatus['clients'] ?? null) ? count($userStatus['clients']) : 0,
+        'legacyTokenEnvironment' => asr_root_file_brief($legacyEnvironment),
     ];
 }
 
@@ -2667,6 +2699,31 @@ function asr_performance_stats(): array {
 $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
+if ($action === 'tgif-user-status') {
+    asr_require_read();
+    asr_json(asr_tgif_user_status());
+}
+if ($action === 'tgif-user-login') {
+    asr_require_post();
+    asr_require_same_origin();
+    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'tgif-user-session') asr_error('Invalid TGIF session request.', 403);
+    $callsign = strtoupper(trim((string) ($_POST['callsign'] ?? '')));
+    $talkgroup = trim((string) ($_POST['talkgroup'] ?? ''));
+    $password = (string) ($_POST['password'] ?? '');
+    if (!preg_match('/^[A-Z0-9]{3,10}$/D', $callsign)) asr_error('Enter a valid TGIF callsign.');
+    if (!preg_match('/^[1-9][0-9]{0,7}$/D', $talkgroup)) asr_error('Enter a valid TGIF talkgroup.');
+    if ($password === '' || strlen($password) > 128) asr_error('Enter your TGIF password.');
+    asr_json(asr_tgif_user_command('login', [$callsign, '--talkgroup', $talkgroup], $password . "
+"));
+}
+if ($action === 'tgif-user-logout') {
+    asr_require_post();
+    asr_require_same_origin();
+    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'tgif-user-session') asr_error('Invalid TGIF session request.', 403);
+    asr_json(asr_tgif_user_command('logout'));
+}
 if ($action === 'runtime-config') asr_json(asr_runtime_config());
 if ($action === 'release-status') {
     asr_require_read();

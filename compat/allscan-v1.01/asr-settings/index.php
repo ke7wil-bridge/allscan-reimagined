@@ -2464,11 +2464,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				: '';
 			var dmr = bridge.dmrUdp ? '<div class="asr-diagnostics-block"><h3>DMR Network</h3><div class="asr-diagnostics-mini"><span>Local UDP: <strong>' + escapeHtml(bridge.dmrUdp.localPort || 'unknown') + '</strong></span><span>Master: <strong>' + escapeHtml((bridge.dmrUdp.master || 'unknown') + (bridge.dmrUdp.masterPort ? ':' + bridge.dmrUdp.masterPort : '')) + '</strong></span><span>Listener: <strong>' + escapeHtml(bridge.dmrUdp.listener || 'unknown') + '</strong></span></div></div>' : '';
 			var tgif = bridge.tgif ? '<div class="asr-diagnostics-block"><h3>TGIF Client Tracking</h3><div class="asr-diagnostics-mini">'
-				+ '<span>Daemon: <strong>' + escapeHtml((bridge.tgif.clientDaemon || {}).state || 'unknown') + '</strong></span>'
+				+ '<span>Mode: <strong>Per-user authentication</strong></span>'
 				+ '<span>Refresh timer: <strong>' + escapeHtml((bridge.tgif.refreshTimer || {}).state || 'unknown') + '</strong></span>'
-				+ '<span>Token: <strong>' + escapeHtml(bridge.tgif.tokenConfigured === true ? 'configured' : (bridge.tgif.tokenConfigured === false ? 'missing' : 'protected / verify on host')) + '</strong></span>'
-				+ '<span>Credential file: <strong>' + escapeHtml((bridge.tgif.tokenEnvironment || {}).status || 'unknown') + '</strong></span>'
-				+ '<span>Login file: <strong>' + escapeHtml((bridge.tgif.loginEnv || {}).status || 'unknown') + '</strong></span>'
+				+ '<span>This account: <strong>' + escapeHtml(bridge.tgif.currentUserConfigured ? ('signed in' + (bridge.tgif.currentUserCallsign ? ' as ' + bridge.tgif.currentUserCallsign : '')) : 'not signed in') + '</strong></span>'
+				+ '<span>Clients visible to this account: <strong>' + escapeHtml(bridge.tgif.currentUserClientCount || 0) + '</strong></span>'
 				+ '</div></div>' : '';
 			var readiness = bridge.readiness || {};
 			var missing = Array.isArray(readiness.missing) && readiness.missing.length

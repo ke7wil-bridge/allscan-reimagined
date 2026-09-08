@@ -228,6 +228,7 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-update.py" /usr/local/sbin/allscan-reimagined-favorites-update
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /usr/local/sbin/allscan-reimagined-tgif-user-session
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
@@ -793,6 +794,36 @@ Unit=allscan-reimagined-bridge-clients.service
 [Install]
 WantedBy=timers.target
 EOF
+cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service <<'EOF'
+[Unit]
+Description=Refresh per-user TGIF connected-client sessions
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-tgif-user-session collect-all
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/allscan-reimagined
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+EOF
+cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'
+[Unit]
+Description=Refresh per-user TGIF connected-client sessions
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=15s
+AccuracySec=2s
+Unit=allscan-reimagined-tgif-user-sessions.service
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl enable --now allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
 systemctl daemon-reload
 bridge_client_source_count=$(php -r '
   $data = json_decode((string) @file_get_contents($argv[1]), true);
@@ -893,6 +924,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*

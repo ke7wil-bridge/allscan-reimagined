@@ -205,7 +205,7 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 	if(!$loggedIn) {
 		$admin[] = $html->a("$urlbase/user/", null, 'Login');
 	}
-	$returnMainPages = ['cfg', 'user', 'user/settings', 'lookup', 'echolink-lookup', 'asr-settings', 'asr-instructions', 'performance'];
+	$returnMainPages = ['cfg', 'user', 'user/settings', 'lookup', 'echolink-lookup', 'tgif', 'asr-settings', 'asr-instructions', 'performance'];
 	$showReturnMain = $loggedIn && in_array($subdir, $returnMainPages, true);
 	$returnMain = $showReturnMain
 		? '<a class="asr-admin-return-main" href="' . $urlbase . '/">Return to Main Page</a>'
@@ -226,6 +226,7 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="admin" aria-expanded="false"><span>Admin</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
 		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="resources" aria-expanded="false"><span>Resources</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
 		. '<a class="allscan-menu-proxy-row allscan-menu-direct-row" role="menuitem" href="' . $urlbase . '/lookup/"><span>Lookup</span></a>'
+		. ($loggedIn ? '<a class="allscan-menu-proxy-row allscan-menu-direct-row" role="menuitem" href="' . $urlbase . '/tgif/"><span>TGIF Login</span></a>' : '')
 		. $reportBugMenu
 		. $logoutMenu
 		. '</div>'
