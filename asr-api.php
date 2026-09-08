@@ -2351,13 +2351,24 @@ function asr_tgif_tracking_diagnostics(): array {
     $daemonScript = '/usr/local/sbin/connected-clients-daemon.py';
     $dropinInfo = asr_root_file_brief($dropin);
     $tokenEnvironmentInfo = asr_root_file_brief($tokenEnvironment);
-    $tokenConfigured = in_array(($tokenEnvironmentInfo['status'] ?? ''), ['present', 'present, protected'], true)
-        && (int) ($tokenEnvironmentInfo['size'] ?? 0) > 0;
-    if (!$tokenConfigured && is_readable($dropin)) {
+    // Never infer that a credential exists merely because a protected file or
+    // systemd drop-in exists. The web process intentionally cannot read the
+    // protected environment file, so report null (protected/unknown) unless
+    // the credential can actually be verified without exposing its value.
+    $tokenConfigured = null;
+    if (is_readable($tokenEnvironment)) {
+        $contents = (string) file_get_contents($tokenEnvironment);
+        $tokenConfigured = preg_match('/^\s*TGIF_API_TOKEN=.+/m', $contents) === 1;
+    } elseif (is_readable($dropin)) {
         $contents = (string) file_get_contents($dropin);
-        $tokenConfigured = preg_match('/^\s*Environment=TGIF_API_TOKEN=.+/m', $contents) === 1;
-    } elseif (($dropinInfo['status'] ?? '') === 'present, protected' || ($dropinInfo['status'] ?? '') === 'present') {
-        $tokenConfigured = true;
+        if (preg_match('/^\s*Environment=TGIF_API_TOKEN=.+/m', $contents) === 1) {
+            $tokenConfigured = true;
+        } elseif (($tokenEnvironmentInfo['status'] ?? '') === 'missing') {
+            $tokenConfigured = false;
+        }
+    } elseif (($tokenEnvironmentInfo['status'] ?? '') === 'missing'
+        && ($dropinInfo['status'] ?? '') === 'missing') {
+        $tokenConfigured = false;
     }
 
     return [
