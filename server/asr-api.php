@@ -115,7 +115,15 @@ function asr_tgif_user_command(string $verb, array $args = [], string $stdin = '
     if ($status !== 0 || !is_array($payload)) {
         $message = trim((string) $stderr);
         if ($message === '') $message = 'TGIF authentication or session request failed.';
-        asr_error(substr($message, 0, 180), 502);
+        $lines = preg_split('/\R+/', $message) ?: [];
+        $useful = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, 'Traceback ') || str_starts_with($line, 'File ') || str_contains($line, 'raise SystemExit(main())')) continue;
+            $useful[] = $line;
+        }
+        if ($useful) $message = end($useful);
+        asr_error(substr($message, 0, 300), 502);
     }
     return $payload;
 }
