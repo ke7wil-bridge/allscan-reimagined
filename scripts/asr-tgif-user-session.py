@@ -74,7 +74,14 @@ def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> str:
         'lcallsign': callsign,
         'lpassword': secret,
     }).encode()
-    opener.open(TGIF_BASE + '/signin.php', data=body, timeout=12).read()
+    login_raw = opener.open(TGIF_BASE + '/signin.php', data=body, timeout=12).read().decode('utf-8', 'ignore')
+    try:
+        login_result = json.loads(login_raw)
+    except ValueError as exc:
+        raise RuntimeError('TGIF sign-in returned an unexpected response') from exc
+    if not isinstance(login_result, dict) or int(login_result.get('code') or 0) != 200:
+        detail = str(login_result.get('msg') or 'TGIF rejected the login').strip()
+        raise RuntimeError('TGIF sign-in failed: ' + detail[:160])
     control_body = urllib.parse.urlencode({'tab': 'tab1', 'data': '', 'tgid': talkgroup}).encode()
     control = opener.open(TGIF_BASE + '/tgcontrol.php', data=control_body, timeout=12).read().decode('utf-8', 'ignore')
     token_match = re.search(r'\bapi_token\s*=\s*["\']([^"\']{32,1024})["\']', control)
