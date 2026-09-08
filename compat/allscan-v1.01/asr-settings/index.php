@@ -525,6 +525,7 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		$rawAllowTune = asrSettingsCleanText($allowTuneValues[$i] ?? '0', 4);
 		$rawFixedRecovery = asrSettingsCleanText($fixedRecoveryValues[$i] ?? '0', 4);
 		$rawPermission = asrSettingsCleanText($permissionValues[$i] ?? '', 20);
+		if($rawPermission === '') $rawPermission = 'self_owned';
 		$rawBackendMode = asrSettingsCleanText($backendModeValues[$i] ?? '', 20);
 		$rawInstance = asrSettingsCleanText($instanceValues[$i] ?? '', 40);
 		$rawGatewayConfig = asrSettingsCleanText($gatewayConfigValues[$i] ?? '', 220);
@@ -1550,13 +1551,8 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 		</div>
 
 		<div class="asr-bridge-panel-section asr-destination-permission-section"<?php echo ($cardRole === 'net' || ($isNewDigitalMode && $backendMode === 'managed')) ? '' : ' hidden'; ?>>
-			<div class="asr-bridge-section-copy"><strong>Destination and Permission</strong><span>ASR permits controls only for targets you own or have explicit permission to bridge.</span></div>
+			<div class="asr-bridge-section-copy"><strong>Destination</strong><span>Configure the destination or approved Net Bridge targets.</span></div>
 			<div class="asr-bridge-fields-grid">
-				<label><span>Bridge Permission</span><select name="bridgePermission[]">
-					<?php echo asrSettingsSourceOption($permission, '', 'Choose confirmed permission'); ?>
-					<?php echo asrSettingsSourceOption($permission, 'self_owned', 'Self-owned target'); ?>
-					<?php echo asrSettingsSourceOption($permission, 'approved', 'Target owner approved'); ?>
-				</select></label>
 				<label class="asr-digital-fixed-field asr-numeric-fixed-field"><span>Fixed Destination</span><input name="bridgeFixedDestination[]" inputmode="numeric" type="text" value="<?php echo asrSettingsH($bridge['fixedDestination'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Reflector</span><input name="bridgeM17Reflector[]" type="text" placeholder="M17-M17" value="<?php echo asrSettingsH($bridge['m17Reflector'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Host</span><input name="bridgeM17Host[]" type="text" value="<?php echo asrSettingsH($bridge['m17Host'] ?? ''); ?>"></label>

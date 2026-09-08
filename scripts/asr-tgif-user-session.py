@@ -84,9 +84,18 @@ def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> str:
         raise RuntimeError('TGIF sign-in failed: ' + detail[:160])
     control_body = urllib.parse.urlencode({'tab': 'tab1', 'data': '', 'tgid': talkgroup}).encode()
     control = opener.open(TGIF_BASE + '/tgcontrol.php', data=control_body, timeout=12).read().decode('utf-8', 'ignore')
-    token_match = re.search(r'\bapi_token\s*=\s*["\']([^"\']{32,1024})["\']', control)
+    token_patterns = [
+        r'\bapi_token\s*=\s*["\']([^"\']{16,2048})["\']',
+        r'\bapi[_-]?token\s*[:=]\s*["\']([^"\']{16,2048})["\']',
+        r'["\']api[_-]?token["\']\s*:\s*["\']([^"\']{16,2048})["\']',
+    ]
+    token_match = next((m for pattern in token_patterns if (m := re.search(pattern, control, re.I))), None)
     if not token_match:
-        raise RuntimeError('TGIF login was not accepted or no session token was returned')
+        title = re.search(r'<title[^>]*>(.*?)</title>', control, re.I | re.S)
+        page = re.sub(r'\s+', ' ', title.group(1)).strip()[:80] if title else 'unknown page'
+        signed_out = bool(re.search(r'name=["\']l(?:callsign|password)["\']', control, re.I))
+        detail = 'TGIF redirected back to sign-in' if signed_out else 'TGIF control panel no longer exposes a compatible session token'
+        raise RuntimeError(f'{detail} ({page})')
     return token_match.group(1)
 
 

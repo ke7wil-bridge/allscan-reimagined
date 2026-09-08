@@ -98,26 +98,6 @@ $ysf = postedBridge([
 ]);
 check($ysf['approvedDestinations'] === [], 'YSF Net manual-entry card required an approved reflector list.');
 
-expectFailure(static function (): void {
-	postedBridge([
-		'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
-		'bridgeApprovedDestinations' => [''], 'bridgeAbinfoPath' => ['/tmp/ABInfo_12345.json'],
-		'bridgeDvswitchScript' => ['/opt/MMDVM_Bridge_Test/dvswitch.sh'],
-		'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
-	]);
-}, 'requires confirmed permission');
-
-expectFailure(static function (): void {
-	postedBridge([
-		'bridgeMode' => ['ysf'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
-		'bridgeApprovedDestinations' => [''], 'bridgeAllowTune' => ['1'],
-		'bridgeYsfGatewayConfig' => ['/opt/YSFGateway_test/YSFGateway.ini'],
-		'bridgeMmdvmConfig' => ['/opt/MMDVM_Bridge_test/MMDVM_Bridge.ini'],
-		'bridgeYsfGatewayService' => ['ysfgateway_test.service'],
-		'bridgeMmdvmService' => ['mmdvm_test.service'],
-	]);
-}, 'requires confirmed permission');
-
 $m17 = postedBridge([
 	'bridgeMode' => ['m17'], 'bridgeBackendMode' => ['managed'], 'bridgePermission' => ['self_owned'],
 	'bridgeM17Callsign' => ['N0CALL'], 'bridgeM17Reflector' => ['M17-TST'],
