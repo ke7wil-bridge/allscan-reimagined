@@ -1583,6 +1583,24 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			</div>
 		</div>
 
+		<div class="asr-bridge-panel-section asr-dmr-tgif-settings"<?php echo ($cardType === 'standard' && $mode === 'dmr') ? '' : ' hidden'; ?>>
+			<div class="asr-bridge-section-copy">
+				<strong>TGIF Connected Clients</strong>
+				<span>Sign in with your own TGIF account so this DMR card can show authenticated connected sessions.</span>
+			</div>
+			<div class="asr-tgif-card-status" data-tgif-status aria-live="polite">Checking TGIF status...</div>
+			<div class="asr-bridge-fields-grid asr-tgif-card-fields">
+				<label><span>Callsign</span><input data-tgif-callsign type="text" autocomplete="username" autocapitalize="characters" maxlength="10"></label>
+				<label><span>TGIF Password</span><input data-tgif-password type="password" autocomplete="current-password" maxlength="128"></label>
+				<label><span>Talkgroup</span><input data-tgif-talkgroup type="text" inputmode="numeric" pattern="[1-9][0-9]{0,7}" maxlength="8"></label>
+			</div>
+			<div class="asr-tgif-card-actions">
+				<button type="button" data-tgif-login>Sign In to TGIF</button>
+				<button type="button" data-tgif-logout>Sign Out</button>
+			</div>
+			<p class="asr-bridge-section-note">Each AllScan user authenticates separately. Your TGIF password is sent only during sign-in and is not stored. The temporary session token is kept only in node RAM.</p>
+		</div>
+
 		<div class="asr-bridge-panel-section asr-standard-bridge-settings"<?php echo $cardType === 'standard' ? '' : ' hidden'; ?>>
 			<div class="asr-bridge-section-copy">
 				<strong>Fixed Bridge Recovery</strong>
@@ -2175,6 +2193,38 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var rollbackJobId = <?php echo json_encode((string) ($rollbackQueuedJobId ?? ''), JSON_UNESCAPED_SLASHES); ?>;
 	var rollbackQueuedVersion = <?php echo json_encode((string) ($rollbackQueuedVersion ?? ''), JSON_UNESCAPED_SLASHES); ?>;
 	var rollbackInProgress = !!rollbackJobId && /^\d{8}-\d{6}-[a-f0-9]{8}$/.test(rollbackJobId);
+	var tgifState = null;
+	function tgifRequest(action, options) {
+		return fetch(asrBase + '/asr-api.php?action=' + encodeURIComponent(action), options || {credentials:'same-origin', cache:'no-store'})
+			.then(function(response) { return response.json().then(function(data) {
+				if(!response.ok || data.ok === false) throw new Error(data.error || 'TGIF request failed.');
+				return data;
+			}); });
+	}
+	function renderTgifState(data) {
+		tgifState = data || {};
+		var configured = !!tgifState.configured;
+		var count = Array.isArray(tgifState.clients) ? tgifState.clients.length : 0;
+		var label = configured ? ('Signed in as ' + (tgifState.callsign || 'TGIF user') + ' · ' + count + ' connected session' + (count === 1 ? '' : 's')) : 'Not signed in to TGIF';
+		if(tgifState.error) label += ' · ' + tgifState.error;
+		document.querySelectorAll('.asr-dmr-tgif-settings').forEach(function(section) {
+			var status = section.querySelector('[data-tgif-status]');
+			var callsign = section.querySelector('[data-tgif-callsign]');
+			var talkgroup = section.querySelector('[data-tgif-talkgroup]');
+			var logout = section.querySelector('[data-tgif-logout]');
+			if(status) { status.textContent = label; status.classList.toggle('is-error', !!tgifState.error); }
+			if(callsign && !callsign.value && tgifState.callsign) callsign.value = tgifState.callsign;
+			if(talkgroup && !talkgroup.value && tgifState.talkgroup) talkgroup.value = tgifState.talkgroup;
+			if(logout) logout.disabled = !configured;
+		});
+	}
+	function refreshTgifState() {
+		if(!document.querySelector('.asr-dmr-tgif-settings')) return;
+		tgifRequest('tgif-user-status').then(renderTgifState).catch(function(error) {
+			renderTgifState({configured:false, error:error.message || 'TGIF status unavailable.'});
+		});
+	}
+
 	function setSectionExpanded(section, expanded) {
 		if(!section) return;
 		var button = section.querySelector('.asr-settings-section-toggle');
@@ -2290,6 +2340,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var mode = row.querySelector('select[name="bridgeMode[]"]');
 			var backend = row.querySelector('select[name="bridgeBackendMode[]"]');
 			var standardSettings = row.querySelector('.asr-standard-bridge-settings');
+			var tgifSettings = row.querySelector('.asr-dmr-tgif-settings');
 			var backendChoice = row.querySelector('.asr-backend-choice-section');
 			var destinationSettings = row.querySelector('.asr-destination-permission-section');
 			var dmrSettings = row.querySelector('.asr-dmr-net-settings');
@@ -2309,6 +2360,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var isNextDigitalMode = currentMode === 'p25' || currentMode === 'nxdn' || currentMode === 'm17';
 			var isManaged = !backend || backend.value === 'managed' || !isStandard;
 			if(standardSettings) standardSettings.hidden = !isStandard;
+			if(tgifSettings) tgifSettings.hidden = !isStandard || currentMode !== 'dmr';
 			if(backendChoice) backendChoice.hidden = !isStandard || !isNextDigitalMode;
 			if(destinationSettings) destinationSettings.hidden = !(!isStandard || (isNextDigitalMode && isManaged));
 			if(!isStandard) {
@@ -2668,6 +2720,36 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(sourceRow) refreshClientSource(sourceRow);
 		}
 	});
+
+	document.addEventListener('input', function(event) {
+		if(event.target.matches('[data-tgif-callsign]')) event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+		if(event.target.matches('[data-tgif-talkgroup]')) event.target.value = event.target.value.replace(/\D/g, '').slice(0, 8);
+	});
+	document.addEventListener('click', function(event) {
+		var login = event.target.closest('[data-tgif-login]');
+		if(login) {
+			event.preventDefault();
+			var section = login.closest('.asr-dmr-tgif-settings');
+			var callsign = section.querySelector('[data-tgif-callsign]');
+			var password = section.querySelector('[data-tgif-password]');
+			var talkgroup = section.querySelector('[data-tgif-talkgroup]');
+			var status = section.querySelector('[data-tgif-status]');
+			if(status) status.textContent = 'Signing in to TGIF...';
+			var body = new URLSearchParams({callsign:callsign.value.trim().toUpperCase(), password:password.value, talkgroup:talkgroup.value.trim()});
+			tgifRequest('tgif-user-login', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-ASR-Requested-With':'tgif-user-session'}, body:body.toString()})
+				.then(renderTgifState).catch(function(error) { renderTgifState({configured:false, error:error.message || 'TGIF sign-in failed.'}); })
+				.finally(function() { password.value = ''; });
+			return;
+		}
+		var logout = event.target.closest('[data-tgif-logout]');
+		if(logout) {
+			event.preventDefault();
+			var status = logout.closest('.asr-dmr-tgif-settings').querySelector('[data-tgif-status]');
+			if(status) status.textContent = 'Signing out of TGIF...';
+			tgifRequest('tgif-user-logout', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-ASR-Requested-With':'tgif-user-session'}, body:''})
+				.then(renderTgifState).catch(function(error) { renderTgifState({configured:false, error:error.message || 'TGIF sign-out failed.'}); });
+		}
+	});
 	document.addEventListener('click', function (event) {
 		if(event.target) {
 			var sectionButton = event.target.closest('.asr-settings-section-toggle');
@@ -2731,6 +2813,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setBridgeExpanded(row, !row.classList.contains('is-collapsed'));
 	});
 		refreshBridgeTitles();
+	refreshTgifState();
 	refreshBridgeTypes();
 	updateAddButton();
 	updateBridgeOrderControls();
