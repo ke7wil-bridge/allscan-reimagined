@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair the known TGIF Socket.IO reconnect leak in a companion client daemon."""
+"""Repair TGIF Socket.IO session collection in a companion client daemon."""
 
 import argparse
 import os
@@ -12,6 +12,7 @@ import tempfile
 
 DEFAULT_TARGET = Path("/usr/local/sbin/connected-clients-daemon.py")
 PATCH_MARKER = "ASR Beta 5.6: close every failed TGIF Socket.IO client"
+ANON_MARKER = "ASR Beta 7.5: TGIF accepts anonymous session handshakes"
 
 
 class PatchError(RuntimeError):
@@ -19,9 +20,9 @@ class PatchError(RuntimeError):
 
 
 def patched_source(source):
-    function_marker = "def socket_thread():\n    if not TGIF_TOKEN:"
+    function_markers = ("def socket_thread():\n    if not TGIF_TOKEN:", "def socket_thread():\n    # " + ANON_MARKER)
     thread_start_marker = "\n\nthreading.Thread(target=socket_thread, daemon=True).start()"
-    start = source.rfind(function_marker)
+    start = max(source.rfind(marker) for marker in function_markers)
     if start < 0:
         raise PatchError("compatible authenticated socket_thread() was not found")
     end = source.find(thread_start_marker, start)
@@ -29,6 +30,15 @@ def patched_source(source):
         raise PatchError("socket_thread() end marker was not found")
 
     block = source[start:end]
+    anonymous_guard = (
+        "    if not TGIF_TOKEN:\n"
+        "        print(\"TGIF_API_TOKEN is not set; DMR connected sessions will be empty\", flush=True)\n"
+        "        return\n\n"
+    )
+    if anonymous_guard in block:
+        block = block.replace(anonymous_guard, "    # " + ANON_MARKER + "\n", 1)
+    elif ANON_MARKER not in block:
+        raise PatchError("TGIF token guard did not match the known companion daemon")
     old_client = (
         "    while True:\n"
         "        try:\n"
@@ -58,6 +68,7 @@ def patched_source(source):
     )
     required_repair = (
         PATCH_MARKER,
+        ANON_MARKER,
         "sio = None",
         "reconnection=False",
         "while sio.connected:",
@@ -69,10 +80,15 @@ def patched_source(source):
     if PATCH_MARKER in block:
         if (
             all(item in block for item in required_repair)
+            and ANON_MARKER in block
             and old_client not in block
             and old_session_loop not in block
             and old_error not in block
         ):
+            updated = source[:start] + block + source[end:]
+            if updated != source:
+                compile(updated, "connected-clients-daemon.py", "exec")
+                return updated, True
             return source, False
         raise PatchError("reconnect patch marker exists but the repair is incomplete")
     new_error = (
@@ -176,6 +192,7 @@ threading.Thread(target=socket_thread, daemon=True).start()
         raise PatchError("self-test did not patch the vulnerable fixture")
     required = (
         PATCH_MARKER,
+        ANON_MARKER,
         "sio = None",
         "reconnection=False",
         "while sio.connected:",
