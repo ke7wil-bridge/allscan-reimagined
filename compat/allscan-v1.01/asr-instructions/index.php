@@ -172,7 +172,6 @@ pageInit();
 		<p>Each supported mode can use a Standard Bridge card or an isolated Net Bridge card. P25 and NXDN use numeric destination designators. M17 uses an unencrypted reflector and module through a qualified Codec2/USRP audio path.</p>
 		<ol class="asr-instructions-steps">
 			<li><strong>Install and isolate the bridge first.</strong> Every card needs its own local node, configuration, services, ports, and runtime identity. P25/NXDN also require authenticated local MQTT, per-instance topic permissions, and root-only ASR controller credentials. ASR does not create the external gateway stack or display those credentials.</li>
-			<li><strong>Confirm permission.</strong> Choose Self-owned target or Target owner approved. Being listed in a public directory is not permission to cross-mode bridge a destination.</li>
 			<li><strong>Use only permitted destinations.</strong> DMR talkgroups and YSF reflector names or IDs are entered manually; the selected permission confirms that every destination entered is authorized. P25, NXDN, and M17 remain limited to saved approved destinations. ASR still blocks invalid, reserved, encrypted, duplicate, or conflicting destinations.</li>
 			<li><strong>Verify real state.</strong> Gateway command acceptance is not proof that a remote reflector is reachable. A card must not report fully linked until both digital-side evidence and the AllStar link agree.</li>
 		</ol>
