@@ -33,6 +33,7 @@ allscan-v1.01/include/common.php
 allscan-v1.01/include/dbUtils.php
 allscan-v1.01/lookup/index.php
 allscan-v1.01/performance/index.php
+allscan-v1.01/tgif/index.php
 allscan-v1.01/user/settings/index.php
 EOF
 )
@@ -188,7 +189,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
-install -m 644 release-notes/v1.0.0-beta.7.4.md "$STAGE/release-notes/v1.0.0-beta.7.4.md"
+install -m 644 "release-notes/v${VERSION}.md" "$STAGE/release-notes/v${VERSION}.md"
 
 if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
