@@ -1469,7 +1469,10 @@ function asr_bridge_clients_state(): array {
         $currentConnectedFeed = $fromExternal ? $kind !== 'recent' && $kind !== 'fallback' : $kind === 'current';
         $clean = asr_dedupe_client_rows(asr_sanitize_client_rows($rows, $mode, $currentConnectedFeed));
         $clients[$id] = $clean;
-        $counts[$id] = $currentConnectedFeed ? count($clean) : 0;
+        // Fallback feeds (notably YSF gateway snapshots) still contain the
+        // current linked stations and should be rendered.  The kind controls
+        // provenance, not whether an otherwise-current row is visible.
+        $counts[$id] = count($clean);
     }
 
     $tgif = asr_tgif_user_status();
