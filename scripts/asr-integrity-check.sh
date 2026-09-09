@@ -182,10 +182,12 @@ fi
 
 if [ "$needs_reapply" -eq 1 ]; then
   logger -t allscan-reimagined "ASR tree is stale; rebuilding /asr from untouched stock AllScan"
-  # Always use the installed full reapply entry point here. A web-only reapply
-  # can rebuild /asr but intentionally skips privileged helper/sudoers setup;
-  # that allowed TGIF login permissions to remain stale after a settings save.
-  ASR_INSTALL_LOCK_HELD=1 /usr/local/sbin/allscan-reimagined-reapply
+  if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" = "1" ]; then
+    ASR_INSTALL_LOCK_HELD=1 ASR_REAPPLY_WEB_ONLY=1 \
+      bash "${ASR_REAPPLY_COMMAND:-$MASTER_DIR/scripts/asr-reapply.sh}"
+  else
+    ASR_INSTALL_LOCK_HELD=1 /usr/local/sbin/allscan-reimagined-reapply
+  fi
 fi
 
 if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" = "1" ]; then
