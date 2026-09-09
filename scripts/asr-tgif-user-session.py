@@ -163,12 +163,41 @@ def cookie_header(data: dict) -> str:
             pairs.append(f'{name}={value}')
     return '; '.join(pairs)
 
+def current_api_token(data: dict, talkgroup: str) -> str:
+    jar = http.cookiejar.CookieJar()
+    now = int(time.time())
+    for item in data.get('cookies', []):
+        if not isinstance(item, dict):
+            continue
+        expires = int(item.get('expires') or 0)
+        if expires > 0 and expires <= now:
+            continue
+        name = str(item.get('name') or '').strip()
+        value = str(item.get('value') or '')
+        if not name or not value:
+            continue
+        jar.set_cookie(http.cookiejar.Cookie(
+            0, name, value, None, False,
+            str(item.get('domain') or 'tgif.network'), True, False,
+            str(item.get('path') or '/'), True, bool(item.get('secure')),
+            None, True, None, None, {}, False
+        ))
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    opener.addheaders = [('User-Agent', USER_AGENT)]
+    body = urllib.parse.urlencode({'tab': 'tab1', 'data': '', 'tgid': talkgroup}).encode()
+    fragment = opener.open(TGIF_BASE + '/tgcontrol.php', data=body, timeout=12).read().decode('utf-8', 'ignore')
+    match = re.search(r'\bapi_token\s*=\s*["\']([^"\']{16,4096})["\']', fragment, re.I)
+    if not match:
+        raise RuntimeError('TGIF talkgroup session feed did not provide an authentication token')
+    return match.group(1)
+
+
 def collect_user(user_id: str) -> dict:
     import socketio
     data = load_token(user_id)
-    token = str(data.get('token') or '')
     cookies = cookie_header(data)
     talkgroup = str(data.get('talkgroup') or DEFAULT_TG)
+    token = current_api_token(data, talkgroup)
     sessions: dict[str, dict] = {}
     authenticated = False
     sio = socketio.Client(logger=False, engineio_logger=False, reconnection=False)
