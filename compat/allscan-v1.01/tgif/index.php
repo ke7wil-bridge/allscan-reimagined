@@ -11,7 +11,7 @@ pageInit();
 ?>
 <section class="asr-tgif-page">
 	<h1>TGIF Client Tracking</h1>
-	<p class="asr-tgif-copy">Sign in with your own TGIF Network account to view authenticated DMR connected sessions. Your TGIF password is sent only to TGIF during sign-in and is not stored by ASR. The temporary TGIF session token is kept only in node RAM and is removed by reboot or Sign Out.</p>
+	<p class="asr-tgif-copy">Sign in with your own TGIF Network account to view authenticated DMR connected sessions. Your TGIF password is sent only to TGIF during sign-in and is not stored by ASR. The temporary TGIF web session is kept only in node RAM and is removed by reboot or Sign Out.</p>
 	<div id="asrTgifStatus" class="asr-tgif-status" aria-live="polite">Checking TGIF status...</div>
 	<form id="asrTgifForm" class="asr-tgif-form" autocomplete="on">
 		<label><span>Callsign</span><input id="asrTgifCallsign" name="callsign" autocomplete="username" autocapitalize="characters" maxlength="10" required></label>

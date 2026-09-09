@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Per-AllScan-user TGIF authentication and connected-session snapshots.
 
-Login secrets are accepted only on stdin and never stored. Opaque TGIF session
-tokens live only under /run so they disappear on reboot.
+Login secrets are accepted only on stdin and never stored. TGIF web-session cookies
+live only under /run so they disappear on reboot.
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def atomic_json(path: Path, payload: dict) -> None:
         try: os.unlink(tmp)
         except FileNotFoundError: pass
 
-def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> str:
+def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> dict:
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     opener.addheaders = [('User-Agent', USER_AGENT)]
@@ -83,20 +83,28 @@ def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> str:
         detail = str(login_result.get('msg') or 'TGIF rejected the login').strip()
         raise RuntimeError('TGIF sign-in failed: ' + detail[:160])
     control_body = urllib.parse.urlencode({'tab': 'tab1', 'data': '', 'tgid': talkgroup}).encode()
-    control = opener.open(TGIF_BASE + '/tgcontrol.php', data=control_body, timeout=12).read().decode('utf-8', 'ignore')
-    token_patterns = [
-        r'\bapi_token\s*=\s*["\']([^"\']{16,2048})["\']',
-        r'\bapi[_-]?token\s*[:=]\s*["\']([^"\']{16,2048})["\']',
-        r'["\']api[_-]?token["\']\s*:\s*["\']([^"\']{16,2048})["\']',
-    ]
-    token_match = next((m for pattern in token_patterns if (m := re.search(pattern, control, re.I))), None)
-    if not token_match:
-        title = re.search(r'<title[^>]*>(.*?)</title>', control, re.I | re.S)
-        page = re.sub(r'\s+', ' ', title.group(1)).strip()[:80] if title else 'unknown page'
-        signed_out = bool(re.search(r'name=["\']l(?:callsign|password)["\']', control, re.I))
-        detail = 'TGIF redirected back to sign-in' if signed_out else 'TGIF control panel no longer exposes a compatible session token'
-        raise RuntimeError(f'{detail} ({page})')
-    return token_match.group(1)
+    response = opener.open(TGIF_BASE + '/tgcontrol.php', data=control_body, timeout=12)
+    control = response.read().decode('utf-8', 'ignore')
+    signed_out = bool(re.search(r'name=["\']l(?:callsign|password)["\']', control, re.I))
+    if signed_out or '/signin.php' in response.geturl():
+        raise RuntimeError('TGIF redirected back to sign-in')
+    cookies = []
+    now = int(time.time())
+    for cookie in jar:
+        if cookie.is_expired(now):
+            continue
+        cookies.append({
+            'name': cookie.name,
+            'value': cookie.value,
+            'domain': cookie.domain,
+            'path': cookie.path or '/',
+            'secure': bool(cookie.secure),
+            'expires': int(cookie.expires or 0),
+        })
+    if not cookies:
+        raise RuntimeError('TGIF sign-in succeeded but no web session cookie was returned')
+    return {'cookies': cookies, 'controlUrl': response.geturl()}
+
 
 
 def load_token(user_id: str) -> dict:
@@ -104,14 +112,34 @@ def load_token(user_id: str) -> dict:
     if not path.is_file():
         raise RuntimeError('TGIF is not authenticated for this AllScan user')
     data = json.loads(path.read_text(encoding='utf-8'))
-    if not str(data.get('token', '')).strip():
-        raise RuntimeError('TGIF session token is missing')
+    token = str(data.get('token', '')).strip()
+    cookies = data.get('cookies')
+    if not token and not (isinstance(cookies, list) and cookies):
+        raise RuntimeError('TGIF web session is missing')
     return data
+
+
+def cookie_header(data: dict) -> str:
+    cookies = data.get('cookies')
+    if not isinstance(cookies, list):
+        return ''
+    pairs = []
+    now = int(time.time())
+    for item in cookies:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get('name') or '').strip()
+        value = str(item.get('value') or '')
+        expires = int(item.get('expires') or 0)
+        if name and value and (expires <= 0 or expires > now):
+            pairs.append(f'{name}={value}')
+    return '; '.join(pairs)
 
 def collect_user(user_id: str) -> dict:
     import socketio
     data = load_token(user_id)
-    token = str(data['token'])
+    token = str(data.get('token') or '')
+    cookies = cookie_header(data)
     talkgroup = str(data.get('talkgroup') or DEFAULT_TG)
     sessions: dict[str, dict] = {}
     authenticated = False
@@ -148,7 +176,8 @@ def collect_user(user_id: str) -> dict:
         }
 
     try:
-        sio.connect(TGIF_BASE, transports=['websocket', 'polling'], wait_timeout=10)
+        headers = {'Cookie': cookies} if cookies else None
+        sio.connect(TGIF_BASE, headers=headers, transports=['websocket', 'polling'], wait_timeout=10)
         deadline = time.monotonic() + 3.0
         while sio.connected and time.monotonic() < deadline:
             sio.sleep(0.1)
@@ -189,9 +218,10 @@ def login_user(user_id: str, callsign: str, talkgroup: str, secret: str) -> dict
     user_id = valid_user_id(user_id); callsign = valid_callsign(callsign)
     if not re.fullmatch(r'[1-9][0-9]{0,7}', talkgroup): raise ValueError('invalid TGIF talkgroup')
     if not secret: raise ValueError('password is required')
-    token = login_to_tgif(callsign, secret, talkgroup)
+    session = login_to_tgif(callsign, secret, talkgroup)
     atomic_json(token_path(user_id), {'userId': user_id, 'callsign': callsign,
-                'talkgroup': talkgroup, 'token': token, 'authenticatedEpoch': int(time.time())})
+                'talkgroup': talkgroup, 'cookies': session['cookies'],
+                'authenticatedEpoch': int(time.time())})
     try: return collect_user(user_id)
     except Exception as exc:
         payload = {'ok': False, 'configured': True, 'callsign': callsign, 'talkgroup': talkgroup,
@@ -226,8 +256,8 @@ def collect_all() -> int:
 def self_test() -> None:
     assert valid_user_id('12') == '12'
     assert valid_callsign('ke7wil') == 'KE7WIL'
-    sample = '<script>var api_token = "' + ('a' * 256) + '";</script>'
-    assert re.search(r'\bapi_token\s*=\s*["\']([^"\']{32,1024})["\']', sample).group(1) == 'a' * 256
+    sample = {'cookies': [{'name': 'PHPSESSID', 'value': 'abc123', 'expires': 0}]}
+    assert cookie_header(sample) == 'PHPSESSID=abc123'
     print('per-user TGIF session helper self-test: ok')
 
 
