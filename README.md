@@ -1,16 +1,16 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 7.4 installs the current official AllScan backend at
+Gleason's AllScan. Beta 7.5 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 7.4** and remains a prerelease.
+This archive is **Beta 7.5** and remains a prerelease.
 
-## What's New in Beta 7.4
+## What's New in Beta 7.5
 
 - DMR and YSF Talking status now ends only on real end/watchdog evidence or,
   when fresh Asterisk keyed telemetry is available, a verified unkeyed sample
@@ -29,18 +29,18 @@ This archive is **Beta 7.4** and remains a prerelease.
   layer before creating `/asr/`, and preserves official-installer ownership on
   failure.
 - Beta 7.3 Bridge Cards, controls, ownership boundaries, and manual/shared
-  bridge behavior remain unchanged. Beta 7.4 does not provision or adopt
+  bridge behavior remain unchanged. Beta 7.5 does not provision or adopt
   managed bridges, and existing manual/shared bridges remain external and
   untouched. Guided ASR-managed bridge creation remains separate Beta 8 work,
   with immutable ownership recorded at creation and retire/recreate required
   for managed mode or role changes.
 
-[Read the complete Beta 7.4 release notes](release-notes/v1.0.0-beta.7.4.md).
+[Read the complete Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md).
 
 ## Install
 
 First run `sudo -i` by itself. Confirm the new prompt begins with `root@` and
-ends with `#`; stop if it does not. Then download the Beta 7.4 archive and its
+ends with `#`; stop if it does not. Then download the Beta 7.5 archive and its
 `.sha256` companion from the GitHub prerelease, verify it, and run the installer
 directly from that interactive root shell:
 
@@ -48,17 +48,17 @@ directly from that interactive root shell:
 set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." >&2; exit 1; }
 
-pkg="/tmp/allscan-reimagined-1.0.0-beta.7.4.tar.gz"
+pkg="/tmp/allscan-reimagined-1.0.0-beta.7.5.tar.gz"
 checksum="${pkg}.sha256"
 stage="$(mktemp -d /tmp/asr-beta-7-4-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.4"
+base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.5"
 
 curl -fL "$base/$(basename "$pkg")" -o "$pkg"
 curl -fL "$base/$(basename "$checksum")" -o "$checksum"
 (cd /tmp && sha256sum -c "$(basename "$checksum")")
 
 tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.7.4"
+cd "$stage/allscan-reimagined-1.0.0-beta.7.5"
 
 php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
@@ -260,7 +260,7 @@ docker compose up --build
 ## Documentation
 
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 7.4 release notes](release-notes/v1.0.0-beta.7.4.md)
+- [Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md)
 - [Beta 7.3 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.3.md)
 - [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)
 - [Beta 7 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.md)
