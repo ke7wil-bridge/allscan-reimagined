@@ -7,6 +7,7 @@ live only under /run so they disappear on reboot.
 from __future__ import annotations
 
 import argparse
+import base64
 import http.cookiejar
 import json
 import os
@@ -21,6 +22,7 @@ from pathlib import Path
 RUNTIME = Path('/run/allscan-reimagined/tgif-users')
 TOKENS = RUNTIME / 'tokens'
 SNAPSHOTS = RUNTIME / 'snapshots'
+CHALLENGES = RUNTIME / 'challenges'
 TGIF_BASE = 'https://tgif.network'
 DEFAULT_TG = '86753'
 USER_AGENT = 'AllScan-Reimagined TGIF client tracking'
@@ -45,6 +47,9 @@ def token_path(user_id: str) -> Path:
 def snapshot_path(user_id: str) -> Path:
     return SNAPSHOTS / f'{valid_user_id(user_id)}.json'
 
+def challenge_path(user_id: str) -> Path:
+    return CHALLENGES / f'{valid_user_id(user_id)}.json'
+
 
 def atomic_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,19 +66,26 @@ def atomic_json(path: Path, payload: dict) -> None:
         try: os.unlink(tmp)
         except FileNotFoundError: pass
 
-def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> dict:
+def login_to_tgif(callsign: str, secret: str, talkgroup: str, captcha: str = '', challenge: dict | None = None) -> dict:
     jar = http.cookiejar.CookieJar()
+    if challenge:
+        for item in challenge.get('cookies', []):
+            jar.set_cookie(http.cookiejar.Cookie(0, item['name'], item['value'], None, False, item.get('domain') or 'tgif.network', True, False, item.get('path') or '/', True, bool(item.get('secure')), None, True, None, None, {}, False))
+        csrf = str(challenge.get('csrf') or '')
+    else:
+        csrf = ''
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     opener.addheaders = [('User-Agent', USER_AGENT)]
-    signin = opener.open(TGIF_BASE + '/signin.php', timeout=12).read().decode('utf-8', 'ignore')
-    match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)', signin, re.I)
-    if not match:
-        raise RuntimeError('TGIF sign-in page did not provide a CSRF token')
-    body = urllib.parse.urlencode({
-        'csrf_token': match.group(1),
-        'lcallsign': callsign,
-        'lpassword': secret,
-    }).encode()
+    if not csrf:
+        signin = opener.open(TGIF_BASE + '/signin.php', timeout=12).read().decode('utf-8', 'ignore')
+        match = re.search(r'name=["\']csrf_token["\']\s+value=["\']([^"\']+)', signin, re.I)
+        if not match:
+            raise RuntimeError('TGIF sign-in page did not provide a CSRF token')
+        csrf = match.group(1)
+    fields = {'csrf_token': csrf, 'lcallsign': callsign, 'lpassword': secret}
+    if captcha:
+        fields['captcha_code1'] = captcha.strip().lower()
+    body = urllib.parse.urlencode(fields).encode()
     login_raw = opener.open(TGIF_BASE + '/signin.php', data=body, timeout=12).read().decode('utf-8', 'ignore')
     try:
         login_result = json.loads(login_raw)
@@ -81,6 +93,22 @@ def login_to_tgif(callsign: str, secret: str, talkgroup: str) -> dict:
         raise RuntimeError('TGIF sign-in returned an unexpected response') from exc
     if not isinstance(login_result, dict) or int(login_result.get('code') or 0) != 200:
         detail = str(login_result.get('msg') or 'TGIF rejected the login').strip()
+        if 'captcha' in detail.lower():
+            captcha_html = opener.open(TGIF_BASE + '/signin.php', data=urllib.parse.urlencode({'captcha': '1'}).encode(), timeout=12).read().decode('utf-8', 'ignore')
+            image = re.search(r'<img[^>]+id=["\']captcha1["\'][^>]+src=["\']([^"\']+)', captcha_html, re.I)
+            if not image:
+                raise RuntimeError('TGIF requested CAPTCHA but did not return an image')
+            image_url = urllib.parse.urljoin(TGIF_BASE, image.group(1).replace('&amp;', '&'))
+            image_response = opener.open(image_url, timeout=12)
+            image_bytes = image_response.read()
+            if not image_bytes or len(image_bytes) > 512000:
+                raise RuntimeError('TGIF CAPTCHA image was empty or too large')
+            content_type = str(image_response.headers.get_content_type() or 'image/png')
+            if content_type not in {'image/png', 'image/jpeg', 'image/gif'}:
+                content_type = 'image/png'
+            captcha_data = 'data:' + content_type + ';base64,' + base64.b64encode(image_bytes).decode('ascii')
+            cookies = [{'name': c.name, 'value': c.value, 'domain': c.domain, 'path': c.path or '/', 'secure': bool(c.secure)} for c in jar]
+            return {'captchaRequired': True, 'captchaUrl': captcha_data, 'csrf': csrf, 'cookies': cookies}
         raise RuntimeError('TGIF sign-in failed: ' + detail[:160])
     control_body = urllib.parse.urlencode({'tab': 'tab1', 'data': '', 'tgid': talkgroup}).encode()
     response = opener.open(TGIF_BASE + '/tgcontrol.php', data=control_body, timeout=12)
@@ -214,11 +242,19 @@ def public_status(user_id: str) -> dict:
             'talkgroup': DEFAULT_TG, 'updatedEpoch': 0, 'clients': [], 'error': ''}
 
 
-def login_user(user_id: str, callsign: str, talkgroup: str, secret: str) -> dict:
+def login_user(user_id: str, callsign: str, talkgroup: str, secret: str, captcha: str = '') -> dict:
     user_id = valid_user_id(user_id); callsign = valid_callsign(callsign)
     if not re.fullmatch(r'[1-9][0-9]{0,7}', talkgroup): raise ValueError('invalid TGIF talkgroup')
     if not secret: raise ValueError('password is required')
-    session = login_to_tgif(callsign, secret, talkgroup)
+    challenge = None
+    if captcha and challenge_path(user_id).is_file():
+        challenge = json.loads(challenge_path(user_id).read_text(encoding='utf-8'))
+    session = login_to_tgif(callsign, secret, talkgroup, captcha, challenge)
+    if session.get('captchaRequired'):
+        atomic_json(challenge_path(user_id), {'csrf': session['csrf'], 'cookies': session['cookies'], 'callsign': callsign, 'talkgroup': talkgroup, 'createdEpoch': int(time.time())})
+        return {'ok': True, 'configured': False, 'captchaRequired': True, 'captchaUrl': session['captchaUrl'], 'callsign': callsign, 'talkgroup': talkgroup, 'clients': [], 'error': 'TGIF requires CAPTCHA verification.'}
+    try: challenge_path(user_id).unlink()
+    except FileNotFoundError: pass
     atomic_json(token_path(user_id), {'userId': user_id, 'callsign': callsign,
                 'talkgroup': talkgroup, 'cookies': session['cookies'],
                 'authenticatedEpoch': int(time.time())})
@@ -230,7 +266,7 @@ def login_user(user_id: str, callsign: str, talkgroup: str, secret: str) -> dict
 
 
 def logout_user(user_id: str) -> dict:
-    for path in (token_path(user_id), snapshot_path(user_id)):
+    for path in (token_path(user_id), snapshot_path(user_id), challenge_path(user_id)):
         try: path.unlink()
         except FileNotFoundError: pass
     return public_status(user_id)
@@ -264,7 +300,7 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
-    login = sub.add_parser('login'); login.add_argument('user_id'); login.add_argument('callsign'); login.add_argument('--talkgroup', default=DEFAULT_TG)
+    login = sub.add_parser('login'); login.add_argument('user_id'); login.add_argument('callsign'); login.add_argument('--talkgroup', default=DEFAULT_TG); login.add_argument('--captcha', default='')
     status = sub.add_parser('status'); status.add_argument('user_id')
     logout = sub.add_parser('logout'); logout.add_argument('user_id')
     collect = sub.add_parser('collect'); collect.add_argument('user_id')
@@ -274,7 +310,7 @@ def main() -> int:
     if os.geteuid() != 0: parser.error('run as root')
     if args.command == 'login':
         secret = sys.stdin.readline().rstrip('\r\n')
-        print(json.dumps(login_user(args.user_id, args.callsign, args.talkgroup, secret), separators=(',', ':'))); return 0
+        print(json.dumps(login_user(args.user_id, args.callsign, args.talkgroup, secret, args.captcha), separators=(',', ':'))); return 0
     if args.command == 'status': print(json.dumps(public_status(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'logout': print(json.dumps(logout_user(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'collect': print(json.dumps(collect_user(args.user_id), separators=(',', ':'))); return 0

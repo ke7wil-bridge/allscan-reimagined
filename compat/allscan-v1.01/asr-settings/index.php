@@ -1590,6 +1590,10 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label><span>TGIF Password</span><input data-tgif-password type="password" autocomplete="current-password" maxlength="128"></label>
 				<label><span>Talkgroup</span><input data-tgif-talkgroup type="text" inputmode="numeric" pattern="[1-9][0-9]{0,7}" maxlength="8"></label>
 			</div>
+			<div class="asr-tgif-captcha" data-tgif-captcha-wrap hidden>
+				<img data-tgif-captcha-image alt="TGIF CAPTCHA" referrerpolicy="no-referrer">
+				<label><span>CAPTCHA text</span><input data-tgif-captcha type="text" autocomplete="off" autocapitalize="none" maxlength="32" placeholder="all lower case"></label>
+			</div>
 			<div class="asr-tgif-card-actions">
 				<button type="button" data-tgif-login>Sign In to TGIF</button>
 				<button type="button" data-tgif-logout>Sign Out</button>
@@ -2208,7 +2212,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var callsign = section.querySelector('[data-tgif-callsign]');
 			var talkgroup = section.querySelector('[data-tgif-talkgroup]');
 			var logout = section.querySelector('[data-tgif-logout]');
+			var captchaWrap = section.querySelector('[data-tgif-captcha-wrap]');
+			var captchaImage = section.querySelector('[data-tgif-captcha-image]');
 			if(status) { status.textContent = label; status.classList.toggle('is-error', !!tgifState.error); }
+			if(captchaWrap) captchaWrap.hidden = !tgifState.captchaRequired;
+			if(captchaImage && tgifState.captchaRequired && tgifState.captchaUrl) captchaImage.src = tgifState.captchaUrl;
 			if(callsign && !callsign.value && tgifState.callsign) callsign.value = tgifState.callsign;
 			if(talkgroup && !talkgroup.value && tgifState.talkgroup) talkgroup.value = tgifState.talkgroup;
 			if(logout) logout.disabled = !configured;
@@ -2729,9 +2737,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var callsign = section.querySelector('[data-tgif-callsign]');
 			var password = section.querySelector('[data-tgif-password]');
 			var talkgroup = section.querySelector('[data-tgif-talkgroup]');
+			var captcha = section.querySelector('[data-tgif-captcha]');
 			var status = section.querySelector('[data-tgif-status]');
 			if(status) status.textContent = 'Signing in to TGIF...';
-			var body = new URLSearchParams({callsign:callsign.value.trim().toUpperCase(), password:password.value, talkgroup:talkgroup.value.trim()});
+			var body = new URLSearchParams({callsign:callsign.value.trim().toUpperCase(), password:password.value, talkgroup:talkgroup.value.trim(), captcha:captcha ? captcha.value.trim().toLowerCase() : ''});
 			tgifRequest('tgif-user-login', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-ASR-Requested-With':'tgif-user-session'}, body:body.toString()})
 				.then(renderTgifState).catch(function(error) { renderTgifState({configured:false, error:error.message || 'TGIF sign-in failed.'}); })
 				.finally(function() { password.value = ''; });

@@ -2719,11 +2719,14 @@ if ($action === 'tgif-user-login') {
     $callsign = strtoupper(trim((string) ($_POST['callsign'] ?? '')));
     $talkgroup = trim((string) ($_POST['talkgroup'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
+    $captcha = strtolower(trim((string) ($_POST['captcha'] ?? '')));
     if (!preg_match('/^[A-Z0-9]{3,10}$/D', $callsign)) asr_error('Enter a valid TGIF callsign.');
     if (!preg_match('/^[1-9][0-9]{0,7}$/D', $talkgroup)) asr_error('Enter a valid TGIF talkgroup.');
     if ($password === '' || strlen($password) > 128) asr_error('Enter your TGIF password.');
-    asr_json(asr_tgif_user_command('login', [$callsign, '--talkgroup', $talkgroup], $password . "
-"));
+    if ($captcha !== '' && !preg_match('/^[a-z0-9]{1,32}$/D', $captcha)) asr_error('Enter the CAPTCHA text shown.');
+    $args = [$callsign, '--talkgroup', $talkgroup];
+    if ($captcha !== '') { $args[] = '--captcha'; $args[] = $captcha; }
+    asr_json(asr_tgif_user_command('login', $args, $password . "\n"));
 }
 if ($action === 'tgif-user-logout') {
     asr_require_post();

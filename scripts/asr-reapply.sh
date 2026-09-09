@@ -926,6 +926,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-name
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
