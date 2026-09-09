@@ -19,7 +19,7 @@ const ASR_ZELLO_SOURCE_FILES = [
 	'/srv/http/allscan/zello-status-data.json',
 	'/srv/http/allscan/zello-stream-debug.json',
 ];
-const ASR_YSF_LOG_DIR = '/var/log/YSFReflector';
+const ASR_YSF_LOG_DIR = '/var/log/ysfreflector';
 const ASR_CLIENT_MAX_SEEN_AGE = 180;
 const ASR_CLIENT_MAX_TALK_AGE = 300;
 const ASR_CLOCK_FUTURE_TOLERANCE = 300;
