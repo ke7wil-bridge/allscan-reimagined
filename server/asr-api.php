@@ -18,8 +18,8 @@ const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
-const ASR_VERSION = '1.0.0-beta.7.6';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.6';
+const ASR_VERSION = '1.0.0-beta.7.5';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.5';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -1475,9 +1475,27 @@ function asr_bridge_clients_state(): array {
         $counts[$id] = count($clean);
     }
 
-    // Connected-client visibility is node-wide. Per-user TGIF sessions are
-    // used only for TGIF authentication/control and must never replace the
-    // daemon/collector feed seen by other users or public status consumers.
+    $tgif = asr_tgif_user_status();
+    $tgifRows = is_array($tgif['clients'] ?? null) ? $tgif['clients'] : [];
+    $tgifConfigured = !empty($tgif['configured']);
+    $dmrStandardIds = [];
+    if (array_key_exists('dmr', $clients)) $dmrStandardIds['dmr'] = true;
+    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridgeConfig) {
+        if (!is_array($bridgeConfig)) continue;
+        $id = (string) ($bridgeConfig['id'] ?? '');
+        $mode = asr_bridge_mode($bridgeConfig);
+        $cardType = (string) ($bridgeConfig['cardType'] ?? 'standard');
+        if ($mode === 'dmr' && $cardType === 'standard' && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) {
+            $dmrStandardIds[$id] = true;
+        }
+    }
+    foreach (array_keys($dmrStandardIds) as $id) {
+        $clean = $tgifConfigured
+            ? asr_dedupe_client_rows(asr_sanitize_client_rows($tgifRows, 'dmr', true))
+            : [];
+        $clients[$id] = $clean;
+        $counts[$id] = $tgifConfigured ? count($clean) : 0;
+    }
 
     return ['clients' => $clients, 'counts' => $counts];
 }
