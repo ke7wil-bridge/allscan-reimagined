@@ -18,8 +18,8 @@ const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
-const ASR_VERSION = '1.0.0-beta.7.5';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.5';
+const ASR_VERSION = '1.0.0-beta.7.7';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.7';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -1490,6 +1490,10 @@ function asr_bridge_clients_state(): array {
         }
     }
     foreach (array_keys($dmrStandardIds) as $id) {
+        // A fresh node-wide collector row is authoritative for DMR, including
+        // an intentionally empty list. Per-user TGIF state is fallback only
+        // when no node-wide DMR key is available.
+        if (array_key_exists($id, $clients)) continue;
         $clean = $tgifConfigured
             ? asr_dedupe_client_rows(asr_sanitize_client_rows($tgifRows, 'dmr', true))
             : [];
