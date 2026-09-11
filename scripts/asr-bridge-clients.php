@@ -25,6 +25,8 @@ const ASR_CLIENT_MAX_TALK_AGE = 300;
 const ASR_CLOCK_FUTURE_TOLERANCE = 300;
 const ASR_REFLECTOR_SNAPSHOT_MAX_AGE = 180;
 const ASR_M17_JSON_MAX_AGE = 45;
+const ASR_TGIF_SNAPSHOT_DIR = '/run/allscan-reimagined/tgif-users/snapshots';
+const ASR_TGIF_SNAPSHOT_MAX_AGE = 45;
 const ASR_REFLECTOR_LOG_TAIL_BYTES = 2097152;
 const ASR_REFLECTOR_LOG_TAIL_LINES = 12000;
 const ASR_DMR_CONFIG_GLOBS = [
@@ -152,7 +154,7 @@ function asrManagedBridges(array $bridges): array {
 		$builtInOwnedReflector = in_array($mode, ['p25', 'nxdn', 'm17'], true)
 			&& in_array($source, ['auto', 'disabled'], true)
 			&& $url === '';
-		$autoDetectedSimpleSource = in_array($mode, ['ysf', 'zello'], true)
+		$autoDetectedSimpleSource = in_array($mode, ['dmr', 'ysf', 'zello'], true)
 			&& in_array($source, ['auto', 'disabled'], true)
 			&& $url === '';
 		return $explicitSource || $builtInOwnedReflector || $autoDetectedSimpleSource;
@@ -266,15 +268,53 @@ function asrSelfTest(): void {
 	];
 	$managed = asrManagedBridges($bridges);
 	$ids = array_column($managed, 'id');
-	asrAssertSelfTest($ids === ['zello', 'p25', 'm17'], 'Managed-source selection or Net/unsupported-mode exclusion self-test failed.');
+	asrAssertSelfTest($ids === ['dmr', 'zello', 'p25', 'm17'], 'Managed-source selection or Net/unsupported-mode exclusion self-test failed.');
 	asrAssertSelfTest(
-		asrUsesBuiltinOwnedReflector($managed[1])
-			&& asrUsesBuiltinOwnedReflector($managed[2])
-			&& !asrUsesBuiltinOwnedReflector($managed[0]),
+		asrUsesBuiltinOwnedReflector($managed[2])
+			&& asrUsesBuiltinOwnedReflector($managed[3])
+			&& !asrUsesBuiltinOwnedReflector($managed[0])
+			&& !asrUsesBuiltinOwnedReflector($managed[1]),
 		'Built-in owned-reflector eligibility self-test failed.'
 	);
 
 	$now = time();
+	$snapshotDir = sys_get_temp_dir() . '/asr-tgif-snapshot-test-' . getmypid() . '-' . bin2hex(random_bytes(4));
+	if(!mkdir($snapshotDir, 0775, true))
+		throw new RuntimeException('Could not create TGIF snapshot self-test directory.');
+	try {
+		file_put_contents($snapshotDir . '/1.json', json_encode([
+			'configured' => true,
+			'talkgroup' => '67498',
+			'updatedEpoch' => $now - 10,
+			'clients' => [['callsign' => 'OLDER', 'id' => '1', 'last_seen_epoch' => $now - 10]],
+		]));
+		file_put_contents($snapshotDir . '/2.json', json_encode([
+			'configured' => true,
+			'talkgroup' => '67498',
+			'updatedEpoch' => $now - 2,
+			'clients' => [['callsign' => 'NEWER', 'id' => '2', 'last_seen_epoch' => $now - 2]],
+		]));
+		$available = false;
+		$snapshotRows = asrTgifSnapshotRows($snapshotDir, $now, $available);
+		asrAssertSelfTest(
+			$available && count($snapshotRows) === 1 && ($snapshotRows[0]['callsign'] ?? '') === 'NEWER',
+			'Freshest authenticated TGIF snapshot was not selected.'
+		);
+		file_put_contents($snapshotDir . '/2.json', json_encode([
+			'configured' => true,
+			'talkgroup' => '67498',
+			'updatedEpoch' => $now - ASR_TGIF_SNAPSHOT_MAX_AGE - 1,
+			'clients' => [['callsign' => 'STALE', 'id' => '3']],
+		]));
+		$available = false;
+		$snapshotRows = asrTgifSnapshotRows($snapshotDir, $now, $available);
+		asrAssertSelfTest(
+			$available && count($snapshotRows) === 1 && ($snapshotRows[0]['callsign'] ?? '') === 'OLDER',
+			'Stale TGIF snapshot displaced a fresh authenticated snapshot.'
+		);
+	} finally {
+		asrRemoveSelfTestTree($snapshotDir);
+	}
 	foreach(['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn', 'unknown'] as $mode) {
 		$stale = [
 			'callsign' => strtoupper($mode) . 'OLD',
@@ -1402,6 +1442,40 @@ function asrBuiltinYsfRows(): array {
 	return array_values($rows);
 }
 
+function asrTgifSnapshotRows(string $dir = ASR_TGIF_SNAPSHOT_DIR, ?int $now = null, ?bool &$available = null): array {
+	$available = false;
+	$now ??= time();
+	if(!is_dir($dir) || !is_readable($dir))
+		return [];
+
+	$bestEpoch = 0;
+	$bestRows = [];
+	foreach(glob(rtrim($dir, '/') . '/*.json') ?: [] as $path) {
+		if(!is_file($path) || !is_readable($path) || is_link($path))
+			continue;
+		$payload = asrReadJson($path);
+		if(($payload['configured'] ?? false) !== true)
+			continue;
+		$updatedEpoch = (int) ($payload['updatedEpoch'] ?? 0);
+		if($updatedEpoch <= 0 || $updatedEpoch > $now + ASR_CLOCK_FUTURE_TOLERANCE)
+			continue;
+		if($now - $updatedEpoch > ASR_TGIF_SNAPSHOT_MAX_AGE)
+			continue;
+		$talkgroup = trim((string) ($payload['talkgroup'] ?? ''));
+		if($talkgroup === '' || !preg_match('/^\d{1,8}$/D', $talkgroup))
+			continue;
+		$clients = is_array($payload['clients'] ?? null) ? $payload['clients'] : [];
+		$rows = asrSanitizeClientRows($clients, 'dmr', true);
+		if($updatedEpoch > $bestEpoch) {
+			$bestEpoch = $updatedEpoch;
+			$bestRows = $rows;
+		}
+	}
+	if($bestEpoch > 0)
+		$available = true;
+	return asrDedupeAndSortClientRows($bestRows);
+}
+
 function asrHttpStatusCode(array $headers): int {
 	$status = 0;
 	foreach($headers as $header) {
@@ -1528,6 +1602,14 @@ foreach($bridges as $bridge) {
 	if(!$usedBuiltIn) {
 		$payloadRows = asrClientRowsFromPayload($payload, $id, $ports, $feedKind);
 		$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
+	}
+	if($mode === 'dmr' && $source === 'auto') {
+		$tgifAvailable = false;
+		$tgifRows = asrTgifSnapshotRows(ASR_TGIF_SNAPSHOT_DIR, null, $tgifAvailable);
+		if($tgifAvailable) {
+			$rows = $tgifRows;
+			$feedKind = 'current';
+		}
 	}
 	if($rows === [] && $mode === 'zello') {
 		$rows = asrBuiltinZelloRows();
