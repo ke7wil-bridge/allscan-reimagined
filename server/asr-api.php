@@ -1490,6 +1490,10 @@ function asr_bridge_clients_state(): array {
         }
     }
     foreach (array_keys($dmrStandardIds) as $id) {
+        // A fresh node-wide collector row is authoritative for DMR, including
+        // an intentionally empty list. Per-user TGIF state is fallback only
+        // when no node-wide DMR key is available.
+        if (array_key_exists($id, $clients)) continue;
         $clean = $tgifConfigured
             ? asr_dedupe_client_rows(asr_sanitize_client_rows($tgifRows, 'dmr', true))
             : [];
