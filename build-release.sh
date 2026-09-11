@@ -209,7 +209,7 @@ find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi
-COPYFILE_DISABLE=1 tar --no-xattrs --format ustar --uid 0 --gid 0 --uname root --gname root \
+COPYFILE_DISABLE=1 tar --no-xattrs --format ustar --owner=0 --group=0 \
   --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"
 if command -v xattr >/dev/null 2>&1; then
   xattr -c "$PACKAGE" 2>/dev/null || true
