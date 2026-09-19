@@ -1623,7 +1623,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<button type="button" data-tgif-login>Sign In to TGIF</button>
 				<button type="button" data-tgif-logout>Sign Out</button>
 			</div>
-			<p class="asr-bridge-section-note">Each AllScan user authenticates separately. Your TGIF password is sent only during sign-in and is not stored. The temporary TGIF web session is kept only in node RAM.</p>
+			<p class="asr-bridge-section-note">Each AllScan user authenticates separately. Your TGIF password is sent only during sign-in and is not stored. Root-only TGIF session cookies persist across node reboots until you sign out or TGIF expires the session.</p>
 		</div>
 
 		<div class="asr-bridge-panel-section asr-standard-bridge-settings"<?php echo $cardType === 'standard' ? '' : ' hidden'; ?>>
