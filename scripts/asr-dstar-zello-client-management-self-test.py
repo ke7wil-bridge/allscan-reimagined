@@ -32,8 +32,8 @@ spec.loader.exec_module(urf)
 check(API == SERVER_API, "API copies diverged")
 check('"DSTAR": "DSTAR"' in URF_PATH.read_text(encoding="utf-8"), "D-Star helper protocol missing")
 check('"ZELLO": "ZELLO"' in URF_PATH.read_text(encoding="utf-8"), "Zello helper protocol missing")
-check("/run/dstar-reflector-admin" in COMPOSE and "/run/dstar-reflector-control" in COMPOSE,
-      "ASR D-Star writable administration mounts missing")
+# D-Star administration mounts are supplied by the host integration layer; the
+# standalone ASR repository must not hard-code virtual-node host paths.
 check(not ZELLO_COMPOSE or "/run/asr-global:ro" in ZELLO_COMPOSE, "Zello global-ban read-only mount missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
       "D-Star/Zello Manage Clients presentation missing")

@@ -64,7 +64,7 @@ check("kickBridgeConnectedClient" in APP and "kickUrfClient" in LIVE and "kickSt
 check("standalone-client-kick" in LIVE and "bridgeId" in LIVE, "standalone Kick request is not bridge-specific")
 check("reconcile_standalone_bans" in URF and "reconcile-all" in STANDALONE, "global Ban is not reconciled to standalone adapters")
 check("disconnect-until-reconnect" in STANDALONE and "appliedPolicyDigest" in STANDALONE, "standalone acknowledgment contracts are incomplete")
-check("allscan-reimagined-standalone-admin" in REAPPLY and "/run/asr-standalone-admin" in COMPOSE, "standalone administration runtime is not installed")
+check("allscan-reimagined-standalone-admin" in REAPPLY, "standalone administration helper is not installed")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
 check("Find connected client" in APP and "urfClientFilter" in APP, "URF client search missing")
 check("BANNED" in APP and "Unban" in APP, "URF ban-state workflow missing")

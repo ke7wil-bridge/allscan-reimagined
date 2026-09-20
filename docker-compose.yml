@@ -3,11 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.layered
-    restart: unless-stopped
     env_file:
       - .env
     ports:
-      - "18181:80"
+      - "4173:80"
     networks:
       - default
       - asl3
@@ -15,23 +14,6 @@ services:
       - layered-web:/var/www/html
       - layered-allscan-data:/etc/allscan
       - layered-asr-config:/etc/allscan-reimagined
-      # Mount the whole ASL data directory so atomic astdb.txt replacements
-      # made by asl3-update-astdb are immediately visible in this container.
-      - /home/josh/repos/KE7WIL-Virtual-AllStar-Node/asl3/asl_data:/var/lib/asterisk:ro
-      # Native URFd status plus narrowly scoped admin config access.
-      - /home/josh/repos/urf-reflector-docker/data:/run/urf-wil:rw
-      - /home/josh/repos/urf-reflector-docker/config:/run/urf-wil-config:rw
-      # D-Star status inputs plus narrowly scoped reflector administration mounts.
-      - ${DSTAR_RUNTIME_DIR:-/home/josh/bridge-runtime/dstar}/log/mmdvm:/var/log/dstar-mmdvm:ro
-      - ${DSTAR_RUNTIME_DIR:-/home/josh/bridge-runtime/dstar}/log/ircddbgateway:/var/log/dstar-ircddbgateway:ro
-      - ${DSTAR_RUNTIME_DIR:-/home/josh/bridge-runtime/dstar}/status:/run/dstar-bridge:ro
-      - /home/josh/bridge-runtime/dmr/status:/run/dmr-bridge:rw
-      # Per-bridge administration requests, acknowledgments and capability manifests.
-      - ${ASR_STANDALONE_ADMIN_DIR:-/home/josh/bridge-runtime/standalone-admin}:/run/asr-standalone-admin:rw
-      - ${DSTAR_XLX_STATUS_FILE:-/home/josh/bridge-runtime/xlx641/log/xlxd.xml}:/run/dstar-reflector/xlxd.xml:ro
-      # D-Star client administration: synchronized global bans plus local session requests.
-      - ${DSTAR_XLX_ETC_DIR:-/home/josh/bridge-runtime/xlx641/etc}:/run/dstar-reflector-admin:rw
-      - ${DSTAR_XLX_RUN_DIR:-/home/josh/bridge-runtime/xlx641/run}:/run/dstar-reflector-control:rw
 
 volumes:
   layered-web:
@@ -41,4 +23,4 @@ volumes:
 networks:
   asl3:
     external: true
-    name: asl3_default
+    name: asl3-docker_default
