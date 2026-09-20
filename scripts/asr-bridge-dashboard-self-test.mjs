@@ -146,6 +146,13 @@ try {
     'live bridge warning was hidden',
   )
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+  const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+  assert(
+    allscanLiveSource.includes("|| (mode === 'dstar'")
+      && !allscanLiveSource.includes("healthSeverity: entry?.health_severity\n        || (entry?.online === false"),
+    'unknown DMR/YSF link state still creates a false bridge warning',
+  )
   const dmrControls = appSource.match(
     /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
   )?.[0] || ''
@@ -165,8 +172,47 @@ try {
     'YSF Net reflector is not a typeable bounded input',
   )
   assert(
-    appSource.includes("!['standard', 'dmr_net', 'ysf_net'].includes(bridge.cardType)"),
-    'manual DMR/YSF controls still poll approved destination lists',
+    appSource.includes("? 'Current Reflector' : 'Current Destination'")
+      && appSource.includes("card.currentDestination || '–'")
+      && !appSource.includes("card.currentTg || '-'"),
+    'Net Bridge destination labels or idle en dashes are not standardized',
+  )
+  assert(
+    (appSource.match(/allscan-bridge-row allscan-bridge-status-row/g) || []).length >= 5
+      && (appSource.match(/allscan-bridge-current-row/g) || []).length === 2
+      && indexCssSource.includes('.allscan-bridge-current-row > span:first-child')
+      && indexCssSource.includes('white-space: nowrap;'),
+    'Net Bridge current destination rows do not share standard alignment or nowrap behavior',
+  )
+  assert(
+    indexCssSource.includes('justify-content:space-evenly;')
+      && !indexCssSource.includes('column-gap:calc((100% - 24px) / 10)'),
+    'desktop bridge grid does not preserve five-across spacing',
+  )
+  assert(
+    indexCssSource.includes('@media (min-width: 1201px)')
+      && indexCssSource.includes('.allscan-bridge-grid .allscan-bridge-controls')
+      && indexCssSource.includes('grid-template-columns: 130px minmax(0, 1fr);')
+      && indexCssSource.includes('min-height: 38px;')
+      && indexCssSource.includes('height: 38px;')
+      && indexCssSource.includes('border-top: 1px solid rgba(255, 255, 255, 0.16);')
+      && indexCssSource.includes('min-height: 28px;')
+      && indexCssSource.includes('font-size: 13px;')
+      && indexCssSource.includes('font-weight: 700;')
+      && indexCssSource.includes('font-size: 12px;'),
+    'desktop Net Bridge controls do not use equal fields and the compact standard type scale',
+  )
+  assert(
+    appSource.includes('allscan-controls-lower-row')
+      && appSource.includes('Manage Kicks & Bans')
+      && indexCssSource.includes('.allscan-controls-lower-row'),
+    'current Node Controls management layout regressed',
+  )
+  assert(
+    appSource.includes("bridge.adminCapabilities?.bridgeControl.includes('changeDestination')")
+      && appSource.includes("bridge.cardType !== 'dmr_net'")
+      && appSource.includes("bridge.cardType !== 'ysf_net'"),
+    'manual DMR/YSF controls still poll approved destination lists or destination loading is not capability-driven',
   )
   assert(
     appSource.includes('<option value=""></option>')
@@ -205,6 +251,47 @@ try {
   assert(
     (appSource.match(/onClick=\{\(\) => void logoutAllScan\(\)\}/g) || []).length === 2,
     'Logout must have exactly one standard render site and one ST:ASL desktop render site',
+  )
+  assert(
+    appSource.includes('bridgeLastTalker(card)')
+      && appSource.includes('relativeBridgeTime(card.lastTxEpoch)')
+      && !appSource.includes("new Date(card.lastTxEpoch * 1000).toLocaleTimeString"),
+    'Last Talker is not using the standard relative-time presentation',
+  )
+  const seedConfigSource = readFileSync(new URL('../personalization/config.seed.json', import.meta.url), 'utf8')
+  assert(
+    seedConfigSource.includes('"id": "zello"') && seedConfigSource.includes('"detailTitle": "Recent Talkers"')
+      && (seedConfigSource.match(/"detailTitle": "Connected Clients"/g) || []).length >= 6,
+    'seed bridge labels do not follow semantic roster/talker capabilities',
+  )
+  assert(
+    allscanLiveSource.includes("bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []")
+      && allscanLiveSource.includes("detailAvailable")
+      && allscanLiveSource.includes("clientMeta"),
+    'bridge detail semantics do not preserve Zello talker history and roster provenance',
+  )
+  assert(
+    appSource.includes('allscan-urf-mini-card')
+      && appSource.includes('allscan-urf-mini-grid')
+      && appSource.includes('<span>Connected Clients</span>')
+      && appSource.includes('<span>Recent Activity</span>')
+      && appSource.includes('<span>Last Talker</span>'),
+    'URF modes are not rendered as compact standard bridge cards',
+  )
+  assert(
+    appSource.includes('allscan-controls-lower-row')
+      && appSource.includes('Manage Kicks & Bans'),
+    'Node Controls lost centralized client administration access',
+  )
+  assert(
+    !appSource.includes('allscan-urf-mode-stack')
+      && !appSource.includes('allscan-urf-mode-dropdown'),
+    'legacy bespoke URF mode-card rendering is still active',
+  )
+  assert(
+    !appSource.includes('allscan-bridge-warning-row')
+      && !appSource.includes('<span>Warning / Error</span>'),
+    'permanent warning/error body row returned instead of header warning treatment',
   )
 
   console.log('bridge dashboard self-test: ok')

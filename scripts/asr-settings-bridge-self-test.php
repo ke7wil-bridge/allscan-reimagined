@@ -47,15 +47,23 @@ function postedBridge(array $values, array $existing = [], string $mainNode = '1
 	return $rows[0];
 }
 
-foreach(['dmr', 'ysf', 'zello'] as $mode) {
+foreach(['dmr', 'ysf', 'dstar', 'zello'] as $mode) {
 	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
 	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");
 }
+check(asrSettingsDefaultDetailTitle('dstar') === 'Bridge Status', 'D-Star detail default is not mode-aware.');
+check(asrSettingsDefaultModeTitle('dstar', 'standard') === 'D-Star Bridge', 'D-Star card title is not formatted correctly.');
 check(asrSettingsDefaultDetailTitle('zello') === 'Recent Talkers', 'Zello detail default is not mode-aware.');
 check(asrSettingsDefaultDetailTitle('p25') === 'Linked Clients', 'P25 detail default is not mode-aware.');
 check(asrSettingsClientPayloadHasSupportedShape([]), 'An authoritative empty client list was rejected.');
 check(asrSettingsClientPayloadHasSupportedShape(['clients' => []]), 'A grouped client list was rejected.');
 check(!asrSettingsClientPayloadHasSupportedShape(['status' => 'ok']), 'An unrelated JSON object was accepted as a client feed.');
+$filterError = '';
+check(asrSettingsCleanFilteredStations("n0call\nSRV_custom,n0call", $filterError) === ['N0CALL', 'SRV_CUSTOM'], 'Custom station filters were not normalized and deduplicated.');
+check($filterError === '', 'Valid custom station filters reported an error.');
+$filterError = '';
+check(asrSettingsCleanFilteredStations('BAD*', $filterError) === [] && $filterError !== '', 'Invalid custom station filter was accepted.');
+check(asrSettingsDefaultConfig()['filterServiceStations'] === true, 'Built-in station filtering is not enabled by default.');
 
 $display = postedBridge(['bridgeMode' => ['p25'], 'bridgeBackendMode' => ['display_only']]);
 check($display['backendMode'] === 'display_only' && !isset($display['gatewayConfig']), 'P25 display-only card gained managed resources.');
@@ -88,6 +96,26 @@ $dmr = postedBridge([
 	'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
 ]);
 check($dmr['linkAlias'] === '999123456' && $dmr['approvedDestinations'] === [], 'DMR Net manual-entry card required an approved TG list.');
+
+expectFailure(static function (): void {
+	postedBridge([
+		'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
+		'bridgeApprovedDestinations' => [''], 'bridgeAbinfoPath' => ['/tmp/ABInfo_12345.json'],
+		'bridgeDvswitchScript' => ['/opt/MMDVM_Bridge_Test/dvswitch.sh'],
+		'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
+	]);
+}, 'requires confirmed permission');
+
+expectFailure(static function (): void {
+	postedBridge([
+		'bridgeMode' => ['ysf'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],
+		'bridgeApprovedDestinations' => [''], 'bridgeAllowTune' => ['1'],
+		'bridgeYsfGatewayConfig' => ['/opt/YSFGateway_test/YSFGateway.ini'],
+		'bridgeMmdvmConfig' => ['/opt/MMDVM_Bridge_test/MMDVM_Bridge.ini'],
+		'bridgeYsfGatewayService' => ['ysfgateway_test.service'],
+		'bridgeMmdvmService' => ['mmdvm_test.service'],
+	]);
+}, 'requires confirmed permission');
 
 $ysf = postedBridge([
 	'bridgeMode' => ['ysf'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
@@ -144,6 +172,10 @@ expectFailure(static function (): void {
 		'bridgeM17Callsign' => ['N0CALL'], 'bridgeApprovedDestinations' => ['not a target'],
 	]);
 }, 'REFLECTOR | HOST | PORT | MODULE');
+
+expectFailure(static function (): void {
+	postedBridge(['bridgeMode' => ['dstar'], 'bridgeCardType' => ['net']]);
+}, 'Standard Bridge card only');
 
 expectFailure(static function (): void {
 	postedBridge(['bridgeMode' => ['zello'], 'bridgeCardType' => ['net']]);

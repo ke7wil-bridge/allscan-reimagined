@@ -18,8 +18,10 @@ const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
-const ASR_VERSION = '1.0.0-beta.7.5';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.5';
+const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
+const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
+const ASR_VERSION = '1.0.0-beta.7.6';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.6';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -254,6 +256,7 @@ function asr_detect_bridges(): array {
     $definitions = [
         'dmr' => ['DMR Bridge', 'Connected Clients'],
         'ysf' => ['YSF Bridge', 'Linked Gateways'],
+        'dstar' => ['D-Star Bridge', 'Recent D-Star Activity'],
         'zello' => ['Zello Bridge', 'Recent Talkers'],
         'p25' => ['P25 Bridge', 'Linked Clients'],
         'm17' => ['M17 Bridge', 'Linked Clients'],
@@ -264,7 +267,6 @@ function asr_detect_bridges(): array {
         if (in_array($id, ['updated', 'updated_epoch'], true)) continue;
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) $id)) continue;
         if (!isset($payload[$id]) || !is_array($payload[$id]) || $payload[$id] === []) continue;
-        if (asr_bridge_mode(['id' => (string) $id]) === 'dstar') continue;
         [$title, $detailTitle] = $definitions[$id] ?? [ucfirst((string) $id) . ' Bridge', 'Linked Clients'];
         $bridges[] = ['id' => $id, 'node' => '', 'title' => $title, 'detailTitle' => $detailTitle];
     }
@@ -285,6 +287,108 @@ function asr_bridge_mode(array $bridge): string {
         }
     }
     return 'unknown';
+}
+
+const ASR_STANDALONE_ADMIN_DIR = '/run/asr-standalone-admin';
+const ASR_STANDALONE_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-standalone-admin';
+
+function asr_global_ban_policy_digest(): string {
+    $blacklist = @file_get_contents('/run/urf-wil-config/urfd.blacklist');
+    $timedBans = @file_get_contents('/run/urf-wil-config/asr-timed-bans.json');
+    if (!is_string($blacklist) || !is_string($timedBans)) return '';
+    return hash('sha256', "asr-global-ban-v1\0" . $blacklist . "\0" . $timedBans);
+}
+
+function asr_standalone_client_admin(array $bridge): array {
+    $id = (string) ($bridge['id'] ?? '');
+    $mode = asr_bridge_mode($bridge);
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
+        || !in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
+        || !empty($bridge['urfReflector'])
+        || !is_executable(ASR_STANDALONE_ADMIN_HELPER)) return [];
+
+    $root = @realpath(ASR_STANDALONE_ADMIN_DIR);
+    $path = ASR_STANDALONE_ADMIN_DIR . '/' . $id . '/capabilities.json';
+    $resolved = @realpath($path);
+    $stat = @lstat($path);
+    if (!is_string($root) || !is_string($resolved)
+        || !str_starts_with($resolved, $root . DIRECTORY_SEPARATOR)
+        || is_link($path) || !is_array($stat) || !is_readable($resolved)
+        || (($stat['mode'] ?? 0) & 0170000) !== 0100000
+        || (($stat['mode'] ?? 0) & 0022) !== 0
+        || (int) ($stat['uid'] ?? -1) !== 0
+        || (int) ($stat['size'] ?? 0) < 2 || (int) ($stat['size'] ?? 0) > 65536) return [];
+
+    $now = time();
+    $mtime = (int) ($stat['mtime'] ?? 0);
+    if ($mtime <= 0 || abs($now - $mtime) > 30) return [];
+    $cap = json_decode((string) @file_get_contents($resolved), true);
+    if (!is_array($cap)) return [];
+    $heartbeat = is_int($cap['heartbeatEpoch'] ?? null) ? $cap['heartbeatEpoch'] : 0;
+    if (($cap['schema'] ?? null) !== 1
+        || ($cap['bridgeId'] ?? '') !== $id || ($cap['mode'] ?? '') !== $mode
+        || ($cap['healthy'] ?? false) !== true
+        || !preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/D', (string) ($cap['adapter'] ?? ''))
+        || $heartbeat <= 0 || abs($now - $heartbeat) > 30) return [];
+
+    $result = [];
+    if (($cap['listClients'] ?? false) === true) $result[] = 'listClients';
+    if (($cap['kickClient'] ?? false) === true
+        && ($cap['kickContract'] ?? '') === 'disconnect-until-reconnect'
+        && ($cap['kickRequiresCurrentSession'] ?? false) === true
+        && ($cap['kickAllowsImmediateReconnect'] ?? false) === true) {
+        $result[] = 'kickClient';
+    }
+
+    $policyDigest = asr_global_ban_policy_digest();
+    $appliedDigest = strtolower(trim((string) ($cap['appliedPolicyDigest'] ?? '')));
+    if (($cap['banClient'] ?? false) === true
+        && ($cap['unbanClient'] ?? false) === true
+        && ($cap['listBans'] ?? false) === true
+        && ($cap['banContract'] ?? '') === 'global-timed-v1'
+        && $policyDigest !== '' && preg_match('/^[a-f0-9]{64}$/D', $appliedDigest)
+        && hash_equals($policyDigest, $appliedDigest)) {
+        array_push($result, 'banClient', 'unbanClient', 'listBans');
+    }
+    return array_values(array_unique($result));
+}
+
+function asr_bridge_admin_capabilities(array $bridge): array {
+    $cardType = (string) ($bridge['cardType'] ?? 'standard');
+    $urf = !empty($bridge['urfReflector']);
+    $bridgeControl = in_array($cardType, ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true)
+        ? ['connect', 'disconnect', 'changeDestination'] : [];
+    $mode = strtolower((string) ($bridge['mode'] ?? ''));
+    $clientAdmin = ($urf || $mode === 'dstar') ? ['listClients'] : [];
+    if (!$urf) $clientAdmin = array_merge($clientAdmin, asr_standalone_client_admin($bridge));
+    $globalAdmin = $urf || in_array($mode, ['dstar', 'zello'], true)
+        || in_array('banClient', $clientAdmin, true);
+    if ($urf && $mode === 'dmr' && is_dir('/run/dmr-bridge')) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+    if ($urf && $mode !== 'dmr' && is_readable('/run/urf-wil/asr-admin-capabilities.json')) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+    if ($mode === 'dstar' && is_dir('/run/dstar-reflector-admin') && is_dir('/run/dstar-reflector-control')) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+    if ($mode === 'zello' && is_dir('/var/www/html/asr')) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
+    $clientAdmin = array_values(array_unique($clientAdmin));
+    return [
+        'bridgeControl' => $bridgeControl,
+        'clientAdmin' => $clientAdmin,
+        'activity' => ['currentTalker', 'lastTalker', 'recentActivity'],
+        'lifecycle' => ['health', 'readiness', 'runtimeAvailability'],
+        'managementScope' => $globalAdmin ? 'asr-global' : 'bridge',
+        'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none',
+        'authoritativeClientId' => $globalAdmin ? ($mode === 'zello' ? 'zello-username' : 'callsign') : '',
+        'banScopeLabel' => $globalAdmin ? 'GLOBAL' : '',
+    ];
+}
+
+function asr_protected_ban_identities(): array {
+    $protected = [];
+    foreach (glob('/etc/asterisk/extensions.d/*broadcast*.conf') ?: [] as $path) {
+        if (!is_file($path) || !is_readable($path) || filesize($path) > 65536) continue;
+        $raw = (string) file_get_contents($path);
+        if (!preg_match_all('/\\bRpt\\(\\s*[0-9]{3,10}\\s*,\\s*P\\s*,\\s*([A-Z0-9_.\\/-]{1,32})/i', $raw, $matches)) continue;
+        foreach ($matches[1] as $identity) $protected[strtoupper(trim((string) $identity))] = true;
+    }
+    return array_keys($protected);
 }
 
 function asr_runtime_config(): array {
@@ -310,11 +414,29 @@ function asr_runtime_config(): array {
     );
 
     $storedBridges = is_array($stored['bridges'] ?? null) ? $stored['bridges'] : asr_detect_bridges();
+    // Local URF compatibility: expand the original single URF card into one display card per protocol.
+    $normalizedStoredBridges = [];
+    foreach ($storedBridges as $bridge) {
+        if (is_array($bridge) && !empty($bridge['urfReflector']) && asr_bridge_mode($bridge) === 'urf') {
+            foreach (['dmr' => 'DMR', 'ysf' => 'YSF', 'p25' => 'P25', 'nxdn' => 'NXDN', 'm17' => 'M17'] as $urfMode => $urfLabel) {
+                $expanded = $bridge;
+                $expanded['id'] = 'urf_' . $urfMode;
+                $expanded['mode'] = $urfMode;
+                $expanded['title'] = $urfLabel . ' Bridge';
+                $expanded['detailTitle'] = 'Connected Clients';
+                $expanded['friendlyName'] = $urfLabel . ' Bridge';
+                $expanded['urfGroupId'] = (string) ($bridge['urfGroupId'] ?? 'urf');
+                $normalizedStoredBridges[] = $expanded;
+            }
+            continue;
+        }
+        $normalizedStoredBridges[] = $bridge;
+    }
+    $storedBridges = $normalizedStoredBridges;
     $bridges = [];
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
         $mode = asr_bridge_mode($bridge);
-        if ($mode === 'dstar') continue;
         $bridgeNode = preg_match('/^\d{3,10}$/', (string) ($bridge['node'] ?? '')) ? (string) $bridge['node'] : '';
         $cardType = in_array((string) ($bridge['cardType'] ?? ''), ['standard', 'dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true)
             ? (string) $bridge['cardType']
@@ -333,6 +455,8 @@ function asr_runtime_config(): array {
             'mode' => $mode,
             'node' => $bridgeNode,
             'linkAlias' => $linkAlias,
+            'urfReflector' => !empty($bridge['urfReflector']),
+            'urfGroupId' => !empty($bridge['urfReflector']) ? (string) ($bridge['urfGroupId'] ?? 'urf') : '',
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
             'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
             'friendlyName' => substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),
@@ -343,6 +467,7 @@ function asr_runtime_config(): array {
                     ? (isset($bridge['bridgePermission']) ? 'managed' : 'display_only')
                     : 'managed'),
             'allowTune' => $cardType !== 'standard' && !empty($bridge['allowTune']),
+            'adminCapabilities' => asr_bridge_admin_capabilities($bridge),
         ];
     }
 
@@ -361,6 +486,7 @@ function asr_runtime_config(): array {
         'footerLogo' => asr_web_path('asr-logo-bright-r-tight.png'),
         'versionLabel' => ASR_VERSION_LABEL,
         'lowPowerMode' => !empty($stored['lowPowerMode']),
+        'protectedBanIdentities' => asr_protected_ban_identities(),
         'bridges' => $bridges,
     ];
 }
@@ -701,6 +827,197 @@ function asr_next_mode_disconnect(string $bridgeId): array {
         : asr_next_mode_helper($mode, $bridgeId, ['disconnect', $bridgeId], strtoupper($mode) . ' Net Bridge disconnect failed.');
 }
 
+function asr_urf_admin_command(string $verb, string $rule = '', string $detail = ''): array {
+    global $user;
+    if (!in_array($verb, ['list', 'ban', 'unban', 'dmr-list', 'dmr-ban', 'dmr-unban'], true)) asr_error('Invalid Global Ban action.');
+    if (!is_executable(ASR_URF_ADMIN_HELPER)) asr_error('Global Ban helper is unavailable.', 503);
+    $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' ' . escapeshellarg($verb);
+    if ($rule !== '') $command .= ' ' . escapeshellarg($rule);
+    if ($detail !== '') $command .= ' ' . escapeshellarg($detail);
+    if (!str_starts_with($verb, 'dmr-')) {
+        $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+        $command .= ' --actor ' . escapeshellarg($actor ?: 'unknown');
+    }
+    $lines = []; $status = 1; exec($command . ' 2>&1', $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) { $decoded = json_decode($line, true); if (is_array($decoded)) { $payload = $decoded; break; } }
+    if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) asr_error(substr((string)($payload['error'] ?? 'Global Ban command failed.'), 0, 180), 500);
+    return $payload;
+}
+
+function asr_asl_ban_command(string $verb, string $kind = '', string $value = '', string $duration = '', string $reason = ''): array {
+    global $user;
+    if (!in_array($verb, ['list', 'ban', 'unban'], true)) asr_error('Invalid AllStar/EchoLink ban action.');
+    if (!is_executable(ASR_ASL_BAN_HELPER)) asr_error('AllStar/EchoLink ban helper is unavailable.', 503);
+    $command = 'sudo -n ' . escapeshellarg(ASR_ASL_BAN_HELPER) . ' ' . escapeshellarg($verb);
+    if ($verb !== 'list') {
+        if (!in_array($kind, ['node', 'allstar-call', 'echolink-call'], true)) asr_error('Invalid ban target.');
+        $value = strtoupper(trim($value));
+        if ($kind === 'node' ? !preg_match('/^[0-9]{3,10}$/D', $value) : !preg_match('/^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[LR])?$/D', $value)) {
+            asr_error('Invalid node or callsign.');
+        }
+        $command .= ' --kind ' . escapeshellarg($kind) . ' --value ' . escapeshellarg($value);
+        $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+        $command .= ' --actor ' . escapeshellarg($actor ?: 'unknown');
+        if ($verb === 'ban') {
+            if (!in_array($duration, ['15m', '1h', '1w', '30d', 'permanent'], true)) asr_error('Invalid ban duration.');
+            $reason = trim(preg_replace('/[\x00-\x1f\x7f]/', ' ', $reason) ?? '');
+            if (strlen($reason) > 160) asr_error('Ban reason is too long.');
+            $command .= ' --duration ' . escapeshellarg($duration)
+                . ' --reason ' . escapeshellarg($reason);
+        }
+    }
+    $lines = []; $status = 1; exec($command . ' 2>&1', $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $candidate = json_decode($line, true);
+        if (is_array($candidate)) { $payload = $candidate; break; }
+    }
+    if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) {
+        asr_error(substr((string) ($payload['error'] ?? 'AllStar/EchoLink ban operation failed.'), 0, 180), 502);
+    }
+    return $payload;
+}
+
+function asr_urf_extract_elements(string $body, string $tag): array {
+    $pattern = '#<' . preg_quote($tag, '#') . '>(.*?)</' . preg_quote($tag, '#') . '>#s';
+    if (!preg_match_all($pattern, $body, $matches)) return [];
+    return array_map(static fn($value) => trim(html_entity_decode(strip_tags((string) $value), ENT_QUOTES | ENT_XML1, 'UTF-8')), $matches[1]);
+}
+
+function asr_urf_first_element(string $body, string $tag): string {
+    $values = asr_urf_extract_elements($body, $tag);
+    return (string) ($values[0] ?? '');
+}
+
+function asr_urf_normalize_callsign(string $callsign): string {
+    $normalized = strtoupper(trim($callsign));
+    // URFD/YSF may append the linked module as a separate one-character suffix.
+    // Strip that transport suffix before identity policy is applied.
+    return trim((string) (preg_replace('/\s+[A-Z]$/D', '', $normalized) ?: $normalized));
+}
+
+function asr_urf_is_service_identity(string $callsign, string $mode): bool {
+    static $policy = null;
+    if ($policy === null) {
+        $stored = is_readable(ASR_RUNTIME_CONFIG)
+            ? json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true)
+            : [];
+        if (!is_array($stored)) $stored = [];
+        $enabled = !array_key_exists('filterServiceStations', $stored)
+            || !empty($stored['filterServiceStations']);
+        $custom = [];
+        foreach ((array) ($stored['filteredStations'] ?? []) as $station) {
+            $station = strtoupper(trim((string) $station));
+            if (preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $station)) $custom[$station] = true;
+            if (count($custom) >= 64) break;
+        }
+        $policy = ['enabled' => $enabled, 'custom' => $custom];
+    }
+    if (empty($policy['enabled'])) return false;
+    $normalized = asr_urf_normalize_callsign($callsign);
+    // These identities recur on fixed schedules across several protocols and
+    // are reflector health/test traffic rather than normal station sessions.
+    if (in_array($normalized, ['RFCKRD0', 'YSF-LIVE', 'KF0WSS', 'SRVPROB', 'M7TEST'], true)) return true;
+    return isset($policy['custom'][$normalized]);
+}
+
+function asr_urf_kick_command(string $callsign, string $protocol): array {
+    global $user;
+    if (!is_executable(ASR_URF_ADMIN_HELPER)) asr_error('Bridge client administration helper is unavailable.', 503);
+    $callsign = strtoupper(trim($callsign));
+    $protocol = strtoupper(trim($protocol));
+    if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
+    if (!in_array($protocol, ['DMRMMDVM', 'YSF', 'P25', 'NXDN', 'M17', 'DSTAR'], true)) asr_error('Invalid bridge client protocol.');
+    $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' kick ' . escapeshellarg($callsign) . ' ' . escapeshellarg($protocol) . ' --actor ' . escapeshellarg($actor ?: 'unknown');
+    $output = []; $code = 0; exec($command . ' 2>/dev/null', $output, $code);
+    $payload = json_decode((string) end($output), true);
+    if ($code !== 0 || !is_array($payload) || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? 'Bridge client kick failed.'), 500);
+    return $payload;
+}
+
+function asr_standalone_kick_command(string $bridgeId, string $callsign): array {
+    global $user;
+    $bridge = asr_bridge_config_by_id($bridgeId);
+    if (!is_array($bridge) || !in_array('kickClient', asr_standalone_client_admin($bridge), true)) {
+        asr_error('Standalone bridge Kick backend is unavailable.', 503);
+    }
+    $callsign = strtoupper(trim($callsign));
+    if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
+    $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command = 'sudo -n ' . escapeshellarg(ASR_STANDALONE_ADMIN_HELPER)
+        . ' kick ' . escapeshellarg($bridgeId) . ' ' . escapeshellarg($callsign)
+        . ' --actor ' . escapeshellarg($actor ?: 'unknown');
+    $output = []; $code = 0; exec($command . ' 2>/dev/null', $output, $code);
+    $payload = json_decode((string) end($output), true);
+    if ($code !== 0 || !is_array($payload) || empty($payload['ok'])) {
+        asr_error((string) ($payload['error'] ?? 'Standalone bridge Kick failed.'), 500);
+    }
+    return $payload;
+}
+
+function asr_urf_status_payload(): array {
+    $path = '/run/urf-wil/urfd.xml';
+    $eventPath = '/run/urf-wil/asr-live-events.jsonl';
+    $stat = @stat($path);
+    if (!is_array($stat) || !is_readable($path)) {
+        return ['ok' => false, 'online' => false, 'stale' => true, 'error' => 'URF status source unavailable.', 'modes' => [], 'clients' => [], 'recent' => [], 'events' => []];
+    }
+    $raw = (string) @file_get_contents($path);
+    $age = max(0, time() - (int) ($stat['mtime'] ?? 0));
+    $clients = [];
+    if (preg_match_all('#<NODE>(.*?)</NODE>#s', $raw, $matches)) foreach ($matches[1] as $node) {
+        $protocol = strtoupper(asr_urf_first_element((string)$node, 'Protocol'));
+        $mode = str_starts_with($protocol, 'DMR') ? 'DMR' : $protocol;
+        $callsign = asr_urf_normalize_callsign(asr_urf_first_element((string)$node, 'Callsign'));
+        $ip = trim(asr_urf_first_element((string)$node, 'IP'));
+        // Loopback entries are ASR/URFD transport legs, not remotely connected clients.
+        if ($ip === '127.0.0.1' || $ip === '::1') continue;
+        if (asr_urf_is_service_identity($callsign, $mode)) continue;
+        $clients[] = ['callsign' => $callsign, 'mode' => $mode, 'module' => asr_urf_first_element((string)$node, 'LinkedModule'), 'connected' => asr_urf_first_element((string)$node, 'ConnectTime'), 'lastHeard' => asr_urf_first_element((string)$node, 'LastHeardTime')];
+    }
+    $recent = [];
+    if (preg_match_all('#<STATION>(.*?)</STATION>#s', $raw, $matches)) foreach ($matches[1] as $station) {
+        $stationCallsign = trim(asr_urf_first_element((string)$station, 'Callsign'));
+        if (asr_urf_is_service_identity($stationCallsign, '')) continue;
+        $recent[] = ['callsign' => $stationCallsign, 'viaNode' => trim(asr_urf_first_element((string)$station, 'Via node')), 'module' => asr_urf_first_element((string)$station, 'On module'), 'viaPeer' => trim(asr_urf_first_element((string)$station, 'Via peer')), 'lastHeard' => asr_urf_first_element((string)$station, 'LastHeardTime')];
+    }
+    $events = [];
+    if (is_readable($eventPath)) {
+        $lines = @file($eventPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        foreach (array_reverse($lines) as $line) {
+            $event = json_decode($line, true);
+            if (!is_array($event) || (int)($event['epoch'] ?? 0) <= 0) continue;
+            $eventMode = strtoupper(trim((string)($event['mode'] ?? '')));
+            if (str_starts_with($eventMode, 'DMR')) $event['mode'] = 'DMR';
+            $eventCallsign = (string) ($event['callsign'] ?? $event['client'] ?? '');
+            if (asr_urf_is_service_identity($eventCallsign, (string) ($event['mode'] ?? $eventMode))) continue;
+            $events[] = $event;
+            if (count($events) >= 100) break;
+        }
+        // Probe traffic can be much noisier than human activity. Limit only
+        // after filtering so probes cannot evict meaningful lifecycle history.
+        $events = array_reverse($events);
+    }
+    $modes = [];
+    foreach (['DMR','YSF','P25','NXDN','M17','USRP'] as $mode) $modes[$mode] = ['clients'=>0,'active'=>false];
+    foreach ($clients as $client) { $mode=(string)$client['mode']; if (!isset($modes[$mode])) $modes[$mode]=['clients'=>0,'active'=>false]; $modes[$mode]['clients']++; }
+    $currentTalker = null;
+    $open = [];
+    $eventCutoff = time() - 300;
+    foreach ($events as $event) {
+        if ((int)($event['epoch'] ?? 0) < $eventCutoff) continue;
+        $mode = strtoupper((string)($event['mode'] ?? ''));
+        $module = (string)($event['module'] ?? '');
+        $key = $mode . '|' . $module;
+        if (($event['event'] ?? '') === 'tx_start') $open[$key] = $event;
+        elseif (($event['event'] ?? '') === 'tx_stop') unset($open[$key]);
+    }
+    if ($open) { usort($open, static fn($a,$b)=>(int)($b['epoch']??0)<=>(int)($a['epoch']??0)); $currentTalker=$open[0]; $mode=strtoupper((string)($currentTalker['mode']??'')); if(isset($modes[$mode])) $modes[$mode]['active']=true; }
+    return ['ok'=>true,'online'=>$age<=30,'stale'=>$age>20,'ageSeconds'=>$age,'version'=>asr_urf_first_element($raw,'Version'),'clients'=>$clients,'recent'=>$recent,'events'=>array_reverse($events),'currentTalker'=>$currentTalker,'modes'=>$modes,'updatedEpoch'=>(int)($stat['mtime']??0),'eventUpdatedEpoch'=>$events ? max(array_map(static fn($e)=>(int)($e['epoch']??0),$events)) : 0];
+}
+
 function asr_bridge_status_payload(): array {
     $bridge = [];
     $path = asrRuntimeFilePath('bridge-live.json');
@@ -711,15 +1028,136 @@ function asr_bridge_status_payload(): array {
     foreach (asr_standard_bridge_live_statuses() as $id => $entry) {
         $bridge[$id] = array_merge(is_array($bridge[$id] ?? null) ? $bridge[$id] : [], $entry);
     }
-    foreach (asr_dmr_net_live_statuses() as $id => $entry) {
-        $bridge[$id] = $entry;
-    }
-    foreach (asr_ysf_net_live_statuses() as $id => $entry) {
-        $bridge[$id] = $entry;
-    }
+    foreach (asr_dmr_net_live_statuses() as $id => $entry) $bridge[$id] = $entry;
+    foreach (asr_ysf_net_live_statuses() as $id => $entry) $bridge[$id] = $entry;
     $nextModes = asr_next_mode_statuses();
     foreach ($nextModes['live'] as $id => $entry) $bridge[$id] = $entry;
-    $configuredBridges = (array) (asr_raw_runtime_config()['bridges'] ?? []);
+
+    $configuredBridges = (array) (asr_runtime_config()['bridges'] ?? []);
+    $urf = asr_urf_status_payload();
+    $urfClients = [];
+    $urfCounts = [];
+    $sourceMode = strtoupper(trim((string) ($urf['currentTalker']['mode'] ?? '')));
+    $sourceCallsign = asr_urf_normalize_callsign((string) ($urf['currentTalker']['callsign'] ?? ''));
+    $urfActive = !empty($urf['online']) && $sourceMode !== '';
+    foreach ($configuredBridges as $configuredBridge) {
+        if (!is_array($configuredBridge) || empty($configuredBridge['urfReflector'])) continue;
+        $id = (string) ($configuredBridge['id'] ?? '');
+        $mode = strtoupper(asr_bridge_mode($configuredBridge));
+        if ($id === '' || !in_array($mode, ['DMR','YSF','P25','NXDN','M17'], true)) continue;
+        $modeClients = array_values(array_filter((array) ($urf['clients'] ?? []), static function($client) use ($mode): bool {
+            if (!is_array($client) || strtoupper(trim((string) ($client['mode'] ?? ''))) !== $mode) return false;
+            $clientCallsign = asr_urf_normalize_callsign((string) ($client['callsign'] ?? ''));
+            if (asr_urf_is_service_identity($clientCallsign, $mode)) return false;
+            return true;
+        }));
+        if ($mode === 'DMR') {
+            // URFD sees the TGIF transport only as loopback. The sidecar publishes
+            // current inbound DMR source identity separately for the URF DMR card.
+            $dmrRosterPath = '/run/dmr-bridge/dmr-clients.json';
+            $dmrRoster = [];
+            if (is_readable($dmrRosterPath)) {
+                $dmrRoster = json_decode((string) @file_get_contents($dmrRosterPath), true);
+                if (!is_array($dmrRoster)) $dmrRoster = [];
+                $dmrRows = is_array($dmrRoster['urf_dmr'] ?? null) ? $dmrRoster['urf_dmr'] : [];
+                // DMR connection membership persists until explicit Kick/Ban/disconnect.
+                // Silence is not a disconnect and must not age a client out of the roster.
+                $modeClients = asr_dedupe_client_rows(array_merge($modeClients, asr_sanitize_client_rows($dmrRows, 'dmr', true)));
+            }
+        }
+        if ($mode === 'DMR' && is_array($dmrRoster ?? null)) {
+            $dmrEvents = (array) ($dmrRoster['events'] ?? []);
+            foreach ($dmrEvents as $dmrEvent) {
+                if (!is_array($dmrEvent)) continue;
+                $eventName = strtolower(trim((string) ($dmrEvent['event'] ?? '')));
+                $epoch = (int) ($dmrEvent['epoch'] ?? 0);
+                $callsign = trim((string) ($dmrEvent['callsign'] ?? ''));
+                if ($callsign !== '' && in_array($eventName, ['connect','disconnect','kick','ban'], true) && $epoch > 0) {
+                    $urf['events'][] = ['mode' => 'DMR', 'callsign' => $callsign, 'event' => $eventName, 'epoch' => $epoch];
+                }
+            }
+        }
+        $lastTxByCallsign = [];
+        foreach ((array) ($urf['events'] ?? []) as $urfEvent) {
+            if (!is_array($urfEvent) || strtolower(trim((string) ($urfEvent['event'] ?? ''))) !== 'tx_stop') continue;
+            if (strtoupper(trim((string) ($urfEvent['mode'] ?? ''))) !== $mode) continue;
+            $txCallsign = asr_urf_normalize_callsign((string) ($urfEvent['callsign'] ?? $urfEvent['client'] ?? ''));
+            $txEpoch = (int) ($urfEvent['epoch'] ?? 0);
+            if ($txCallsign !== '' && $txEpoch > (int) ($lastTxByCallsign[strtoupper($txCallsign)] ?? 0)) $lastTxByCallsign[strtoupper($txCallsign)] = $txEpoch;
+        }
+        foreach ($modeClients as &$modeClient) {
+            $clientCallsign = strtoupper(trim((string) ($modeClient['callsign'] ?? '')));
+            if (isset($lastTxByCallsign[$clientCallsign])) $modeClient['last_tx_epoch'] = $lastTxByCallsign[$clientCallsign];
+        }
+        unset($modeClient);
+        $urfClients[$id] = $modeClients;
+        $urfCounts[$id] = count($modeClients);
+        $isSource = $urfActive && $sourceMode === $mode;
+        $modeEvents = array_values(array_filter((array) ($urf['events'] ?? []), static fn($event): bool =>
+            is_array($event) && strtoupper(trim((string) ($event['mode'] ?? ''))) === $mode
+        ));
+        $openTx = [];
+        $txEvents = [];
+        $clientEvents = [];
+        $lastSourceUser = '';
+        $lastSourceEpoch = 0;
+        foreach (array_reverse($modeEvents) as $event) {
+            $eventName = strtolower(trim((string) ($event['event'] ?? '')));
+            $module = strtoupper(trim((string) ($event['module'] ?? '')));
+            $key = $mode . '|' . $module;
+            $epoch = (int) ($event['epoch'] ?? 0);
+            $callsign = trim((string) ($event['callsign'] ?? $event['client'] ?? ''));
+            if ($eventName === 'tx_start') {
+                $openTx[$key] = $event;
+            } elseif ($eventName === 'tx_stop') {
+                $start = is_array($openTx[$key] ?? null) ? $openTx[$key] : [];
+                $startEpoch = (int) ($start['epoch'] ?? $epoch);
+                $talker = asr_urf_normalize_callsign((string) ($event['callsign'] ?? $event['client'] ?? $start['callsign'] ?? $start['client'] ?? ''));
+                if ($talker !== '' && $epoch > 0 && !asr_urf_is_service_identity($talker, $mode)) {
+                    $txEvents[] = [
+                        'callsign' => $talker,
+                        'event' => 'transmit',
+                        'epoch' => $epoch,
+                        'start_epoch' => $startEpoch > 0 ? $startEpoch : $epoch,
+                        'duration_seconds' => max(0, $epoch - ($startEpoch > 0 ? $startEpoch : $epoch)),
+                    ];
+                    if ($epoch >= $lastSourceEpoch) {
+                        $lastSourceUser = $talker;
+                        $lastSourceEpoch = $epoch;
+                    }
+                }
+                unset($openTx[$key]);
+            } elseif (in_array($eventName, ['connect','disconnect','kick','ban'], true) && $callsign !== '' && $epoch > 0) {
+                $normalizedCallsign = asr_urf_normalize_callsign($callsign);
+                if (!asr_urf_is_service_identity($normalizedCallsign, $mode)) {
+                    $clientEvents[] = ['callsign' => trim($normalizedCallsign), 'event' => $eventName, 'epoch' => $epoch];
+                }
+            }
+        }
+        usort($txEvents, static fn($a, $b): int => (int) ($b['epoch'] ?? 0) <=> (int) ($a['epoch'] ?? 0));
+        usort($clientEvents, static fn($a, $b): int => (int) ($b['epoch'] ?? 0) <=> (int) ($a['epoch'] ?? 0));
+        $warning = empty($urf['ok']) ? (string) ($urf['error'] ?? 'URF status unavailable.') : (!empty($urf['stale']) ? 'URF status data is stale.' : '-');
+        $healthSeverity = empty($urf['online']) ? 'offline' : (!empty($urf['stale']) ? 'warning' : null);
+        $bridge[$id] = [
+            'active' => $urfActive,
+            'role' => $isSource ? 'source' : ($urfActive ? 'relay' : 'idle'),
+            'state' => $isSource ? 'Source/TX' : ($urfActive ? 'Relay' : 'Idle'),
+            'current_user' => $isSource ? $sourceCallsign : '',
+            'caller' => $isSource ? $sourceCallsign : '',
+            'last_caller' => $isSource ? $sourceCallsign : '',
+            'lastCaller' => $isSource ? $sourceCallsign : '',
+            'last_source_user' => $lastSourceUser,
+            'last_source_epoch' => $lastSourceEpoch,
+            'tx_events' => array_slice($txEvents, 0, 100),
+            'client_events' => array_slice($clientEvents, 0, 100),
+            'online' => !empty($urf['online']),
+            'warning' => $warning,
+            'health_severity' => $healthSeverity,
+            'health_issues' => $warning !== '-' ? [$warning] : [],
+            'updated' => !empty($urf['updatedEpoch']) ? date('Y-m-d H:i:s T', (int) $urf['updatedEpoch']) : '',
+        ];
+    }
+
     $bridge = asrPublicBridgeLiveStatuses($bridge, $configuredBridges);
     $controls = asrPublicBridgeControls(array_merge(
         asr_dmr_net_control_statuses(),
@@ -727,12 +1165,62 @@ function asr_bridge_status_payload(): array {
         $nextModes['controls'],
     ));
     $clientState = asr_bridge_clients_state();
+    $clients = array_merge((array) ($clientState['clients'] ?? []), $urfClients);
+    $counts = array_merge((array) ($clientState['counts'] ?? []), $urfCounts);
+
+    // Zello publishes its own authoritative talker/activity feed.
+    $zelloPath = asrRuntimeFilePath('zello-talkers.json');
+    if (is_readable($zelloPath)) {
+        $zelloPayload = json_decode((string) @file_get_contents($zelloPath), true);
+        if (is_array($zelloPayload)) {
+            $zelloRows = is_array($zelloPayload['recent_users'] ?? null) ? $zelloPayload['recent_users'] : [];
+            foreach ($zelloRows as &$zelloRow) {
+                if (!is_array($zelloRow)) continue;
+                $rowEpoch = asr_client_epoch_value($zelloRow['last_tx_epoch'] ?? $zelloRow['last_seen_epoch'] ?? 0);
+                if ($rowEpoch > 0) $zelloRow['last_tx_epoch'] = $rowEpoch;
+            }
+            unset($zelloRow);
+            $clients['zello'] = $zelloRows;
+            $counts['zello'] = count($zelloRows);
+            $zelloEvents = [];
+            foreach ((array) ($zelloPayload['tx_events'] ?? []) as $row) {
+                if (!is_array($row)) continue;
+                $name = substr(trim((string) ($row['name'] ?? $row['callsign'] ?? '')), 0, 120);
+                $epoch = asr_client_epoch_value($row['epoch'] ?? 0);
+                $duration = max(0.0, (float) ($row['duration_seconds'] ?? 0));
+                if ($name !== '' && $epoch > 0) $zelloEvents[] = ['callsign'=>$name,'event'=>'transmit','epoch'=>$epoch,'start_epoch'=>$epoch - $duration,'duration_seconds'=>$duration];
+            }
+            $lastUser = substr(trim((string) ($zelloPayload['last_user'] ?? '')), 0, 120);
+            $lastEpoch = $zelloEvents ? (int) ($zelloEvents[0]['epoch'] ?? 0) : 0;
+            if ($lastEpoch <= 0 && isset($zelloRows[0]) && is_array($zelloRows[0])) $lastEpoch = asr_client_epoch_value($zelloRows[0]['last_seen_epoch'] ?? 0);
+            $active = !empty($zelloPayload['active']);
+            $current = $active ? substr(trim((string) ($zelloPayload['current_user'] ?? '')), 0, 120) : '';
+            $bridge['zello'] = array_merge(is_array($bridge['zello'] ?? null) ? $bridge['zello'] : [], [
+                'active'=>$active, 'role'=>$active ? 'source' : 'idle', 'state'=>$active ? 'TX ACTIVE' : 'Idle',
+                'current_user'=>$current, 'caller'=>$current, 'last_user'=>$lastUser ?: '-',
+                'last_source_user'=>$lastUser, 'last_source_epoch'=>$lastEpoch,
+                'recent_users'=>$zelloRows, 'tx_events'=>$zelloEvents, 'client_events'=>[],
+            ]);
+        }
+    }
+    foreach ($configuredBridges as $configuredBridge) {
+        if (!is_array($configuredBridge) || asr_bridge_mode($configuredBridge) !== 'dstar') continue;
+        $id = (string) ($configuredBridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
+        $entry = is_array($bridge[$id] ?? null) ? $bridge[$id] : [];
+        $dstarClients = is_array($entry['linked_clients'] ?? null) ? $entry['linked_clients'] : [];
+        $clients[$id] = $dstarClients;
+        $counts[$id] = count($dstarClients);
+        $clientState['meta'][$id] = ['kind' => 'current', 'mode' => 'dstar'];
+    }
     return [
         'ok' => true,
         'bridge' => $bridge,
-        'clients' => $clientState['clients'],
-        'clientCounts' => $clientState['counts'],
+        'clients' => $clients,
+        'clientCounts' => $counts,
+        'clientMeta' => (array) ($clientState['meta'] ?? []),
         'controls' => $controls,
+        'urf' => $urf,
     ];
 }
 
@@ -852,10 +1340,10 @@ function asr_standard_bridge_live_statuses(): array {
         $id = (string) ($bridge['id'] ?? '');
         $mode = asr_bridge_mode($bridge);
         $node = (string) ($bridge['node'] ?? '');
-        if (in_array($mode, ['dmr', 'ysf'], true)
+        if (in_array($mode, ['dmr', 'ysf', 'dstar'], true)
             && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
             && preg_match('/^[0-9]{3,10}$/D', $node)) {
-            $allowed[$id] = $node;
+            $allowed[$id] = ['node' => $node, 'mode' => $mode];
         }
     }
 
@@ -863,10 +1351,59 @@ function asr_standard_bridge_live_statuses(): array {
     foreach ($payload['bridges'] as $id => $entry) {
         $id = (string) $id;
         if (!isset($allowed[$id]) || !is_array($entry)
-            || !hash_equals($allowed[$id], (string) ($entry['node'] ?? ''))) continue;
+            || !hash_equals((string) $allowed[$id]['node'], (string) ($entry['node'] ?? ''))) continue;
+        $mode = (string) $allowed[$id]['mode'];
+        $online = $mode === 'dstar' ? !empty($entry['online']) : null;
         $role = strtolower((string) ($entry['role'] ?? 'idle'));
-        if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
-        $caller = $role === 'source' ? substr((string) ($entry['current_user'] ?? ''), 0, 120) : '';
+        if (!in_array($role, ['idle', 'source', 'relay'], true) || ($mode === 'dstar' && !$online)) $role = 'idle';
+        $caller = $role === 'source' ? substr(trim((string) ($entry['current_user'] ?? '')), 0, 120) : '';
+        $linked = is_bool($entry['linked'] ?? null) ? (bool) $entry['linked'] : null;
+        $recent = [];
+        foreach ((array) ($entry['recent_users'] ?? []) as $row) {
+            if (!is_array($row)) continue;
+            $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 8));
+            $epoch = max(0, (int) ($row['last_tx_epoch'] ?? 0));
+            if (!preg_match('/^[A-Z0-9]{3,8}$/D', $callsign)
+                || $epoch <= 0 || $epoch > time() + 300 || time() - $epoch > 86400) continue;
+            $recent[] = [
+                'callsign' => $callsign,
+                'last_tx_epoch' => $epoch,
+                'reflector' => substr(strtoupper(trim((string) ($row['reflector'] ?? ''))), 0, 8),
+                'module' => substr(strtoupper(trim((string) ($row['module'] ?? ''))), 0, 1),
+            ];
+            if (count($recent) >= 50) break;
+        }
+        $txEvents = [];
+        foreach ((array) ($entry['tx_events'] ?? []) as $row) {
+            if (!is_array($row)) continue;
+            $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 20));
+            $epoch = max(0, (int) ($row['epoch'] ?? 0));
+            if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{2,19}$/D', $callsign) || $epoch <= 0 || time() - $epoch > 86400) continue;
+            $txEvents[] = ['callsign'=>$callsign, 'event'=>'transmit', 'epoch'=>$epoch, 'start_epoch'=>max(0,(int)($row['start_epoch']??0)), 'duration_seconds'=>max(0,(float)($row['duration_seconds']??0))];
+            if (count($txEvents) >= 100) break;
+        }
+        $clientEvents = [];
+        foreach ((array) ($entry['client_events'] ?? []) as $row) {
+            if (!is_array($row)) continue;
+            $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 20));
+            $event = strtolower(trim((string) ($row['event'] ?? '')));
+            $epoch = max(0, (int) ($row['epoch'] ?? 0));
+            if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{2,19}$/D', $callsign) || !in_array($event,['connect','disconnect'],true) || $epoch <= 0 || time() - $epoch > 86400) continue;
+            $clientEvents[] = ['callsign'=>$callsign, 'event'=>$event, 'epoch'=>$epoch];
+            if (count($clientEvents) >= 100) break;
+        }
+        $linkedClients = [];
+        foreach ((array) ($entry['linked_clients'] ?? []) as $row) {
+            if (!is_array($row)) continue;
+            $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 20));
+            if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{2,19}$/D', $callsign)) continue;
+            $linkedClients[] = [
+                'callsign' => $callsign,
+                'module' => substr(strtoupper(trim((string) ($row['module'] ?? ''))), 0, 1),
+                'protocol' => substr(trim((string) ($row['protocol'] ?? '')), 0, 20),
+                'connected' => true,
+            ];
+        }
         $clean[$id] = [
             'active' => $role !== 'idle',
             'role' => $role,
@@ -876,9 +1413,21 @@ function asr_standard_bridge_live_statuses(): array {
             'last_time_epoch' => max(0, (int) ($entry['last_time_epoch'] ?? 0)),
             'current_user' => $caller,
             'caller' => $caller,
-            'last_user' => substr((string) ($entry['last_user'] ?? '-'), 0, 120),
-            'last_source_user' => substr((string) ($entry['last_source_user'] ?? ''), 0, 120),
+            'last_user' => substr(trim((string) ($entry['last_user'] ?? '-')), 0, 120),
+            'last_source_user' => substr(trim((string) ($entry['last_source_user'] ?? '')), 0, 120),
             'last_source_epoch' => max(0, (int) ($entry['last_source_epoch'] ?? 0)),
+            'warning' => substr(trim((string) ($entry['warning'] ?? '')), 0, 160),
+            'health_severity' => in_array((string) ($entry['health_severity'] ?? ''), ['warning', 'unhealthy', 'offline'], true) ? (string) $entry['health_severity'] : null,
+            'health_issues' => array_values(array_slice(array_filter(array_map(static fn($issue) => substr(trim((string) $issue), 0, 160), is_array($entry['health_issues'] ?? null) ? $entry['health_issues'] : [])), 0, 8)),
+            'online' => $online,
+            'linked' => $linked,
+            'reflector' => substr(strtoupper(trim((string) ($entry['reflector'] ?? ''))), 0, 8),
+            'module' => substr(strtoupper(trim((string) ($entry['module'] ?? ''))), 0, 1),
+            'link_protocol' => substr(trim((string) ($entry['link_protocol'] ?? '')), 0, 20),
+            'recent_users' => $recent,
+            'tx_events' => $txEvents,
+            'client_events' => $clientEvents,
+            'linked_clients' => $linkedClients,
         ];
     }
     return $clean;
@@ -1450,15 +1999,20 @@ function asr_bridge_clients_state(): array {
         if ($id === '_asr_meta') continue;
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id)) continue;
 
-        // A current external file is authoritative for each bridge key it
-        // publishes, including an intentionally empty client list. ASR's own
-        // collector fills only bridge keys that the external writer omits.
+        // Prefer a non-empty managed feed when a legacy external collector
+        // publishes an empty array. This preserves authoritative external rows
+        // while allowing ASR's protocol-aware collector to recover client data
+        // that the legacy collector cannot observe through a local proxy.
         $fromExternal = array_key_exists($id, $externalPayload);
-        $rows = $fromExternal
+        $externalRows = $fromExternal && is_array($externalPayload[$id])
             ? $externalPayload[$id]
-            : ($managedPayload[$id] ?? []);
-        if (!is_array($rows)) continue;
-        $meta = $fromExternal ? ($externalMeta[$id] ?? []) : ($managedMeta[$id] ?? []);
+            : [];
+        $managedRows = is_array($managedPayload[$id] ?? null)
+            ? $managedPayload[$id]
+            : [];
+        $useExternal = $fromExternal && ($externalRows !== [] || $managedRows === []);
+        $rows = $useExternal ? $externalRows : $managedRows;
+        $meta = $useExternal ? ($externalMeta[$id] ?? []) : ($managedMeta[$id] ?? []);
         $kind = is_array($meta) ? strtolower((string) ($meta['kind'] ?? '')) : '';
         $mode = is_array($meta) && preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', (string) ($meta['mode'] ?? ''))
             ? (string) $meta['mode']
@@ -1466,7 +2020,7 @@ function asr_bridge_clients_state(): array {
         // A flat external connected-clients file is a current-feed contract for
         // backward compatibility. ASR-managed fallback and recent-talker rows
         // are explicitly marked and are never certified as connected clients.
-        $currentConnectedFeed = $fromExternal ? $kind !== 'recent' && $kind !== 'fallback' : $kind === 'current';
+        $currentConnectedFeed = $useExternal ? $kind !== 'recent' && $kind !== 'fallback' : $kind === 'current';
         $clean = asr_dedupe_client_rows(asr_sanitize_client_rows($rows, $mode, $currentConnectedFeed));
         $clients[$id] = $clean;
         // Fallback feeds (notably YSF gateway snapshots) still contain the
@@ -1497,7 +2051,24 @@ function asr_bridge_clients_state(): array {
         $counts[$id] = $tgifConfigured ? count($clean) : 0;
     }
 
-    return ['clients' => $clients, 'counts' => $counts];
+    $meta = [];
+    foreach ($bridgeIds as $id) {
+        $id = (string) $id;
+        if ($id === '_asr_meta' || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id)) continue;
+        $fromExternal = array_key_exists($id, $externalPayload);
+        $externalRows = $fromExternal && is_array($externalPayload[$id]) ? $externalPayload[$id] : [];
+        $managedRows = is_array($managedPayload[$id] ?? null) ? $managedPayload[$id] : [];
+        $useExternal = $fromExternal && ($externalRows !== [] || $managedRows === []);
+        $sourceMeta = $useExternal ? ($externalMeta[$id] ?? []) : ($managedMeta[$id] ?? []);
+        $meta[$id] = is_array($sourceMeta) ? [
+            'kind' => substr(strtolower((string) ($sourceMeta['kind'] ?? ($useExternal ? 'current' : 'unknown'))), 0, 16),
+            'mode' => substr(strtolower((string) ($sourceMeta['mode'] ?? asr_bridge_mode(['id' => $id]))), 0, 32),
+        ] : ['kind' => $useExternal ? 'current' : 'unknown', 'mode' => asr_bridge_mode(['id' => $id])];
+    }
+    foreach (array_keys($dmrStandardIds) as $id) {
+        $meta[$id] = ['kind' => $tgifConfigured ? 'current' : 'unavailable', 'mode' => 'dmr'];
+    }
+    return ['clients' => $clients, 'counts' => $counts, 'meta' => $meta];
 }
 
 function asr_bridge_clients_payload(): array {
@@ -2750,6 +3321,59 @@ if ($action === 'bridge-clients') {
 if ($action === 'bridge-status') {
     asr_require_read();
     asr_json(asr_bridge_status_payload());
+}
+if ($action === 'urf-status') {
+    asr_require_read();
+    asr_json(asr_urf_status_payload());
+}
+if ($action === 'asl-ban-list') {
+    asr_require_admin();
+    asr_json(asr_asl_ban_command('list'));
+}
+if ($action === 'asl-ban-control') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'asl-ban-control') asr_error('Invalid ban request.', 403);
+    asr_json(asr_asl_ban_command(
+        strtolower(trim((string) ($_POST['verb'] ?? ''))),
+        strtolower(trim((string) ($_POST['kind'] ?? ''))),
+        (string) ($_POST['value'] ?? ''),
+        strtolower(trim((string) ($_POST['duration'] ?? 'permanent'))),
+        (string) ($_POST['reason'] ?? '')
+    ));
+}
+if ($action === 'urf-access-list') {
+    asr_require_admin();
+    asr_json(asr_urf_admin_command('list'));
+}
+if ($action === 'urf-access-control') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'urf-access-control') asr_error('Invalid Global Ban request.', 403);
+    $verb = strtolower(trim((string) ($_POST['verb'] ?? '')));
+    $rule = strtoupper(trim((string) ($_POST['rule'] ?? '')));
+    $duration = strtolower(trim((string) ($_POST['duration'] ?? 'permanent')));
+    if (!in_array($verb, ['ban', 'unban'], true)) asr_error('Invalid Global Ban action.');
+    if ($verb === 'ban' && !in_array($duration, ['15m', '1h', '1w', '30d', 'permanent'], true)) asr_error('Invalid Global Ban duration.');
+    asr_json(asr_urf_admin_command($verb, $rule, $verb === 'ban' ? $duration : ''));
+}
+if ($action === 'urf-client-kick') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'urf-client-kick') asr_error('Invalid URF client-kick request.', 403);
+    $callsign = strtoupper(trim((string) ($_POST['callsign'] ?? '')));
+    $protocol = strtoupper(trim((string) ($_POST['protocol'] ?? '')));
+    asr_json(asr_urf_kick_command($callsign, $protocol));
+}
+if ($action === 'standalone-client-kick') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'standalone-client-kick') asr_error('Invalid bridge Kick request.', 403);
+    asr_json(asr_standalone_kick_command((string) ($_POST['bridgeId'] ?? ''), (string) ($_POST['callsign'] ?? '')));
 }
 if ($action === 'bridge-destinations') {
     asr_require_read();

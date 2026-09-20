@@ -177,6 +177,33 @@ def require_absolute(value: Any, label: str) -> Path:
     return path
 
 
+def runtime_path_allowed(path: Path, bridge_id: str) -> bool:
+    legacy = str(path).startswith("/run/allscan-reimagined") and bridge_id in str(path)
+    standalone = path.parent == Path("/run/asr-standalone-admin") / bridge_id
+    return legacy or standalone
+
+
+def validate_admin_capabilities(payload: Any, bridge_id: str, mode: str) -> None:
+    if not isinstance(payload, dict) or payload.get("schema") != 1:
+        raise LifecycleError("Bridge administration capability manifest is invalid.")
+    if payload.get("bridgeId") != bridge_id or payload.get("mode") != mode:
+        raise LifecycleError("Bridge administration capability manifest targets the wrong bridge.")
+    required_true = (
+        "healthy", "listClients", "kickClient", "kickRequiresCurrentSession",
+        "kickAllowsImmediateReconnect", "banClient", "unbanClient", "listBans",
+    )
+    if not all(payload.get(field) is True for field in required_true):
+        raise LifecycleError("Installed standard bridge does not provide full client administration.")
+    if payload.get("kickContract") != "disconnect-until-reconnect":
+        raise LifecycleError("Installed standard bridge has an incompatible Kick contract.")
+    if payload.get("banContract") != "global-timed-v1":
+        raise LifecycleError("Installed standard bridge has an incompatible Global Ban contract.")
+    if not isinstance(payload.get("heartbeatEpoch"), int) or payload["heartbeatEpoch"] <= 0:
+        raise LifecycleError("Installed standard bridge has no administration heartbeat.")
+    if not SHA_RE.fullmatch(str(payload.get("appliedPolicyDigest", ""))):
+        raise LifecycleError("Installed standard bridge has not acknowledged the Global Ban policy.")
+
+
 def ownership_payload(bridge_id: str, creation_id: str) -> dict[str, Any]:
     return {
         "bridgeId": bridge_id,
@@ -277,7 +304,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             raise LifecycleError("Invalid runtime artifact entry.")
         require_keys_only(entry, {"path", "marker"}, "runtime artifact")
         path = require_absolute(entry.get("path", ""), "runtime")
-        if not str(path).startswith("/run/allscan-reimagined") or bridge_id not in str(path):
+        if not runtime_path_allowed(path, bridge_id):
             raise LifecycleError(f"Unsafe runtime path: {path}")
         if path in seen_runtime_paths:
             raise LifecycleError(f"Duplicate runtime path: {path}")
@@ -285,6 +312,10 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         marker = require_absolute(entry.get("marker", ""), "runtime marker")
         if marker.parent != path.parent or marker.name != ".asr-bridge-owner.json":
             raise LifecycleError(f"Runtime ownership marker is invalid: {path}")
+    if payload.get("role") == "standard" and payload.get("mode") in {"dmr", "ysf", "p25", "nxdn", "m17"}:
+        required_admin = Path("/run/asr-standalone-admin") / bridge_id / "capabilities.json"
+        if required_admin not in seen_runtime_paths:
+            raise LifecycleError("A standard digital bridge requires its administration capability manifest.")
 
     if len(payload.get("credentialEntries", [])) > 1:
         raise LifecycleError("A bridge manifest may own at most one credential entry.")
@@ -1011,7 +1042,7 @@ def preflight_creation(
     runtime_paths: list[str] = []
     for value in planned_runtime:
         path = require_absolute(value, "planned runtime")
-        if not str(path).startswith("/run/allscan-reimagined") or bridge_id not in str(path):
+        if not runtime_path_allowed(path, bridge_id):
             raise LifecycleError(f"Unsafe planned runtime path: {path}")
         mapped = root_map.path(path)
         marker = mapped.parent / ".asr-bridge-owner.json"
@@ -1020,6 +1051,10 @@ def preflight_creation(
         runtime_paths.append(str(path))
     if len(set(runtime_paths)) != len(runtime_paths):
         raise LifecycleError("Creation preflight contains a duplicate runtime path.")
+    if request.get("role") == "standard" and request.get("mode") in {"dmr", "ysf", "p25", "nxdn", "m17"}:
+        required_admin = f"/run/asr-standalone-admin/{bridge_id}/capabilities.json"
+        if required_admin not in runtime_paths:
+            raise LifecycleError("Creation preflight must include the bridge administration capability manifest.")
     firewall_paths: list[str] = []
     for value in planned_firewall:
         path = require_absolute(value, "planned firewall")
@@ -1124,6 +1159,11 @@ def verify_created_resources(
         marker_payload = read_json_regular(marker, root_only=False)
         if marker_payload != ownership_payload(bridge_id, creation_id):
             raise LifecycleError(f"Created runtime record lacks immutable provenance: {path}")
+        if path == root_map.path(Path("/run/asr-standalone-admin") / bridge_id / "capabilities.json"):
+            validate_admin_capabilities(
+                read_json_regular(path, root_only=root_map.root == Path("/") and os.geteuid() == 0),
+                bridge_id, manifest["mode"],
+            )
     for entry in manifest.get("credentialEntries", []):
         path = root_map.path(Path(entry["path"]))
         payload = read_json_regular(path, root_only=False)
@@ -1349,6 +1389,10 @@ def self_test() -> None:
         verify_created_resources(manifest, RootMap(root))
         standard_manifest = dict(manifest)
         standard_manifest["role"] = "standard"
+        standard_manifest["runtimePaths"] = [*manifest["runtimePaths"], {
+            "path": "/run/asr-standalone-admin/p25_net/capabilities.json",
+            "marker": "/run/asr-standalone-admin/p25_net/.asr-bridge-owner.json",
+        }]
         assert validate_manifest(standard_manifest)["role"] == "standard"
         assert manifest_preview(standard_manifest)["role"] == "standard"
         try:

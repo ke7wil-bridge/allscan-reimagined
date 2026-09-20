@@ -93,6 +93,48 @@ test ! -e "$ASR_WEB_DIR/.public-status-talkers.json"
 test ! -e "$ASR_WEB_DIR/.example-public-status-talker-live.json"
 test -f "$ASR_WEB_DIR/include/public-status.json"
 
+# bridge-live.json is one canonical stock runtime file exposed to ASR by symlink.
+printf '%s\n' '{"updated":"fresh"}' > "$STOCK_ALLSCAN_DIR/bridge-live.json"
+ASR_MASTER_DIR="$MASTER_DIR" ASR_WEB_ROOT="$WEB_ROOT" STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" ASR_INSTALL_LOCK_HELD=1 ASR_REAPPLY_WEB_ONLY=1 bash "$SCRIPT_DIR/asr-reapply.sh" >/dev/null
+test -L "$ASR_WEB_DIR/bridge-live.json"
+[ "$(readlink "$ASR_WEB_DIR/bridge-live.json")" = "$STOCK_ALLSCAN_DIR/bridge-live.json" ]
+grep -q '"fresh"' "$ASR_WEB_DIR/bridge-live.json"
+
+# Reapply migrates stale files and repairs broken/wrong links without touching stock.
+for state in stale broken wrong correct; do
+  rm -f "$ASR_WEB_DIR/bridge-live.json"
+  case "$state" in
+    stale) printf '%s\n' '{"updated":"stale"}' > "$ASR_WEB_DIR/bridge-live.json" ;;
+    broken) ln -s "$TEST_ROOT/missing-bridge-live.json" "$ASR_WEB_DIR/bridge-live.json" ;;
+    wrong) ln -s "$TEST_ROOT/wrong-bridge-live.json" "$ASR_WEB_DIR/bridge-live.json" ;;
+    correct) ln -s "$STOCK_ALLSCAN_DIR/bridge-live.json" "$ASR_WEB_DIR/bridge-live.json" ;;
+  esac
+  stock_bridge_before=$(sha256sum "$STOCK_ALLSCAN_DIR/bridge-live.json" | awk '{print $1}')
+  ASR_MASTER_DIR="$MASTER_DIR" ASR_WEB_ROOT="$WEB_ROOT" STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" ASR_INSTALL_LOCK_HELD=1 ASR_REAPPLY_WEB_ONLY=1 bash "$SCRIPT_DIR/asr-reapply.sh" >/dev/null
+  test -L "$ASR_WEB_DIR/bridge-live.json"
+  [ "$(readlink "$ASR_WEB_DIR/bridge-live.json")" = "$STOCK_ALLSCAN_DIR/bridge-live.json" ]
+  [ "$stock_bridge_before" = "$(sha256sum "$STOCK_ALLSCAN_DIR/bridge-live.json" | awk '{print $1}')" ]
+  [ "$ASR_WEB_DIR/bridge-live.json" -ef "$STOCK_ALLSCAN_DIR/bridge-live.json" ]
+done
+
+# Integrity monitoring repairs a stale regular bridge-live file through reapply.
+rm -f "$ASR_WEB_DIR/bridge-live.json"
+printf '%s\n' '{"updated":"stale-again"}' > "$ASR_WEB_DIR/bridge-live.json"
+ASR_MASTER_DIR="$MASTER_DIR" \
+ASR_WEB_ROOT="$WEB_ROOT" \
+STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" \
+ASR_WEB_DIR="$ASR_WEB_DIR" \
+ASR_INSTALL_LOCK_HELD=1 \
+ASR_INTEGRITY_WEB_ONLY=1 \
+ASR_REAPPLY_COMMAND="$SCRIPT_DIR/asr-reapply.sh" \
+  bash "$SCRIPT_DIR/asr-integrity-check.sh"
+test -L "$ASR_WEB_DIR/bridge-live.json"
+[ "$(readlink "$ASR_WEB_DIR/bridge-live.json")" = "$STOCK_ALLSCAN_DIR/bridge-live.json" ]
+
+# A repeated reapply is idempotent.
+ASR_MASTER_DIR="$MASTER_DIR" ASR_WEB_ROOT="$WEB_ROOT" STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" ASR_INSTALL_LOCK_HELD=1 ASR_REAPPLY_WEB_ONLY=1 bash "$SCRIPT_DIR/asr-reapply.sh" >/dev/null
+[ "$(readlink "$ASR_WEB_DIR/bridge-live.json")" = "$STOCK_ALLSCAN_DIR/bridge-live.json" ]
+
 # A status-name symlink is never adopted into the web tree.
 rm "$STOCK_ALLSCAN_DIR/.public-status-talkers.json"
 ln -s "$TEST_ROOT/etc/allscan/favorites.ini" \

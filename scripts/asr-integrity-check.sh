@@ -35,6 +35,9 @@ files_match() {
 
 [ -f "$ASR_WEB_DIR/index.html" ] || needs_reapply=1
 [ -f "$ASR_WEB_DIR/asr-api.php" ] || needs_reapply=1
+[ -L "$ASR_WEB_DIR/bridge-live.json" ] \
+  && [ "$(readlink "$ASR_WEB_DIR/bridge-live.json" 2>/dev/null || true)" = "$STOCK_ALLSCAN_DIR/bridge-live.json" ] \
+  || needs_reapply=1
 if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" != "1" ]; then
 WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"

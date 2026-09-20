@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 7.5 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 7.6 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -97,7 +97,7 @@ pageInit();
 		<h2>Bridge Cards</h2>
 		<p>Bridge Cards tell ASR which already-working bridges to display. A card does not install or configure the underlying digital bridge.</p>
 		<dl class="asr-instructions-definitions">
-			<div><dt>Digital Mode</dt><dd>Choose DMR, YSF, Zello, P25, NXDN, or M17. The Card Title remains freely editable.</dd></div>
+			<div><dt>Digital Mode</dt><dd>Choose DMR, YSF, D-Star, Zello, P25, NXDN, or M17. The Card Title remains freely editable.</dd></div>
 			<div><dt>Card Type</dt><dd>Use Standard Bridge for a fixed path. Use Net Bridge only for a separately installed, isolated path whose destination may be changed.</dd></div>
 			<div><dt>Fixed Bridge Recovery</dt><dd>For a Standard Bridge that should always remain linked, enable automatic recovery. ASR checks that the configured bridge node is local, restores only a missing link, and stays out of the way when Asterisk already has a native permanent link. Net Bridges are excluded.</dd></div>
 			<div><dt>Node</dt><dd>The AllStar bridge node ASR matches against live connection status. This is not a DMR talkgroup.</dd></div>
@@ -109,6 +109,7 @@ pageInit();
 		<p><strong>Startup bridge summary</strong> is optional. At startup it waits for Asterisk and fixed-link recovery, then announces only configured Standard bridges that are actually established. It never announces Net Bridges, display-only cards, destinations, ports, credentials, or arbitrary remote nodes.</p>
 		<p><strong>Connected Client Source</strong> should stay Disabled unless the bridge supplies a real client list. Local JSON / file accepts a readable local JSON source. HTTP API accepts a JSON status endpoint. ASR caches the result so every browser does not repeatedly contact the bridge.</p>
 		<p><strong>DMR and YSF Talking status</strong> follows real bridge evidence. A matching end-of-transmission or anchored MMDVM network-watchdog event ends the source. When fresh Asterisk keyed telemetry is explicitly available, a verified unkeyed sample can clear a missing end event after a short grace period. Keyed, unknown, or unavailable telemetry is preserved, and ASR does not hide a legitimate long transmission with a blind timeout.</p>
+		<p><strong>D-Star is Standard-only.</strong> Its card reads the managed runtime heartbeat, gateway link log, MMDVM activity, and fresh local reflector snapshot. It uses that evidence for health while keeping the card compact with Talking, Last Talker, Connected Clients, and Recent Activity; missing or stale evidence is never fabricated as current state. The D-Star card has no destination controls.</p>
 		<p><strong>Deleting a card:</strong> ASR shows both what it will remove and what it will not touch. Only a managed bridge created by ASR with an intact bridge-specific ownership manifest can have its dedicated resources retired. Without that proof, deleting the card removes ASR metadata only and leaves manual or pre-existing services, Asterisk configuration, files, firewall rules, ports, packages, and shared components untouched.</p>
 	</section>
 
@@ -172,6 +173,7 @@ pageInit();
 		<p>Each supported mode can use a Standard Bridge card or an isolated Net Bridge card. P25 and NXDN use numeric destination designators. M17 uses an unencrypted reflector and module through a qualified Codec2/USRP audio path.</p>
 		<ol class="asr-instructions-steps">
 			<li><strong>Install and isolate the bridge first.</strong> Every card needs its own local node, configuration, services, ports, and runtime identity. P25/NXDN also require authenticated local MQTT, per-instance topic permissions, and root-only ASR controller credentials. ASR does not create the external gateway stack or display those credentials.</li>
+			<li><strong>Confirm permission.</strong> Choose Self-owned target or Target owner approved. Being listed in a public directory is not permission to cross-mode bridge a destination.</li>
 			<li><strong>Use only permitted destinations.</strong> DMR talkgroups and YSF reflector names or IDs are entered manually; the selected permission confirms that every destination entered is authorized. P25, NXDN, and M17 remain limited to saved approved destinations. ASR still blocks invalid, reserved, encrypted, duplicate, or conflicting destinations.</li>
 			<li><strong>Verify real state.</strong> Gateway command acceptance is not proof that a remote reflector is reachable. A card must not report fully linked until both digital-side evidence and the AllStar link agree.</li>
 		</ol>

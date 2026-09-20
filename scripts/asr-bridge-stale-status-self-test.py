@@ -236,6 +236,16 @@ def test_standard_payload_and_ambiguity() -> None:
             assert payload["bridges"][mode]["current_user"] == ""
             assert payload["bridges"][mode]["caller"] == ""
             assert payload["bridges"][mode]["last_user"] != "-"
+            assert len(payload["bridges"][mode]["tx_events"]) == 1
+            assert len(payload["bridges"][mode]["recent_users"]) == 1
+
+        expires_at = max(states[mode]["last_source_epoch"] for mode in ("dmr", "ysf")) + status.BRIDGE_RECENT_MAX_AGE_SECONDS + 1
+        payload = status.standard_live_payload(config, states, [], expires_at, cache_dir)
+        for mode in ("dmr", "ysf"):
+            assert payload["bridges"][mode]["last_user"] == "-"
+            assert payload["bridges"][mode]["last_source_epoch"] == 0
+            assert payload["bridges"][mode]["tx_events"] == []
+            assert payload["bridges"][mode]["recent_users"] == []
 
         ambiguous = dict(config)
         ambiguous["bridges"] = config["bridges"] + [
@@ -406,7 +416,7 @@ def test_wiring_contracts() -> None:
         assert installer.count("allscan-reimagined-standard-bridge-status.service") >= 4
         assert "/usr/local/sbin/asr_bridge_status.py" in installer
         standard_check = installer.index(
-            'validate_command "configured Standard DMR/YSF status service is active"'
+            'validate_command "configured Standard DMR/YSF/D-Star status service is active"'
         )
         net_check = installer.index(
             'validate_command "configured DMR Net live service is active"'
@@ -420,7 +430,7 @@ def test_wiring_contracts() -> None:
         assert standard_condition >= 0
         condition = installer[standard_condition:standard_check]
         assert 'item.get("cardType", "standard") == "standard"' in condition
-        assert '.startswith(("dmr", "ysf"))' in condition
+        assert '.startswith(("dmr", "ysf", "dstar"))' in condition
 
 
 def main() -> None:

@@ -148,7 +148,7 @@ stage_asr_web() {
   copy_stable_stock_tree "$stage" || return 1
   if [ -d "$ASR_WEB_DIR" ]; then
     for relative in \
-      bridge-live.json connected-clients.json asr-connected-clients.json \
+      connected-clients.json asr-connected-clients.json \
       zello-status-data.json favorites.ini; do
       [ -f "$ASR_WEB_DIR/$relative" ] || continue
       if [ "$relative" = "favorites.ini" ]; then
@@ -174,6 +174,11 @@ stage_asr_web() {
 
   cp -a "$MASTER_DIR/web/." "$stage/"
   install -m 644 "$MASTER_DIR/server/asr-api.php" "$stage/asr-api.php"
+
+  # bridge-live.json is live stock AllScan state. ASR must always read the
+  # same canonical file rather than preserving a stale independent copy.
+  rm -f -- "$stage/bridge-live.json"
+  ln -s "$STOCK_ALLSCAN_DIR/bridge-live.json" "$stage/bridge-live.json"
   backend_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' \
     "$STOCK_ALLSCAN_DIR/include/common.php" | head -1)
   compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"
@@ -301,7 +306,7 @@ if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
 fi
 cat > /etc/systemd/system/allscan-reimagined-standard-bridge-status.service <<'EOF'
 [Unit]
-Description=Reconcile live activity for configured Standard DMR and YSF bridges
+Description=Reconcile live activity for configured Standard DMR, YSF, and D-Star bridges
 After=network.target asterisk.service
 
 [Service]
@@ -338,7 +343,7 @@ except (OSError, ValueError):
 raise SystemExit(0 if any(
     isinstance(item, dict)
     and item.get("cardType", "standard") == "standard"
-    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf"))
+    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf", "dstar"))
     for item in payload.get("bridges", [])
 ) else 1)
 PY
@@ -924,6 +929,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin list --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
@@ -961,7 +969,12 @@ install -d -o root -g "$WEB_GROUP" -m 775 "$ALLSCAN_DIR/asr-user-content"
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'owner="$1"; shift; for file; do [ -e "$file" ] && chown "$owner" "$file" 2>/dev/null || true; done' sh "root:$WEB_GROUP" {} +
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 664 "$file" 2>/dev/null || true; done' sh {} +
 
-[ -s "$ALLSCAN_DIR/bridge-live.json" ] || printf '%s\n' '{"updated":""}' > "$ALLSCAN_DIR/bridge-live.json"
+[ -e "$STOCK_ALLSCAN_DIR/bridge-live.json" ] || printf '%s\n' '{"updated":""}' > "$STOCK_ALLSCAN_DIR/bridge-live.json"
+if [ ! -L "$ALLSCAN_DIR/bridge-live.json" ] \
+  || [ "$(readlink "$ALLSCAN_DIR/bridge-live.json" 2>/dev/null || true)" != "$STOCK_ALLSCAN_DIR/bridge-live.json" ]; then
+  rm -f -- "$ALLSCAN_DIR/bridge-live.json"
+  ln -s "$STOCK_ALLSCAN_DIR/bridge-live.json" "$ALLSCAN_DIR/bridge-live.json"
+fi
 [ -s "$ALLSCAN_DIR/connected-clients.json" ] || printf '%s\n' '{}' > "$ALLSCAN_DIR/connected-clients.json"
 [ -s "$ALLSCAN_DIR/asr-connected-clients.json" ] || printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"
 

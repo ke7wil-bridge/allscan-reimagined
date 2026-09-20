@@ -12,6 +12,17 @@ const CONNECTION_RECONNECT_MAX_MS = 30000
 export type BridgeId = string
 export type BridgeCardType = 'standard' | 'dmr_net' | 'ysf_net' | 'p25_net' | 'nxdn_net' | 'm17_net'
 
+export type BridgeAdminCapabilities = {
+  bridgeControl: Array<'connect' | 'disconnect' | 'changeDestination' | 'restart' | 'recover'>
+  clientAdmin: Array<'listClients' | 'kickClient' | 'banClient' | 'unbanClient' | 'listBans'>
+  activity: Array<'currentTalker' | 'lastTalker' | 'recentActivity'>
+  lifecycle: Array<'health' | 'readiness' | 'runtimeAvailability'>
+  managementScope: 'bridge' | 'urf-reflector' | 'asr-global' | 'allstar'
+  clientAuthority: 'none' | 'urfd-blacklist' | 'asr-global-ban' | 'allstar-channel'
+  authoritativeClientId: string
+  banScopeLabel: string
+}
+
 export type RuntimeBridgeConfig = {
   id: BridgeId
   mode?: string
@@ -20,8 +31,11 @@ export type RuntimeBridgeConfig = {
   detailTitle: string
   friendlyName?: string
   cardType?: BridgeCardType
+  urfReflector?: boolean
+  urfGroupId?: string
   linkAlias?: string
   backendMode?: 'display_only' | 'managed'
+  adminCapabilities?: BridgeAdminCapabilities
 }
 
 export type RuntimeConfig = {
@@ -35,6 +49,7 @@ export type RuntimeConfig = {
   footerLogo: string
   versionLabel: string
   lowPowerMode: boolean
+  protectedBanIdentities: string[]
   bridges: RuntimeBridgeConfig[]
 }
 
@@ -47,8 +62,9 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 7.5',
+  versionLabel: 'v1.0.0 Beta 7.6',
   lowPowerMode: false,
+  protectedBanIdentities: [],
   bridges: [],
 }
 
@@ -110,6 +126,8 @@ export type BridgeCardView = {
   status: 'Idle' | 'Source/TX' | 'Relay'
   lastCaller: string
   warning: string
+  healthSeverity: 'warning' | 'unhealthy' | 'offline' | null
+  healthIssues: string[]
   currentTg: string
   currentDestination: string
   currentDestinationLabel: string
@@ -119,7 +137,122 @@ export type BridgeCardView = {
   allstarLinked: boolean
   detailTitle: string
   detailRows: BridgeDetailItem[]
+  detailCount: number
+  detailAvailable: boolean
   connectedClientCount: number
+  runtimeOnline: boolean | null
+  reflector: string
+  module: string
+  linkProtocol: string
+  lastTransmitter: string
+  lastTxEpoch: number
+  recentRows: BridgeDetailItem[]
+}
+
+export type UrfClient = { callsign: string; mode: string; module: string; connected: string; lastHeard: string }
+export type UrfEvent = { event: 'connect' | 'disconnect' | 'kick' | 'ban' | 'tx_start' | 'tx_stop'; mode: string; callsign: string; client?: string; module: string; epoch: number }
+export type UrfStatus = {
+  ok: boolean; online: boolean; stale: boolean; ageSeconds?: number; version?: string
+  clients: UrfClient[]; recent: Array<{ callsign: string; viaNode: string; module: string; viaPeer: string; lastHeard: string }>
+  events: UrfEvent[]; currentTalker?: UrfEvent | null
+  modes: Record<string, { clients: number; active: boolean }>; updatedEpoch?: number; eventUpdatedEpoch?: number; error?: string
+}
+
+export async function fetchUrfStatus(signal?: AbortSignal): Promise<UrfStatus> {
+  const response = await fetch(`${ASR_API}?action=urf-status`, { credentials: 'same-origin', cache: 'no-store', signal })
+  const payload = (await response.json()) as UrfStatus
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'URF status could not be loaded.')
+  return payload
+}
+
+export type UrfBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
+export type UrfAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
+export type UrfAccessList = { rules: string[]; bans: UrfBan[]; audit: UrfAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
+
+export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
+  const suffix = mode ? `&mode=${encodeURIComponent(mode)}` : ''
+  const response = await fetch(`${ASR_API}?action=urf-access-list${suffix}`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; asl?: UrfAccessList['asl'] }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban list could not be loaded.')
+  return {
+    rules: Array.isArray(payload.rules) ? payload.rules : [],
+    bans: Array.isArray(payload.bans) ? payload.bans : [],
+    audit: Array.isArray(payload.audit) ? payload.audit : [],
+    serverEpoch: Math.max(0, Number(payload.serverEpoch || 0)),
+    asl: payload.asl,
+  }
+}
+
+export type UrfBlacklistMutation = UrfAccessList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
+
+export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, duration = 'permanent', mode = ''): Promise<UrfBlacklistMutation> {
+  const body = new URLSearchParams({ verb, rule, duration, mode })
+  const response = await fetch(`${ASR_API}?action=urf-access-control`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-access-control' },
+    body: body.toString(),
+  })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: UrfAccessList['asl'] }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban update failed.')
+  return {
+    rules: Array.isArray(payload.rules) ? payload.rules : [],
+    bans: Array.isArray(payload.bans) ? payload.bans : [],
+    audit: Array.isArray(payload.audit) ? payload.audit : [],
+    serverEpoch: Math.max(0, Number(payload.serverEpoch || 0)),
+    verified: payload.verified === true,
+    asl: payload.asl,
+    enforcement: String(payload.enforcement || ''),
+    reloadSeconds: Math.max(0, Number(payload.reloadSeconds || 0)),
+    removed: Math.max(0, Number(payload.removed || 0)),
+    expiresAt: Math.max(0, Number(payload.expiresAt || 0)),
+  }
+}
+
+export type AslBanKind = 'node' | 'allstar-call' | 'echolink-call'
+export type AslBan = { kind: AslBanKind; value: string; createdAt: number; expiresAt: number; reason: string; actor: string }
+export type AslBanList = { bans: AslBan[]; audit?: Array<{ action: string; kind: string; value: string; at: number; actor?: string }>; applied: { allstar: string[]; echolink: string[]; externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] }; localNode: string }
+
+export async function fetchAslBans(): Promise<AslBanList> {
+  const response = await fetch(`${ASR_API}?action=asl-ban-list`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = (await response.json()) as AslBanList & { ok?: boolean; error?: string }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'AllStar/EchoLink bans could not be loaded.')
+  return payload
+}
+
+export async function changeAslBan(verb: 'ban' | 'unban', kind: AslBanKind, value: string, duration = 'permanent', reason = ''): Promise<AslBanList> {
+  const body = new URLSearchParams({ verb, kind, value, duration, reason })
+  const response = await fetch(`${ASR_API}?action=asl-ban-control`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'asl-ban-control' },
+    body: body.toString(),
+  })
+  const payload = (await response.json()) as AslBanList & { ok?: boolean; error?: string }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'AllStar/EchoLink ban update failed.')
+  return payload
+}
+
+export async function kickUrfClient(callsign: string, protocol: string): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ callsign, protocol })
+  const response = await fetch(`${ASR_API}?action=urf-client-kick`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-client-kick' },
+    body: body.toString(),
+  })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'URF client kick failed.')
+  return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+}
+
+export async function kickStandaloneClient(bridgeId: string, callsign: string): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ bridgeId, callsign })
+  const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
+    body: body.toString(),
+  })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Standalone bridge client Kick failed.')
+  return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
 export type BridgeDestination = {
@@ -243,12 +376,22 @@ type BridgeEntry = {
   state?: string
   active_start_epoch?: number
   warning?: string
+  health_severity?: 'warning' | 'unhealthy' | 'offline' | null
+  health_issues?: string[]
   caller?: string
   current_user?: string
   last_user?: string
   last_source_user?: string
   last_source_epoch?: number
   recent_users?: Array<Record<string, unknown> & { name?: string }>
+  tx_events?: Array<Record<string, unknown>>
+  client_events?: Array<Record<string, unknown>>
+  online?: boolean | null
+  linked?: boolean | null
+  reflector?: string
+  module?: string
+  link_protocol?: string
+  linked_clients?: Array<Record<string, unknown>>
 }
 
 type ConnectedClientsResponse = {
@@ -799,6 +942,7 @@ export function bridgeModeLabel(mode: string) {
   const labels: Record<string, string> = {
     dmr: 'DMR',
     ysf: 'YSF',
+    dstar: 'D-Star',
     zello: 'Zello',
     p25: 'P25',
     nxdn: 'NXDN',
@@ -811,7 +955,7 @@ export function bridgeModeLabel(mode: string) {
 export function normalizedBridgeMode(mode: string | undefined, id: string) {
   const candidate = String(mode || id || 'unknown').toLowerCase()
   const compact = candidate.replace(/[^a-z0-9]/g, '')
-  const known = ['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn']
+  const known = ['dmr', 'ysf', 'dstar', 'zello', 'p25', 'm17', 'nxdn']
     .find((value) => compact.startsWith(value))
   return known || candidate.match(/^([a-z][a-z0-9]*)(?:[_-]|$)/)?.[1] || 'unknown'
 }
@@ -900,7 +1044,7 @@ export function bridgeCardWarningText(
 
 type BridgeClientMode = string
 
-function relativeBridgeTime(epoch: number) {
+export function relativeBridgeTime(epoch: number) {
   if (!epoch) return ''
   const diff = Math.max(0, Math.floor(Date.now() / 1000 - epoch))
   if (diff < 60) return `${diff}s ago`
@@ -909,10 +1053,10 @@ function relativeBridgeTime(epoch: number) {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-function bridgeClientEpoch(record: Record<string, unknown>, mode: BridgeClientMode) {
-  const value = mode === 'zello'
-    ? record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
-    : record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
+function bridgeClientEpoch(record: Record<string, unknown>) {
+  // Connection keepalives/LastHeardTime are not transmit evidence.
+  // Only explicit TX/talker timestamps may drive the Connected Clients Last TX label.
+  const value = record.last_tx_epoch || record.tx_epoch || record.last_talk_epoch
   return Number(value || 0) || 0
 }
 
@@ -933,8 +1077,8 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
           : null)
     .filter((record): record is Record<string, unknown> => Boolean(record))
     .sort((left, right) => {
-      const leftEpoch = bridgeClientEpoch(left, mode)
-      const rightEpoch = bridgeClientEpoch(right, mode)
+      const leftEpoch = bridgeClientEpoch(left)
+      const rightEpoch = bridgeClientEpoch(right)
       if (leftEpoch && rightEpoch && leftEpoch !== rightEpoch) return rightEpoch - leftEpoch
       if (leftEpoch && !rightEpoch) return -1
       if (!leftEpoch && rightEpoch) return 1
@@ -944,11 +1088,11 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
       const user = bridgeClientName(record)
       const id = String(record.dmrid || record.dmr_id || record.id || '').trim()
       const label = mode === 'dmr' && id ? `${user} · ${id}` : user
-      const age = relativeBridgeTime(bridgeClientEpoch(record, mode))
+      const age = relativeBridgeTime(bridgeClientEpoch(record))
       return {
         key: `${mode}-${label}-${index}`,
-        label,
-        meta: age ? `Last TX ${age}` : 'No recent TX',
+        label: (mode === 'dstar' || mode === 'dmr') ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
+        meta: mode === 'dstar' ? '' : (age ? `Last TX ${age}` : 'No recent TX'),
       }
     })
 
@@ -957,7 +1101,9 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
     : [{ key: `${mode}-empty`, label: fallback, meta: '', empty: true }]
 }
 
-const ZELLO_RECENT_TALKERS_MAX_AGE = 180
+const BRIDGE_LAST_TALKER_MAX_AGE = 60 * 60
+const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 12 * 60 * 60
+const ZELLO_RECENT_TALKERS_MAX_AGE = BRIDGE_RECENT_ACTIVITY_MAX_AGE
 
 function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
   return Number(
@@ -982,6 +1128,34 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
     .filter((item) => Boolean(zelloRecentTalkerName(item)))
 }
 
+function dstarDisplayCallsign(record: Record<string, unknown>): string {
+  return bridgeClientName(record).replace(/\s+[A-Z]$/i, '').trim()
+}
+
+function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
+  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record, index) => {
+    const epoch = Number(record.epoch || 0)
+    const started = Number(record.start_epoch || epoch)
+    const duration = Number(record.duration_seconds || 0)
+    const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
+    const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
+    return { key: `${mode}-tx-${bridgeClientName(record)}-${epoch}-${index}`, label: mode === 'dstar' ? dstarDisplayCallsign(record) : bridgeClientName(record), meta: ['TRANSMITTED', time, durationLabel].filter(Boolean).join(' · '), epoch }
+  })
+  const events = (Array.isArray(entry?.client_events) ? entry.client_events : []).map((record, index) => {
+    const epoch = Number(record.epoch || 0)
+    const event = String(record.event || '').toLowerCase()
+    const time = epoch > 0 ? new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
+    return { key: `${mode}-client-${bridgeClientName(record)}-${event}-${epoch}-${index}`, label: mode === 'dstar' ? dstarDisplayCallsign(record) : bridgeClientName(record), meta: [event === 'connect' ? 'CONNECTED' : event === 'disconnect' ? 'DISCONNECTED' : event.toUpperCase(), time].filter(Boolean).join(' · '), epoch }
+  })
+  const now = Date.now() / 1000
+  const rows = [...talkers, ...events]
+    .filter((row) => row.epoch > 0 && now - row.epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)
+    .sort((a, b) => b.epoch - a.epoch)
+    .slice(0, 100)
+  if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
+  return rows.map((row) => ({ key: row.key, label: row.label, meta: row.meta }))
+}
+
 export async function fetchBridgeCards(
   config: RuntimeConfig,
   signal?: AbortSignal,
@@ -991,6 +1165,7 @@ export async function fetchBridgeCards(
     bridge?: BridgeLiveResponse
     clients?: ConnectedClientsResponse
     clientCounts?: Record<string, number>
+    clientMeta?: Record<string, { kind?: string; mode?: string }>
     controls?: BridgeControlResponse
   }
   const bridge = normalizeBridgeRoles(payload.bridge || {})
@@ -1004,9 +1179,9 @@ export async function fetchBridgeCards(
       ? entryValue as BridgeEntry
       : undefined
     const cachedDetailRows = clients[bridgeConfig.id] || []
-    const detailRows = bridgeConfig.id === 'zello' && cachedDetailRows.length === 0
-      ? liveZelloRecentTalkers(bridge.zello)
-      : cachedDetailRows
+    const zelloTalkers = bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []
+    const detailRows = bridgeConfig.id === 'zello' ? zelloTalkers : cachedDetailRows
+    const detailAvailable = true
     const status = mapBridgeStatus(entry)
     const mode = normalizedBridgeMode(bridgeConfig.mode, bridgeConfig.id)
     const control = controls[bridgeConfig.id] || {}
@@ -1015,6 +1190,8 @@ export async function fetchBridgeCards(
       ? bridgeConfig.cardType as BridgeCardType
       : 'standard'
     const currentDestination = String(control.currentDestination || control.currentTg || '')
+    const rawLastTxEpoch = Number(entry?.last_source_epoch || 0)
+    const lastTalkerIsFresh = rawLastTxEpoch > 0 && Date.now() / 1000 - rawLastTxEpoch <= BRIDGE_LAST_TALKER_MAX_AGE
     return {
       id: bridgeConfig.id,
       mode,
@@ -1024,18 +1201,38 @@ export async function fetchBridgeCards(
       status,
       lastCaller: resolveBridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
+      healthSeverity: entry?.health_severity
+        || (mode === 'dstar'
+          ? (entry?.online === false ? 'offline' : entry?.linked === false ? 'unhealthy' : entry?.linked === null ? 'warning' : null)
+          : null),
+      healthIssues: Array.isArray(entry?.health_issues)
+        ? entry.health_issues.map(String)
+        : (entry?.warning && entry.warning !== '-' ? [String(entry.warning)] : []),
       currentTg: String(control.currentTg || control.currentDestination || ''),
       currentDestination,
       currentDestinationLabel: String(control.currentDestinationLabel || currentDestination),
-      controlLinked: control.linked === true,
+      controlLinked: mode === 'dstar' ? entry?.linked === true : control.linked === true,
       controlReady: control.ready === true,
-      digitalLinked: control.digitalLinked === true,
+      digitalLinked: mode === 'dstar' ? entry?.linked === true : control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
       detailTitle: bridgeConfig.detailTitle,
-      detailRows: formatBridgeDetailRows(detailRows, 'None', bridgeConfig.id),
+      detailRows: formatBridgeDetailRows(
+        detailRows,
+        !detailAvailable ? 'Unavailable' : mode === 'dstar' ? 'No other connected clients' : 'None',
+        mode,
+      ),
+      detailCount: detailRows.length,
+      detailAvailable,
       connectedClientCount: Number.isFinite(Number(clientCounts[bridgeConfig.id]))
         ? Math.max(0, Math.floor(Number(clientCounts[bridgeConfig.id])))
         : 0,
+      runtimeOnline: mode === 'dstar' && typeof entry?.online === 'boolean' ? entry.online : null,
+      reflector: String(entry?.reflector || '').trim(),
+      module: String(entry?.module || '').trim(),
+      linkProtocol: String(entry?.link_protocol || '').trim(),
+      lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
+      lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
+      recentRows: formatBridgeRecentRows(entry, mode),
     }
   })
 
