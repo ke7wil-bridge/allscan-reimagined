@@ -515,10 +515,10 @@ body {
   border-left: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(8, 8, 10, 0.82);
   box-shadow: none;
-  width: min(754px, calc(100vw - 80px));
+  width: fit-content;
   min-width: 0;
   max-width: calc(100vw - 80px);
-  padding: 8px 4px;
+  padding: 6px;
 }
 
 .allscan-status-shell {
@@ -937,9 +937,9 @@ body {
 
 .allscan-action-select {
   height: 30px;
-  width: 154px;
-  min-width: 154px;
-  max-width: 154px;
+  width: 144px;
+  min-width: 144px;
+  max-width: 144px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 6px;
   background: rgba(28, 28, 30, 0.96);
@@ -1466,7 +1466,7 @@ body {
 }
 
 .allscan-favs-button {
-  @apply inline-flex min-h-[30px] min-w-[112px] items-center justify-center gap-1 rounded-[6px] border px-[8px] py-[4px] text-[14px] leading-[1.1] font-semibold transition hover:text-[#ffffff];
+  @apply inline-flex min-h-[30px] min-w-[70px] items-center justify-center gap-1 rounded-[6px] border px-[8px] py-[4px] text-[14px] leading-[1.1] font-semibold transition hover:text-[#ffffff];
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(28, 28, 30, 0.96);
   color: rgb(230, 242, 247);
@@ -1483,6 +1483,7 @@ body {
 }
 
 .allscan-checks-row {
+  column-gap: 28px;
   color: rgb(234, 244, 248);
   font-size: 13px;
   font-weight: 720;
@@ -2939,19 +2940,20 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-favs-button {
-    width: 108px;
-    min-width: 108px;
+    width: auto;
+    min-width: 70px;
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-action-select {
-    width: 150px;
-    min-width: 150px;
-    max-width: 150px;
+    width: 140px;
+    min-width: 140px;
+    max-width: 140px;
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-checks-row {
     margin-top: 5px !important;
-    gap: 14px;
+    row-gap: 14px;
+    column-gap: 26px;
     font-size: 13px;
   }
 
@@ -3191,6 +3193,40 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     text-transform: uppercase;
   }
 
+  html[data-asr-theme="lcars-frame"] .allscan-urf-group {
+    left: auto;
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    background: #070507;
+    border-color: rgba(255,255,255,.16);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
+    background: #998866 !important;
+    color: #170b04 !important;
+    border-bottom-color: rgba(255,255,255,.16) !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-urf-group > .allscan-urf-access-panel {
+    background: #09080a;
+    color: #f5eadc;
+    border-color: rgba(255,255,255,.16);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-scope {
+    background: #09080a;
+    color: #f5eadc;
+    border-color: rgba(255,255,255,.16);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-tools input,
+  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients > span {
+    background: #09080a;
+    color: #f5eadc;
+    border-color: rgba(255,255,255,.16);
+  }
+
   html[data-asr-theme="lcars-frame"] .allscan-bridge-grid {
     left: auto;
     right: auto;
@@ -3375,9 +3411,9 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
   }
 
   .allscan-controls-shell {
-    width: 100%;
+    width: fit-content;
     max-width: 100%;
-    padding: 7px 6px;
+    padding: 6px;
   }
 
   .allscan-controls-row {
@@ -3462,7 +3498,7 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
   }
 
   .allscan-favs-button {
-    min-width: 100px;
+    min-width: 70px;
   }
 
   .allscan-node-input {
@@ -3473,7 +3509,7 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
   }
 
   .allscan-action-select {
-    width: 112px;
+    width: 102px;
     padding-right: 20px;
   }
 
@@ -3483,7 +3519,8 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
 
   .allscan-checks-row {
     margin-top: 6px !important;
-    gap: 8px 12px;
+    row-gap: 8px;
+    column-gap: 24px;
     font-size: 12px;
   }
 
@@ -3508,12 +3545,43 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
   min-width: 0;
 }
 
+.allscan-node-messages,
+.allscan-node-messages[open],
+html[data-asr-theme="lcars-frame"] .allscan-node-messages,
+html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .allscan-node-messages-summary,
 .allscan-node-messages-body {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+.allscan-node-messages-summary {
+  height: auto;
+  min-height: 22px;
+}
+
+.allscan-node-messages:not([open]) .allscan-node-messages-summary {
+  height: 22px;
+}
+
+.allscan-node-messages:not([open]) .allscan-node-messages-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.allscan-node-messages[open] .allscan-node-messages-text {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
 }
 
 /* Mobile favorites should stay inside the Node Controls box without horizontal scrolling. */
@@ -4078,4 +4146,636 @@ html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
   .allscan-bridge-link-buttons {
     gap: 6px;
   }
+}
+
+/* Unified URF reflector card */
+.allscan-urf-card { position:relative; left:50%; right:50%; width:calc(100vw - 40px); max-width:calc(100vw - 40px); margin-left:calc(-50vw + 20px); margin-right:calc(-50vw + 20px); margin-bottom:12px; overflow:visible; }
+.allscan-urf-head { align-items:center; min-height:32px; padding-top:5px; padding-bottom:5px; }
+.allscan-urf-head .allscan-bridge-head-title { font-size:15px; }
+.allscan-urf-head-actions { display:flex; align-items:center; gap:7px; margin-left:auto; }
+.allscan-urf-system-status { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; letter-spacing:.03em; }
+.allscan-urf-system-status i { width:7px; height:7px; border-radius:50%; background:#8b949e; box-shadow:0 0 0 1px rgba(255,255,255,.16); }
+.allscan-urf-system-status.is-healthy i { background:#2ea043; }
+.allscan-urf-system-status.is-degraded { color:#d29922; }
+.allscan-urf-system-status.is-degraded i { background:#d29922; }
+.allscan-urf-system-status.is-offline { color:#8b949e; }
+.allscan-urf-system-status.is-offline i { background:#8b949e; }
+.allscan-urf-modes { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:start; gap:6px; padding:6px; }
+.allscan-urf-mode-stack { min-width:0; }
+.allscan-urf-mode { position:relative; z-index:1; width:100%; min-height:82px; display:grid; grid-template-columns:minmax(44px,1fr) auto minmax(52px,auto); grid-template-rows:auto auto auto; align-items:center; column-gap:5px; row-gap:4px; padding:7px 8px; border:1px solid rgba(255,255,255,.20); border-radius:5px; background:rgba(255,255,255,.035); color:#f5f7fa; cursor:pointer; transition:background .12s,border-color .12s; }
+.allscan-urf-mode:hover,.allscan-urf-mode:focus,.allscan-urf-mode:focus-visible,.allscan-urf-mode:active,.allscan-urf-mode-stack:focus-within .allscan-urf-mode { background:rgba(255,255,255,.035); border-color:rgba(255,255,255,.20); outline:none; box-shadow:none; }
+.allscan-urf-mode-name { grid-column:1; grid-row:1; align-self:center; font-size:14px; line-height:1.15; font-weight:850; text-align:left; }
+.allscan-urf-mode-status { grid-column:3; grid-row:1; align-self:center; justify-self:end; min-width:58px; height:21px; min-height:21px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 5px; border:1px solid; border-radius:999px; font-size:9px; line-height:1; font-weight:850; letter-spacing:0; }
+.allscan-urf-mode-status i { width:5px; height:5px; border-radius:50%; }
+.allscan-urf-mode-status.is-idle { color:#eaf4f8; background:hsl(150,50%,15%); border-color:#3a8c4a; }
+.allscan-urf-mode-status.is-idle i { display:none; }
+.allscan-urf-mode-status.is-tx { color:yellow; background:maroon; border-color:#d16a6a; }
+.allscan-urf-mode-status.is-tx i { background:#f85149; }
+.allscan-urf-mode-status.is-relay { color:#ffe37a; background:#74560b; border-color:#b38b24; }
+.allscan-urf-mode-status.is-relay i { background:#d29922; }
+.allscan-urf-connected-spacer { display:none; }
+.allscan-urf-connected-control { grid-column:2; grid-row:1; align-self:center; justify-self:center; width:max-content; min-height:22px; display:flex; align-items:center; justify-content:center; gap:6px; margin:0; padding:0 3px; border-radius:4px; cursor:pointer; font-size:12px; line-height:1.2; font-weight:850; }
+.allscan-urf-connected-control b { font-size:12px; line-height:1.2; font-weight:850; }
+.allscan-urf-connected-control:hover { background:rgba(255,255,255,.08); }
+.allscan-urf-disclosure { width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; opacity:.82; cursor:pointer; }
+.allscan-urf-disclosure svg { width:11px; height:8px; fill:none; stroke:currentColor; stroke-width:2.1; stroke-linecap:round; stroke-linejoin:round; transition:transform .15s,opacity .12s; }
+.allscan-urf-disclosure.is-open svg { transform:rotate(180deg); }
+.allscan-urf-connected-control:hover .allscan-urf-disclosure,.allscan-urf-recent-control:hover .allscan-urf-disclosure { opacity:1; }
+.allscan-urf-mode > .allscan-urf-mode-label { grid-column:1; grid-row:2; position:relative; z-index:1; font-size:12px; line-height:1.2; font-weight:700; text-align:left; }
+.allscan-urf-mode-value { min-width:0; display:flex; align-items:center; }
+.allscan-urf-mode > .allscan-urf-mode-value:not(.allscan-urf-connected-control) { grid-column:2 / -1; grid-row:2; font-size:12px; line-height:1.2; font-weight:700; }
+.allscan-urf-mode > .allscan-urf-mode-talker { grid-column:1 / -1 !important; grid-row:2; width:100%; max-width:100%; justify-self:stretch; justify-content:center !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center !important; pointer-events:none; }
+.allscan-urf-recent-control { grid-column:1 / -1; grid-row:3; width:max-content; min-height:20px; display:inline-flex; align-items:center; gap:6px; margin-top:0; border-radius:3px; opacity:.72; cursor:pointer; font-size:11px; line-height:1.2; font-weight:700; }
+.allscan-urf-recent-control:hover { opacity:1; }
+.allscan-urf-mode-dropdown { margin-top:-1px; padding:8px 6px; border:1px solid rgba(255,255,255,.20); border-top-color:rgba(255,255,255,.10); border-radius:0 0 6px 6px; background:rgba(255,255,255,.015); overflow:hidden; }
+.allscan-urf-history-dropdown { margin-top:5px; }
+.allscan-urf-mode-dropdown .allscan-urf-mode-panel-title { margin:2px 0 6px; font-size:13px; font-weight:800; }
+.allscan-urf-mode-dropdown .allscan-urf-mode-panel-title:not(:first-child) { margin-top:9px; padding-top:8px; border-top:1px solid rgba(255,255,255,.12); }
+.allscan-urf-mode-dropdown .allscan-urf-mode-client { min-height:50px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:3px; margin:6px 0; padding:8px 7px; border:1px solid rgba(255,255,255,.24); border-radius:7px; background:rgba(255,255,255,.10); text-align:center; font-size:14px; line-height:17px; }
+.allscan-urf-mode-dropdown .allscan-urf-mode-client b { font-size:14px; font-weight:800; line-height:17px; }
+.allscan-urf-mode-dropdown .allscan-urf-mode-client small { font-size:12px; font-weight:650; line-height:15px; opacity:.88; }
+.allscan-urf-mode-history-row { display:flex; flex-direction:column; gap:2px; padding:7px 5px; border-bottom:1px solid rgba(255,255,255,.08); overflow-wrap:anywhere; font-size:12px; line-height:15px; }
+.allscan-urf-mode-history-row time { opacity:.7; font-variant-numeric:tabular-nums; }
+.allscan-urf-mode-history-row b { font-size:13px; }
+.allscan-urf-mode-history-row span { font-size:11px; font-weight:750; opacity:.82; }
+.allscan-urf-empty { opacity:.7; padding:5px 0; }
+
+@media (max-width:700px) {
+  .allscan-urf-mode-dropdown { padding:6px 3px; }
+  .allscan-urf-mode-dropdown .allscan-urf-mode-panel-title { font-size:11px; }
+  .allscan-urf-mode-dropdown .allscan-urf-mode-client { min-height:46px; padding:7px 4px; font-size:12px; line-height:15px; }
+  .allscan-urf-mode-dropdown .allscan-urf-mode-client b { font-size:12px; line-height:15px; }
+  .allscan-urf-mode-dropdown .allscan-urf-mode-client small { font-size:10px; line-height:13px; }
+  .allscan-urf-mode-history-row,.allscan-urf-mode-history-row b { font-size:10px; }
+  .allscan-urf-mode-history-row span { font-size:9px; }
+}
+
+@media (max-width:520px) and (orientation:portrait) {
+  .allscan-urf-modes { grid-template-columns:1fr; gap:5px; padding:5px; }
+  .allscan-urf-mode { min-height:76px; grid-template-columns:minmax(58px,1fr) auto minmax(58px,1fr); padding:7px 9px; column-gap:7px; }
+}
+
+@media (max-width:900px) and (orientation:portrait) {
+  .allscan-urf-mode-name { font-size:10px; line-height:1.05; }
+  .allscan-urf-mode-status { min-width:42px; height:16px; min-height:16px; padding:0 3px; font-size:7px; }
+  .allscan-urf-mode > .allscan-urf-mode-label,
+  .allscan-urf-mode > .allscan-urf-mode-value:not(.allscan-urf-connected-control),
+  .allscan-urf-connected-control,.allscan-urf-connected-control b { font-size:9px; line-height:1.05; }
+  .allscan-urf-recent-control { font-size:9px; line-height:1.05; }
+  .allscan-urf-disclosure { width:15px; height:16px; }
+  .allscan-urf-disclosure svg { width:9px; height:7px; }
+}
+
+/* URFWIL dashboard access controls */
+.allscan-urf-head-actions { display:flex; align-items:center; gap:7px; }
+.allscan-urf-access-toggle,.allscan-urf-access-panel button,.allscan-urf-client-ban { border:1px solid rgba(255,255,255,.28); border-radius:5px; background:rgba(255,255,255,.08); color:inherit; font-weight:800; cursor:pointer; }
+.allscan-urf-access-toggle { min-height:25px; padding:0 9px; font-size:11px; }
+.allscan-urf-access-panel { margin:6px; padding:8px; border:1px solid rgba(255,255,255,.18); border-radius:6px; background:rgba(255,255,255,.035); }
+.allscan-urf-access-entry { display:flex; gap:6px; }
+.allscan-urf-access-entry input { flex:1; min-width:0; height:30px; padding:0 8px; border:1px solid rgba(255,255,255,.24); border-radius:5px; background:rgba(0,0,0,.2); color:inherit; }
+.allscan-urf-access-entry button,.allscan-urf-client-ban,.allscan-urf-blacklist button { min-height:28px; padding:0 9px; font-size:11px; }
+.allscan-urf-blacklist { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; font-size:12px; }
+.allscan-urf-blacklist > span { display:inline-flex; align-items:center; gap:5px; }
+.allscan-urf-blacklist code { padding:3px 6px; border-radius:4px; background:rgba(255,255,255,.09); }
+.allscan-urf-access-status { margin-top:7px; font-size:11px; opacity:.85; }
+.allscan-urf-client-ban { margin-top:3px; }
+.allscan-urf-access-panel button:disabled,.allscan-urf-client-ban:disabled { cursor:not-allowed; opacity:.45; }
+@media (max-width:520px) and (orientation:portrait) { .allscan-urf-access-entry { flex-direction:column; } .allscan-urf-access-toggle { min-height:22px; padding:0 6px; font-size:9px; } }
+
+/* Shared ASR card health/status indicator. Operational color stays on the pill;
+   abnormal severity moves to the adjacent warning triangle. */
+.allscan-bridge-status-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.allscan-bridge-health-triangle { width: 18px; height: 18px; flex: 0 0 auto; }
+.allscan-bridge-health-triangle.is-warning { color: #f2cc60; }
+.allscan-bridge-health-triangle.is-unhealthy { color: #f0883e; }
+.allscan-bridge-health-triangle.is-offline { color: #f85149; }
+@media (max-width: 640px) {
+  .allscan-bridge-status-control { gap: 3px; }
+  .allscan-bridge-health-triangle { width: 13px; height: 13px; }
+}
+.allscan-bridge-detail-toggle { width:100%; display:flex; align-items:center; justify-content:center; gap:7px; padding:0; border:0; background:transparent; cursor:pointer; }
+.allscan-bridge-detail-toggle b { min-width:20px; padding:1px 5px; border:1px solid rgba(255,255,255,.2); border-radius:999px; font-size:11px; line-height:1.3; }
+.allscan-bridge-detail-toggle svg { width:14px; height:14px; transition:transform .15s ease; }
+.allscan-bridge-detail-toggle svg.is-open { transform:rotate(180deg); }
+
+/* Beta 8: URF protocol cards use the standard bridge-card structure at compact scale. */
+.allscan-urf-group { position:relative; left:50%; width:calc(100vw - 40px); max-width:calc(100vw - 40px); margin-left:calc(-50vw + 20px); margin-bottom:12px; overflow:hidden; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-panel); box-shadow:0 10px 26px rgba(0,0,0,.22); }
+.allscan-urf-group-title { position:relative; display:flex; align-items:center; justify-content:center; min-height:39px; margin:0; padding:7px 10px; border-bottom:1px solid var(--theme-border); background:var(--theme-panel) !important; color:var(--theme-text) !important; font-size:16px; font-weight:850; line-height:1.15; text-align:center; }
+.allscan-urf-group-title > .allscan-urf-mini-manage { position:absolute; right:10px; top:50%; transform:translateY(-50%); }
+@media (max-width:520px) and (orientation:portrait) {
+  .allscan-urf-group-title { flex-direction:column; gap:5px; padding-block:7px; }
+  .allscan-urf-group-title > .allscan-urf-mini-manage { position:static; align-self:center; transform:none; }
+}
+.allscan-urf-mini-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; align-items:start; padding:6px; }
+.allscan-urf-mini-card { min-width:0; overflow:hidden; }
+.allscan-urf-mini-card .allscan-bridge-head { min-height:34px; padding:6px 8px; gap:6px; }
+.allscan-urf-mini-card .allscan-bridge-head-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; line-height:1.15; }
+.allscan-urf-mini-head-actions { display:flex; align-items:center; justify-content:flex-end; gap:5px; min-width:0; flex-shrink:0; }
+.allscan-urf-mini-manage { min-height:24px; padding:0 7px; border:1px solid color-mix(in srgb, var(--theme-accent) 68%, white 12%); border-radius:4px; background:color-mix(in srgb, var(--theme-accent) 22%, transparent); color:inherit; font-size:11px; font-weight:800; line-height:1; cursor:pointer; white-space:nowrap; }
+.allscan-urf-mini-manage:hover,.allscan-urf-mini-manage:focus-visible { background:color-mix(in srgb, var(--theme-accent) 34%, transparent); border-color:var(--theme-accent); }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-mini-manage { background:#292929; border-color:#686868; color:#f0f0f0; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-mini-manage:hover,html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-mini-manage:focus-visible { background:#383838; border-color:#8a8a8a; }
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-urf-mini-manage { background:#e1e3e4; border-color:#8b9499; color:#182126; }
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-urf-mini-manage:hover,html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-urf-mini-manage:focus-visible { background:#cfd3d5; border-color:#69757b; color:#10181c; }
+html[data-asr-theme="lcars-frame"] .allscan-urf-mini-manage { background:#ddcc99; border-color:#f0dca6; color:#170b04; }
+html[data-asr-theme="lcars-frame"] .allscan-urf-mini-manage:hover,html[data-asr-theme="lcars-frame"] .allscan-urf-mini-manage:focus-visible { background:#f0dca6; border-color:#fff0bd; color:#170b04; }
+.allscan-urf-mini-card .allscan-bridge-status { min-width:64px; height:24px; padding:0 7px; border-width:1px; font-size:11px; line-height:1.1; }
+.allscan-urf-mini-card .allscan-bridge-health-triangle { width:13px; height:13px; }
+.allscan-urf-mini-card .allscan-bridge-status-control { gap:3px; }
+.allscan-urf-mini-card .allscan-bridge-row { gap:6px; padding:5px 8px; font-size:13px; line-height:1.25; }
+.allscan-urf-mini-card .allscan-bridge-row b { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.allscan-urf-mini-card .allscan-bridge-detail-wrap { padding:7px 8px; }
+.allscan-urf-mini-card .allscan-bridge-detail-title { margin-bottom:5px; font-size:13px; line-height:1.2; }
+.allscan-urf-mini-card .allscan-bridge-detail-toggle { gap:5px; }
+.allscan-urf-mini-card .allscan-bridge-detail-toggle b { min-width:21px; padding:1px 5px; font-size:11px; }
+.allscan-urf-mini-card .allscan-bridge-detail-toggle svg { width:13px; height:13px; }
+.allscan-urf-mini-card .allscan-bridge-detail-box { min-height:0; gap:5px; }
+.allscan-urf-mini-card .allscan-bridge-client { min-height:38px; padding:6px 7px; border-radius:5px; }
+.allscan-urf-mini-card .allscan-bridge-client-user { font-size:13px; line-height:1.2; }
+.allscan-urf-mini-card .allscan-bridge-client-meta { margin-top:3px; font-size:11px; line-height:1.2; }
+.allscan-bridge-inline-client-actions { display:flex; justify-content:center; gap:5px; margin-top:5px; }
+.allscan-bridge-inline-client-actions button,.allscan-bridge-inline-client-actions select { flex:0 0 64px; width:64px; min-width:64px; max-width:64px; min-height:24px; padding:0 5px; border:1px solid rgba(255,255,255,.28); border-radius:5px; background:rgba(255,255,255,.08); color:inherit; font-size:11px; font-weight:800; cursor:pointer; }
+.allscan-bridge-inline-client-actions select { text-overflow:ellipsis; }
+.allscan-bridge-inline-client-actions button:disabled,.allscan-bridge-inline-client-actions select:disabled { cursor:not-allowed; opacity:.45; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-bridge-inline-client-actions button,html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-bridge-inline-client-actions select { background:#292929; border-color:#686868; color:#f0f0f0; }
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-bridge-inline-client-actions button,html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-bridge-inline-client-actions select { background:#e1e3e4; border-color:#8b9499; color:#182126; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-bridge-inline-client-actions button:hover,html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-bridge-inline-client-actions select:hover { background:#383838; border-color:#8a8a8a; }
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-bridge-inline-client-actions button:hover,html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-bridge-inline-client-actions select:hover { background:#cfd3d5; border-color:#69757b; color:#10181c; }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-inline-client-actions button,html[data-asr-theme="lcars-frame"] .allscan-bridge-inline-client-actions select { background:#887755; border-color:#cc9966; color:#fff6c8; }
+.allscan-urf-group > .allscan-urf-access-panel { max-width:100%; overflow:hidden; margin:6px 0 0; border-color:var(--theme-border); background:var(--theme-panel); color:var(--theme-text); }
+.allscan-urf-admin-scope { display:grid; gap:4px; margin-bottom:8px; padding:8px 9px; border:1px solid var(--theme-border); border-radius:6px; background:var(--theme-panel); color:var(--theme-text); font-size:13px; line-height:1.3; }
+.allscan-urf-admin-scope span { opacity:.82; line-height:1.4; font-size:12px; }
+.allscan-urf-admin-tools { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(120px,.55fr) auto; gap:7px; align-items:end; }
+.allscan-urf-admin-tools label { display:grid; gap:4px; min-width:0; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; }
+.allscan-urf-admin-tools input,.allscan-urf-admin-tools select { width:100%; min-width:0; height:34px; padding:0 9px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel); color:var(--theme-text); font-size:13px; }
+.allscan-urf-admin-tools button,.allscan-urf-admin-clients button,.allscan-urf-admin-clients select,.allscan-urf-blacklist button { min-height:30px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel-2); color:var(--theme-text); font-size:12px; font-weight:800; cursor:pointer; }
+html[data-asr-theme="lcars-frame"] .allscan-urf-admin-tools button,html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients button,html[data-asr-theme="lcars-frame"] .allscan-urf-blacklist button { background:#887755; border-color:#cc9966; color:#fff6c8; }
+html[data-asr-theme="lcars-frame"] .allscan-urf-admin-tools input,html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients > span { background:#09080a !important; color:#f5eadc; border-color:rgba(255,255,255,.16); }
+.allscan-urf-admin-clients { display:grid; grid-template-columns:repeat(auto-fit,minmax(185px,1fr)); gap:6px; margin-top:9px; font-size:13px; }
+.allscan-urf-admin-clients > b { grid-column:1/-1; }
+.allscan-urf-admin-clients > span { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 6px; align-items:center; padding:5px 6px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel); }
+.allscan-urf-admin-clients code { overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+.allscan-urf-admin-clients small { grid-column:1; opacity:.7; font-size:11px; line-height:1.2; }
+.allscan-urf-admin-clients > span > button { grid-column:2; grid-row:1/3; }
+.allscan-urf-client-actions { grid-column:2; grid-row:1/3; display:flex; gap:5px; align-items:center; }
+.allscan-urf-client-actions button,.allscan-urf-client-actions select { flex:0 0 72px; width:72px; min-width:72px; }
+.allscan-urf-blacklist { display:grid; align-items:stretch; gap:6px; font-size:13px; }
+.allscan-urf-blacklist > b,.allscan-urf-audit > b { margin-top:2px; }
+.allscan-urf-ban-group { display:grid; gap:5px; }
+.allscan-urf-ban-group > strong { opacity:.72; font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+.allscan-urf-ban-group > span { display:grid; grid-template-columns:minmax(90px,.55fr) minmax(0,1fr) auto; gap:6px; align-items:center; padding:5px 6px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel-2); }
+.allscan-urf-blacklist code { overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+.allscan-urf-blacklist small { min-width:0; overflow-wrap:anywhere; opacity:.78; }
+.allscan-urf-audit { display:grid; gap:5px; margin-top:10px; font-size:12px; }
+.allscan-urf-audit > span { display:grid; grid-template-columns:minmax(64px,.35fr) minmax(0,.85fr) minmax(0,1.2fr); gap:6px; align-items:center; padding:5px 6px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel-2); }
+.allscan-urf-audit code { font-size:11px; font-weight:800; }
+.allscan-urf-audit small { min-width:0; overflow-wrap:anywhere; opacity:.78; }
+.allscan-urf-access-status { font-size:12px; line-height:1.35; }
+@media (max-width:520px) { .allscan-urf-ban-group > span,.allscan-urf-audit > span { grid-template-columns:minmax(0,1fr) auto; } .allscan-urf-ban-group > span small,.allscan-urf-audit > span small:last-child { grid-column:1/-1; } }
+/* Management surfaces inherit each theme instead of the old translucent brown/gray layer. */
+.allscan-urf-group > .allscan-urf-access-panel,
+.allscan-urf-admin-scope { box-shadow:none; }
+.allscan-urf-admin-tools input { border-color:color-mix(in srgb, var(--theme-border) 80%, currentColor 20%); background:color-mix(in srgb, var(--theme-panel) 92%, black 8%); color:var(--theme-text); }
+.allscan-urf-admin-clients > span { border-color:var(--theme-border); background:var(--theme-panel); }
+html[data-asr-mode="light"] .allscan-urf-admin-tools input { background:color-mix(in srgb, var(--theme-panel) 94%, white 6%); }
+html[data-asr-theme="lcars-frame"] .allscan-urf-admin-tools input { background:#09080a !important; }
+html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients > span { background:#09080a !important; }
+@media (max-width:600px) { .allscan-urf-admin-tools { grid-template-columns:1fr; } .allscan-urf-admin-tools button { width:100%; } .allscan-urf-admin-clients { grid-template-columns:1fr; } }
+@media (max-width:1400px) and (min-width:1201px) { .allscan-urf-mini-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (max-width:1200px) and (min-width:901px) { .allscan-urf-mini-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:1050px) and (min-width:901px) { .allscan-urf-mini-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:900px) { .allscan-urf-mini-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:700px) { .allscan-urf-mini-grid { grid-template-columns:1fr; } }
+@media (max-width:760px) { .allscan-urf-group { left:50%; width:calc(100vw - 40px); max-width:calc(100vw - 40px); margin-left:calc(-50vw + 20px); } .allscan-urf-mini-grid { grid-template-columns:minmax(0,1fr); } .allscan-urf-mini-card .allscan-bridge-head { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; justify-content:space-between; } .allscan-urf-mini-card .allscan-bridge-head-title { flex:1 1 auto; min-width:0; font-size:15px; } .allscan-urf-mini-head-actions { flex:0 0 auto; margin-left:auto; justify-content:flex-end; } }
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row {
+  display:grid;
+  grid-template-columns:88px minmax(0,1fr);
+  align-items:center;
+  column-gap:4px;
+}
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > span:first-child {
+  width:auto;
+  grid-column:1;
+}
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+  position:static;
+  grid-column:2;
+  justify-self:stretch;
+  width:100%;
+  min-width:0;
+  transform:none;
+  overflow:hidden;
+  text-overflow:clip;
+  white-space:nowrap;
+  text-align:center;
+  font-size:clamp(9px, 0.9vw, 13px);
+}
+@media (max-width:520px) { .allscan-urf-access-panel { max-width:100%; overflow:hidden; } .allscan-urf-admin-clients > span,.allscan-urf-blacklist > span { min-width:0; } }
+@media (max-width:360px) { .allscan-urf-mini-card .allscan-bridge-head { gap:4px; padding-inline:6px; } .allscan-urf-mini-head-actions { gap:3px; } .allscan-urf-mini-manage { padding-inline:5px; font-size:10px; } .allscan-urf-mini-card .allscan-bridge-status { min-width:58px; padding-inline:5px; font-size:10px; } .allscan-urf-mini-card .allscan-bridge-row { padding-inline:7px; } }
+
+/* Beta 8: desktop bridge cards share URF card geometry and remain centered. */
+@media (min-width:901px) {
+  .allscan-bridge-grid {
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:space-evenly;
+    align-items:flex-start;
+    gap:12px 6px;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card { flex:0 1 calc((100% - 24px) / 5); width:calc((100% - 24px) / 5); max-width:calc((100% - 24px) / 5); min-width:220px; }
+  .allscan-bridge-grid .allscan-bridge-head { min-height:34px; padding:6px 8px; gap:6px; }
+  .allscan-bridge-grid .allscan-bridge-head-title { font-size:15px; line-height:1.15; }
+  .allscan-bridge-grid .allscan-bridge-status { min-width:64px; height:24px; padding:0 7px; border-width:1px; font-size:11px; line-height:1.1; }
+  .allscan-bridge-grid .allscan-bridge-health-triangle { width:13px; height:13px; }
+  .allscan-bridge-grid .allscan-bridge-status-control { gap:3px; }
+  .allscan-bridge-grid .allscan-bridge-row { grid-template-columns:88px minmax(0,1fr); gap:6px; padding:5px 8px; font-size:13px; line-height:1.25; }
+  .allscan-bridge-grid .allscan-bridge-detail-wrap { padding:7px 8px; }
+  .allscan-bridge-grid .allscan-bridge-detail-title { margin-bottom:5px; font-size:13px; line-height:1.2; }
+  .allscan-bridge-grid .allscan-bridge-detail-toggle { gap:5px; }
+  .allscan-bridge-grid .allscan-bridge-detail-toggle b { min-width:21px; padding:1px 5px; font-size:11px; }
+  .allscan-bridge-grid .allscan-bridge-detail-toggle svg { width:13px; height:13px; }
+  .allscan-bridge-grid .allscan-bridge-detail-box { min-height:0; gap:5px; }
+  .allscan-bridge-grid .allscan-bridge-client { min-height:38px; padding:6px 7px; border-radius:5px; }
+  .allscan-bridge-grid .allscan-bridge-client-user { font-size:13px; line-height:1.2; }
+  .allscan-bridge-grid .allscan-bridge-client-meta { margin-top:3px; font-size:11px; line-height:1.2; }
+}
+
+/* Beta 8: unify all bridge cards with the current URF mobile card geometry. */
+@media (max-width:900px) {
+  .allscan-bridge-grid { left:50%; right:auto; width:calc(100vw - 40px); max-width:calc(100vw - 40px); margin-left:calc(-50vw + 20px); margin-right:0; grid-template-columns:minmax(0,1fr) !important; gap:6px; }
+  .allscan-bridge-grid > .allscan-bridge-card { width:100%; max-width:100%; min-width:0; }
+  .allscan-bridge-grid .allscan-bridge-head,
+  .allscan-urf-mini-card .allscan-bridge-head { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; justify-content:space-between; min-height:34px; padding:6px 8px; gap:6px; text-align:left; }
+  .allscan-bridge-grid .allscan-bridge-head-title,
+  .allscan-urf-mini-card .allscan-bridge-head-title { flex:1 1 auto; width:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; line-height:1.15; text-align:left; }
+  .allscan-bridge-grid .allscan-bridge-status-control { flex:0 0 auto; margin-left:auto; gap:3px; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status { min-width:64px; height:24px; padding:0 7px; border-width:1px; font-size:11px; line-height:1.1; }
+  .allscan-bridge-grid .allscan-bridge-row { grid-template-columns:96px minmax(0,1fr); gap:6px; padding:5px 8px; font-size:13px; line-height:1.25; text-align:left; }
+  .allscan-bridge-grid .allscan-bridge-row span,
+  .allscan-bridge-grid .allscan-bridge-row b { white-space:normal; }
+  .allscan-bridge-grid .allscan-bridge-detail-wrap { padding:7px 8px; }
+  .allscan-bridge-grid .allscan-bridge-detail-title { margin-bottom:5px; font-size:13px; line-height:1.2; white-space:normal; }
+  .allscan-bridge-grid .allscan-bridge-client { min-height:38px; padding:6px 7px; }
+  .allscan-bridge-grid .allscan-bridge-client-user { font-size:13px; line-height:1.2; }
+  .allscan-bridge-grid .allscan-bridge-client-meta { margin-top:3px; font-size:11px; line-height:1.2; }
+  .allscan-urf-mini-head-actions { flex:0 0 auto; margin-left:auto; justify-content:flex-end; }
+}
+
+/* Beta 8: bridge activity alignment and responsive placement. */
+.allscan-bridge-card {
+  --asr-bridge-activity-label-width:112px;
+  --asr-bridge-activity-value-gap:8px;
+  --asr-bridge-activity-count-width:34px;
+  --asr-bridge-activity-chevron-width:14px;
+}
+.allscan-bridge-card .allscan-bridge-detail-toggle {
+  display:grid;
+  grid-template-columns:var(--asr-bridge-activity-label-width) var(--asr-bridge-activity-count-width) var(--asr-bridge-activity-chevron-width);
+  justify-content:center;
+  align-items:center;
+  column-gap:6px;
+}
+.allscan-bridge-card .allscan-bridge-detail-toggle > span:first-child { text-align:right; }
+.allscan-bridge-card .allscan-bridge-detail-toggle > b {
+  box-sizing:border-box;
+  width:var(--asr-bridge-activity-count-width);
+  min-width:var(--asr-bridge-activity-count-width);
+  justify-self:stretch;
+  text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.allscan-bridge-card .allscan-bridge-detail-toggle > svg {
+  width:var(--asr-bridge-activity-chevron-width);
+  justify-self:start;
+  stroke-width:2.5;
+}
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row {
+  position:relative;
+  display:block;
+  min-height:26px;
+  padding-left:8px;
+  padding-right:8px;
+}
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child {
+  position:relative;
+  z-index:1;
+  display:block;
+  width:88px;
+  text-align:left;
+}
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child {
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:calc(100% - 100px);
+  min-width:0;
+  transform:translate(-50%,-50%);
+  overflow:visible;
+  text-overflow:clip;
+  white-space:nowrap;
+  text-align:center;
+  font-weight:600;
+  font-size:clamp(10px, 1.1vw, 14px);
+}
+
+@media (max-width:520px) {
+  .allscan-bridge-card {
+    --asr-bridge-activity-label-width:108px;
+    --asr-bridge-activity-value-gap:7px;
+  }
+}
+@media (max-width:360px) {
+  .allscan-bridge-card {
+    --asr-bridge-activity-label-width:100px;
+    --asr-bridge-activity-count-width:32px;
+  }
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row:not(.allscan-bridge-status-row) > b:last-child { width:calc(100% - 150px); }
+}
+
+/* Mobile landscape: two equal bridge cards per row; an odd final card keeps the same width and is centered. */
+@media (max-width:900px) and (orientation:landscape) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    gap:6px;
+  }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card {
+    grid-column:auto;
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    box-sizing:border-box;
+  }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(odd),
+  .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(odd) {
+    grid-column:1 / -1;
+    width:calc((100% - 6px) / 2);
+    justify-self:center;
+  }
+}
+
+/* Tablet portrait: mobile visual language, two equal columns. */
+@media (min-width:701px) and (max-width:900px) and (orientation:portrait) {
+  .allscan-urf-group,
+  .allscan-bridge-grid {
+    left:50%;
+    right:auto;
+    width:calc(100vw - 40px);
+    max-width:calc(100vw - 40px);
+    margin-left:calc(-50vw + 20px);
+    margin-right:0;
+  }
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    gap:6px;
+    align-items:start;
+  }
+  .allscan-bridge-grid { padding:6px; box-sizing:border-box; }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card {
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    box-sizing:border-box;
+  }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(odd),
+  .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(odd) {
+    grid-column:1 / -1;
+    width:calc((100% - 6px) / 2);
+    justify-self:center;
+  }
+  .allscan-urf-mini-card .allscan-bridge-head,
+  .allscan-bridge-grid .allscan-bridge-head {
+    display:flex;
+    flex-flow:row nowrap;
+    align-items:center;
+    justify-content:space-between;
+    min-height:34px;
+    padding:6px 8px;
+    gap:6px;
+    text-align:left;
+  }
+  .allscan-urf-mini-card .allscan-bridge-head-title,
+  .allscan-bridge-grid .allscan-bridge-head-title {
+    flex:1 1 auto;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:15px;
+    line-height:1.15;
+    text-align:left;
+  }
+  .allscan-urf-mini-head-actions,
+  .allscan-bridge-grid .allscan-bridge-status-control { flex:0 0 auto; margin-left:auto; }
+  .allscan-urf-mini-card .allscan-bridge-status,
+  .allscan-bridge-grid .allscan-bridge-status {
+    min-width:64px;
+    height:24px;
+    padding:0 7px;
+    font-size:11px;
+    line-height:1.1;
+  }
+  .allscan-urf-mini-card .allscan-bridge-row,
+  .allscan-bridge-grid .allscan-bridge-row { padding:5px 8px; font-size:13px; line-height:1.25; }
+  .allscan-urf-mini-card .allscan-bridge-detail-wrap,
+  .allscan-bridge-grid .allscan-bridge-detail-wrap { padding:7px 8px; }
+  .allscan-urf-mini-card .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-detail-title { margin-bottom:5px; font-size:13px; line-height:1.2; }
+  .allscan-bridge-card { --asr-bridge-activity-label-width:118px; }
+  .allscan-bridge-card .allscan-bridge-detail-toggle > span:first-child { white-space:nowrap; }
+}
+
+/* Tablet landscape: three fixed-width cards span a full row. Two leftovers keep card width with a half-card gap; one is centered. */
+@media (min-width:901px) and (max-width:1200px) and (orientation:landscape) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display:grid !important;
+    grid-template-columns:repeat(12,minmax(0,1fr)) !important;
+    gap:6px !important;
+    align-items:start;
+  }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card {
+    grid-column:span 4;
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    box-sizing:border-box;
+  }
+  /* Two leftovers: first third + last third, leaving one card-width between them. */
+  .allscan-urf-mini-grid > .allscan-urf-mini-card:nth-last-child(2):nth-child(3n + 1),
+  .allscan-bridge-grid > .allscan-bridge-card:nth-last-child(2):nth-child(3n + 1) { grid-column:2 / span 4; }
+  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(3n + 2),
+  .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(3n + 2) { grid-column:8 / span 4; }
+  /* One leftover: center third. */
+  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(3n + 1),
+  .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(3n + 1) { grid-column:5 / span 4; }
+  .allscan-bridge-card .allscan-bridge-detail-toggle > span:first-child { white-space:nowrap; }
+}
+
+/* Beta 8: keep bridge client/talker section labels on one line whenever space permits. */
+.allscan-bridge-detail-toggle > span {
+  min-width: 0;
+  white-space: nowrap;
+}
+/* Current Net Bridge rows follow the same fixed label/value geometry as
+   Talking and Last Talker. Keep the protocol-specific label on one line. */
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-current-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 4px;
+}
+
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-current-row > span:first-child {
+  grid-column: 1;
+  width: auto;
+  white-space: nowrap;
+}
+
+.allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-current-row > b:last-child {
+  position: static;
+  grid-column: 2;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  transform: none;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  text-align: center;
+  font-size: clamp(9px, 0.9vw, 13px);
+}
+
+/* Net Bridge controls use the standard card type scale on desktop while
+   retaining the larger touch targets on phones and tablets. */
+@media (min-width: 1201px) {
+  .allscan-bridge-grid .allscan-bridge-controls {
+    gap: 0;
+    padding: 0;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-tune,
+  .allscan-bridge-grid .allscan-bridge-link-buttons {
+    box-sizing: border-box;
+    min-height: 38px;
+    height: 38px;
+    padding: 0 8px;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-link-buttons {
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  .allscan-bridge-grid .allscan-bridge-tune {
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-tune label {
+    font-size: 13px;
+    line-height: 1.2;
+    font-weight: 700;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-controls .allscan-action-button,
+  .allscan-bridge-grid .allscan-bridge-controls input,
+  .allscan-bridge-grid .allscan-bridge-controls select,
+  .allscan-bridge-grid .allscan-bridge-link-buttons .allscan-action-button {
+    min-height: 28px;
+    height: 28px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-controls input,
+  .allscan-bridge-grid .allscan-bridge-controls select {
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-link-buttons .allscan-action-button {
+    font-size: 12px;
+    line-height: 1.1;
+  }
+}
+
+/* ST:ASL: bridge group header uses square top corners like individual bridge cards. */
+html[data-asr-theme="lcars-frame"] .allscan-urf-group,
+html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+/* ST:ASL: preserve a small visual gap below the LCARS status ribbon. */
+html[data-asr-theme="lcars-frame"] .allscan-urf-group {
+  margin-top: 5px;
+}
+
+/* Manage Clients modal */
+.allscan-urf-access-modal { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background:rgba(0,0,0,.62); }
+.allscan-urf-access-modal .allscan-urf-access-panel { width:min(720px,100%); max-height:min(82vh,760px); min-height:0; overflow:auto; overscroll-behavior:contain; margin:0; box-sizing:border-box; box-shadow:0 12px 36px rgba(0,0,0,.45); }
+.allscan-urf-access-modal-head { position:sticky; top:-8px; z-index:2; display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-2px 0 10px; padding:6px 0; background:var(--theme-panel-solid); font-size:1.05rem; }
+.allscan-urf-access-modal-head .allscan-urf-access-close { flex:0 0 auto; min-width:36px; min-height:36px; padding:0 9px; font-size:24px; line-height:1; }
+@media (max-width:520px) { .allscan-urf-access-modal { align-items:flex-start; padding-top:max(8px,env(safe-area-inset-top)); } .allscan-urf-access-modal .allscan-urf-access-panel { max-height:calc(100dvh - max(16px,env(safe-area-inset-top) + env(safe-area-inset-bottom))); border-radius:8px; } }
+/* Modal must be opaque; the page remains visible only through the backdrop. */
+.allscan-urf-access-modal .allscan-urf-access-panel { background:var(--theme-panel-solid) !important; color:var(--theme-text); border:1px solid var(--theme-border); opacity:1; }
+.allscan-urf-access-modal .allscan-urf-admin-scope,
+.allscan-urf-access-modal .allscan-urf-admin-clients > span,
+.allscan-urf-access-modal .allscan-urf-ban-group > span,
+.allscan-urf-access-modal .allscan-urf-audit > span { background:var(--theme-panel-2); }
+
+/* Keep the node centered while pinning its action menu to the cell's right edge. */
+.allscan-connection-node-cell { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; }
+.allscan-connection-mode { min-width: 0; }
+.allscan-connection-more { position: absolute; right: -12px; display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; margin: -4px 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; font-size: 19px; font-weight: 900; line-height: 1; cursor: pointer; }
+.allscan-connection-more:hover, .allscan-connection-more[aria-expanded="true"] { background: rgba(190, 199, 207, .16); }
+.allscan-connection-more:focus-visible, .allscan-connection-menu button:focus-visible { outline: 2px solid #f5c742; outline-offset: 2px; }
+.allscan-connection-ban-status { margin: 2px 12px 6px; font-size: 12px; }
+.allscan-management-tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 1px solid var(--theme-border); }
+.allscan-management-tabs button { border: 0; border-radius: 5px 5px 0 0; padding: 8px 12px; background: transparent; color: inherit; cursor: pointer; }
+.allscan-management-tabs button[aria-selected="true"] { background: rgba(190, 199, 207, .14); box-shadow: inset 0 -2px #a9bbc8; }
+.allscan-management-tabs button:focus-visible { outline: 2px solid #f5c742; outline-offset: 2px; }
+.allscan-management-bans { display: grid; justify-items: start; gap: 8px; }
+.allscan-management-bans .allscan-connection-ban-list { width: 100%; }
+.allscan-management-history { width: 100%; font-size: 12px; }
+.allscan-management-history p { margin: 5px 0; }
+.allscan-connection-menu-backdrop { position: fixed; inset: 0; z-index: 2147482000; cursor: default; border: 0; background: transparent; }
+.allscan-connection-menu { position: fixed; z-index: 2147482001; min-width: 165px; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--theme-border); border-radius: 6px; background: #141920; box-shadow: 0 7px 22px #0009; }
+.allscan-connection-menu button { border: 0; border-radius: 4px; background: transparent; color: #edf4f8; padding: 8px 10px; text-align: left; cursor: pointer; }
+.allscan-connection-menu button:hover { background: #34536c; }
+.allscan-connection-ban-dialog label { display: grid; gap: 4px; margin: 9px 0; font-weight: 700; }
+.allscan-connection-ban-dialog input, .allscan-connection-ban-dialog select { width: 100%; border: 1px solid #779; border-radius: 4px; background: #18232b; color: white; padding: 8px; }
+.allscan-connection-ban-list { display: grid; gap: 7px; margin: 12px 0; max-height: 43vh; overflow: auto; }
+.allscan-connection-ban-list > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--theme-border); border-radius: 5px; }
+.allscan-connection-ban-list > div span { flex: 1; }
+.allscan-connection-ban-list > div small { flex-basis: 100%; }
+.allscan-connection-ban-list button { border: 1px solid var(--theme-border); border-radius: 4px; background: #24343d; color: inherit; padding: 5px 8px; cursor: pointer; }
+
+/* Node Controls: action group, options, and administrator management row. */
+.allscan-controls-lower-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.allscan-controls-action-group { display: flex; align-items: center; gap: 5px; }
+.allscan-controls-shell > .allscan-checks-row { margin-top: 8px; }
+.allscan-kicks-bans-button { min-width: 112px; justify-self: end; padding-right: 12px; padding-left: 12px; white-space: nowrap; }
+@media (max-width: 900px) {
+  .allscan-controls-lower-row { display: flex; flex-wrap: wrap; justify-content: center; }
+  .allscan-controls-action-group { justify-self: auto; }
+  .allscan-kicks-bans-button { justify-self: auto; }
 }

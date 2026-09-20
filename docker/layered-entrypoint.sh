@@ -3,7 +3,7 @@ set -eu
 
 ALLSCAN_REPO_URL="${ALLSCAN_REPO_URL:-https://github.com/davidgsd/AllScan.git}"
 ALLSCAN_REPO_REF="${ALLSCAN_REPO_REF:-main}"
-ASR_NODE_NUMBER="${ASR_NODE_NUMBER:-668390}"
+ASR_NODE_NUMBER="${ASR_NODE_NUMBER:-641890}"
 ASR_CALLSIGN="${ASR_CALLSIGN:-ASL3}"
 ASR_AMI_HOST="${ASR_AMI_HOST:-allstarlink3}"
 ASR_AMI_PORT="${ASR_AMI_PORT:-5038}"
@@ -39,7 +39,18 @@ fi
 
 mkdir -p "$STOCK_DIR" "$ASR_DIR"
 rsync -a --delete --exclude=.git "$UPSTREAM_CACHE/" "$STOCK_DIR/"
-rsync -a --delete "$STOCK_DIR/" "$ASR_DIR/"
+# User-uploaded ASR assets live in the persistent web volume. Exclude them
+# from the stock-tree refresh so container starts/recreates cannot delete them.
+rsync -a --delete --exclude=asr-user-content "$STOCK_DIR/" "$ASR_DIR/"
+
+# The php:apache image sets DirectoryIndex to "index.php index.html".  Since
+# /asr is layered over stock AllScan, both files exist there; without this
+# path-local override Apache silently serves stock index.php instead of the
+# Vite application.  Keep explicit PHP endpoints (including /asr/user/) intact
+# while making the React build the dashboard entry point.
+cat > "$ASR_DIR/.htaccess" <<'EOF'
+DirectoryIndex index.html index.php
+EOF
 
 # Route bare host requests to ASR UI instead of Apache's empty web-root 403.
 cat > "$WEB_ROOT/index.php" <<'EOF'
@@ -52,6 +63,14 @@ EOF
 rsync -a /opt/asr-ui-dist/ "$ASR_DIR/"
 rsync -a /opt/asr-source/compat/allscan-v1.01/ "$ASR_DIR/"
 cp /opt/asr-source/asr-api.php "$ASR_DIR/asr-api.php"
+
+install -d -o www-data -g www-data -m 775 "$ASR_DIR/asr-user-content"
+if [ ! -f "$ASR_DIR/asr-user-content/header-logo.png" ] \
+  && [ -f /opt/asr-source/personalization/header-logo.png ]; then
+  install -o www-data -g www-data -m 664 \
+    /opt/asr-source/personalization/header-logo.png \
+    "$ASR_DIR/asr-user-content/header-logo.png"
+fi
 if [ -f "$STOCK_DIR/js/main.js" ]; then
   mkdir -p "$ASR_DIR/js"
   cp "$STOCK_DIR/js/main.js" "$ASR_DIR/js/main.js"
@@ -72,6 +91,25 @@ fi
 for USER_INDEX in "$STOCK_DIR/user/index.php" "$ASR_DIR/user/index.php"; do
   if [ -f "$USER_INDEX" ]; then
     sed -i 's/unset(\$newUser);/\$newUser = null;/g' "$USER_INDEX"
+  fi
+done
+
+# Stock AllScan v1.01 makes $parms optional before two required by-reference
+# arguments. PHP 8.3 reports that declaration as deprecated on every stats
+# request. All callers already pass the argument, so making it explicitly
+# required preserves behavior and keeps both installations warning-free.
+for STATS_FILE in "$STOCK_DIR/stats/stats.php" "$ASR_DIR/stats/stats.php"; do
+  if [ -f "$STATS_FILE" ]; then
+    sed -i 's/function doWebRequest($url, $parms=null, &$error, &$retcode)/function doWebRequest($url, $parms, \&$error, \&$retcode)/' "$STATS_FILE"
+  fi
+done
+
+# AllScan v1.01 passes the optional defaults (null) into these helpers. PHP
+# 8.1+ deprecates strlen(null), so guard the two nullable values explicitly.
+for HTML_FILE in "$STOCK_DIR/include/Html.php" "$ASR_DIR/include/Html.php"; do
+  if [ -f "$HTML_FILE" ]; then
+    sed -i 's/if(strlen(\$val) > \$size)/if(\$val !== null \&\& strlen(\$val) > \$size)/' "$HTML_FILE"
+    sed -i 's/if(strlen(\$class))/if(\$class !== null \&\& strlen(\$class))/' "$HTML_FILE"
   fi
 done
 
@@ -120,30 +158,16 @@ CREATE TABLE IF NOT EXISTS cfg (
 SQL
 fi
 
+# Seed personalization only on a fresh persistent volume. Existing user edits win.
 if [ ! -f /etc/allscan/favorites.ini ]; then
-  cat > /etc/allscan/favorites.ini <<'EOF'
-; ASR layered install favorites file
-[general]
-label[] = "AllStarLink"
-cmd[] = "*3"
-EOF
-elif ! grep -q '^\[general\]' /etc/allscan/favorites.ini; then
-  cat >> /etc/allscan/favorites.ini <<'EOF'
-
-[general]
-label[] = "AllStarLink"
-cmd[] = "*3"
-EOF
+  install -o www-data -g www-data -m 664 /opt/asr-source/personalization/favorites.ini /etc/allscan/favorites.ini
 fi
-
-cat > /etc/allscan-reimagined/config.json <<EOF
-{
-  "node": "$ASR_NODE_NUMBER",
-  "callsign": "$ASR_CALLSIGN",
-  "requireLogin": $([ "$ASR_REQUIRE_LOGIN" = "1" ] && echo true || echo false),
-  "bridges": []
-}
-EOF
+if [ ! -f /etc/allscan/asdb.txt ]; then
+  install -o www-data -g www-data -m 664 /opt/asr-source/personalization/asdb.txt /etc/allscan/asdb.txt
+fi
+if [ ! -s /etc/allscan-reimagined/config.json ]; then
+  install -o www-data -g www-data -m 664 /opt/asr-source/personalization/config.seed.json /etc/allscan-reimagined/config.json
+fi
 
 cat > /etc/asterisk/rpt.conf <<EOF
 [$ASR_NODE_NUMBER]
@@ -163,22 +187,43 @@ write = all,system,call,log,verbose,command,agent,user,config
 EOF
 
 cat > /usr/local/etc/php/conf.d/allscan-include-path.ini <<EOF
-include_path=".:/usr/local/lib/php:/var/www/html/allscan/include:/var/www/html/asr/include"
+include_path=".:/usr/local/lib/php:/var/www/html/asr/include:/var/www/html/allscan/include"
 EOF
-
-ASR_ASTDB="$ASR_DIR/astdb.txt"
-if [ ! -s "$ASR_ASTDB" ] || [ "$(wc -c < "$ASR_ASTDB" 2>/dev/null || echo 0)" -lt 1200 ]; then
-  : > "$ASR_ASTDB"
-  i=1
-  while [ "$i" -le 80 ]; do
-    printf '%s|%s|Layered ASR Node %s|Docker\n' "$((700000 + i))" "$ASR_CALLSIGN" "$i" >> "$ASR_ASTDB"
-    i=$((i + 1))
-  done
-  printf '%s|%s|Primary ASL3 Node|Docker\n' "$ASR_NODE_NUMBER" "$ASR_CALLSIGN" >> "$ASR_ASTDB"
-fi
 
 chown -R www-data:www-data /etc/allscan /etc/allscan-reimagined "$ASR_DIR" "$STOCK_DIR"
 chmod 664 /etc/allscan/favorites.ini /etc/allscan/allscan.db /etc/allscan-reimagined/config.json || true
+
+# All web entry points use the database maintained by the ASL3 updater. The
+# directory bind mount (not a single-file bind) follows the updater's atomic
+# file replacements without stale-inode problems.
+/usr/local/sbin/allscan-reimagined-node-db-link
+
+# Install and validate the privileged helpers used by Settings and bridge
+# controls.  This is the Docker equivalent of the native systemd reapply unit.
+/usr/local/sbin/allscan-reimagined-docker-reapply
+
+# Keep bridge evidence current in Docker just as the native systemd service does.
+# The collector is read-only with respect to bridge runtimes and writes only its
+# private status snapshot under /run.
+/usr/local/sbin/allscan-reimagined-standard-bridge-status --watch &
+
+# Expire temporary global bans promptly. The helper serializes this worker
+# with administrator requests and updates every supported backend atomically.
+(
+  while :; do
+    /usr/local/sbin/allscan-reimagined-urf-admin expire >/dev/null 2>&1 || true
+    sleep 15
+  done
+) &
+
+# TGIF does not expose a public connected-client feed. Refresh only sessions
+# that individual authenticated AllScan users explicitly created.
+(
+  while :; do
+    /usr/local/sbin/allscan-reimagined-tgif-user-session collect-all || true
+    sleep 15
+  done
+) &
 
 echo "Layered install ready: stock at /allscan and ASR overlay at /asr"
 

@@ -15,6 +15,7 @@ define('ASR_MAX_APPROVED_DESTINATIONS', 256);
 define('ASR_ROLLBACK_HELPER', '/usr/local/sbin/allscan-reimagined-rollback');
 define('ASR_YSF_BRIDGE_HELPER', '/usr/local/sbin/allscan-reimagined-ysf-bridge-control');
 define('ASR_BRIDGE_LIFECYCLE_HELPER', '/usr/local/sbin/allscan-reimagined-bridge-lifecycle');
+define('ASR_URF_ADMIN_HELPER', '/usr/local/sbin/allscan-reimagined-urf-admin');
 define('ASR_MAX_YSF_HOSTS_UPLOAD_BYTES', 2000000);
 define('ASR_ROLLBACK_CONFIRMATION', 'ROLLBACK_SELECTED_VERSION');
 
@@ -36,6 +37,8 @@ function asrSettingsDefaultConfig() {
 		'announceStartupBridgeSummary' => false,
 		'announceNoConnectedBridges' => false,
 		'lowPowerMode' => false,
+		'filterServiceStations' => true,
+		'filteredStations' => [],
 		'bridges' => [],
 	];
 }
@@ -80,6 +83,24 @@ function asrSettingsCleanText($value, $maxLen) {
 	if(strlen($value) > $maxLen)
 		$value = substr($value, 0, $maxLen);
 	return $value;
+}
+
+function asrSettingsCleanFilteredStations($value, &$error = '') {
+	$values = preg_split('/[\s,]+/', strtoupper((string) $value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+	$result = [];
+	foreach($values as $station) {
+		$station = trim($station);
+		if(!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $station)) {
+			$error = 'Filtered stations must use 1–15 characters: A-Z, 0-9, _, ., /, or -.';
+			return [];
+		}
+		$result[$station] = true;
+		if(count($result) > 64) {
+			$error = 'No more than 64 custom filtered stations may be saved.';
+			return [];
+		}
+	}
+	return array_keys($result);
 }
 
 function asrSettingsCleanLogo($value) {
@@ -150,7 +171,7 @@ function asrSettingsCleanBridgeId($value) {
 }
 
 function asrSettingsSupportedBridgeModes() {
-	return ['dmr', 'ysf', 'zello', 'p25', 'nxdn', 'm17'];
+	return ['dmr', 'ysf', 'dstar', 'zello', 'p25', 'nxdn', 'm17'];
 }
 
 function asrSettingsBridgeMode($bridge) {
@@ -342,6 +363,7 @@ function asrSettingsDefaultBridgeTitle($id) {
 		case 'dmr_net': return 'DMR Net Bridge';
 		case 'ysf': return 'YSF Bridge';
 		case 'ysf_net': return 'YSF Net Bridge';
+		case 'dstar': return 'D-Star Bridge';
 		case 'zello': return 'Zello Bridge';
 		case 'p25': return 'P25 Bridge';
 		case 'm17': return 'M17 Bridge';
@@ -352,11 +374,13 @@ function asrSettingsDefaultBridgeTitle($id) {
 
 function asrSettingsDefaultModeTitle($mode, $cardType) {
 	$label = strtoupper($mode);
+	if($mode === 'dstar') $label = 'D-Star';
 	if($mode === 'zello') $label = 'Zello';
 	return $label . ($cardType === 'standard' ? ' Bridge' : ' Net Bridge');
 }
 
 function asrSettingsDefaultDetailTitle($mode) {
+	if($mode === 'dstar') return 'Bridge Status';
 	if($mode === 'zello') return 'Recent Talkers';
 	if($mode === 'p25' || $mode === 'nxdn' || $mode === 'm17') return 'Linked Clients';
 	return 'Connected Clients';
@@ -525,7 +549,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		$rawAllowTune = asrSettingsCleanText($allowTuneValues[$i] ?? '0', 4);
 		$rawFixedRecovery = asrSettingsCleanText($fixedRecoveryValues[$i] ?? '0', 4);
 		$rawPermission = asrSettingsCleanText($permissionValues[$i] ?? '', 20);
-		if($rawPermission === '') $rawPermission = 'self_owned';
 		$rawBackendMode = asrSettingsCleanText($backendModeValues[$i] ?? '', 20);
 		$rawInstance = asrSettingsCleanText($instanceValues[$i] ?? '', 40);
 		$rawGatewayConfig = asrSettingsCleanText($gatewayConfigValues[$i] ?? '', 220);
@@ -550,14 +573,14 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			continue;
 
 		if(!in_array($rawMode, asrSettingsSupportedBridgeModes(), true)) {
-			$error = 'Choose a supported Digital Mode: DMR, YSF, Zello, P25, NXDN, or M17.';
+			$error = 'Choose a supported Digital Mode: DMR, YSF, D-Star, Zello, P25, NXDN, or M17.';
 			return [];
 		}
 		if(!in_array($rawCardType, ['standard', 'net', 'dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true))
 			$rawCardType = 'standard';
 		$rawCardType = $rawCardType === 'standard' ? 'standard' : $rawMode . '_net';
-		if($rawMode === 'zello' && $rawCardType !== 'standard') {
-			$error = 'Zello supports a Standard Bridge card only.';
+		if(in_array($rawMode, ['dstar', 'zello'], true) && $rawCardType !== 'standard') {
+			$error = ($rawMode === 'dstar' ? 'D-Star' : 'Zello') . ' supports a Standard Bridge card only.';
 			return [];
 		}
 		$id = asrSettingsCleanBridgeId($rawId);
@@ -569,10 +592,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		}
 		if($id === '') {
 			$error = 'ASR could not create a unique internal ID for this bridge card.';
-			return [];
-		}
-		if(preg_match('/^d[-_]?star(?:[_-]|$)/D', $id)) {
-			$error = 'D-Star is not supported by ASR. Delete this bridge card before saving.';
 			return [];
 		}
 		if(isset($seen[$id])) {
@@ -1523,6 +1542,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label><span>Digital Mode</span><select name="bridgeMode[]"<?php echo $lockLifecycleShape ? ' disabled title="Delete and save this managed bridge before changing its Digital Mode."' : ''; ?>>
 					<?php echo asrSettingsSourceOption($mode, 'dmr', 'DMR'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'ysf', 'YSF'); ?>
+					<?php echo asrSettingsSourceOption($mode, 'dstar', 'D-Star'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'zello', 'Zello'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'p25', 'P25'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'nxdn', 'NXDN'); ?>
@@ -1531,7 +1551,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<?php if($lockLifecycleShape): ?><input name="bridgeCardType[]" type="hidden" value="<?php echo asrSettingsH($cardRole); ?>"><?php endif; ?>
 				<label><span>Bridge Role</span><select name="bridgeCardType[]"<?php echo $lockLifecycleShape ? ' disabled title="Delete and save this managed bridge before changing its role."' : ''; ?>>
 					<?php echo asrSettingsSourceOption($cardRole, 'standard', 'Standard Bridge'); ?>
-					<?php if($mode !== 'zello'): ?><?php echo asrSettingsSourceOption($cardRole, 'net', 'Net Bridge'); ?><?php endif; ?>
+					<?php if(!in_array($mode, ['dstar', 'zello'], true)): ?><?php echo asrSettingsSourceOption($cardRole, 'net', 'Net Bridge'); ?><?php endif; ?>
 				</select></label>
 				<input name="bridgeId[]" type="hidden" value="<?php echo asrSettingsH($id); ?>">
 				<label><span>Bridge AllStar Node</span><input name="bridgeNode[]" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($bridge['node'] ?? ''); ?>"></label>
@@ -1551,8 +1571,13 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 		</div>
 
 		<div class="asr-bridge-panel-section asr-destination-permission-section"<?php echo ($cardRole === 'net' || ($isNewDigitalMode && $backendMode === 'managed')) ? '' : ' hidden'; ?>>
-			<div class="asr-bridge-section-copy"><strong>Destination</strong><span>Configure the destination or approved Net Bridge targets.</span></div>
+			<div class="asr-bridge-section-copy"><strong>Destination and Permission</strong><span>ASR permits controls only for targets you own or have explicit permission to bridge.</span></div>
 			<div class="asr-bridge-fields-grid">
+				<label><span>Bridge Permission</span><select name="bridgePermission[]">
+					<?php echo asrSettingsSourceOption($permission, '', 'Choose confirmed permission'); ?>
+					<?php echo asrSettingsSourceOption($permission, 'self_owned', 'Self-owned target'); ?>
+					<?php echo asrSettingsSourceOption($permission, 'approved', 'Target owner approved'); ?>
+				</select></label>
 				<label class="asr-digital-fixed-field asr-numeric-fixed-field"><span>Fixed Destination</span><input name="bridgeFixedDestination[]" inputmode="numeric" type="text" value="<?php echo asrSettingsH($bridge['fixedDestination'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Reflector</span><input name="bridgeM17Reflector[]" type="text" placeholder="M17-M17" value="<?php echo asrSettingsH($bridge['m17Reflector'] ?? ''); ?>"></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Host</span><input name="bridgeM17Host[]" type="text" value="<?php echo asrSettingsH($bridge['m17Host'] ?? ''); ?>"></label>
@@ -1697,7 +1722,15 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			</details>
 		</div>
 
-		<div class="asr-bridge-panel-section asr-connected-client-settings"<?php echo $cardRole === 'standard' ? '' : ' hidden'; ?>>
+		<div class="asr-bridge-panel-section asr-dstar-status-settings"<?php echo $cardRole === 'standard' && $mode === 'dstar' ? '' : ' hidden'; ?>>
+			<div class="asr-bridge-section-copy">
+				<strong>D-Star Live Status</strong>
+				<span>ASR reads the managed D-Star runtime, gateway link log, and current local reflector snapshot. It reports only evidence-backed gateway links and recent transmissions; this card has no reflector controls.</span>
+			</div>
+			<p class="asr-bridge-section-note">Runtime health, XRF reflector/module, linked gateways, and recent D-Star activity are collected automatically. Missing or stale evidence is shown as offline, unlinked, or empty rather than inferred.</p>
+		</div>
+
+		<div class="asr-bridge-panel-section asr-connected-client-settings"<?php echo $cardRole === 'standard' && $mode !== 'dstar' ? '' : ' hidden'; ?>>
 			<details class="asr-progressive-details asr-connected-client-details">
 			<summary>Connected Clients and Talker Source</summary>
 			<div class="asr-bridge-section-copy">
@@ -1750,11 +1783,95 @@ $rollbackCsrfToken = asrSettingsRollbackCsrfToken($user);
 $saveCsrfToken = asrSettingsSaveCsrfToken($user);
 $bridgeLifecycleError = '';
 $bridgeLifecyclePreviews = asrSettingsBridgeLifecyclePreviews($bridgeLifecycleError);
+function asrSettingsRunUrfAdmin($action, $rule, &$error) {
+	$error = '';
+	if(!in_array($action, ['list','ban','unban'], true)) { $error = 'Invalid URF admin action.'; return null; }
+	if(!function_exists('exec') || !is_executable(ASR_URF_ADMIN_HELPER)) { $error = 'URF administration is not installed yet.'; return null; }
+	$command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' ' . escapeshellarg($action);
+	if($rule !== '') $command .= ' ' . escapeshellarg($rule);
+	$output = []; $status = 1; exec($command . ' 2>/dev/null', $output, $status);
+	$data = json_decode(implode("\n", $output), true);
+	if($status !== 0 || !is_array($data) || empty($data['ok'])) { $error = asrSettingsCleanText($data['error'] ?? 'URF administration command failed.', 180); return null; }
+	return $data;
+}
+
+function asrSettingsUrfConfigFromPost(&$error) {
+	$enabled = !empty($_POST['urfEnabled']);
+	$node = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
+	$modes = is_array($_POST['urfModes'] ?? null) ? $_POST['urfModes'] : [];
+	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17'], array_map('strtolower', array_map('strval', $modes))));
+	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => []];
+	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
+		$error = 'URF Reflector needs a 3-10 digit shared AllStar node number.';
+		return [];
+	}
+	if(!$modes) {
+		$error = 'URF Reflector needs at least one enabled digital mode.';
+		return [];
+	}
+	return ['enabled' => true, 'node' => $node, 'modes' => $modes];
+}
+
+function asrSettingsUrfModeBridges($urf) {
+	if(empty($urf['enabled'])) return [];
+	$result = [];
+	foreach((array)($urf['modes'] ?? []) as $mode) {
+		$label = $mode === 'm17' ? 'M17' : strtoupper($mode);
+		$result[] = [
+			'id' => 'urf_' . $mode,
+			'mode' => $mode,
+			'node' => (string)$urf['node'],
+			'title' => $label . ' Bridge',
+			'detailTitle' => 'Connected Clients',			'friendlyName' => $label . ' Bridge',
+			'clientSource' => 'auto',
+			'clientUrl' => '',
+			'clientUsername' => '',
+			'cardType' => 'standard',
+			'backendMode' => 'display_only',
+			'allowTune' => false,
+			'fixedBridgeRecovery' => false,
+			'urfReflector' => true,
+			'urfGroupId' => 'urf',
+		];
+	}
+	return $result;
+}
+
+function asrSettingsExistingUrfConfig($config) {
+	$node = '';
+	$modes = [];
+	foreach((array)($config['bridges'] ?? []) as $bridge) {
+		if(!is_array($bridge) || empty($bridge['urfReflector'])) continue;
+		if($node === '') $node = (string)($bridge['node'] ?? '');
+		$mode = strtolower((string)($bridge['mode'] ?? ''));
+		if(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $mode;
+	}
+	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes))];
+}
+
 $submit = $_POST['Submit'] ?? null;
 $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
+$urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
+$urfAdminListError = '';
+$urfAdminList = asrSettingsRunUrfAdmin('list', '', $urfAdminListError);
+$urfAdminRules = is_array($urfAdminList['rules'] ?? null) ? $urfAdminList['rules'] : [];
 
-if($ysfImportBridgeId !== '') {
+if($urfAdminAction !== '') {
+	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
+	if(($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !asrSettingsRollbackPostIsSameOrigin(true) || $saveCsrfToken === '' || !hash_equals($saveCsrfToken, $postedToken)) {
+		$urfAdminError = 'URF administration request was not authorized.';
+	} else {
+		$rule = asrSettingsCleanText($_POST['urfAdminRule'] ?? '', 16); $helperError = '';
+		$result = asrSettingsRunUrfAdmin($urfAdminAction, $rule, $helperError);
+		if(!$result) {
+			$urfAdminError = $helperError;
+		} else {
+			$urfAdminRules = is_array($result['rules'] ?? null) ? $result['rules'] : [];
+			$urfAdminOk = strtoupper($urfAdminAction) . ($rule !== '' ? ' ' . strtoupper($rule) : '') . ' completed. URFD reloads the list automatically.';
+		}
+	}
+} elseif($ysfImportBridgeId !== '') {
 	$postedToken = (string)($_POST['ysfImportCsrf'] ?? '');
 	if(($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 		$ysfImportError = 'YSF reflector-list import requires a POST request.';
@@ -1833,30 +1950,38 @@ if($ysfImportBridgeId !== '') {
 	$announceStartupBridgeSummary = !empty($_POST['announceStartupBridgeSummary']);
 	$announceNoConnectedBridges = $announceStartupBridgeSummary && !empty($_POST['announceNoConnectedBridges']);
 	$lowPowerMode = !empty($_POST['lowPowerMode']);
+	$filterServiceStations = !empty($_POST['filterServiceStations']);
+	$filteredStationsError = '';
+	$filteredStations = asrSettingsCleanFilteredStations($_POST['filteredStations'] ?? '', $filteredStationsError);
 
 	if(!empty($saveError)) {
 		// Authorization failed before any upload or settings mutation.
 	} elseif($uploadError) {
 		$saveError = $uploadError;
+	} elseif($filteredStationsError !== '') {
+		$saveError = $filteredStationsError;
 	} elseif($logo === null) {
 		$saveError = 'Header logo must be a local ASR path or an http/https URL.';
 	} else {
 		$bridgeError = '';
+		$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
 		$bridges = asrSettingsBridgeRowsFromPost(
 			$bridgeError,
-			$config['bridges'] ?? [],
+			$existingNonUrf,
 			$config['node'] ?? ''
 		);
+		$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError) : [];
+		$urfBridges = $bridgeError === '' ? asrSettingsUrfModeBridges($urf) : [];
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
 			$postedBridgeIds = is_array($_POST['bridgeId'] ?? null) ? $_POST['bridgeId'] : [];
 			asrSettingsValidateOwnedBridgeMutations(
-				$config['bridges'] ?? [], $bridges, $postedBridgeIds,
+				$existingNonUrf, $bridges, $postedBridgeIds,
 				$bridgeLifecyclePreviews, $saveError
 			);
 			$deletionPlan = $saveError === '' ? asrSettingsValidateDeletionPlan(
-				$config['bridges'] ?? [], $bridges,
+				$existingNonUrf, $bridges,
 				(string)($_POST['bridgeDeletionConfirmations'] ?? ''),
 				$bridgeLifecyclePreviews, $saveError
 			) : null;
@@ -1881,6 +2006,9 @@ if($ysfImportBridgeId !== '') {
 			$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
 			$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
 			$next['lowPowerMode'] = $lowPowerMode;
+			$next['filterServiceStations'] = $filterServiceStations;
+			$next['filteredStations'] = $filteredStations;
+			$bridges = array_merge($bridges, $urfBridges);
 			$next['bridges'] = $bridges;
 			$saveError = '';
 			$nextSecrets = $secrets;
@@ -1929,7 +2057,12 @@ if($ysfImportBridgeId !== '') {
 							@shell_exec('sudo -n /usr/local/sbin/allscan-reimagined-bridge-clients --once 2>/dev/null || /usr/local/sbin/allscan-reimagined-bridge-clients --once 2>/dev/null');
 						$reapplyOutput = [];
 						$reapplyStatus = 1;
-						exec('sudo -n /usr/bin/systemctl start allscan-reimagined-reapply.service 2>&1', $reapplyOutput, $reapplyStatus);
+						$dockerReapply = '/usr/local/sbin/allscan-reimagined-docker-reapply';
+						$dockerReapplyAvailable = is_executable($dockerReapply);
+						$reapplyCommand = $dockerReapplyAvailable
+							? 'sudo -n ' . escapeshellarg($dockerReapply) . ' 2>&1'
+							: 'sudo -n /usr/bin/systemctl start allscan-reimagined-reapply.service 2>&1';
+						exec($reapplyCommand, $reapplyOutput, $reapplyStatus);
 						$config = $next;
 						$secrets = $nextSecrets;
 						if(function_exists('asrApplyAccessPolicy'))
@@ -1937,7 +2070,10 @@ if($ysfImportBridgeId !== '') {
 						if($reapplyStatus === 0) {
 							$saveOk = true;
 						} else {
-							$saveError = 'Settings were saved, but ASR could not apply them.' . asrSettingsBridgeLifecycleFailureSummary() . ' Check allscan-reimagined-reapply.service before using bridge controls.';
+							$reapplyHint = $dockerReapplyAvailable
+								? ' Check the AllScan container logs before using bridge controls.'
+								: ' Check allscan-reimagined-reapply.service before using bridge controls.';
+							$saveError = 'Settings were saved, but ASR could not apply them.' . asrSettingsBridgeLifecycleFailureSummary() . $reapplyHint;
 						}
 				}
 			}
@@ -1959,13 +2095,18 @@ if(!empty($ysfImportError))
 	errMsg($ysfImportError);
 if(!empty($rollbackError))
 	errMsg($rollbackError);
+if(!empty($urfAdminOk)) okMsg($urfAdminOk);
+if(!empty($urfAdminError)) errMsg($urfAdminError);
 
 $requireLogin = !array_key_exists('requireLogin', $config) || !empty($config['requireLogin']);
 $maintainFriendlyNames = !empty($config['maintainFriendlyNames']);
 $announceStartupBridgeSummary = !empty($config['announceStartupBridgeSummary']);
 $announceNoConnectedBridges = $announceStartupBridgeSummary && !empty($config['announceNoConnectedBridges']);
 $lowPowerMode = !empty($config['lowPowerMode']);
-$bridgeRows = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+$filterServiceStations = !array_key_exists('filterServiceStations', $config) || !empty($config['filterServiceStations']);
+$filteredStations = asrSettingsCleanFilteredStations(implode("\n", (array)($config['filteredStations'] ?? [])));
+$urfConfig = asrSettingsExistingUrfConfig($config);
+$bridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
 $bridgePasswords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bridgeClientPasswords'] : [];
 $ysfCatalogStatuses = [];
 foreach($bridgeRows as $bridge) {
@@ -2019,7 +2160,32 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 
 	<fieldset class="asr-settings-section is-collapsed" data-settings-section="bridges">
 		<legend><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Bridge Cards <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></legend>
-		<p class="asr-settings-help">Only active bridge cards are listed here. Use Add Bridge for another card, up to <?php echo ASR_MAX_BRIDGES; ?> total.</p>
+		<p class="asr-settings-help">Only active bridge cards are listed here. Use Add Bridge for a normal bridge, or Add URF Reflector for one shared reflector that exposes separate mode cards.</p>
+		<div class="asr-urf-inline-panel" data-urf-panel<?php echo !empty($urfConfig['enabled']) ? '' : ' hidden'; ?>>
+			<div class="asr-bridge-section-copy"><strong>URF Reflector</strong><span>One shared AllStar transport with a combined URFWIL card for DMR, YSF, P25, NXDN, and M17.</span></div>
+			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
+			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
+			<p class="asr-settings-inline-note">The shared node is transport health only; it never determines which URF mode is transmitting.</p>
+			<div class="asr-bridge-fields-grid">
+			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
+			<label class="asr-settings-check"><input name="urfModes[]" type="checkbox" value="<?php echo asrSettingsH($urfMode); ?>"<?php echo in_array($urfMode,(array)($urfConfig['modes'] ?? []),true) ? ' checked' : ''; ?>><span><?php echo asrSettingsH($urfLabel); ?> Bridge</span></label>
+			<?php endforeach; ?>
+			</div>
+			<button type="button" class="asr-remove-urf-button">Remove URF Reflector</button>
+			<div class="asr-settings-row"><label for="urfAdminRule">URF Access Control</label><input id="urfAdminRule" name="urfAdminRule" type="text" maxlength="16" placeholder="CALLSIGN or PREFIX*"></div>
+			<div class="asr-settings-actions">
+				<button type="submit" name="urfAdminAction" value="ban">Ban Callsign / Prefix</button>
+				<button type="submit" name="urfAdminAction" value="unban">Unban Callsign / Prefix</button>
+			</div>
+			<?php if($urfAdminListError !== ''): ?>
+			<p class="asr-settings-inline-note asr-settings-warning"><?php echo asrSettingsH($urfAdminListError); ?></p>
+			<?php elseif(empty($urfAdminRules)): ?>
+			<p class="asr-settings-inline-note">Current blacklist: none.</p>
+			<?php else: ?>
+			<div class="asr-settings-row"><label>Current Blacklist</label><div><?php foreach($urfAdminRules as $urfRule): ?><code><?php echo asrSettingsH($urfRule); ?></code> <?php endforeach; ?></div></div>
+			<?php endif; ?>
+			<p class="asr-settings-inline-note">URFD reloads blacklist changes automatically, normally within about 30 seconds. No URF credentials are required.</p>
+		</div>
 		<p class="asr-settings-help">Drag bridge cards into the preferred dashboard order, or use the Up and Down buttons. Save Reimagined Settings to keep the new order.</p>
 		<p class="asr-settings-help">Choose the Digital Mode. The card title remains yours to edit. ASR keeps a separate hidden internal ID so Standard and Net Bridge cards for the same mode can coexist safely.</p>
 		<label class="asr-settings-check">
@@ -2044,8 +2210,23 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		</div>
 		<p id="asr-bridge-order-status" class="asr-visually-hidden" aria-live="polite"></p>
 		<button class="asr-add-bridge-button" type="button">+ Add Bridge</button>
+		<button class="asr-add-urf-button" type="button"<?php echo !empty($urfConfig['enabled']) ? ' hidden' : ''; ?>>+ Add URF Reflector</button>
 		<p class="asr-settings-inline-note">After saving bridge changes, refresh the main ASR page. If an old name remains, perform a hard refresh: Ctrl+Shift+R on Windows/Linux or Command+Shift+R on Mac. On a phone, close the ASR tab and reopen it.</p>
 		<p class="asr-settings-help-action"><a class="asr-settings-help-button" href="<?php echo asrSettingsH(asrSettingsWebPath('asr-instructions/#bridge-cards')); ?>">Open Full Reimagined Help</a></p>
+	</fieldset>
+
+	<fieldset class="asr-settings-section is-collapsed" data-settings-section="station-filters">
+		<legend><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Station Display Filters <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></legend>
+		<label class="asr-settings-check">
+			<input name="filterServiceStations" type="checkbox" value="1"<?php echo $filterServiceStations ? ' checked' : ''; ?>>
+			<span>Hide service, probe, and filtered stations from bridge client and activity lists</span>
+		</label>
+		<p class="asr-settings-inline-note">ASR’s built-in list currently includes RFCKRD0, YSF-LIVE, KF0WSS, SRVPROB, and M7TEST. This changes display only; it does not kick or ban stations.</p>
+		<div class="asr-settings-row">
+			<label for="filteredStations">Custom Filtered Stations</label>
+			<textarea id="filteredStations" name="filteredStations" rows="5" maxlength="1024" placeholder="One station per line"><?php echo asrSettingsH(implode("\n", $filteredStations)); ?></textarea>
+		</div>
+		<p class="asr-settings-inline-note">Add one exact station identity per line. Remove a station by deleting its line, then save Reimagined Settings. Up to 64 custom entries are supported.</p>
 	</fieldset>
 
 	<fieldset class="asr-settings-section is-collapsed" data-settings-section="bridge-help">
@@ -2168,6 +2349,9 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var table = document.querySelector('.asr-bridge-settings-table');
 	var template = document.getElementById('asr-bridge-row-template-progressive');
 	var addButton = document.querySelector('.asr-add-bridge-button');
+	var addUrfButton = document.querySelector('.asr-add-urf-button');
+	var urfPanel = document.querySelector('[data-urf-panel]');
+	var urfEnabled = document.querySelector('[data-urf-enabled]');
 	var deletionConfirmations = document.getElementById('asrBridgeDeletionConfirmations');
 	var orderStatus = document.getElementById('asr-bridge-order-status');
 	var draggedBridgeRow = null;
@@ -2331,7 +2515,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(!name) return;
 		var text = title && title.value.trim() ? title.value.trim() : '';
 		var isUnsaved = !id || !id.value.trim();
-		var modeLabel = mode && mode.value === 'zello' ? 'Zello' : (mode ? mode.value.toUpperCase() : '');
+		var modeLabel = mode && mode.value === 'zello'
+			? 'Zello'
+			: mode && mode.value === 'dstar'
+				? 'D-Star'
+				: (mode ? mode.value.toUpperCase() : '');
 		if(!text && !isUnsaved && modeLabel) text = modeLabel + (cardType && cardType.value === 'net' ? ' Net Bridge' : ' Bridge');
 		name.textContent = text || 'New Digital Bridge';
 		if(summary) summary.textContent = 'Node ' + (node && node.value.trim() ? node.value.trim() : 'not set') + ' · Bridge card, Connection Status name, and optional connected-client source.';
@@ -2350,14 +2538,16 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var dmrSettings = row.querySelector('.asr-dmr-net-settings');
 			var ysfSettings = row.querySelector('.asr-ysf-net-settings');
 			var nextDigitalSettings = row.querySelector('.asr-next-digital-settings');
+			var dstarStatusSettings = row.querySelector('.asr-dstar-status-settings');
 			var clientSettings = row.querySelector('.asr-connected-client-settings');
 			var fixedRecovery = row.querySelector('[data-fixed-recovery-checkbox]');
 			var fixedRecoveryValue = row.querySelector('input[name="bridgeFixedRecovery[]"]');
 			var netOption = select ? select.querySelector('option[value="net"]') : null;
-			if(netOption) netOption.disabled = !!mode && mode.value === 'zello';
-			if(mode && mode.value === 'zello' && select && select.value !== 'standard') {
+			var standardOnlyMode = !!mode && (mode.value === 'dstar' || mode.value === 'zello');
+			if(netOption) netOption.disabled = standardOnlyMode;
+			if(standardOnlyMode && select && select.value !== 'standard') {
 				select.value = 'standard';
-				select.setAttribute('aria-description', 'Zello is Standard-only; Net Bridge is unavailable.');
+				select.setAttribute('aria-description', (mode.value === 'dstar' ? 'D-Star' : 'Zello') + ' is Standard-only; Net Bridge is unavailable.');
 			}
 			var isStandard = !select || select.value === 'standard';
 			var currentMode = mode ? mode.value : 'dmr';
@@ -2374,6 +2564,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(dmrSettings) dmrSettings.hidden = isStandard || currentMode !== 'dmr';
 			if(ysfSettings) ysfSettings.hidden = isStandard || currentMode !== 'ysf';
 			if(nextDigitalSettings) nextDigitalSettings.hidden = !isNextDigitalMode || !isManaged;
+			if(dstarStatusSettings) dstarStatusSettings.hidden = !isStandard || currentMode !== 'dstar';
 			row.querySelectorAll('.asr-digital-instance-field').forEach(function(field) {
 				field.hidden = !isNextDigitalMode || currentMode === 'm17';
 			});
@@ -2392,7 +2583,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			row.querySelectorAll('.asr-detail-title-field').forEach(function(field) {
 				field.hidden = !isStandard;
 			});
-			if(clientSettings) clientSettings.hidden = !isStandard;
+			if(clientSettings) clientSettings.hidden = !isStandard || currentMode === 'dstar';
 			refreshClientSource(row);
 			refreshBridgeTitle(row);
 		}
@@ -2798,6 +2989,25 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			updateBridgeOrderControls();
 		}
 	});
+	if(addUrfButton && urfPanel && urfEnabled) {
+		addUrfButton.addEventListener('click', function () {
+			urfEnabled.value = '1';
+			urfPanel.hidden = false;
+			addUrfButton.hidden = true;
+			urfPanel.querySelectorAll('input[name="urfModes[]"]').forEach(function(input) { input.checked = true; });
+			var node = urfPanel.querySelector('input[name="urfNode"]');
+			if(node) node.focus();
+		});
+	}
+	if(urfPanel && urfEnabled) {
+		var removeUrfButton = urfPanel.querySelector('.asr-remove-urf-button');
+		if(removeUrfButton) removeUrfButton.addEventListener('click', function () {
+			urfEnabled.value = '0';
+			urfPanel.querySelectorAll('input[name="urfModes[]"]').forEach(function(input) { input.checked = false; });
+			urfPanel.hidden = true;
+			if(addUrfButton) addUrfButton.hidden = false;
+		});
+	}
 	if(addButton && table && template) {
 		addButton.addEventListener('click', function () {
 			if(rows().length >= max) return;

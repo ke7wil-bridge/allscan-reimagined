@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Per-AllScan-user TGIF authentication and connected-session snapshots.
 
-Login secrets are accepted only on stdin and never stored. TGIF web-session cookies
-live only under /run so they disappear on reboot.
+Login secrets are accepted only on stdin and never stored. Root-only TGIF web-session
+cookies persist across reboots until the user signs out or TGIF expires the session.
 """
 from __future__ import annotations
 
@@ -19,12 +19,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+STATE = Path('/var/lib/allscan-reimagined/tgif-users')
 RUNTIME = Path('/run/allscan-reimagined/tgif-users')
-TOKENS = RUNTIME / 'tokens'
+TOKENS = STATE / 'tokens'
 SNAPSHOTS = RUNTIME / 'snapshots'
 CHALLENGES = RUNTIME / 'challenges'
 TGIF_BASE = 'https://tgif.network'
-DEFAULT_TG = '86753'
+DEFAULT_TG = ''
 USER_AGENT = 'AllScan-Reimagined TGIF client tracking'
 
 
@@ -49,6 +50,41 @@ def snapshot_path(user_id: str) -> Path:
 
 def challenge_path(user_id: str) -> Path:
     return CHALLENGES / f'{valid_user_id(user_id)}.json'
+
+
+def ensure_storage() -> None:
+    for path in (STATE, TOKENS, RUNTIME, SNAPSHOTS, CHALLENGES):
+        path.mkdir(parents=True, exist_ok=True)
+        os.chmod(path, 0o700)
+
+
+def prior_session_roster(user_id: str, now: int | None = None) -> dict[str, dict]:
+    path = snapshot_path(user_id)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict) or not isinstance(payload.get('clients'), list):
+        return {}
+    rows: dict[str, dict] = {}
+    for row in payload['clients']:
+        if not isinstance(row, dict):
+            continue
+        session_id = str(row.get('dmrid') or row.get('id') or row.get('uuid') or '').strip()
+        if session_id:
+            rows[session_id] = dict(row)
+    return rows
+
+
+def failure_snapshot(user_id: str, callsign: str, talkgroup: str, error: str, now: int | None = None) -> dict:
+    current = int(time.time() if now is None else now)
+    retained = [row for row in prior_session_roster(user_id, current).values() if str(row.get('talkgroup', '')) == talkgroup]
+    return {
+        'ok': False, 'configured': True, 'callsign': callsign, 'talkgroup': talkgroup,
+        'updatedEpoch': current, 'clients': retained, 'stale': True, 'error': error[:180],
+    }
 
 
 def atomic_json(path: Path, payload: dict) -> None:
@@ -192,13 +228,87 @@ def current_api_token(data: dict, talkgroup: str) -> str:
     return match.group(1)
 
 
+
+
+def update_session_roster(sessions: dict[str, dict], item: dict, talkgroup: str, now: int | None = None) -> str:
+    """Apply connection evidence without treating TX state as connection state."""
+    if not isinstance(item, dict):
+        return 'ignored'
+    session_id = str(item.get('uuid', '')).strip()
+    if not session_id:
+        return 'ignored'
+    event = str(item.get('event') or item.get('action') or '').strip().lower()
+    connected = item.get('connected')
+    explicit_disconnect = event in {'disconnect', 'disconnected', 'remove', 'removed'} or connected is False
+    if explicit_disconnect:
+        sessions.pop(session_id, None)
+        return 'disconnected'
+    tg1 = str(item.get('ts1_talkgroup', '')).strip()
+    tg2 = str(item.get('ts2_talkgroup', '')).strip()
+    has_tg_evidence = bool(tg1 or tg2)
+    explicit_connect = event in {'connect', 'connected', 'add', 'added'} or connected is True
+    tx_evidence = any(key in item for key in ('tx', 'transmitting', 'talking', 'ptt'))
+    if has_tg_evidence and talkgroup not in {tg1, tg2} and explicit_connect:
+        sessions.pop(session_id, None)
+        return 'disconnected'
+    prior = sessions.get(session_id, {})
+    if not prior and (not has_tg_evidence or talkgroup not in {tg1, tg2} or ((tx_evidence or str(item.get('state', '')) == '0') and not explicit_connect)):
+        return 'talker-only'
+    merged = dict(prior)
+    merged.update({key: value for key, value in item.items() if value not in (None, '')})
+    merged.update({
+        'callsign': str(merged.get('callsign') or '').strip()[:20],
+        'name': str(merged.get('name') or merged.get('shortname') or '').strip()[:80],
+        'dmrid': session_id, 'id': session_id, 'talkgroup': talkgroup,
+        'last_seen_epoch': int(time.time() if now is None else now),
+        'source': 'TGIF per-user authenticated session',
+    })
+    sessions[session_id] = merged
+    return 'connected'
+
+
+def enrich_session_transmissions(sessions: dict[str, dict], talkgroup: str, log_dir: Path = Path('/var/log/mmdvm'), now: int | None = None) -> None:
+    """Enrich existing connected rows; voice activity never establishes membership."""
+    from datetime import datetime, timezone
+    current = int(time.time() if now is None else now)
+    pattern = re.compile(r'^M: (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.\d+)? DMR Slot [12], received network (?:voice header|late entry) from (\S+) to TG ' + re.escape(talkgroup) + r'\s*$')
+    tx = {}
+    try:
+        logs = sorted(log_dir.glob('MMDVM_Bridge-*.log'), key=lambda p: p.stat().st_mtime)[-2:]
+        for path in logs:
+            with path.open('rb') as handle:
+                size = handle.seek(0, 2)
+                handle.seek(max(0, size - 524288))
+                if size > 524288:
+                    handle.readline()
+                lines = handle.read().decode('utf-8', 'replace').splitlines()
+            for line in lines:
+                match = pattern.fullmatch(line)
+                if not match:
+                    continue
+                epoch = int(datetime.strptime(match[1] + ' ' + match[2], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
+                if epoch <= 0 or epoch > current:
+                    continue
+                key = match[3].upper()
+                tx[key] = max(epoch, tx.get(key, 0))
+    except (OSError, ValueError):
+        pass
+    for row in sessions.values():
+        call = str(row.get('callsign') or '').strip().upper()
+        # A log callsign cannot distinguish multiple sessions of the same callsign.
+        epoch = tx.get(call, 0)
+        if epoch:
+            row['last_tx_epoch'] = max(int(row.get('last_tx_epoch') or 0), epoch)
+
 def collect_user(user_id: str) -> dict:
     import socketio
     data = load_token(user_id)
     cookies = cookie_header(data)
-    talkgroup = str(data.get('talkgroup') or DEFAULT_TG)
+    talkgroup = str(data.get('talkgroup') or '').strip()
+    if not re.fullmatch(r'[1-9][0-9]{0,7}', talkgroup):
+        raise ValueError('TGIF talkgroup is required; sign in with the configured DMR talkgroup')
     token = current_api_token(data, talkgroup)
-    sessions: dict[str, dict] = {}
+    sessions: dict[str, dict] = {key: row for key, row in prior_session_roster(user_id).items() if str(row.get('talkgroup', '')) == talkgroup}
     authenticated = False
     sio = socketio.Client(logger=False, engineio_logger=False, reconnection=False)
 
@@ -215,22 +325,7 @@ def collect_user(user_id: str) -> dict:
 
     @sio.on('dmr_session')
     def dmr_session(item):
-        if not isinstance(item, dict): return
-        session_id = str(item.get('uuid', '')).strip()
-        if not session_id: return
-        if str(item.get('state', '')) == '0':
-            sessions.pop(session_id, None); return
-        if str(item.get('ts1_talkgroup', '')) != talkgroup and str(item.get('ts2_talkgroup', '')) != talkgroup:
-            sessions.pop(session_id, None); return
-        sessions[session_id] = {
-            'callsign': str(item.get('callsign') or '').strip()[:20],
-            'name': str(item.get('name') or item.get('shortname') or '').strip()[:80],
-            'dmrid': session_id,
-            'id': session_id,
-            'talkgroup': talkgroup,
-            'last_seen_epoch': int(time.time()),
-            'source': 'TGIF per-user authenticated session',
-        }
+        update_session_roster(sessions, item, talkgroup)
 
     try:
         headers = {'Cookie': cookies} if cookies else None
@@ -247,6 +342,7 @@ def collect_user(user_id: str) -> dict:
             except Exception: pass
     if not authenticated:
         raise RuntimeError('TGIF session authentication was rejected')
+    enrich_session_transmissions(sessions, talkgroup)
     payload = {'ok': True, 'configured': True, 'callsign': str(data.get('callsign', '')),
                'talkgroup': talkgroup, 'updatedEpoch': int(time.time()),
                'clients': list(sessions.values()), 'error': ''}
@@ -263,8 +359,8 @@ def public_status(user_id: str) -> dict:
                 payload.pop('token', None)
                 payload['configured'] = token_file.is_file()
                 updated = int(payload.get('updatedEpoch') or 0)
-                if updated <= 0 or updated > int(time.time()) + 300 or int(time.time()) - updated > 45:
-                    payload['clients'] = []
+                stale = updated <= 0 or updated > int(time.time()) + 300 or int(time.time()) - updated > 45
+                payload['stale'] = bool(payload.get('stale')) or stale
                 return payload
         except Exception: pass
     return {'ok': True, 'configured': token_file.is_file(), 'callsign': '',
@@ -289,8 +385,7 @@ def login_user(user_id: str, callsign: str, talkgroup: str, secret: str, captcha
                 'authenticatedEpoch': int(time.time())})
     try: return collect_user(user_id)
     except Exception as exc:
-        payload = {'ok': False, 'configured': True, 'callsign': callsign, 'talkgroup': talkgroup,
-                   'updatedEpoch': int(time.time()), 'clients': [], 'error': str(exc)[:180]}
+        payload = failure_snapshot(user_id, callsign, talkgroup, str(exc))
         atomic_json(snapshot_path(user_id), payload); return payload
 
 
@@ -310,10 +405,9 @@ def collect_all() -> int:
             failures += 1
             try:
                 meta = load_token(path.stem)
-                atomic_json(snapshot_path(path.stem), {
-                    'ok': False, 'configured': True, 'callsign': str(meta.get('callsign', '')),
-                    'talkgroup': str(meta.get('talkgroup', DEFAULT_TG)), 'updatedEpoch': int(time.time()),
-                    'clients': [], 'error': str(exc)[:180]})
+                atomic_json(snapshot_path(path.stem), failure_snapshot(
+                    path.stem, str(meta.get('callsign', '')), str(meta.get('talkgroup', DEFAULT_TG)), str(exc)
+                ))
             except Exception: pass
     return 0
 
@@ -323,13 +417,30 @@ def self_test() -> None:
     assert valid_callsign('ke7wil') == 'KE7WIL'
     sample = {'cookies': [{'name': 'PHPSESSID', 'value': 'abc123', 'expires': 0}]}
     assert cookie_header(sample) == 'PHPSESSID=abc123'
+    test_tg = '12345'
+    sessions: dict[str, dict] = {}
+    for index, call in enumerate(['CLIENT-A', 'CLIENT-B', 'CLIENT-C', 'CLIENT-D', 'CLIENT-E'], 1):
+        update_session_roster(sessions, {'uuid': str(index), 'callsign': call, 'state': '1', 'ts2_talkgroup': test_tg}, test_tg, 100)
+    assert len(sessions) == 5
+    update_session_roster(sessions, {'uuid': '3', 'callsign': 'CLIENT-C', 'state': '1', 'ts2_talkgroup': test_tg, 'tx': True}, test_tg, 101)
+    assert len(sessions) == 5 and {row['callsign'] for row in sessions.values()} == {'CLIENT-A','CLIENT-B','CLIENT-C','CLIENT-D','CLIENT-E'}
+    update_session_roster(sessions, {'uuid': '3', 'callsign': 'CLIENT-C', 'state': '0', 'ts2_talkgroup': test_tg, 'tx': False}, test_tg, 102)
+    assert len(sessions) == 5, 'TX end incorrectly removed a connected client'
+    update_session_roster(sessions, {'uuid': '3', 'event': 'disconnect'}, test_tg, 103)
+    assert len(sessions) == 4 and all(row['callsign'] != 'CLIENT-C' for row in sessions.values())
+    update_session_roster(sessions, {'uuid': '2', 'callsign': 'CLIENT-B', 'state': '1', 'ts2_talkgroup': test_tg, 'tx': True}, test_tg, 104)
+    assert len(sessions) == 4 and sessions['2']['callsign'] == 'CLIENT-B'
+    # A current-talker-only partial update cannot create or replace the connection snapshot.
+    before = dict(sessions)
+    assert update_session_roster(sessions, {'uuid': '999', 'callsign': 'TALKER-ONLY', 'state': '1'}, test_tg, 105) == 'talker-only'
+    assert sessions == before
     print('per-user TGIF session helper self-test: ok')
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='command', required=True)
-    login = sub.add_parser('login'); login.add_argument('user_id'); login.add_argument('callsign'); login.add_argument('--talkgroup', default=DEFAULT_TG); login.add_argument('--captcha', default='')
+    login = sub.add_parser('login'); login.add_argument('user_id'); login.add_argument('callsign'); login.add_argument('--talkgroup', required=True); login.add_argument('--captcha', default='')
     status = sub.add_parser('status'); status.add_argument('user_id')
     logout = sub.add_parser('logout'); logout.add_argument('user_id')
     collect = sub.add_parser('collect'); collect.add_argument('user_id')
@@ -337,6 +448,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == 'self-test': self_test(); return 0
     if os.geteuid() != 0: parser.error('run as root')
+    ensure_storage()
     if args.command == 'login':
         secret = sys.stdin.readline().rstrip('\r\n')
         print(json.dumps(login_user(args.user_id, args.callsign, args.talkgroup, secret, args.captcha), separators=(',', ':'))); return 0
