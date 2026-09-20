@@ -310,6 +310,25 @@ function asr_runtime_config(): array {
     );
 
     $storedBridges = is_array($stored['bridges'] ?? null) ? $stored['bridges'] : asr_detect_bridges();
+    // Local URF compatibility: expand the original single URF card into one display card per protocol.
+    $normalizedStoredBridges = [];
+    foreach ($storedBridges as $bridge) {
+        if (is_array($bridge) && !empty($bridge['urfReflector']) && asr_bridge_mode($bridge) === 'urf') {
+            foreach (['dmr' => 'DMR', 'ysf' => 'YSF', 'p25' => 'P25', 'nxdn' => 'NXDN', 'm17' => 'M17'] as $urfMode => $urfLabel) {
+                $expanded = $bridge;
+                $expanded['id'] = 'urf_' . $urfMode;
+                $expanded['mode'] = $urfMode;
+                $expanded['title'] = $urfLabel . ' Bridge';
+                $expanded['detailTitle'] = 'Connected Clients';
+                $expanded['friendlyName'] = $urfLabel . ' Bridge';
+                $expanded['urfGroupId'] = (string) ($bridge['urfGroupId'] ?? 'urf');
+                $normalizedStoredBridges[] = $expanded;
+            }
+            continue;
+        }
+        $normalizedStoredBridges[] = $bridge;
+    }
+    $storedBridges = $normalizedStoredBridges;
     $bridges = [];
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;
@@ -333,6 +352,8 @@ function asr_runtime_config(): array {
             'mode' => $mode,
             'node' => $bridgeNode,
             'linkAlias' => $linkAlias,
+            'urfReflector' => !empty($bridge['urfReflector']),
+            'urfGroupId' => !empty($bridge['urfReflector']) ? (string) ($bridge['urfGroupId'] ?? 'urf') : '',
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
             'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
             'friendlyName' => substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),

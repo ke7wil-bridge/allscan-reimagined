@@ -20,6 +20,8 @@ export type RuntimeBridgeConfig = {
   detailTitle: string
   friendlyName?: string
   cardType?: BridgeCardType
+  urfReflector?: boolean
+  urfGroupId?: string
   linkAlias?: string
   backendMode?: 'display_only' | 'managed'
 }

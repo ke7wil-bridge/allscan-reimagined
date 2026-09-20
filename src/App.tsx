@@ -470,7 +470,7 @@ function App({ config }: { config: RuntimeConfig }) {
       ),
       byNode: new Map(
         config.bridges
-          .filter((bridge) => bridge.node && !bridge.linkAlias)
+          .filter((bridge) => bridge.node && !bridge.linkAlias && !bridge.urfReflector)
           .map((bridge) => [bridge.node, bridge.friendlyName?.trim() || bridge.title]),
       ),
     }),
@@ -490,7 +490,7 @@ function App({ config }: { config: RuntimeConfig }) {
       ),
       byNode: new Map(
         config.bridges
-          .filter((bridge) => bridge.node && !bridge.linkAlias)
+          .filter((bridge) => bridge.node && !bridge.linkAlias && !bridge.urfReflector)
           .map((bridge) => [bridge.node, toRowState(byId.get(bridge.id))]),
       ),
     }
@@ -531,14 +531,14 @@ function App({ config }: { config: RuntimeConfig }) {
     return {
       ...next,
       cards: next.cards.map((card) => {
+        const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
+        const isUrfModeCard = bridgeConfig?.urfReflector === true
         const isTunableDigitalBridge = card.cardType !== 'standard'
-        const row = isTunableDigitalBridge
-          ? connectionRowsRef.current.find((candidate) => (
-            candidate.bridgeId === card.id
-            && candidate.direction.toUpperCase() === 'OUT'
-            && candidate.state !== 'message'
-          ))
-          : rowsByNode.get(card.node)
+        const row = isUrfModeCard
+          ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
+          : isTunableDigitalBridge
+            ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
+            : rowsByNode.get(card.node)
         // A bridge-specific Source/TX or Relay role is more authoritative than
         // its Asterisk transport row. The row remains a safe fallback only when
         // the bridge collector reports idle or has not produced data yet.

@@ -1750,6 +1750,60 @@ $rollbackCsrfToken = asrSettingsRollbackCsrfToken($user);
 $saveCsrfToken = asrSettingsSaveCsrfToken($user);
 $bridgeLifecycleError = '';
 $bridgeLifecyclePreviews = asrSettingsBridgeLifecyclePreviews($bridgeLifecycleError);
+function asrSettingsUrfConfigFromPost(&$error) {
+	$enabled = !empty($_POST['urfEnabled']);
+	$node = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
+	$modes = is_array($_POST['urfModes'] ?? null) ? $_POST['urfModes'] : [];
+	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17'], array_map('strtolower', array_map('strval', $modes))));
+	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => []];
+	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
+		$error = 'URF Reflector needs a 3-10 digit shared AllStar node number.';
+		return [];
+	}
+	if(!$modes) {
+		$error = 'URF Reflector needs at least one enabled digital mode.';
+		return [];
+	}
+	return ['enabled' => true, 'node' => $node, 'modes' => $modes];
+}
+
+function asrSettingsUrfModeBridges($urf) {
+	if(empty($urf['enabled'])) return [];
+	$result = [];
+	foreach((array)($urf['modes'] ?? []) as $mode) {
+		$label = $mode === 'm17' ? 'M17' : strtoupper($mode);
+		$result[] = [
+			'id' => 'urf_' . $mode,
+			'mode' => $mode,
+			'node' => (string)$urf['node'],
+			'title' => $label . ' Bridge',
+			'detailTitle' => 'Connected Clients',			'friendlyName' => $label . ' Bridge',
+			'clientSource' => 'auto',
+			'clientUrl' => '',
+			'clientUsername' => '',
+			'cardType' => 'standard',
+			'backendMode' => 'display_only',
+			'allowTune' => false,
+			'fixedBridgeRecovery' => false,
+			'urfReflector' => true,
+			'urfGroupId' => 'urf',
+		];
+	}
+	return $result;
+}
+
+function asrSettingsExistingUrfConfig($config) {
+	$node = '';
+	$modes = [];
+	foreach((array)($config['bridges'] ?? []) as $bridge) {
+		if(!is_array($bridge) || empty($bridge['urfReflector'])) continue;
+		if($node === '') $node = (string)($bridge['node'] ?? '');
+		$mode = strtolower((string)($bridge['mode'] ?? ''));
+		if(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $mode;
+	}
+	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes))];
+}
+
 $submit = $_POST['Submit'] ?? null;
 $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
@@ -1811,7 +1865,9 @@ if($ysfImportBridgeId !== '') {
 			}
 		}
 	}
-} elseif($submit === SAVE_REIMAGINED_SETTINGS) {
+}
+
+elseif($submit === SAVE_REIMAGINED_SETTINGS) {
 	$next = $config;
 	$uploadError = '';
 	$uploadedLogo = '';
@@ -1842,21 +1898,24 @@ if($ysfImportBridgeId !== '') {
 		$saveError = 'Header logo must be a local ASR path or an http/https URL.';
 	} else {
 		$bridgeError = '';
+		$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
 		$bridges = asrSettingsBridgeRowsFromPost(
 			$bridgeError,
-			$config['bridges'] ?? [],
+			$existingNonUrf,
 			$config['node'] ?? ''
 		);
+		$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError) : [];
+		$urfBridges = $bridgeError === '' ? asrSettingsUrfModeBridges($urf) : [];
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
 			$postedBridgeIds = is_array($_POST['bridgeId'] ?? null) ? $_POST['bridgeId'] : [];
 			asrSettingsValidateOwnedBridgeMutations(
-				$config['bridges'] ?? [], $bridges, $postedBridgeIds,
+				$existingNonUrf, $bridges, $postedBridgeIds,
 				$bridgeLifecyclePreviews, $saveError
 			);
 			$deletionPlan = $saveError === '' ? asrSettingsValidateDeletionPlan(
-				$config['bridges'] ?? [], $bridges,
+				$existingNonUrf, $bridges,
 				(string)($_POST['bridgeDeletionConfirmations'] ?? ''),
 				$bridgeLifecyclePreviews, $saveError
 			) : null;
@@ -1881,6 +1940,7 @@ if($ysfImportBridgeId !== '') {
 			$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
 			$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
 			$next['lowPowerMode'] = $lowPowerMode;
+			$bridges = array_merge($bridges, $urfBridges);
 			$next['bridges'] = $bridges;
 			$saveError = '';
 			$nextSecrets = $secrets;
@@ -1965,7 +2025,8 @@ $maintainFriendlyNames = !empty($config['maintainFriendlyNames']);
 $announceStartupBridgeSummary = !empty($config['announceStartupBridgeSummary']);
 $announceNoConnectedBridges = $announceStartupBridgeSummary && !empty($config['announceNoConnectedBridges']);
 $lowPowerMode = !empty($config['lowPowerMode']);
-$bridgeRows = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+$urfConfig = asrSettingsExistingUrfConfig($config);
+$bridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
 $bridgePasswords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bridgeClientPasswords'] : [];
 $ysfCatalogStatuses = [];
 foreach($bridgeRows as $bridge) {
@@ -2019,7 +2080,19 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 
 	<fieldset class="asr-settings-section is-collapsed" data-settings-section="bridges">
 		<legend><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Bridge Cards <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></legend>
-		<p class="asr-settings-help">Only active bridge cards are listed here. Use Add Bridge for another card, up to <?php echo ASR_MAX_BRIDGES; ?> total.</p>
+		<p class="asr-settings-help">Only active bridge cards are listed here. Use Add Bridge for a normal bridge, or Add URF Reflector for one shared reflector that exposes separate mode cards.</p>
+		<div class="asr-urf-inline-panel" data-urf-panel<?php echo !empty($urfConfig['enabled']) ? '' : ' hidden'; ?>>
+			<div class="asr-bridge-section-copy"><strong>URF Reflector</strong><span>One shared AllStar transport with separate DMR, YSF, P25, NXDN, and M17 dashboard cards.</span></div>
+			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
+			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
+			<p class="asr-settings-inline-note">The shared node is transport health only; it never determines which URF mode is transmitting.</p>
+			<div class="asr-bridge-fields-grid">
+			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
+			<label class="asr-settings-check"><input name="urfModes[]" type="checkbox" value="<?php echo asrSettingsH($urfMode); ?>"<?php echo in_array($urfMode,(array)($urfConfig['modes'] ?? []),true) ? ' checked' : ''; ?>><span><?php echo asrSettingsH($urfLabel); ?> Bridge</span></label>
+			<?php endforeach; ?>
+			</div>
+			<button type="button" class="asr-remove-urf-button">Remove URF Reflector</button>
+		</div>
 		<p class="asr-settings-help">Drag bridge cards into the preferred dashboard order, or use the Up and Down buttons. Save Reimagined Settings to keep the new order.</p>
 		<p class="asr-settings-help">Choose the Digital Mode. The card title remains yours to edit. ASR keeps a separate hidden internal ID so Standard and Net Bridge cards for the same mode can coexist safely.</p>
 		<label class="asr-settings-check">
@@ -2044,6 +2117,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		</div>
 		<p id="asr-bridge-order-status" class="asr-visually-hidden" aria-live="polite"></p>
 		<button class="asr-add-bridge-button" type="button">+ Add Bridge</button>
+		<button class="asr-add-urf-button" type="button"<?php echo !empty($urfConfig['enabled']) ? ' hidden' : ''; ?>>+ Add URF Reflector</button>
 		<p class="asr-settings-inline-note">After saving bridge changes, refresh the main ASR page. If an old name remains, perform a hard refresh: Ctrl+Shift+R on Windows/Linux or Command+Shift+R on Mac. On a phone, close the ASR tab and reopen it.</p>
 		<p class="asr-settings-help-action"><a class="asr-settings-help-button" href="<?php echo asrSettingsH(asrSettingsWebPath('asr-instructions/#bridge-cards')); ?>">Open Full Reimagined Help</a></p>
 	</fieldset>
@@ -2168,6 +2242,9 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var table = document.querySelector('.asr-bridge-settings-table');
 	var template = document.getElementById('asr-bridge-row-template-progressive');
 	var addButton = document.querySelector('.asr-add-bridge-button');
+	var addUrfButton = document.querySelector('.asr-add-urf-button');
+	var urfPanel = document.querySelector('[data-urf-panel]');
+	var urfEnabled = document.querySelector('[data-urf-enabled]');
 	var deletionConfirmations = document.getElementById('asrBridgeDeletionConfirmations');
 	var orderStatus = document.getElementById('asr-bridge-order-status');
 	var draggedBridgeRow = null;
@@ -2798,6 +2875,25 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			updateBridgeOrderControls();
 		}
 	});
+	if(addUrfButton && urfPanel && urfEnabled) {
+		addUrfButton.addEventListener('click', function () {
+			urfEnabled.value = '1';
+			urfPanel.hidden = false;
+			addUrfButton.hidden = true;
+			urfPanel.querySelectorAll('input[name="urfModes[]"]').forEach(function(input) { input.checked = true; });
+			var node = urfPanel.querySelector('input[name="urfNode"]');
+			if(node) node.focus();
+		});
+	}
+	if(urfPanel && urfEnabled) {
+		var removeUrfButton = urfPanel.querySelector('.asr-remove-urf-button');
+		if(removeUrfButton) removeUrfButton.addEventListener('click', function () {
+			urfEnabled.value = '0';
+			urfPanel.querySelectorAll('input[name="urfModes[]"]').forEach(function(input) { input.checked = false; });
+			urfPanel.hidden = true;
+			if(addUrfButton) addUrfButton.hidden = false;
+		});
+	}
 	if(addButton && table && template) {
 		addButton.addEventListener('click', function () {
 			if(rows().length >= max) return;
