@@ -7,7 +7,7 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
 fi
 umask 022
 
-ASR_VERSION="1.0.0-beta.7.5"
+ASR_VERSION="1.0.0-beta.7.6"
 ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
@@ -50,7 +50,7 @@ validate_command() {
 restore_runtime_backup() {
   [ -d "$BACKUP_DIR/runtime" ] || return 0
   mkdir -p "$ASR_WEB_DIR"
-  for runtime_file in bridge-live.json connected-clients.json asr-connected-clients.json zello-status-data.json; do
+  for runtime_file in connected-clients.json asr-connected-clients.json zello-status-data.json; do
     [ -f "$BACKUP_DIR/runtime/$runtime_file" ] && cp -p "$BACKUP_DIR/runtime/$runtime_file" "$ASR_WEB_DIR/$runtime_file"
   done
   for runtime_dir in img asr-user-content; do
@@ -461,7 +461,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 7.5"
+echo "Reimagined release:        v1.0.0 Beta 7.6"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -545,7 +545,7 @@ fi
 if [ -n "$BACKUP_WEB_DIR" ]; then
   echo "[1/8] Backing up the existing AllScan Reimagined installation..."
   mkdir -p "$BACKUP_DIR/runtime"
-  for runtime_file in bridge-live.json connected-clients.json asr-connected-clients.json zello-status-data.json; do
+  for runtime_file in connected-clients.json asr-connected-clients.json zello-status-data.json; do
     [ -f "$BACKUP_WEB_DIR/$runtime_file" ] && cp -p "$BACKUP_WEB_DIR/$runtime_file" "$BACKUP_DIR/runtime/"
   done
   for runtime_dir in img asr-user-content; do
@@ -658,7 +658,7 @@ if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ]; then
 fi
 
 if [ -d "$BACKUP_DIR/runtime" ]; then
-  for runtime_file in bridge-live.json connected-clients.json asr-connected-clients.json zello-status-data.json; do
+  for runtime_file in connected-clients.json asr-connected-clients.json zello-status-data.json; do
     if [ -s "$BACKUP_DIR/runtime/$runtime_file" ] && [ ! -s "$ASR_WEB_DIR/$runtime_file" ]; then
       install -d -m 755 "$ASR_WEB_DIR"
       cp -p "$BACKUP_DIR/runtime/$runtime_file" "$ASR_WEB_DIR/$runtime_file"
@@ -679,7 +679,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -980,8 +980,12 @@ validate_command "startup bridge summary helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-startup-bridge-summary.py" --self-test >/dev/null
 validate_command "protected configuration metadata self-test" \
   python3 "$RELEASE_DIR/scripts/asr-protected-config-metadata.py" --self-test >/dev/null
+validate_command "DMR connected-client roster stability self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-dmr-roster-stability-self-test.py" >/dev/null
 validate_command "per-user TGIF session helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-tgif-user-session.py" self-test >/dev/null
+validate_command "TGIF/URFWIL DMR adapter self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-tgif-urf-dmr-bridge.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
 validate_command "canonical Favorites source self-test" \
@@ -1055,13 +1059,13 @@ raise SystemExit(
         and re.sub(
             r"[^a-z0-9]", "",
             str(item.get("mode", item.get("id", ""))).lower(),
-        ).startswith(("dmr", "ysf"))
+        ).startswith(("dmr", "ysf", "dstar"))
         for item in payload.get("bridges", [])
     ) else 1
 )
 PY
 then
-  validate_command "configured Standard DMR/YSF status service is active" \
+  validate_command "configured Standard DMR/YSF/D-Star status service is active" \
     systemctl is-active --quiet allscan-reimagined-standard-bridge-status.service
 fi
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
@@ -1170,7 +1174,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 7.5"
+echo "AllScan Reimagined:    v1.0.0 Beta 7.6"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"
