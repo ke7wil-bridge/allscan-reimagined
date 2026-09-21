@@ -46,6 +46,8 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     urf.DMR_ROSTER = str(tmp / "dmr-clients.json")
     urf.DMR_CONTROL = str(tmp / "dmr-admin.json")
     urf.DSTAR_BLACKLIST = str(tmp / "xlxd.blacklist")
+    urf.CONFIG = str(tmp / "config.json")
+    Path(urf.CONFIG).write_text(json.dumps({"bridges": [], "filteredStations": ["FEEDALIAS"]}), encoding="utf-8")
     Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": [], "events": []}), encoding="utf-8")
     Path(urf.DMR_CONTROL).write_text(json.dumps({
         "banned_ids": [3224939],
@@ -79,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     except ValueError:
         pass
 
-    for protected_rule in ("RFCKRD0", "YSF-LIVE", "KF0WSS", "KF0*"):
+    for protected_rule in ("RFCKRD0", "YSF-LIVE", "KF0WSS", "KF0*", "FEEDALIAS", "FEED*"):
         try:
             urf.assert_ban_allowed(protected_rule)
             raise AssertionError(f"protected identity rule was accepted: {protected_rule}")

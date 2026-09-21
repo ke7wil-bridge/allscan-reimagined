@@ -65,9 +65,9 @@ def run():
         ban.STATE = root / "state.json"
         ban.GLOBAL = root / "urfd.blacklist"
         ban.CONFIG = root / "config.json"
-        ban.CONFIG.write_text(json.dumps({"node": "641890", "callsign": "N0OWNER", "bridges": []}))
+        ban.CONFIG.write_text(json.dumps({"node": "641890", "callsign": "N0OWNER", "bridges": [], "filteredStations": ["N0SERVICE"]}))
         now = int(time.time())
-        ban.GLOBAL.write_text("N0GLOBAL\n")
+        ban.GLOBAL.write_text("N0GLOBAL\nN0SERVICE\n")
         fake = FakeAMI(ast={"765432"}, echo={"N0MANUAL", "N0GLOBAL"})
         fake.channels = [
             "IAX2/remote-1!radio-secure!641890!1!Up!Rpt!641890!123456!Remote!",
@@ -88,6 +88,7 @@ def run():
         assert result["removed"] == 3
         assert len(fake.channels) == 1 and "local-4" in fake.channels[0]
         assert "N0GLOBAL" in result["externalEcho"]  # pre-existing manual rule
+        assert "N0SERVICE" in result["unmappedGlobalRules"]
 
         # Expiry removes only ASR owned restrictions; manual entries remain.
         for item in state["bans"]:
@@ -119,6 +120,12 @@ def run():
             else:
                 raise AssertionError("Unsafe callsign accepted: " + candidate)
         assert ban.check_node("641890") == "641890"
+        try:
+            ban.check_call("N0SERVICE")
+        except ValueError as exc:
+            assert "service and probe" in str(exc)
+        else:
+            raise AssertionError("Configured service callsign was accepted")
         # A busy EchoLink module leaves the update pending; a later list retries it.
         state["bans"] = [{"kind": "echolink-call", "value": "N0RETRY", "createdAt": now,
                           "expiresAt": now + 3600, "reason": "", "actor": "test"}]
