@@ -4779,3 +4779,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   .allscan-controls-action-group { justify-self: auto; }
   .allscan-kicks-bans-button { justify-self: auto; }
 }
+
+/* Recent Activity is historical only; administrative actions belong to Connected Clients. */
+.allscan-bridge-recent .allscan-bridge-inline-client-actions { display: none; }
