@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import os
 import tempfile
 import threading
 import time
@@ -44,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
 
     admin.CONFIG_PATH = config
     admin.RUNTIME_ROOT = runtime
+    admin.TRUSTED_UID = os.geteuid()
     admin.BLACKLIST = blacklist
     admin.TIMED_BANS = timed
     admin.AUDIT_LOG = audit

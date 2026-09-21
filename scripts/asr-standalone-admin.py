@@ -31,6 +31,7 @@ SUPPORTED_MODES = {"dmr", "ysf", "p25", "nxdn", "m17"}
 MAX_JSON = 64 * 1024
 FRESH_SECONDS = 30
 RESULT_TIMEOUT = 12.0
+TRUSTED_UID = 0
 class AdminError(RuntimeError):
     pass
 
@@ -46,7 +47,7 @@ def read_json(path: Path, *, trusted: bool = False) -> Any:
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
             raise AdminError(f"Unsafe administration file: {path.name}")
-        if trusted and (details.st_uid != 0 or details.st_mode & 0o022):
+        if trusted and (details.st_uid != TRUSTED_UID or details.st_mode & 0o022):
             raise AdminError(f"Untrusted administration file: {path.name}")
         if details.st_size < 2 or details.st_size > MAX_JSON:
             raise AdminError(f"Invalid administration file size: {path.name}")
@@ -95,7 +96,7 @@ def bridge_runtime(bridge_id: str) -> Path:
     if root not in directory.parents:
         raise AdminError("Standalone administration path escaped its runtime root.")
     details = directory.stat()
-    if not stat.S_ISDIR(details.st_mode) or details.st_uid != 0 or details.st_mode & 0o022:
+    if not stat.S_ISDIR(details.st_mode) or details.st_uid != TRUSTED_UID or details.st_mode & 0o022:
         raise AdminError("Standalone administration directory is untrusted.")
     return directory
 
