@@ -57,9 +57,25 @@ def normalize(value: str) -> str:
     return rule
 
 
+def protected_identities():
+    identities = set(PROTECTED_IDENTITIES)
+    try:
+        with open(CONFIG, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return identities
+    if not isinstance(payload, dict):
+        return identities
+    for value in payload.get("filteredStations", []):
+        identity = str(value).strip().upper()
+        if re.fullmatch(r"[A-Z0-9][A-Z0-9_./-]{0,14}", identity):
+            identities.add(identity)
+    return identities
+
+
 def protected_identity_for_rule(rule):
     prefix = rule[:-1] if rule.endswith("*") else rule
-    return next((identity for identity in sorted(PROTECTED_IDENTITIES) if identity == rule or (rule.endswith("*") and identity.startswith(prefix))), "")
+    return next((identity for identity in sorted(protected_identities()) if identity == rule or (rule.endswith("*") and identity.startswith(prefix))), "")
 
 
 def assert_ban_allowed(rule):

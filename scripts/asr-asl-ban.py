@@ -29,11 +29,26 @@ def check_node(value):
     return value
 
 
+def protected_calls():
+    calls = set(PROTECTED_CALLS)
+    try:
+        payload = json.loads(CONFIG.read_text())
+    except (OSError, ValueError):
+        return calls
+    if not isinstance(payload, dict):
+        return calls
+    for station in payload.get("filteredStations", []):
+        candidate = str(station).strip().upper()
+        if CALL.fullmatch(candidate) and any(char.isalpha() for char in candidate):
+            calls.add(re.sub(r"-(?:L|R)$", "", candidate))
+    return calls
+
+
 def check_call(value):
     value = value.strip().upper()
     if not CALL.fullmatch(value) or not any(char.isalpha() for char in value):
         raise ValueError("Enter a valid callsign.")
-    if value in PROTECTED_CALLS:
+    if re.sub(r"-(?:L|R)$", "", value) in protected_calls():
         raise ValueError("ASR service and probe callsigns cannot be banned.")
     return value
 
@@ -86,14 +101,14 @@ def global_calls():
         return set(), []
     result, unsupported = set(), []
     local_call = str(json.loads(CONFIG.read_text()).get("callsign", "")).strip().upper()
-    local_base = base_call(local_call) if CALL.fullmatch(local_call) else ""
+    local_base = re.sub(r"-(?:L|R)$", "", local_call) if CALL.fullmatch(local_call) else ""
     for raw in GLOBAL.read_text().splitlines():
         raw = raw.strip().upper()
         if not raw or raw.startswith("#"):
             continue
         if CALL.fullmatch(raw) and any(char.isalpha() for char in raw):
-            canonical = base_call(raw)
-            if canonical in PROTECTED_CALLS or (local_base and canonical == local_base):
+            canonical = re.sub(r"-(?:L|R)$", "", raw)
+            if canonical in protected_calls() or (local_base and canonical == local_base):
                 unsupported.append(raw)
             else:
                 result.add(canonical)

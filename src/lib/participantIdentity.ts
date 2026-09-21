@@ -31,3 +31,10 @@ export function identityFromConnection(row: LiveConnectionRow): ParticipantIdent
     active: row.state !== 'message',
   }
 }
+
+// Named service channels lack a verified participant callsign or AllStar node.
+// Keep them visible in status without offering client-management actions.
+export function isBannableConnection(row: LiveConnectionRow) {
+  const identity = identityFromConnection(row)
+  return Boolean(identity.callsign || identity.nodeNumber)
+}
