@@ -45,6 +45,7 @@ install_helper asr-friendly-names.php allscan-reimagined-friendly-names
 install_helper asr-bridge-clients.php allscan-reimagined-bridge-clients
 install_helper asr-bridge-lifecycle.py allscan-reimagined-bridge-lifecycle
 install_helper asr-favorites-update.py allscan-reimagined-favorites-update
+install_helper asr-favorites-manager.py allscan-reimagined-favorites-manager
 install_helper asr-bridge-control.py allscan-reimagined-bridge-control
 install_helper asr-ysf-bridge-control.py allscan-reimagined-ysf-bridge-control
 install_helper asr-p25-bridge-control.py allscan-reimagined-p25-bridge-control
@@ -105,6 +106,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecy
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*

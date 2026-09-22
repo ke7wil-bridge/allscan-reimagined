@@ -61,8 +61,21 @@ assert(
   'Favorites placement control is missing theme, focus, or responsive styling',
 )
 assert(
-  !app.includes('draggable=') && !app.includes('onPointerMove=') && !css.includes('.allscan-favorites-drag'),
-  'Favorites unexpectedly uses an unbounded draggable overlay',
+  app.includes('draggable={authStatus.canModify}')
+    && app.includes('onDrop={() =>')
+    && app.includes("favoriteOperation('reorder'"),
+  'Favorites does not provide bounded, persistent row reordering',
+)
+assert(
+  app.includes("const FAVORITES_PINNED_KEY = 'asrFavoritesPinned.v1'")
+    && app.includes('onDoubleClick={() =>')
+    && app.includes("runCommandForNode('connect', favorite.node)"),
+  'Pinned Favorites or its double-click connection behavior is missing',
+)
+assert(
+  css.includes('.allscan-favorites-table tbody {')
+    && css.includes('grid-template-columns: repeat(auto-fit, minmax(310px, 1fr))'),
+  'Favorites did not move from the rigid table presentation to responsive cards',
 )
 
 console.log('favorites placement self-test: ok')

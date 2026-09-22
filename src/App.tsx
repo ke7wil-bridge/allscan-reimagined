@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Search } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -18,6 +18,7 @@ import {
   fetchDropClients,
   fetchFavorites,
   fetchFavoriteStats,
+  manageFavorite,
   fetchReleaseStatus,
   fetchUrfBlacklist,
   updateUrfBlacklist,
@@ -52,6 +53,7 @@ const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
+const FAVORITES_PINNED_KEY = 'asrFavoritesPinned.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -466,6 +468,12 @@ function App({ config }: { config: RuntimeConfig }) {
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
   const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [favoritesPinned, setFavoritesPinned] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
+  const [favoriteAddNode, setFavoriteAddNode] = useState('')
+  const [favoriteEditing, setFavoriteEditing] = useState<string | null>(null)
+  const [favoriteDescription, setFavoriteDescription] = useState('')
+  const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
+  const [favoriteStatus, setFavoriteStatus] = useState('')
   const [favoritesPlacement, setFavoritesPlacement] = useState<FavoritesPlacement>(readFavoritesPlacement)
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
@@ -742,27 +750,7 @@ function App({ config }: { config: RuntimeConfig }) {
     return { ...stats, txPct }
   }
 
-  const sortedFavorites = useMemo(() => {
-    const items = [...favorites]
-    const dir = favoriteSort.direction === 'asc' ? 1 : -1
-    const key = favoriteSort.key
-
-    items.sort((a, b) => {
-      if (key === 'index' || key === 'node') {
-        const av = Number(key === 'index' ? a.index : a.node)
-        const bv = Number(key === 'index' ? b.index : b.node)
-        if (Number.isFinite(av) && Number.isFinite(bv) && av !== bv) return (av - bv) * dir
-      }
-
-      const av = String(a[key] || '').toLowerCase()
-      const bv = String(b[key] || '').toLowerCase()
-      if (av < bv) return -1 * dir
-      if (av > bv) return 1 * dir
-      return 0
-    })
-
-    return items
-  }, [favorites, favoriteSort])
+  const sortedFavorites = favorites
 
   const sortedConnectionRows = useMemo(() => {
     const pinnedRows = rows
@@ -1288,6 +1276,82 @@ function App({ config }: { config: RuntimeConfig }) {
     ))
   }
 
+  async function reloadFavorites() {
+    const next = await fetchFavorites(selectedFavoriteFile)
+    setFavorites(next.rows)
+    setFavoriteFiles(next.files)
+    if (next.selectedFile !== selectedFavoriteFile) setSelectedFavoriteFile(next.selectedFile)
+  }
+
+  async function favoriteOperation(
+    operation: Parameters<typeof manageFavorite>[0]['operation'],
+    options: { node?: string; value?: string } = {},
+  ) {
+    if (!authStatus.canModify) return
+    try {
+      setBusy(true)
+      const result = await manageFavorite({
+        operation,
+        favsfile: selectedFavoriteFile,
+        node: options.node,
+        value: options.value,
+      })
+      if (operation !== 'preview-import') await reloadFavorites()
+      if (operation === 'import') {
+        setFavoriteStatus(`Imported ${Number(result.added || 0)} new Favorite(s); existing entries and customizations were preserved.`)
+      } else {
+        setFavoriteStatus('Favorites saved.')
+      }
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Favorites operation failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function importSupermonFavorites() {
+    if (!authStatus.canModify) return
+    try {
+      setBusy(true)
+      const preview = await manageFavorite({ operation: 'preview-import', favsfile: selectedFavoriteFile })
+      if (preview.available === false) {
+        setFavoriteStatus('No compatible Supermon favorites.ini file was found.')
+        return
+      }
+      if (preview.malformed) {
+        setFavoriteStatus('The Supermon Favorites file contains no compatible entries; nothing was changed.')
+        return
+      }
+      const additions = Number(preview.additions instanceof Array ? preview.additions.length : 0)
+      const existing = Number(preview.existing instanceof Array ? preview.existing.length : 0)
+      if (!window.confirm(`Import preview: add ${additions} new Favorite(s); preserve ${existing} existing match(es). Existing order, descriptions, and colors will not be replaced. Continue?`)) return
+      await favoriteOperation('import')
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Supermon import preview failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reorderFavorite(sourceNode: string, targetNode: string) {
+    if (sourceNode === targetNode) return
+    const order = favorites.map((favorite) => favorite.node)
+    const sourceIndex = order.indexOf(sourceNode)
+    const targetIndex = order.indexOf(targetNode)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const [moved] = order.splice(sourceIndex, 1)
+    order.splice(targetIndex, 0, moved)
+    setFavorites(order.map((node) => favorites.find((favorite) => favorite.node === node)!).filter(Boolean))
+    await favoriteOperation('reorder', { value: JSON.stringify(order) })
+  }
+
+  function moveFavorite(node: string, direction: -1 | 1) {
+    const index = favorites.findIndex((favorite) => favorite.node === node)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= favorites.length) return
+    void reorderFavorite(node, favorites[target].node)
+  }
+
   function toggleConnectionSort(key: ConnectionSortKey) {
     setConnectionSort((current) => (
       current.key === key
@@ -1786,6 +1850,39 @@ function App({ config }: { config: RuntimeConfig }) {
               ))}
             </select>
           </form>
+          <form className="allscan-favorites-add" onSubmit={(event) => {
+            event.preventDefault()
+            const node = favoriteAddNode.trim()
+            if (!canPopulateNodeControl(node)) {
+              setFavoriteStatus('Enter a valid node number.')
+              return
+            }
+            setNodeValue(node)
+            void runCommandForNode('addfav', node).then(() => {
+              setFavoriteAddNode('')
+              void reloadFavorites()
+            })
+          }}>
+            <label htmlFor="allscan-favorite-add">Add Favorite</label>
+            <input id="allscan-favorite-add" inputMode="numeric" value={favoriteAddNode} onChange={(event) => setFavoriteAddNode(event.target.value)} placeholder="Node number" />
+            <button type="submit" disabled={busy || !authStatus.canModify}><Plus /> Add</button>
+          </form>
+          <label className="allscan-favorites-pin">
+            <input type="checkbox" checked={favoritesPinned} onChange={(event) => {
+              setFavoritesPinned(event.target.checked)
+              window.localStorage.setItem(FAVORITES_PINNED_KEY, event.target.checked ? '1' : '0')
+            }} />
+            <Pin /> Keep Favorites open
+          </label>
+          <div className="allscan-favorites-tools">
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void importSupermonFavorites()} title="Preview and merge compatible Supermon Favorites without replacing existing entries">Import Supermon…</button>
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              if (window.confirm('Reset the saved custom order for this Favorites list? Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
+            }}><RotateCcw /> Reset order</button>
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              if (window.confirm('Reset all Favorite colors for this list? Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
+            }}><RotateCcw /> Reset colors</button>
+          </div>
           <label className="allscan-favorites-placement">
             <input
               ref={favoritesPlacementRef}
@@ -1801,6 +1898,7 @@ function App({ config }: { config: RuntimeConfig }) {
             Keep below Connection Status on this browser
           </label>
         </div>
+        {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
         <div className="allscan-favorites-legend">
           <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
           <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
@@ -1871,9 +1969,20 @@ function App({ config }: { config: RuntimeConfig }) {
               const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
               const linkCount = Number(linkText || 0)
               return (
-              <tr key={favorite.node}>
+              <tr
+                key={favorite.node}
+                draggable={authStatus.canModify}
+                onDragStart={() => setFavoriteDragNode(favorite.node)}
+                onDragEnd={() => setFavoriteDragNode(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  if (favoriteDragNode) void reorderFavorite(favoriteDragNode, favorite.node)
+                  setFavoriteDragNode(null)
+                }}
+                style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
+              >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
-                  <span>{favorite.index}</span>
+                  <button type="button" className="allscan-favorite-drag" aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"><GripVertical /><span>{Number(favorite.index) + 1}</span></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -1881,8 +1990,12 @@ function App({ config }: { config: RuntimeConfig }) {
                     if (!canPopulateNodeControl(favorite.node)) return
                     setNodeValue(favorite.node)
                     nodeInputRef.current?.focus()
-                    setFavoritesOpen(isAddDeleteFavoriteAction)
+                    if (!favoritesPinned) setFavoritesOpen(isAddDeleteFavoriteAction)
                   }}
+                  onDoubleClick={() => {
+                    if (favoritesPinned && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)
+                  }}
+                  title={favoritesPinned ? 'Double-click to connect' : 'Select node'}
                 >
                   {favorite.node}
                 </td>
@@ -1891,10 +2004,44 @@ function App({ config }: { config: RuntimeConfig }) {
                     <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
                   ) : favorite.name}
                 </td>
-                <td>{favorite.desc}</td>
+                <td>
+                  {favoriteEditing === favorite.node ? (
+                    <form className="allscan-favorite-description-editor" onSubmit={(event) => {
+                      event.preventDefault()
+                      void favoriteOperation('update-description', { node: favorite.node, value: favoriteDescription }).then(() => setFavoriteEditing(null))
+                    }}>
+                      <input autoFocus value={favoriteDescription} onChange={(event) => setFavoriteDescription(event.target.value)} maxLength={200} aria-label={`Friendly description for ${favorite.node}`} />
+                      <button type="submit" disabled={busy}>Save</button>
+                      <button type="button" onClick={() => setFavoriteEditing(null)}>Cancel</button>
+                    </form>
+                  ) : (
+                    <span className="allscan-favorite-description">
+                      {favorite.desc || <em>No description</em>}
+                      {favorite.customDescription ? <small>User description</small> : null}
+                    </span>
+                  )}
+                </td>
                 <td>{favorite.location}</td>
                 <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText}</td>
-                <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>{linkText}</td>
+                <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>
+                  <span>{linkText}</span>
+                  {authStatus.canModify ? <span className="allscan-favorite-actions">
+                    <button type="button" className="allscan-favorite-move-button" title="Move up" aria-label={`Move ${favorite.node} up`} onClick={() => moveFavorite(favorite.node, -1)}>↑</button>
+                    <button type="button" className="allscan-favorite-move-button" title="Move down" aria-label={`Move ${favorite.node} down`} onClick={() => moveFavorite(favorite.node, 1)}>↓</button>
+                    <button type="button" title="Edit friendly description" onClick={() => {
+                      setFavoriteEditing(favorite.node)
+                      setFavoriteDescription(favorite.customDescription || favorite.desc)
+                    }}><Pencil /></button>
+                    {favorite.customDescription ? <button type="button" title="Reset to downloaded description" onClick={() => void favoriteOperation('reset-description', { node: favorite.node })}><RotateCcw /></button> : null}
+                    <label title="Favorite accent color"><input type="color" value={favorite.color || '#4aa3df'} onChange={(event) => void favoriteOperation('set-color', { node: favorite.node, value: event.target.value })} /></label>
+                    {(favorite.customDescription || favorite.color) ? <button type="button" title="Reset this Favorite's description and color" onClick={() => {
+                      if (window.confirm(`Reset the custom description and color for node ${favorite.node}? Its position and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-favorite', { node: favorite.node })
+                    }}><RotateCcw /></button> : null}
+                    <button type="button" title="Remove Favorite" onClick={() => {
+                      if (window.confirm(`Remove node ${favorite.node} from Favorites?`)) void runCommandForNode('delfav', favorite.node).then(() => reloadFavorites())
+                    }}><Trash2 /></button>
+                  </span> : null}
+                </td>
               </tr>
               )
             })}

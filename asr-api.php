@@ -17,6 +17,8 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
+const ASR_FAVORITES_MANAGER_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-manager';
+const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
@@ -2559,10 +2561,11 @@ function asr_safe_favorites_file(string $requested = ''): string {
 }
 
 function asr_ini_values(string $contents, string $key): array {
-    preg_match_all('/^\s*' . preg_quote($key, '/') . '\s*\[\]\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|(.+?))\s*$/mi', $contents, $matches, PREG_SET_ORDER);
+    $pattern = '/^\s*' . preg_quote($key, '/') . '\s*\[\]\s*=\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\\\\.|[^\'\\\\])*)\'|(.+?))\s*$/mi';
+    preg_match_all($pattern, $contents, $matches, PREG_SET_ORDER);
     return array_map(static function (array $match): string {
         $value = ($match[1] ?? '') !== '' ? $match[1] : (($match[2] ?? '') !== '' ? $match[2] : ($match[3] ?? ''));
-        return trim($value);
+        return trim(str_replace(['\\"', '\\\\'], ['"', '\\'], $value));
     }, $matches);
 }
 
@@ -2621,8 +2624,30 @@ function asr_favorite_display_data(string $label, string $node): array {
     return ['label' => $label] + asr_parse_label($label, $node);
 }
 
+function asr_favorites_user_data(string $file): array {
+    if (!is_readable(ASR_FAVORITES_USER_STATE)) return ['nodes' => [], 'order' => []];
+    $decoded = json_decode((string) file_get_contents(ASR_FAVORITES_USER_STATE), true);
+    if (!is_array($decoded)) return ['nodes' => [], 'order' => []];
+    $entry = $decoded['files'][basename($file)] ?? [];
+    return is_array($entry) ? $entry + ['nodes' => [], 'order' => []] : ['nodes' => [], 'order' => []];
+}
+
+function asr_favorites_manager(array $arguments): array {
+    if (!is_executable(ASR_FAVORITES_MANAGER_HELPER)) asr_error('Favorites manager is unavailable.', 500);
+    $command = 'sudo -n ' . escapeshellarg(ASR_FAVORITES_MANAGER_HELPER);
+    foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+    $raw = trim((string) shell_exec($command . ' 2>&1'));
+    $result = json_decode($raw, true);
+    if (!is_array($result) || empty($result['ok'])) {
+        asr_error((string) ($result['error'] ?? 'Favorites operation failed.'), 400);
+    }
+    return $result;
+}
+
 function asr_favorites_payload(string $requested = ''): array {
     $selected = asr_safe_favorites_file($requested);
+    $userData = asr_favorites_user_data($selected);
+    $nodeData = is_array($userData['nodes'] ?? null) ? $userData['nodes'] : [];
     $contents = is_readable($selected) ? (string) file_get_contents($selected) : '';
     $labels = asr_ini_values($contents, 'label');
     $cmds = asr_ini_values($contents, 'cmd');
@@ -2635,18 +2660,35 @@ function asr_favorites_payload(string $requested = ''): array {
         if ($node === '') continue;
 
         $display = asr_favorite_display_data($label, $node);
+        $custom = is_array($nodeData[$node] ?? null) ? $nodeData[$node] : [];
+        $customDescription = trim((string) ($custom['description'] ?? ''));
         $rows[] = [
             'index' => (string) $index,
             'node' => $node,
             'label' => (string) $display['label'],
             'name' => (string) $display['name'],
-            'desc' => (string) $display['desc'],
+            'desc' => $customDescription !== '' ? $customDescription : (string) $display['desc'],
+            'referenceDesc' => (string) $display['desc'],
+            'customDescription' => $customDescription,
             'location' => (string) $display['location'],
+            'color' => (string) ($custom['color'] ?? ''),
             'rx' => '',
             'lcnt' => '',
             'href' => 'http://stats.allstarlink.org/stats/' . rawurlencode($node),
         ];
     }
+
+    $order = array_values(array_filter(array_map('strval', (array) ($userData['order'] ?? []))));
+    if ($order) {
+        $positions = array_flip($order);
+        usort($rows, static function (array $left, array $right) use ($positions): int {
+            $a = $positions[$left['node']] ?? PHP_INT_MAX;
+            $b = $positions[$right['node']] ?? PHP_INT_MAX;
+            return $a <=> $b ?: ((int) $left['index'] <=> (int) $right['index']);
+        });
+    }
+    foreach ($rows as $index => &$row) $row['index'] = (string) $index;
+    unset($row);
 
     $files = array_map(static fn (string $file): array => [
         'value' => basename($file),
@@ -2693,6 +2735,22 @@ function asr_favorite_action(string $action, string $node, string $requested): a
             ? "Deleted {$node} from Favorites."
             : "Added {$node} to Favorites.",
     ];
+}
+
+function asr_favorite_manage_action(string $operation, string $requested, string $node = '', string $value = ''): array {
+    $allowed = ['preview-import', 'import', 'update-description', 'reset-description', 'set-color', 'reset-appearance', 'reorder', 'reset-order', 'reset-favorite'];
+    if (!in_array($operation, $allowed, true)) asr_error('Invalid Favorites operation.');
+    if ($node !== '' && !preg_match('/^[A-Za-z0-9*#]{3,8}$/', $node)) asr_error('Invalid node.');
+    if (strlen($value) > 20000) asr_error('Favorites value is too large.');
+    $file = asr_safe_favorites_file($requested);
+    $real = realpath($file);
+    if (!is_string($real) || !str_starts_with($real, '/etc/allscan/favorites')) {
+        asr_error('Only shared Favorites files under /etc/allscan can be modified.', 400);
+    }
+    $arguments = [$operation, '--file', $real];
+    if ($node !== '') array_push($arguments, '--node', $node);
+    if ($value !== '') array_push($arguments, '--value', $value);
+    return asr_favorites_manager($arguments);
 }
 
 function asr_drop_clients(): array {
@@ -3443,6 +3501,17 @@ if ($action === 'favorite-command') {
     asr_require_same_origin();
     asr_require_modify();
     asr_json(asr_favorite_action((string) ($_POST['favoriteAction'] ?? ''), (string) ($_POST['node'] ?? ''), (string) ($_POST['favsfile'] ?? '')));
+}
+if ($action === 'favorite-manage') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    asr_json(asr_favorite_manage_action(
+        (string) ($_POST['operation'] ?? ''),
+        (string) ($_POST['favsfile'] ?? ''),
+        (string) ($_POST['node'] ?? ''),
+        (string) ($_POST['value'] ?? '')
+    ));
 }
 if ($action === 'drop-clients') {
     asr_require_same_origin();

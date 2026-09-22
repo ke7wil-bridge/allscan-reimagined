@@ -4782,3 +4782,190 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 /* Recent Activity is historical only; administrative actions belong to Connected Clients. */
 .allscan-bridge-recent .allscan-bridge-inline-client-actions { display: none; }
+
+
+/* Beta 8 Favorites workspace */
+.allscan-favorites-panel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.allscan-favorites-inner {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(148, 190, 212, .28);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(24, 39, 49, .96), rgba(13, 24, 31, .96));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+}
+.allscan-favorites-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+.allscan-favorites-add,
+.allscan-favorites-file-form {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+.allscan-favorites-add label,
+.allscan-favorites-file-form label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.allscan-favorites-add input,
+.allscan-favorites-add button,
+.allscan-favorites-tools button {
+  min-height: 38px;
+  border: 1px solid rgba(148, 190, 212, .34);
+  border-radius: 10px;
+}
+.allscan-favorites-add button,
+.allscan-favorites-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 11px;
+  background: rgba(74, 163, 223, .13);
+}
+.allscan-favorites-add svg,
+.allscan-favorites-tools svg,
+.allscan-favorite-actions svg,
+.allscan-favorites-pin svg {
+  width: 15px;
+  height: 15px;
+}
+.allscan-favorites-pin,
+.allscan-favorites-placement {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid rgba(148, 190, 212, .24);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .035);
+}
+.allscan-favorites-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.allscan-favorites-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.allscan-favorites-status {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(74, 163, 223, .1);
+}
+.allscan-favorites-table-wrap {
+  overflow: visible;
+}
+.allscan-favorites-table {
+  display: block;
+}
+.allscan-favorites-table thead {
+  display: none;
+}
+.allscan-favorites-table tbody {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 10px;
+}
+.allscan-favorites-table tbody tr {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px minmax(78px, auto) 1fr auto;
+  grid-template-areas:
+    "order node name actions"
+    "order description description actions"
+    "order location rx actions";
+  gap: 5px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 190, 212, .2);
+  border-inline-start: 5px solid #4aa3df;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .045);
+  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+}
+.allscan-favorites-table tbody tr:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 190, 212, .48);
+  background: rgba(255, 255, 255, .07);
+}
+.allscan-favorites-table tbody td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+.allscan-favorites-table tbody td:nth-child(1) { grid-area: order; align-self: stretch; }
+.allscan-favorites-table tbody td:nth-child(2) { grid-area: node; font-size: 18px; font-weight: 900; cursor: pointer; }
+.allscan-favorites-table tbody td:nth-child(3) { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.allscan-favorites-table tbody td:nth-child(4) { grid-area: description; }
+.allscan-favorites-table tbody td:nth-child(5) { grid-area: location; opacity: .76; font-size: 12px; }
+.allscan-favorites-table tbody td:nth-child(6) { grid-area: rx; font-size: 12px; }
+.allscan-favorites-table tbody td:nth-child(7) { grid-area: actions; align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; align-items: end; }
+.allscan-favorite-drag {
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255,255,255,.055);
+  cursor: grab;
+}
+.allscan-favorite-drag svg { width: 18px; height: 18px; }
+.allscan-favorite-description { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.allscan-favorite-description small { padding: 2px 6px; border-radius: 999px; background: rgba(90, 194, 137, .14); font-size: 10px; text-transform: uppercase; }
+.allscan-favorite-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 5px; margin-top: 7px; }
+.allscan-favorite-actions button,
+.allscan-favorite-actions label {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 8px;
+  background: rgba(255,255,255,.045);
+}
+.allscan-favorite-actions input[type="color"] { width: 20px; height: 20px; padding: 0; border: 0; background: transparent; }
+.allscan-favorite-description-editor { display: flex; flex-wrap: wrap; gap: 5px; }
+.allscan-favorite-description-editor input { flex: 1 1 180px; min-width: 0; }
+@media (max-width: 720px) {
+  .allscan-favorites-inner { padding: 9px; border-radius: 13px; }
+  .allscan-favorites-options,
+  .allscan-favorites-tools { align-items: stretch; }
+  .allscan-favorites-add,
+  .allscan-favorites-file-form { flex: 1 1 100%; }
+  .allscan-favorites-tools button { flex: 1 1 120px; }
+  .allscan-favorites-table tbody { grid-template-columns: 1fr; }
+  .allscan-favorites-table tbody tr {
+    grid-template-columns: 42px minmax(70px, auto) 1fr;
+    grid-template-areas:
+      "order node name"
+      "order description description"
+      "order location rx"
+      "actions actions actions";
+  }
+  .allscan-favorites-table tbody td:nth-child(7) {
+    flex-direction: row;
+    align-items: center;
+  }
+  .allscan-favorite-actions { margin-top: 0; }
+}

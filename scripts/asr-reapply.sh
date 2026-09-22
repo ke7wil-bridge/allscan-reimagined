@@ -238,6 +238,8 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/l
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
 [ -f "$MASTER_DIR/scripts/asr-favorites-update.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-update.py" /usr/local/sbin/allscan-reimagined-favorites-update
+[ -f "$MASTER_DIR/scripts/asr-favorites-manager.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-manager.py" /usr/local/sbin/allscan-reimagined-favorites-manager
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /usr/local/sbin/allscan-reimagined-tgif-user-session
@@ -945,6 +947,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-ses
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*

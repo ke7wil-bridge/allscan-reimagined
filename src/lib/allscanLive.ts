@@ -99,7 +99,10 @@ export type FavoriteNode = {
   label: string
   name: string
   desc: string
+  referenceDesc: string
+  customDescription: string
   location: string
+  color: string
   rx: string
   lcnt: string
   href: string
@@ -789,6 +792,29 @@ export function subscribeConnectionFeed(
     channel?.close()
     closeSource()
   }
+}
+
+export async function manageFavorite(args: {
+  operation: 'preview-import' | 'import' | 'update-description' | 'reset-description' | 'set-color' | 'reset-appearance' | 'reorder' | 'reset-order' | 'reset-favorite'
+  favsfile: string
+  node?: string
+  value?: string
+}) {
+  const response = await fetch(ASR_API + '?action=favorite-manage', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      action: 'favorite-manage',
+      operation: args.operation,
+      favsfile: args.favsfile,
+      node: args.node || '',
+      value: args.value || '',
+    }).toString(),
+  })
+  const payload = await response.json() as { ok?: boolean; error?: string; [key: string]: unknown }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites operation failed.')
+  return payload
 }
 
 export async function fetchCpuTemp() {
