@@ -467,7 +467,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteFiles, setFavoriteFiles] = useState<FavoritesFileOption[]>([])
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
   const [favoritesPinned, setFavoritesPinned] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
   const [favoriteAddNode, setFavoriteAddNode] = useState('')
   const [favoriteEditing, setFavoriteEditing] = useState<string | null>(null)
@@ -1996,7 +1996,8 @@ function App({ config }: { config: RuntimeConfig }) {
                   }}
                   title={favoritesPinned ? 'Double-click to connect' : 'Select node'}
                 >
-                  {favorite.node}
+                  <span className="allscan-favorite-node-number">{favorite.node}</span>
+                  <span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span>
                 </td>
                 <td aria-hidden="true">{favorite.name}</td>
                 <td>
@@ -2024,7 +2025,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   )}
                 </td>
                 <td title={favorite.location}>{favorite.location}</td>
-                <td><span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span></td>
+                <td aria-hidden="true" />
                 <td>
                   <span className={linkCount >= 3 ? 'allscan-favorite-link-count allscan-fav-cell-links' : 'allscan-favorite-link-count'}>{linkText !== '' ? `Linked: ${linkText}` : 'Linked: —'}</span>
                   {authStatus.canModify ? <span className="allscan-favorite-actions">

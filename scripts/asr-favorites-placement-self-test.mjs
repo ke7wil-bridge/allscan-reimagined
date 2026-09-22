@@ -76,7 +76,7 @@ assert(
 assert(
   css.includes('.allscan-favorites-table tbody {')
     && css.includes('grid-template-columns: minmax(0, 1fr);')
-    && css.includes('min-height: 54px;'),
+    && css.includes('min-height: 44px;'),
   'Favorites does not use compact, single-column rows',
 )
 assert(
@@ -103,8 +103,9 @@ assert(
 )
 assert(
   app.includes("'allscan-favorite-rx allscan-fav-cell-rx'")
+    && app.includes('<span className="allscan-favorite-node-number">{favorite.node}</span>')
     && css.includes('width: fit-content;'),
-  'Favorite Rx indicator is not compact',
+  'Favorite Rx indicator is not compact beneath the node number',
 )
 assert(
   app.includes("allscan-favorites-pin")
@@ -115,7 +116,8 @@ assert(
 assert(
   css.includes('.allscan-favorites-pin.is-pinned')
     && css.includes('border-color: #ff6464;')
-    && app.includes('window.localStorage.setItem(FAVORITES_PINNED_KEY'),
+    && app.includes('window.localStorage.setItem(FAVORITES_PINNED_KEY')
+    && app.includes("const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')"),
   'Pinned Favorites is not red and browser-persistent',
 )
 assert(
