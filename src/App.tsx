@@ -1857,7 +1857,7 @@ function App({ config }: { config: RuntimeConfig }) {
             })
           }}>
             <label htmlFor="allscan-favorite-add">Add Favorite</label>
-            <input id="allscan-favorite-add" inputMode="numeric" value={favoriteAddNode} onChange={(event) => setFavoriteAddNode(event.target.value)} placeholder="Node number" />
+            <input id="allscan-favorite-add" inputMode="numeric" maxLength={9} value={favoriteAddNode} onChange={(event) => setFavoriteAddNode(event.target.value)} placeholder="Node number" />
             <button type="submit" disabled={busy || !authStatus.canModify}><Plus /> Add</button>
           </form>
           <button

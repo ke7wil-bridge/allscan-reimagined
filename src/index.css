@@ -4972,6 +4972,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 
 /* Favorites compact full-width review layout */
+.allscan-favorites-panel {
+  width: min(900px, calc(100vw - 40px));
+  max-width: 900px;
+}
 .allscan-favorites-inner {
   position: relative;
   gap: 8px;
@@ -4984,8 +4988,16 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 .allscan-favorites-add,
 .allscan-favorites-file-form {
-  grid-template-columns: minmax(100px, 160px) auto;
   gap: 4px;
+}
+.allscan-favorites-file-form {
+  grid-template-columns: minmax(100px, 160px) auto;
+}
+.allscan-favorites-add {
+  grid-template-columns: 108px auto;
+}
+.allscan-favorites-add input {
+  width: 108px;
 }
 .allscan-favorites-add label,
 .allscan-favorites-file-form label {
@@ -5059,7 +5071,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   gap: 6px;
 }
 .allscan-favorites-table tbody tr {
-  grid-template-columns: 24px minmax(76px, auto) minmax(250px, 1fr) minmax(130px, .42fr) minmax(170px, auto);
+  grid-template-columns: 24px minmax(76px, auto) minmax(190px, .82fr) minmax(120px, .5fr) minmax(160px, auto);
   grid-template-areas:
     "order node description location actions";
   gap: 2px 8px;
@@ -5216,6 +5228,9 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   font-size: 11px;
 }
 @media (max-width: 720px) {
+  .allscan-favorites-panel {
+    width: min(100%, calc(100vw - 12px));
+  }
   .allscan-favorites-options { padding-right: 32px; }
   .allscan-favorites-table tbody tr {
     grid-template-columns: 22px 70px minmax(0, 1fr) auto;

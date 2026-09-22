@@ -76,8 +76,15 @@ assert(
 assert(
   css.includes('.allscan-favorites-table tbody {')
     && css.includes('grid-template-columns: minmax(0, 1fr);')
-    && css.includes('min-height: 44px;'),
-  'Favorites does not use compact, single-column rows',
+    && css.includes('min-height: 44px;')
+    && css.includes('width: min(900px, calc(100vw - 40px));'),
+  'Favorites does not use compact, narrowed single-column rows',
+)
+assert(
+  app.includes('id="allscan-favorite-add" inputMode="numeric" maxLength={9}')
+    && css.includes('grid-template-columns: 108px auto;')
+    && css.includes('width: 108px;'),
+  'Add Favorite node input is not sized for a nine-digit node number',
 )
 assert(
   !app.includes('Number(favorite.index)')
