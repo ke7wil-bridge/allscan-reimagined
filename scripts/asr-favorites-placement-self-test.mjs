@@ -117,8 +117,10 @@ assert(
 assert(
   app.includes("allscan-favorites-pin")
     && app.includes("favoritesPinned ? ' is-pinned' : ''")
-    && app.includes('aria-pressed={favoritesPinned}'),
-  'Favorites pin is not an icon-only stateful control',
+    && app.includes('aria-pressed={favoritesPinned}')
+    && css.includes('width: 24px;')
+    && css.includes('height: 24px;'),
+  'Favorites pin is not a compact icon-only stateful control',
 )
 assert(
   css.includes('.allscan-favorites-pin.is-pinned')

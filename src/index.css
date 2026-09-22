@@ -5020,11 +5020,11 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 .allscan-favorites-pin {
   position: absolute;
-  top: 9px;
-  right: 9px;
+  top: 8px;
+  right: 8px;
   z-index: 2;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   min-height: 0;
   display: grid;
   place-items: center;
@@ -5036,8 +5036,8 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   cursor: pointer;
 }
 .allscan-favorites-pin svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   transform: rotate(-25deg);
   opacity: .58;
 }
