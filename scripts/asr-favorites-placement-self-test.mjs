@@ -74,8 +74,41 @@ assert(
 )
 assert(
   css.includes('.allscan-favorites-table tbody {')
-    && css.includes('grid-template-columns: repeat(auto-fit, minmax(310px, 1fr))'),
-  'Favorites did not move from the rigid table presentation to responsive cards',
+    && css.includes('grid-template-columns: minmax(0, 1fr);')
+    && css.includes('min-height: 54px;'),
+  'Favorites does not use compact, single-column rows',
+)
+assert(
+  !app.includes('Number(favorite.index)')
+    && !app.includes('moveFavorite(')
+    && app.includes('Drag to reorder'),
+  'Favorites retains redundant order numbers or one-step movement controls',
+)
+assert(
+  app.includes("'Links: —'")
+    && app.includes('Links: '),
+  'Favorite link counts are not clearly labeled',
+)
+assert(
+  app.includes("allscan-favorites-pin")
+    && app.includes("favoritesPinned ? ' is-pinned' : ''")
+    && app.includes('aria-pressed={favoritesPinned}'),
+  'Favorites pin is not an icon-only stateful control',
+)
+assert(
+  app.includes('Import Supermon Favorites…')
+    && app.indexOf('Import Supermon Favorites…') > app.indexOf('allscan-submenu-admin')
+    && !app.includes('>Import Supermon…</button>'),
+  'Supermon import was not moved to the Admin menu',
+)
+assert(
+  app.includes('Reset the custom description for node')
+    && app.includes('Reset the custom description and color for node')
+    && app.includes('Reset the saved custom order')
+    && app.includes('Reset all Favorite colors')
+    && app.includes('Remove node')
+    && app.includes('from Favorites?'),
+  'A Favorites reset or delete action is missing confirmation',
 )
 
 console.log('favorites placement self-test: ok')

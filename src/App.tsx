@@ -1345,13 +1345,6 @@ function App({ config }: { config: RuntimeConfig }) {
     await favoriteOperation('reorder', { value: JSON.stringify(order) })
   }
 
-  function moveFavorite(node: string, direction: -1 | 1) {
-    const index = favorites.findIndex((favorite) => favorite.node === node)
-    const target = index + direction
-    if (index < 0 || target < 0 || target >= favorites.length) return
-    void reorderFavorite(node, favorites[target].node)
-  }
-
   function toggleConnectionSort(key: ConnectionSortKey) {
     setConnectionSort((current) => (
       current.key === key
@@ -1867,15 +1860,21 @@ function App({ config }: { config: RuntimeConfig }) {
             <input id="allscan-favorite-add" inputMode="numeric" value={favoriteAddNode} onChange={(event) => setFavoriteAddNode(event.target.value)} placeholder="Node number" />
             <button type="submit" disabled={busy || !authStatus.canModify}><Plus /> Add</button>
           </form>
-          <label className="allscan-favorites-pin">
-            <input type="checkbox" checked={favoritesPinned} onChange={(event) => {
-              setFavoritesPinned(event.target.checked)
-              window.localStorage.setItem(FAVORITES_PINNED_KEY, event.target.checked ? '1' : '0')
-            }} />
-            <Pin /> Keep Favorites open
-          </label>
+          <button
+            type="button"
+            className={`allscan-favorites-pin${favoritesPinned ? ' is-pinned' : ''}`}
+            aria-pressed={favoritesPinned}
+            aria-label={favoritesPinned ? 'Unpin Favorites' : 'Keep Favorites open'}
+            title={favoritesPinned ? 'Favorites will stay open' : 'Keep Favorites open'}
+            onClick={() => {
+              const pinned = !favoritesPinned
+              setFavoritesPinned(pinned)
+              window.localStorage.setItem(FAVORITES_PINNED_KEY, pinned ? '1' : '0')
+            }}
+          >
+            <Pin />
+          </button>
           <div className="allscan-favorites-tools">
-            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void importSupermonFavorites()} title="Preview and merge compatible Supermon Favorites without replacing existing entries">Import Supermon…</button>
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
               if (window.confirm('Reset the saved custom order for this Favorites list? Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
             }}><RotateCcw /> Reset order</button>
@@ -1982,7 +1981,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
               >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
-                  <button type="button" className="allscan-favorite-drag" aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"><GripVertical /><span>{Number(favorite.index) + 1}</span></button>
+                  <button type="button" className="allscan-favorite-drag" aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"><GripVertical /></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -1999,7 +1998,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   {favorite.node}
                 </td>
-                <td>
+                <td title={favorite.name}>
                   {favorite.href ? (
                     <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
                   ) : favorite.name}
@@ -2015,24 +2014,24 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button type="button" onClick={() => setFavoriteEditing(null)}>Cancel</button>
                     </form>
                   ) : (
-                    <span className="allscan-favorite-description">
+                    <span className="allscan-favorite-description" title={favorite.desc || 'No description'}>
                       {favorite.desc || <em>No description</em>}
                       {favorite.customDescription ? <small>User description</small> : null}
                     </span>
                   )}
                 </td>
-                <td>{favorite.location}</td>
-                <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText}</td>
+                <td title={favorite.location}>{favorite.location}</td>
+                <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</td>
                 <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>
-                  <span>{linkText}</span>
+                  <span className="allscan-favorite-link-count">{linkText !== '' ? `Links: ${linkText}` : 'Links: —'}</span>
                   {authStatus.canModify ? <span className="allscan-favorite-actions">
-                    <button type="button" className="allscan-favorite-move-button" title="Move up" aria-label={`Move ${favorite.node} up`} onClick={() => moveFavorite(favorite.node, -1)}>↑</button>
-                    <button type="button" className="allscan-favorite-move-button" title="Move down" aria-label={`Move ${favorite.node} down`} onClick={() => moveFavorite(favorite.node, 1)}>↓</button>
                     <button type="button" title="Edit friendly description" onClick={() => {
                       setFavoriteEditing(favorite.node)
                       setFavoriteDescription(favorite.customDescription || favorite.desc)
                     }}><Pencil /></button>
-                    {favorite.customDescription ? <button type="button" title="Reset to downloaded description" onClick={() => void favoriteOperation('reset-description', { node: favorite.node })}><RotateCcw /></button> : null}
+                    {favorite.customDescription ? <button type="button" title="Reset to downloaded description" onClick={() => {
+                      if (window.confirm(`Reset the custom description for node ${favorite.node}? Its color, position, and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-description', { node: favorite.node })
+                    }}><RotateCcw /></button> : null}
                     <label title="Favorite accent color"><input type="color" value={favorite.color || '#4aa3df'} onChange={(event) => void favoriteOperation('set-color', { node: favorite.node, value: event.target.value })} /></label>
                     {(favorite.customDescription || favorite.color) ? <button type="button" title="Reset this Favorite's description and color" onClick={() => {
                       if (window.confirm(`Reset the custom description and color for node ${favorite.node}? Its position and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-favorite', { node: favorite.node })
@@ -2245,6 +2244,11 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => {
+                    setMenuOpen(false)
+                    setOpenSubmenu(null)
+                    void importSupermonFavorites()
+                  }}>Import Supermon Favorites…</button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {authStatus.loggedIn
