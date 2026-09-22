@@ -8,6 +8,7 @@ function assert(condition, message) {
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+const api = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
 
 assert(
   app.includes("const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'"),
@@ -85,15 +86,37 @@ assert(
   'Favorites retains redundant order numbers or one-step movement controls',
 )
 assert(
-  app.includes("'Links: —'")
-    && app.includes('Links: '),
-  'Favorite link counts are not clearly labeled',
+  app.includes("'Linked: —'")
+    && app.includes('Linked: '),
+  'Favorite linked counts are not clearly labeled',
+)
+assert(
+  app.includes('favorite.description || favorite.name')
+    && app.includes('favorite.frequency || favorite.referenceDesc')
+    && css.includes('.allscan-favorite-frequency'),
+  'Favorite description and frequency are not presented as separate stacked fields',
+)
+assert(
+  api.includes("'description' => $customDescription !== '' ? $customDescription : (string) $display['name']")
+    && api.includes("'frequency' => (string) $display['desc']"),
+  'Favorites API does not preserve separate description and frequency fields',
+)
+assert(
+  app.includes("'allscan-favorite-rx allscan-fav-cell-rx'")
+    && css.includes('width: fit-content;'),
+  'Favorite Rx indicator is not compact',
 )
 assert(
   app.includes("allscan-favorites-pin")
     && app.includes("favoritesPinned ? ' is-pinned' : ''")
     && app.includes('aria-pressed={favoritesPinned}'),
   'Favorites pin is not an icon-only stateful control',
+)
+assert(
+  css.includes('.allscan-favorites-pin.is-pinned')
+    && css.includes('border-color: #ff6464;')
+    && app.includes('window.localStorage.setItem(FAVORITES_PINNED_KEY'),
+  'Pinned Favorites is not red and browser-persistent',
 )
 assert(
   app.includes('Import Supermon Favorites…')

@@ -5030,10 +5030,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   opacity: .58;
 }
 .allscan-favorites-pin.is-pinned {
-  border-color: #58b9f2;
-  background: rgba(74, 163, 223, .25);
-  color: #d9f3ff;
-  box-shadow: 0 0 0 1px rgba(88, 185, 242, .25);
+  border-color: #ff6464;
+  background: rgba(190, 32, 43, .3);
+  color: #ff8080;
+  box-shadow: 0 0 0 1px rgba(255, 100, 100, .3), 0 0 10px rgba(190, 32, 43, .2);
 }
 .allscan-favorites-pin.is-pinned svg {
   transform: rotate(0);
@@ -5059,10 +5059,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   gap: 6px;
 }
 .allscan-favorites-table tbody tr {
-  grid-template-columns: 24px minmax(62px, auto) minmax(110px, .9fr) minmax(180px, 1.6fr) minmax(100px, .8fr) minmax(168px, auto);
+  grid-template-columns: 24px minmax(62px, auto) minmax(250px, 1fr) minmax(130px, .42fr) minmax(112px, auto);
   grid-template-areas:
-    "order node name description location actions"
-    "order node name description rx actions";
+    "order node description location actions"
+    "order node description rx actions";
   gap: 2px 8px;
   min-height: 54px;
   padding: 6px 8px;
@@ -5076,14 +5076,11 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   font-weight: 800;
 }
 .allscan-favorites-table tbody td:nth-child(3) {
-  grid-area: name;
-  overflow: visible;
-  white-space: normal;
-  line-height: 1.15;
-  font-size: 12px;
+  display: none;
 }
 .allscan-favorites-table tbody td:nth-child(4) {
   grid-area: description;
+  align-self: center;
   line-height: 1.15;
   font-size: 12px;
 }
@@ -5117,19 +5114,59 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   width: 15px;
   height: 15px;
 }
+.allscan-favorite-details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
 .allscan-favorite-description {
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
+  font-weight: 700;
+}
+.allscan-favorite-description > a,
+.allscan-favorite-description > em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .allscan-favorite-description small {
   flex: 0 0 auto;
-  padding: 1px 4px;
+  padding: 1px 5px;
   font-size: 8px;
 }
+.allscan-favorite-frequency {
+  overflow: hidden;
+  color: rgba(226, 238, 244, .68);
+  font-size: 11px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.allscan-favorite-rx {
+  display: inline-flex;
+  width: fit-content;
+  min-width: 52px;
+  min-height: 20px;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .035);
+  white-space: nowrap;
+}
 .allscan-favorite-link-count {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 20px;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
   font-size: 10px;
   font-weight: 800;
-  opacity: .8;
+  opacity: .82;
   white-space: nowrap;
 }
 .allscan-favorite-actions {
@@ -5170,7 +5207,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   .allscan-favorites-table tbody tr {
     grid-template-columns: 22px 64px minmax(0, 1fr) auto;
     grid-template-areas:
-      "order node name actions"
+      "order node description actions"
       "order location description actions"
       "order rx description actions";
     min-height: 62px;

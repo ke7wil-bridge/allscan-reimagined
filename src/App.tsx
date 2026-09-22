@@ -1998,11 +1998,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   {favorite.node}
                 </td>
-                <td title={favorite.name}>
-                  {favorite.href ? (
-                    <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
-                  ) : favorite.name}
-                </td>
+                <td aria-hidden="true">{favorite.name}</td>
                 <td>
                   {favoriteEditing === favorite.node ? (
                     <form className="allscan-favorite-description-editor" onSubmit={(event) => {
@@ -2014,20 +2010,27 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button type="button" onClick={() => setFavoriteEditing(null)}>Cancel</button>
                     </form>
                   ) : (
-                    <span className="allscan-favorite-description" title={favorite.desc || 'No description'}>
-                      {favorite.desc || <em>No description</em>}
-                      {favorite.customDescription ? <small>User description</small> : null}
+                    <span className="allscan-favorite-details">
+                      <span className="allscan-favorite-description" title={favorite.description || favorite.name || 'No description'}>
+                        {favorite.href ? (
+                          <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.description || favorite.name || <em>No description</em>}</a>
+                        ) : (favorite.description || favorite.name || <em>No description</em>)}
+                        {favorite.customDescription ? <small>User description</small> : null}
+                      </span>
+                      <span className="allscan-favorite-frequency" title="Frequency or node details">
+                        {favorite.frequency || favorite.referenceDesc || 'No frequency information'}
+                      </span>
                     </span>
                   )}
                 </td>
                 <td title={favorite.location}>{favorite.location}</td>
-                <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</td>
-                <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>
-                  <span className="allscan-favorite-link-count">{linkText !== '' ? `Links: ${linkText}` : 'Links: —'}</span>
+                <td><span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span></td>
+                <td>
+                  <span className={linkCount >= 3 ? 'allscan-favorite-link-count allscan-fav-cell-links' : 'allscan-favorite-link-count'}>{linkText !== '' ? `Linked: ${linkText}` : 'Linked: —'}</span>
                   {authStatus.canModify ? <span className="allscan-favorite-actions">
                     <button type="button" title="Edit friendly description" onClick={() => {
                       setFavoriteEditing(favorite.node)
-                      setFavoriteDescription(favorite.customDescription || favorite.desc)
+                      setFavoriteDescription(favorite.customDescription || favorite.description || favorite.name)
                     }}><Pencil /></button>
                     {favorite.customDescription ? <button type="button" title="Reset to downloaded description" onClick={() => {
                       if (window.confirm(`Reset the custom description for node ${favorite.node}? Its color, position, and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-description', { node: favorite.node })

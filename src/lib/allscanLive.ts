@@ -98,6 +98,8 @@ export type FavoriteNode = {
   node: string
   label: string
   name: string
+  description: string
+  frequency: string
   desc: string
   referenceDesc: string
   customDescription: string

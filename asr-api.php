@@ -2667,6 +2667,8 @@ function asr_favorites_payload(string $requested = ''): array {
             'node' => $node,
             'label' => (string) $display['label'],
             'name' => (string) $display['name'],
+            'description' => $customDescription !== '' ? $customDescription : (string) $display['name'],
+            'frequency' => (string) $display['desc'],
             'desc' => $customDescription !== '' ? $customDescription : (string) $display['desc'],
             'referenceDesc' => (string) $display['desc'],
             'customDescription' => $customDescription,
