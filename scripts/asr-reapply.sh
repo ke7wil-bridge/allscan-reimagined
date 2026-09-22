@@ -170,6 +170,13 @@ stage_asr_web() {
         cp -a "$ASR_WEB_DIR/$relative" "$stage/$relative"
       fi
     done
+    # Preserve administrator-supplied root-level image assets across reapplies.
+    # Release-owned files are allowed to replace same-named assets below.
+    while IFS= read -r -d '' custom_asset; do
+      cp -a -- "$custom_asset" "$stage/"
+    done < <(find "$ASR_WEB_DIR" -mindepth 1 -maxdepth 1 -type f \
+      \( -iname '*.png' -o -iname '*.gif' -o -iname '*.jpg' -o -iname '*.jpeg' \
+         -o -iname '*.webp' -o -iname '*.svg' \) -print0)
   fi
 
   cp -a "$MASTER_DIR/web/." "$stage/"
