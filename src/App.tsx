@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -58,7 +58,6 @@ const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
-const FAVORITES_PINNED_KEY = 'asrFavoritesPinned.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -489,8 +488,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteFiles, setFavoriteFiles] = useState<FavoritesFileOption[]>([])
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
-  const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
-  const [favoritesPinned, setFavoritesPinned] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
+  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [customCommandsEnabled, setCustomCommandsEnabled] = useState(false)
   const [customCommands, setCustomCommands] = useState<CustomCommand[]>([])
   const [customCommandsOpen, setCustomCommandsOpen] = useState(false)
@@ -2087,20 +2085,6 @@ function App({ config }: { config: RuntimeConfig }) {
               ))}
             </select>
           </form>
-          <button
-            type="button"
-            className={`allscan-favorites-pin${favoritesPinned ? ' is-pinned' : ''}`}
-            aria-pressed={favoritesPinned}
-            aria-label={favoritesPinned ? 'Unpin Favorites' : 'Keep Favorites open'}
-            title={favoritesPinned ? 'Favorites will stay open' : 'Keep Favorites open'}
-            onClick={() => {
-              const pinned = !favoritesPinned
-              setFavoritesPinned(pinned)
-              window.localStorage.setItem(FAVORITES_PINNED_KEY, pinned ? '1' : '0')
-            }}
-          >
-            <Pin />
-          </button>
           <div className="allscan-favorites-tools">
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
               if (window.confirm('Reset the saved custom order for this Favorites list? Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
@@ -2202,12 +2186,12 @@ function App({ config }: { config: RuntimeConfig }) {
                     if (!canPopulateNodeControl(favorite.node)) return
                     setNodeValue(favorite.node)
                     nodeInputRef.current?.focus()
-                    if (!favoritesPinned) setFavoritesOpen(isAddDeleteFavoriteAction)
+                    setFavoritesOpen(isAddDeleteFavoriteAction)
                   }}
                   onDoubleClick={() => {
-                    if (favoritesPinned && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)
+                    if (favoritesOpen && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)
                   }}
-                  title={favoritesPinned ? 'Double-click to connect' : 'Select node'}
+                  title={favoritesOpen ? 'Double-click to connect' : 'Select node'}
                 >
                   <span className="allscan-favorite-node-number">{favorite.node}</span>
                   <span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span>

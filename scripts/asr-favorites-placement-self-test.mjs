@@ -54,10 +54,9 @@ assert(
   'Favorites does not provide bounded, persistent row reordering',
 )
 assert(
-  app.includes("const FAVORITES_PINNED_KEY = 'asrFavoritesPinned.v1'")
-    && app.includes('onDoubleClick={() =>')
-    && app.includes("runCommandForNode('connect', favorite.node)"),
-  'Pinned Favorites or its double-click connection behavior is missing',
+  app.includes('onDoubleClick={() =>')
+    && app.includes("if (favoritesOpen && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)"),
+  'Open Favorites does not provide double-click connection behavior',
 )
 assert(
   css.includes('.allscan-favorites-table tbody {')
@@ -100,19 +99,12 @@ assert(
   'Favorite Rx indicator is not compact beneath the node number',
 )
 assert(
-  app.includes("allscan-favorites-pin")
-    && app.includes("favoritesPinned ? ' is-pinned' : ''")
-    && app.includes('aria-pressed={favoritesPinned}')
-    && css.includes('width: 24px;')
-    && css.includes('height: 24px;'),
-  'Favorites pin is not a compact icon-only stateful control',
-)
-assert(
-  css.includes('.allscan-favorites-pin.is-pinned')
-    && css.includes('border-color: #ff6464;')
-    && app.includes('window.localStorage.setItem(FAVORITES_PINNED_KEY')
-    && app.includes("const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')"),
-  'Pinned Favorites is not red and browser-persistent',
+  !app.includes('allscan-favorites-pin')
+    && !app.includes('favoritesPinned')
+    && !css.includes('.allscan-favorites-pin')
+    && css.includes('.allscan-section-title > .allscan-module-drag-handle')
+    && css.includes('left: 8px;'),
+  'Favorites pin remains or dashboard drag handles are not left-aligned',
 )
 assert(
   !app.includes('Import Supermon Favorites…')
