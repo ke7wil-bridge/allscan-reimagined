@@ -2223,7 +2223,10 @@ function App({ config }: { config: RuntimeConfig }) {
                       </span>
                       <span className="allscan-favorite-meta">
                         <span className="allscan-favorite-frequency" title="Frequency or node details">
-                          {favorite.frequency || favorite.referenceDesc || ''}
+                          {(() => {
+                            const detail = (favorite.frequency || favorite.referenceDesc || '').trim()
+                            return detail === '-' || detail === '–' || detail === '—' ? '' : detail
+                          })()}
                         </span>
                         <span className="allscan-favorite-location" title={favorite.location}>{favorite.location}</span>
                       </span>
