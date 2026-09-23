@@ -5520,12 +5520,14 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   justify-content: center;
 }
 
-/* Favorites handle uses the same viewport-left x coordinate as section-title handles. */
+/* Favorites panel is centered at 900px; the other module handles sit 6px from
+   the dashboard viewport edge. Translate that shared x coordinate into the
+   Favorites panel's local coordinate system. */
 .allscan-favorites-panel > .allscan-module-drag-handle {
   position: absolute;
   z-index: 3;
   top: 7px;
-  left: calc((100vw - min(900px, calc(100vw - 40px))) / -2 + 6px);
+  left: calc((100% - 100vw) / 2 + 6px);
 }
 
 @media (max-width: 720px) {
