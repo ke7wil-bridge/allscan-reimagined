@@ -5881,6 +5881,32 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
     border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-control); color: var(--theme-text); box-shadow: none;
   }
 }
+/* LCARS Node Controls: preserve standard module geometry; LCARS only frames it. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
+    width: min(460px, calc(100vw - 24px));
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
+    width: min(460px, calc(100vw - 24px));
+    max-width: 460px;
+    padding: 10px 8px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after {
+    height: 12px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before { top: -12px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after { bottom: -12px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > .allscan-controls-row:first-child {
+    flex-wrap: nowrap;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-lower-row {
+    flex-wrap: nowrap;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-checks-grid {
+    flex-wrap: nowrap !important;
+  }
+}
 
 /* Compact Node Controls: Cmds top-right with a single-row option block. */
 .allscan-controls-shell { position: relative; }
