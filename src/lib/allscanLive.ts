@@ -83,8 +83,19 @@ export type LiveConnectionRow = {
   linkedNodes?: string[]
 }
 
+export type TalkerFeedEntry = {
+  node: string
+  info: string
+  source: string
+  duration: string
+  eventEpoch: number
+  startedEpoch: number
+}
+
 export type ConnectionSnapshot = {
   rows: LiveConnectionRow[]
+  currentTalker: TalkerFeedEntry | null
+  recentTalkers: TalkerFeedEntry[]
   connectedCount: number
   directCount: number
   adjacentCount: number
@@ -367,6 +378,8 @@ type FeedNode = {
   lnodes: string[]
   num_links?: string | number
   num_alinks?: string | number
+  keyed_started_epoch?: number
+  event_epoch?: number
 }
 
 type FeedPayload = Record<
@@ -375,6 +388,8 @@ type FeedPayload = Record<
     node: string
     info: string
     remote_nodes: FeedNode[]
+    current_talker?: { node?: string; info?: string; source?: string; duration?: string | number; started_epoch?: number } | null
+    last_talkers?: Array<{ node?: string; info?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
   }
 >
 
@@ -512,7 +527,7 @@ function buildSnapshot(
   bridgeAliases: Map<string, RuntimeBridgeConfig>,
 ): ConnectionSnapshot {
   const nodeKey = Object.keys(payload)[0]
-  if (!nodeKey) return { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+  if (!nodeKey) return { rows: [], currentTalker: null, recentTalkers: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
 
   const nodeData = payload[nodeKey]
   const remoteRows: LiveConnectionRow[] = []
@@ -581,8 +596,43 @@ function buildSnapshot(
   const connectedCount = Math.max(allLinkedIds.size, directCount)
   const adjacentCount = Math.max(connectedCount - directCount, 0)
 
+  const talkerRows = remoteRows.filter((row) => row.node && row.info !== 'NO CONNECTION')
+  const serverCurrent = nodeData.current_talker
+  const serverHistory = Array.isArray(nodeData.last_talkers) ? nodeData.last_talkers : []
+  const sourceByIndex = (row: LiveConnectionRow) => row.sourceIndex === undefined ? undefined : nodeData.remote_nodes[row.sourceIndex]
+  const rowTalkerEntry = (row: LiveConnectionRow): TalkerFeedEntry => {
+    const sourceRow = sourceByIndex(row)
+    const bridge = sourceRow ? bridgeAliases.get(String(sourceRow.node)) : undefined
+    return {
+      node: row.node,
+      info: row.info || row.node,
+      source: bridge?.mode?.toUpperCase() || 'AllStar',
+      duration: row.received || '',
+      eventEpoch: Math.max(0, Number(sourceRow?.event_epoch || 0)),
+      startedEpoch: Math.max(0, Number(sourceRow?.keyed_started_epoch || 0)),
+    }
+  }
+  const payloadTalkerEntry = (entry: NonNullable<typeof serverCurrent>, historical = false): TalkerFeedEntry => ({
+    node: String(entry.node || ''),
+    info: htmlToText(String(entry.info || entry.node || '')),
+    source: String(entry.source || 'AllStar'),
+    duration: String(entry.duration ?? ''),
+    eventEpoch: historical ? Math.max(0, Number((entry as { event_epoch?: number }).event_epoch || 0)) : 0,
+    startedEpoch: Math.max(0, Number(entry.started_epoch || 0)),
+  })
+  const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
+  const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
+  const recentTalkers = serverHistory.length
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    : talkerRows
+      .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
+      .map(rowTalkerEntry)
+      .slice(0, 4)
+
   return {
     rows: [buildLocalRow(nodeKey, nodeData.remote_nodes), ...detailRows],
+    currentTalker,
+    recentTalkers,
     connectedCount,
     directCount,
     adjacentCount,
@@ -608,8 +658,18 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
       connected: normalizeFeedTime(update.elapsed, row.connected),
     }
   })
+  const receivedByNode = new Map(nextRows.map((row) => [row.node, row.received]))
+  const updateTalkerTime = (entry: TalkerFeedEntry | null) => entry ? {
+    ...entry,
+    duration: receivedByNode.get(entry.node) || entry.duration,
+  } : null
 
-  return { ...snapshot, rows: nextRows }
+  return {
+    ...snapshot,
+    rows: nextRows,
+    currentTalker: updateTalkerTime(snapshot.currentTalker),
+    recentTalkers: snapshot.recentTalkers.map((entry) => updateTalkerTime(entry) as TalkerFeedEntry),
+  }
 }
 
 function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSnapshot): ConnectionSnapshot {
@@ -645,7 +705,7 @@ export function subscribeConnectionFeed(
   const bridgeNodes = new Set(
     configuredBridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || '']).filter(Boolean),
   )
-  let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+  let snapshot: ConnectionSnapshot = { rows: [], currentTalker: null, recentTalkers: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
   let source: EventSource | undefined
   let reconnectTimer: number | undefined
   let reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS

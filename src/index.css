@@ -5954,3 +5954,83 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
 .allscan-controls-shell > .allscan-controls-row:first-child .allscan-node-field {
   margin-right: 0;
 }
+
+/* Beta 8 talker cards: five-card current/recent strip, native to every ASR theme. */
+.allscan-talkers-section { view-transition-name: asr-talkers-module; }
+.allscan-talker-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 0 auto 8px;
+}
+.allscan-talker-card {
+  min-width: 0;
+  min-height: 118px;
+  padding: 9px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.18));
+  border-radius: 10px;
+  background: var(--theme-surface, rgba(0,0,0,.34));
+  color: var(--theme-text, inherit);
+  box-shadow: var(--theme-shadow, 0 5px 14px rgba(0,0,0,.18));
+  overflow: hidden;
+}
+.allscan-talker-card.is-current {
+  border-color: var(--theme-accent, #55bff5);
+  box-shadow: inset 0 2px 0 var(--theme-accent, #55bff5), var(--theme-shadow, 0 5px 14px rgba(0,0,0,.18));
+}
+.allscan-talker-card.is-empty { opacity: .68; }
+.allscan-talker-card-title {
+  width: 100%;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--theme-muted, currentColor);
+}
+.allscan-talker-callsign {
+  width: 100%;
+  font-size: clamp(17px, 1.75vw, 23px);
+  font-weight: 900;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--theme-accent, currentColor);
+}
+.allscan-talker-source,
+.allscan-talker-location {
+  width: 100%;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.allscan-talker-location { color: var(--theme-muted, currentColor); }
+.allscan-talker-duration {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1;
+}
+.allscan-talker-duration span { color: var(--theme-muted, currentColor); }
+.allscan-talker-duration strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .allscan-talker-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .allscan-talker-cards { grid-template-columns: 1fr; gap: 6px; }
+  .allscan-talker-card { min-height: 104px; }
+}

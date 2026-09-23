@@ -42,6 +42,7 @@ import {
   type CustomCommand,
   type FavoriteNode,
   type LiveConnectionRow,
+  type TalkerFeedEntry,
   type RuntimeConfig,
   type ReleaseStatus,
   type UrfBan,
@@ -104,10 +105,11 @@ type ThemeSettings = {
   mode?: 'dark' | 'light'
 }
 
-type DashboardModuleKey = 'controls' | 'favorites' | 'connections' | 'bridges'
+type DashboardModuleKey = 'talkers' | 'controls' | 'favorites' | 'connections' | 'bridges'
 
-const DASHBOARD_MODULES: DashboardModuleKey[] = ['controls', 'favorites', 'connections', 'bridges']
+const DASHBOARD_MODULES: DashboardModuleKey[] = ['talkers', 'controls', 'favorites', 'connections', 'bridges']
 const DASHBOARD_MODULE_LABELS: Record<DashboardModuleKey, string> = {
+  talkers: 'Talkers',
   controls: 'Node Controls',
   favorites: 'Favorites',
   connections: 'Connection Status',
@@ -217,7 +219,7 @@ function readDashboardModuleOrder(): DashboardModuleKey[] {
     if (saved) return normalizeDashboardModuleOrder(JSON.parse(saved))
     const legacyPlacement = window.localStorage.getItem(FAVORITES_PLACEMENT_KEY)
     return legacyPlacement === 'below'
-      ? ['controls', 'connections', 'favorites', 'bridges']
+      ? ['talkers', 'controls', 'connections', 'favorites', 'bridges']
       : [...DASHBOARD_MODULES]
   } catch {
     return [...DASHBOARD_MODULES]
@@ -462,6 +464,8 @@ function formatUtc(date: Date) {
 
 function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
+  const [currentTalker, setCurrentTalker] = useState<TalkerFeedEntry | null>(null)
+  const [recentTalkers, setRecentTalkers] = useState<TalkerFeedEntry[]>([])
   const [backgroundNodeState, setBackgroundNodeState] = useState<LiveConnectionRow['state'] | null>(null)
   const [connectedCount, setConnectedCount] = useState(0)
   const [directCount, setDirectCount] = useState(0)
@@ -615,6 +619,11 @@ function App({ config }: { config: RuntimeConfig }) {
     () => summarizeConnectionTotal(directCount, adjacentCount, bridgeState.cards),
     [adjacentCount, bridgeState.cards, directCount],
   )
+
+  const talkerCards = useMemo(() => {
+    const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
+    return [currentTalker, ...history, null, null, null, null].slice(0, 5)
+  }, [currentTalker, recentTalkers])
 
   useEffect(() => {
     document.title = browserTitle
@@ -1052,6 +1061,8 @@ function App({ config }: { config: RuntimeConfig }) {
         setAdjacentCount(snapshot.adjacentCount)
         setLinkedNodes(snapshot.linkedNodes)
         setLinkedNodeCounts(snapshot.linkedNodeCounts)
+        setCurrentTalker(snapshot.currentTalker)
+        setRecentTalkers(snapshot.recentTalkers)
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       },
       (message) => {
@@ -2535,6 +2546,31 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             </aside>
           ) : null}
+          <section
+            data-dashboard-module="talkers"
+            style={{ order: dashboardModuleOrder.indexOf('talkers') + 10 }}
+            className={`allscan-main-section allscan-talkers-section allscan-dashboard-module${dashboardModuleDragging === 'talkers' ? ' is-dragging' : ''}${dashboardModuleOver === 'talkers' && dashboardModuleDragging !== 'talkers' ? ' is-drag-over' : ''}`}
+          >
+            <h2 className="allscan-section-title">
+              {dashboardModuleHandle('talkers', 'Talkers')}
+              Talkers
+            </h2>
+            <div className="allscan-talker-cards" aria-label="Current and recent talkers">
+              {talkerCards.map((talker, index) => (
+                <article
+                  className={`allscan-talker-card${index === 0 && talker ? ' is-current' : ''}${!talker ? ' is-empty' : ''}`}
+                  key={`${index}-${talker?.node || 'empty'}`}
+                >
+                  <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index}`}</div>
+                  <div className="allscan-talker-callsign">{talker?.node || '—'}</div>
+                  <div className="allscan-talker-source">{talker?.source || (index === 0 ? 'No one talking' : 'No recent talker')}</div>
+                  <div className="allscan-talker-location">{talker?.info && talker.info !== talker.node ? talker.info : '\u00a0'}</div>
+                  <div className="allscan-talker-duration"><span>Duration</span><strong>{talker?.duration || '—'}</strong></div>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section
             data-dashboard-module="controls"
             style={{ order: dashboardModuleOrder.indexOf('controls') + 10 }}

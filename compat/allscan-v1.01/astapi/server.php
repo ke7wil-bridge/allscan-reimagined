@@ -91,6 +91,8 @@ statMsg($s);
 $current = [];
 $saved = [];
 $nodeTime = [];
+$asrTalkerHistory = [];
+$asrCurrentTalker = null;
 //$n = 0;
 while(!empty($fp[$node])) {
 	$connectedNodes = getNode($fp[$node], $node);
@@ -127,6 +129,44 @@ while(!empty($fp[$node])) {
 		$current[$node]['remote_nodes'][$i]['num_alinks'] = $arr['num_alinks'] ?? '';
 		$i++;
 	}
+	// Maintain a small, process-local talker history so ASR can render a
+	// stable Current + 4 Last Talkers strip without another Asterisk poller.
+	$nextCurrentTalker = null;
+	foreach($current[$node]['remote_nodes'] as $talkerRow) {
+		if(($talkerRow['keyed'] ?? '') === 'yes') {
+			$nextCurrentTalker = [
+				'node' => (string)($talkerRow['node'] ?? ''),
+				'info' => (string)($talkerRow['info'] ?? ''),
+				'source' => 'AllStar',
+				'duration' => (string)($talkerRow['last_keyed'] ?? ''),
+				'started_epoch' => time(),
+			];
+			break;
+		}
+	}
+	if($nextCurrentTalker !== null) {
+		if($asrCurrentTalker === null || ($asrCurrentTalker['node'] ?? '') !== $nextCurrentTalker['node'])
+			$nextCurrentTalker['started_epoch'] = time();
+		else
+			$nextCurrentTalker['started_epoch'] = $asrCurrentTalker['started_epoch'] ?? time();
+	} elseif($asrCurrentTalker !== null) {
+		$finished = $asrCurrentTalker;
+		$finished['event_epoch'] = time();
+		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
+		array_unshift($asrTalkerHistory, $finished);
+		$seen = [];
+		$asrTalkerHistory = array_values(array_filter($asrTalkerHistory, static function($row) use (&$seen) {
+			$key = (string)($row['node'] ?? '');
+			if($key === '' || isset($seen[$key])) return false;
+			$seen[$key] = true;
+			return true;
+		}));
+		$asrTalkerHistory = array_slice($asrTalkerHistory, 0, 4);
+	}
+	$asrCurrentTalker = $nextCurrentTalker;
+	$current[$node]['current_talker'] = $asrCurrentTalker;
+	$current[$node]['last_talkers'] = $asrTalkerHistory;
+
 	// Send current nodes only when data changes
 	$nodesChanged = $current !== $saved;
 	if($nodesChanged) {
