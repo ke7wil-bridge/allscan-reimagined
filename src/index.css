@@ -5450,10 +5450,9 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
     height: 24px;
     opacity: .5;
   }
-  }
+}
 
-
-/* Favorites + Node Controls authoritative layout (forensic consolidation). */
+/* Favorites + Node Controls authoritative layout. */
 .allscan-controls-section { z-index: 20; }
 .allscan-favorites-panel { z-index: 10; }
 
@@ -5524,24 +5523,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
     padding: 0 4px;
     grid-template-columns: max-content max-content max-content;
   }
-  }
-
-.allscan-favorites-drag-title {
-  position: absolute;
-  z-index: 3;
-  top: 0;
-  left: 50%;
-  width: min(1280px, calc(100vw - 24px));
-  height: 22px;
-  margin: 0;
-  transform: translateX(calc(-50% + 12px));
-  pointer-events: none;
-}
-.allscan-favorites-drag-title > .allscan-module-drag-handle {
-  pointer-events: auto;
-}
-@media (max-width: 620px) {
-  .allscan-favorites-drag-title { width: calc(100vw - 8px); height: 24px; }
 }
 
 .allscan-favorites-inner { box-sizing: border-box; overflow: hidden; }
@@ -5572,9 +5553,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   box-sizing: border-box;
 }
 
-/* Already-networked Favorites use the original boxed node treatment;
-   the Rx percentage pill is redundant in that state. */
-/* Keep the Rx percentage visible inside the original whole-cell networked box. */
+/* Keep Rx visible inside the whole-cell networked box. */
 .allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
   display: inline-block;
   border: 0;
@@ -5829,11 +5808,8 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 
 
-/* Compact Node Controls redesign: Cmds top-right, two-by-two option block. */
+/* Compact Node Controls: Cmds top-right with a single-row option block. */
 .allscan-controls-shell { position: relative; }
-.allscan-controls-shell > .allscan-controls-row:first-child {
-  padding-right: 0;
-}
 .allscan-checks-grid {
   display: flex !important;
   flex-wrap: nowrap !important;
@@ -5870,8 +5846,4 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 .allscan-controls-shell > .allscan-controls-row:first-child .allscan-node-field {
   margin-right: 0;
-}
-.allscan-checks-grid > .allscan-custom-commands {
-  top: 7px;
-  right: 7px;
 }
