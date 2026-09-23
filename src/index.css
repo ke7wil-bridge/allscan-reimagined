@@ -5864,7 +5864,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   padding-right: 58px;
 }
 .allscan-controls-shell > .allscan-controls-row:first-child .allscan-node-field {
-  margin-right: 4px;
+  margin-right: 0;
 }
 .allscan-checks-grid > .allscan-custom-commands {
   top: 7px;
