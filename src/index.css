@@ -5579,3 +5579,25 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   padding: 0;
   color: inherit !important;
 }
+
+/* Networked favorite node cell: compact box, unclipped content, normal node text. */
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked {
+  width: 82px !important;
+  min-width: 82px !important;
+  max-width: 82px !important;
+  padding: 4px 7px !important;
+  overflow: visible;
+  color: var(--theme-text, rgb(230, 242, 247)) !important;
+}
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-node-number {
+  display: block;
+  color: var(--theme-text, rgb(230, 242, 247)) !important;
+  white-space: nowrap;
+}
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  display: block;
+  width: max-content;
+  margin-top: 1px;
+  color: hsl(130, 58%, 64%) !important;
+  white-space: nowrap;
+}
