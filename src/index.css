@@ -5801,10 +5801,29 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 /* Favorites content surface: title remains outside, content gets the same contained dark surface. */
 .allscan-favorites-inner {
   padding: 12px 10px 10px;
-  border: 1px solid rgba(255, 255, 255, .16) !important;
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, .16)) !important;
   border-radius: 8px;
-  background: rgba(8, 9, 10, .96) !important;
-  box-shadow: none !important;
+  background: var(--theme-panel-solid, rgba(8, 9, 10, .96)) !important;
+  color: var(--theme-text, rgb(230, 242, 247));
+  box-shadow: var(--theme-status-shadow, none) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody tr {
+  border-color: var(--theme-border);
+  background: var(--theme-panel-solid);
+  color: var(--theme-text);
+}
+html[data-asr-theme] .allscan-favorite-meta {
+  color: var(--theme-muted);
+}
+html[data-asr-theme] .allscan-favorite-actions button,
+html[data-asr-theme] .allscan-favorite-drag {
+  border-color: var(--theme-border);
+  background: var(--theme-control);
+  color: var(--theme-text);
+}
+html[data-asr-theme] .allscan-favorite-actions button:hover:not(:disabled),
+html[data-asr-theme] .allscan-favorite-drag:hover {
+  background: var(--theme-hover);
 }
 
 
