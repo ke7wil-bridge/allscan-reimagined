@@ -5569,6 +5569,13 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 /* Already-networked Favorites use the original boxed node treatment;
    the Rx percentage pill is redundant in that state. */
+/* Keep the Rx percentage visible inside the original whole-cell networked box. */
 .allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
-  display: none;
+  display: inline-block;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  padding: 0;
+  color: inherit !important;
 }
