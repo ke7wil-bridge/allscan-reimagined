@@ -9,57 +9,37 @@ function assert(condition, message) {
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
 const api = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
+const adminFavorites = readFileSync(new URL('../compat/allscan-v1.01/js/asr-favorites-config.js', import.meta.url), 'utf8')
+const common = readFileSync(new URL('../compat/allscan-v1.01/include/common.php', import.meta.url), 'utf8')
 
 assert(
-  app.includes("const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'"),
-  'Favorites placement does not have its own browser preference key',
+  app.includes("const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'")
+    && app.includes("const DASHBOARD_MODULES: DashboardModuleKey[] = ['controls', 'favorites', 'connections', 'bridges']")
+    && app.includes('useState<DashboardModuleKey[]>(readDashboardModuleOrder)'),
+  'Dashboard module order is not initialized from a browser-persistent model',
 )
 assert(
-  app.includes("return value === 'below' ? 'below' : 'above'"),
-  'Favorites placement does not fail closed to the existing above position',
+  app.includes('writeDashboardModuleOrder(next)')
+    && app.includes("data-dashboard-module=\"favorites\"")
+    && app.includes("data-dashboard-module=\"controls\"")
+    && app.includes("data-dashboard-module=\"connections\"")
+    && app.includes("data-dashboard-module=\"bridges\""),
+  'Whole dashboard modules are not represented in persistent order',
 )
 assert(
-  app.includes('useState<FavoritesPlacement>(readFavoritesPlacement)'),
-  'Favorites placement is not initialized from the saved browser preference',
+  app.includes('onPointerDown={(event) => beginDashboardModuleDrag(key, event)}')
+    && app.includes('onPointerMove={updateDashboardModuleDrag}')
+    && app.includes("event.key !== 'ArrowUp' && event.key !== 'ArrowDown'")
+    && css.includes('touch-action: none;')
+    && css.includes('.allscan-module-drag-handle span'),
+  'Compact pointer, touch, or keyboard module dragging is missing',
 )
-assert(
-  app.includes('window.localStorage.setItem(FAVORITES_PLACEMENT_KEY, placement)'),
-  'Favorites placement changes are not saved per browser',
-)
-
-const abovePosition = app.indexOf("{favoritesPlacement === 'above' ? favoritesPanel : null}")
-const connectionPosition = app.indexOf('<section className="allscan-main-section allscan-connection-section">')
-const belowPosition = app.indexOf("{favoritesPlacement === 'below' ? favoritesPanel : null}")
-assert(
-  abovePosition > 0 && abovePosition < connectionPosition && connectionPosition < belowPosition,
-  'Favorites does not render in document order above or below Connection Status',
-)
-
 assert(
   app.includes('aria-controls="allscan-favorites-panel"')
-    && app.includes('aria-expanded={favoritesOpen ? \'true\' : \'false\'}'),
-  'Favorites toggle lost its accessible expanded relationship',
-)
-assert(
-  app.includes('Keep below Connection Status on this browser')
-    && app.includes("checked={favoritesPlacement === 'below'}"),
-  'Favorites placement checkbox is missing or not controlled',
-)
-assert(
-  app.includes('restoreFavoritesPlacementFocus.current = true')
-    && app.includes('favoritesPlacementRef.current?.focus()'),
-  'Keyboard focus is not restored after moving the Favorites panel',
-)
-assert(
-  app.includes('setFavoritesOpen((open) => !open)')
+    && app.includes('aria-expanded={favoritesOpen ? \'true\' : \'false\'}')
+    && app.includes('setFavoritesOpen((open) => !open)')
     && app.includes('setFavoritesOpen(isAddDeleteFavoriteAction)'),
-  'Favorites open/close or selection behavior changed',
-)
-assert(
-  css.includes('html[data-asr-theme] .allscan-favorites-placement')
-    && css.includes('.allscan-favorites-placement input:focus-visible')
-    && css.includes('@media (max-width: 900px)'),
-  'Favorites placement control is missing theme, focus, or responsive styling',
+  'Favorites toggle or selection behavior changed',
 )
 assert(
   app.includes('draggable={authStatus.canModify}')
@@ -129,10 +109,16 @@ assert(
   'Pinned Favorites is not red and browser-persistent',
 )
 assert(
-  app.includes('Import Supermon Favorites…')
-    && app.indexOf('Import Supermon Favorites…') > app.indexOf('allscan-submenu-admin')
-    && !app.includes('>Import Supermon…</button>'),
-  'Supermon import was not moved to the Admin menu',
+  !app.includes('Import Supermon Favorites…')
+    && adminFavorites.includes("heading.textContent = 'Import Supermon Favorites'")
+    && adminFavorites.includes("section.querySelector(':scope > h1')?.textContent.trim() === 'Manage Favorites'")
+    && adminFavorites.includes("operation: 'preview-import'")
+    && adminFavorites.includes("operation: 'import'")
+    && adminFavorites.includes('file.modifiable === true')
+    && adminFavorites.includes('Existing order, descriptions, and colors will not be replaced')
+    && api.includes("'modifiable' => is_string($real) && str_starts_with($real, '/etc/allscan/favorites')")
+    && common.includes('/js/asr-favorites-config.js'),
+  'Supermon import is not safely contained in Cfgs → Manage Favorites',
 )
 assert(
   app.includes('Reset the custom description for node')

@@ -2692,11 +2692,15 @@ function asr_favorites_payload(string $requested = ''): array {
     foreach ($rows as $index => &$row) $row['index'] = (string) $index;
     unset($row);
 
-    $files = array_map(static fn (string $file): array => [
-        'value' => basename($file),
-        'label' => basename($file),
-        'selected' => $file === $selected,
-    ], asr_favorites_files());
+    $files = array_map(static function (string $file) use ($selected): array {
+        $real = realpath($file);
+        return [
+            'value' => basename($file),
+            'label' => basename($file),
+            'selected' => $file === $selected,
+            'modifiable' => is_string($real) && str_starts_with($real, '/etc/allscan/favorites'),
+        ];
+    }, asr_favorites_files());
 
     return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => basename($selected)];
 }

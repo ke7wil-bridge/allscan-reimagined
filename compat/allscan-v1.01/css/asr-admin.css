@@ -4076,3 +4076,32 @@ body.asr-rollback-dialog-open {
 		justify-content:flex-end;
 	}
 }
+
+/* Safe Supermon merge inside Manage Favorites. */
+.asr-supermon-import {
+	display:grid;
+	gap:8px;
+	margin:8px auto 20px;
+	padding:12px;
+	border:1px solid rgba(148,190,212,.28);
+	border-radius:8px;
+	background:rgba(255,255,255,.035);
+	text-align:left;
+}
+.asr-supermon-import h2,
+.asr-supermon-import p { margin:0; }
+.asr-supermon-import-controls {
+	display:flex;
+	align-items:end;
+	gap:8px;
+	flex-wrap:wrap;
+}
+.asr-supermon-import-controls label {
+	display:grid;
+	gap:4px;
+	min-width:210px;
+	flex:1;
+}
+.asr-supermon-import-controls select,
+.asr-supermon-import-controls button { min-height:36px; }
+.asr-supermon-import-status { min-height:18px; }

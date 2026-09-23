@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
@@ -56,6 +56,7 @@ const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
+const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
 const FAVORITES_PINNED_KEY = 'asrFavoritesPinned.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
@@ -102,7 +103,9 @@ type ThemeSettings = {
   mode?: 'dark' | 'light'
 }
 
-type FavoritesPlacement = 'above' | 'below'
+type DashboardModuleKey = 'controls' | 'favorites' | 'connections' | 'bridges'
+
+const DASHBOARD_MODULES: DashboardModuleKey[] = ['controls', 'favorites', 'connections', 'bridges']
 
 const themeOptions = [
   { value: 'standard', label: 'Dark Side', mode: 'dark' },
@@ -192,23 +195,32 @@ function writeAutodiscPreference(checked: boolean) {
   }
 }
 
-function normalizeFavoritesPlacement(value: string | null): FavoritesPlacement {
-  return value === 'below' ? 'below' : 'above'
+function normalizeDashboardModuleOrder(value: unknown): DashboardModuleKey[] {
+  if (!Array.isArray(value)) return [...DASHBOARD_MODULES]
+  const known = value.filter((item): item is DashboardModuleKey => (
+    typeof item === 'string' && DASHBOARD_MODULES.includes(item as DashboardModuleKey)
+  ))
+  return [...new Set(known), ...DASHBOARD_MODULES.filter((item) => !known.includes(item))]
 }
 
-function readFavoritesPlacement(): FavoritesPlacement {
-  if (typeof window === 'undefined') return 'above'
+function readDashboardModuleOrder(): DashboardModuleKey[] {
+  if (typeof window === 'undefined') return [...DASHBOARD_MODULES]
   try {
-    return normalizeFavoritesPlacement(window.localStorage.getItem(FAVORITES_PLACEMENT_KEY))
+    const saved = window.localStorage.getItem(DASHBOARD_MODULE_ORDER_KEY)
+    if (saved) return normalizeDashboardModuleOrder(JSON.parse(saved))
+    const legacyPlacement = window.localStorage.getItem(FAVORITES_PLACEMENT_KEY)
+    return legacyPlacement === 'below'
+      ? ['controls', 'connections', 'favorites', 'bridges']
+      : [...DASHBOARD_MODULES]
   } catch {
-    return 'above'
+    return [...DASHBOARD_MODULES]
   }
 }
 
-function writeFavoritesPlacement(placement: FavoritesPlacement) {
+function writeDashboardModuleOrder(order: DashboardModuleKey[]) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(FAVORITES_PLACEMENT_KEY, placement)
+    window.localStorage.setItem(DASHBOARD_MODULE_ORDER_KEY, JSON.stringify(order))
   } catch {
     // Ignore preference write failures.
   }
@@ -483,7 +495,9 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteDescription, setFavoriteDescription] = useState('')
   const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
   const [favoriteStatus, setFavoriteStatus] = useState('')
-  const [favoritesPlacement, setFavoritesPlacement] = useState<FavoritesPlacement>(readFavoritesPlacement)
+  const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
+  const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
+  const [dashboardModuleOver, setDashboardModuleOver] = useState<DashboardModuleKey | null>(null)
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
     key: 'index' | 'node' | 'name' | 'desc' | 'location'
@@ -540,9 +554,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
-  const favoritesPlacementRef = useRef<HTMLInputElement>(null)
   const customCommandsRef = useRef<HTMLDivElement>(null)
-  const restoreFavoritesPlacementFocus = useRef(false)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -868,13 +880,6 @@ function App({ config }: { config: RuntimeConfig }) {
   useEffect(() => {
     applyThemeSettings(themeSettings, config.lowPowerMode)
   }, [themeSettings, config.lowPowerMode])
-
-  useEffect(() => {
-    if (!restoreFavoritesPlacementFocus.current) return
-    restoreFavoritesPlacementFocus.current = false
-    const frame = window.requestAnimationFrame(() => favoritesPlacementRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [favoritesPlacement])
 
   useEffect(() => {
     const handleResize = () => setDesktopThemeViewport(isDesktopThemeViewport())
@@ -1347,28 +1352,69 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
-  async function importSupermonFavorites() {
-    if (!authStatus.canModify) return
-    try {
-      setBusy(true)
-      const preview = await manageFavorite({ operation: 'preview-import', favsfile: selectedFavoriteFile })
-      if (preview.available === false) {
-        setFavoriteStatus('No compatible Supermon favorites.ini file was found.')
-        return
-      }
-      if (preview.malformed) {
-        setFavoriteStatus('The Supermon Favorites file contains no compatible entries; nothing was changed.')
-        return
-      }
-      const additions = Number(preview.additions instanceof Array ? preview.additions.length : 0)
-      const existing = Number(preview.existing instanceof Array ? preview.existing.length : 0)
-      if (!window.confirm(`Import preview: add ${additions} new Favorite(s); preserve ${existing} existing match(es). Existing order, descriptions, and colors will not be replaced. Continue?`)) return
-      await favoriteOperation('import')
-    } catch (error) {
-      setFavoriteStatus(error instanceof Error ? error.message : 'Supermon import preview failed.')
-    } finally {
-      setBusy(false)
-    }
+  function moveDashboardModule(source: DashboardModuleKey, target: DashboardModuleKey) {
+    if (source === target) return
+    setDashboardModuleOrder((current) => {
+      const next = [...current]
+      const sourceIndex = next.indexOf(source)
+      const targetIndex = next.indexOf(target)
+      if (sourceIndex < 0 || targetIndex < 0) return current
+      next.splice(sourceIndex, 1)
+      next.splice(targetIndex, 0, source)
+      writeDashboardModuleOrder(next)
+      return next
+    })
+  }
+
+  function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDashboardModuleDragging(key)
+    setDashboardModuleOver(key)
+  }
+
+  function updateDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!dashboardModuleDragging) return
+    event.preventDefault()
+    const module = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dashboard-module]')
+    const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
+    if (!target || !DASHBOARD_MODULES.includes(target)) return
+    setDashboardModuleOver(target)
+    moveDashboardModule(dashboardModuleDragging, target)
+  }
+
+  function endDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    setDashboardModuleDragging(null)
+    setDashboardModuleOver(null)
+  }
+
+  function moveDashboardModuleByKeyboard(key: DashboardModuleKey, event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const index = dashboardModuleOrder.indexOf(key)
+    const targetIndex = index + (event.key === 'ArrowUp' ? -1 : 1)
+    const target = dashboardModuleOrder[targetIndex]
+    if (target) moveDashboardModule(key, target)
+  }
+
+  function dashboardModuleHandle(key: DashboardModuleKey, label: string) {
+    return (
+      <button
+        type="button"
+        className="allscan-module-drag-handle"
+        aria-label={`Move ${label}. Use arrow keys or drag.`}
+        title={`Move ${label}`}
+        onPointerDown={(event) => beginDashboardModuleDrag(key, event)}
+        onPointerMove={updateDashboardModuleDrag}
+        onPointerUp={endDashboardModuleDrag}
+        onPointerCancel={endDashboardModuleDrag}
+        onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
+      >
+        <span />
+        <span />
+      </button>
+    )
   }
 
   async function reorderFavorite(sourceNode: string, targetNode: string) {
@@ -1907,9 +1953,12 @@ function App({ config }: { config: RuntimeConfig }) {
   const favoritesPanel = favoritesOpen ? (
     <section
       id="allscan-favorites-panel"
-      className="allscan-main-section allscan-favorites-panel"
+      data-dashboard-module="favorites"
+      style={{ order: dashboardModuleOrder.indexOf('favorites') + 10 }}
+      className={`allscan-main-section allscan-favorites-panel allscan-dashboard-module${dashboardModuleDragging === 'favorites' ? ' is-dragging' : ''}${dashboardModuleOver === 'favorites' && dashboardModuleDragging !== 'favorites' ? ' is-drag-over' : ''}`}
       aria-label="Favorites"
     >
+      {dashboardModuleHandle('favorites', 'Favorites')}
       <div className="allscan-favorites-inner">
         <div className="allscan-favorites-options">
           <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
@@ -1946,20 +1995,6 @@ function App({ config }: { config: RuntimeConfig }) {
               if (window.confirm('Reset all Favorite colors for this list? Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
             }}><RotateCcw /> Reset colors</button>
           </div>
-          <label className="allscan-favorites-placement">
-            <input
-              ref={favoritesPlacementRef}
-              type="checkbox"
-              checked={favoritesPlacement === 'below'}
-              onChange={(event) => {
-                const placement = event.target.checked ? 'below' : 'above'
-                restoreFavoritesPlacementFocus.current = true
-                setFavoritesPlacement(placement)
-                writeFavoritesPlacement(placement)
-              }}
-            />
-            Keep below Connection Status on this browser
-          </label>
         </div>
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
         <div className="allscan-favorites-legend">
@@ -2312,11 +2347,6 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => {
-                    setMenuOpen(false)
-                    setOpenSubmenu(null)
-                    void importSupermonFavorites()
-                  }}>Import Supermon Favorites…</button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {authStatus.loggedIn
@@ -2369,7 +2399,7 @@ function App({ config }: { config: RuntimeConfig }) {
           </div>
         </div>
 
-        <main className="mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
+        <main className="allscan-dashboard mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
           {releaseStatus?.updateAvailable ? (
             <aside
               className="allscan-update-notice"
@@ -2401,8 +2431,13 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             </aside>
           ) : null}
-          <section className="allscan-main-section allscan-controls-section">
+          <section
+            data-dashboard-module="controls"
+            style={{ order: dashboardModuleOrder.indexOf('controls') + 10 }}
+            className={`allscan-main-section allscan-controls-section allscan-dashboard-module${dashboardModuleDragging === 'controls' ? ' is-dragging' : ''}${dashboardModuleOver === 'controls' && dashboardModuleDragging !== 'controls' ? ' is-drag-over' : ''}`}
+          >
             <h2 className="allscan-section-title">
+              {dashboardModuleHandle('controls', 'Node Controls')}
               Node Controls
             </h2>
 
@@ -2630,10 +2665,15 @@ function App({ config }: { config: RuntimeConfig }) {
 
           </section>
 
-          {favoritesPlacement === 'above' ? favoritesPanel : null}
+          {favoritesPanel}
 
-          <section className="allscan-main-section allscan-connection-section">
+          <section
+            data-dashboard-module="connections"
+            style={{ order: dashboardModuleOrder.indexOf('connections') + 10 }}
+            className={`allscan-main-section allscan-connection-section allscan-dashboard-module${dashboardModuleDragging === 'connections' ? ' is-dragging' : ''}${dashboardModuleOver === 'connections' && dashboardModuleDragging !== 'connections' ? ' is-drag-over' : ''}`}
+          >
             <h2 className="allscan-section-title" data-lcars-title={`CONNECTION STATUS - NODE ${config.node}`}>
+              {dashboardModuleHandle('connections', 'Connection Status')}
               Connection Status
             </h2>
             {banStatus && !banDialog ? <p role="status" className="allscan-connection-ban-status">{banStatus}</p> : null}
@@ -2785,13 +2825,16 @@ function App({ config }: { config: RuntimeConfig }) {
             </>
           ) : null}
 
-          {favoritesPlacement === 'below' ? favoritesPanel : null}
-
-          {bridgeState.cards.length || urfAccessOpen ? <section className="allscan-main-section allscan-bridge-section">
+          {bridgeState.cards.length || urfAccessOpen ? <section
+            data-dashboard-module="bridges"
+            style={{ order: dashboardModuleOrder.indexOf('bridges') + 10 }}
+            className={`allscan-main-section allscan-bridge-section allscan-dashboard-module${dashboardModuleDragging === 'bridges' ? ' is-dragging' : ''}${dashboardModuleOver === 'bridges' && dashboardModuleDragging !== 'bridges' ? ' is-drag-over' : ''}`}
+          >
             <h2
               className="allscan-section-title"
               data-lcars-title={`DIGITAL BRIDGE STATUS - ${bridgeState.cards.map((card) => card.id.toUpperCase()).join(' / ')}`}
             >
+              {dashboardModuleHandle('bridges', 'Digital Bridge Status')}
               Digital Bridge Status
             </h2>
             <p className="allscan-section-subtitle">
