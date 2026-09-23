@@ -5827,29 +5827,42 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 /* Compact Node Controls redesign: Cmds top-right, two-by-two option block. */
 .allscan-controls-shell { position: relative; }
 .allscan-controls-shell > .allscan-controls-row:first-child {
-  padding-right: 62px;
+  padding-right: 0;
 }
 .allscan-checks-grid {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
-  grid-template-rows: repeat(2, 18px);
+  grid-template-columns: max-content max-content;
+  grid-template-rows: repeat(2, 16px);
+  justify-content: center;
   align-items: center;
-  gap: 0 18px !important;
-  min-height: 36px;
-  margin-top: 4px !important;
-  padding: 0 8px;
+  column-gap: 24px !important;
+  row-gap: 0 !important;
+  min-height: 32px;
+  margin-top: 3px !important;
+  padding: 0;
 }
-.allscan-checks-grid > label:nth-of-type(odd) { justify-self: start; }
-.allscan-checks-grid > label:nth-of-type(even) { justify-self: start; }
+.allscan-checks-grid > label {
+  justify-self: start;
+  white-space: nowrap;
+}
 .allscan-checks-grid > .allscan-custom-commands {
   position: absolute;
   z-index: 60;
-  top: 8px;
-  right: 8px;
+  top: 7px;
+  right: 7px;
   margin: 0;
 }
 .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
-  min-width: 54px;
-  padding-left: 7px;
-  padding-right: 7px;
+  min-width: 52px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* Keep the shell at its established width; the top row reserves only the Cmds button itself. */
+.allscan-controls-shell > .allscan-controls-row:first-child {
+  position: relative;
+  padding-right: 58px;
+}
+.allscan-checks-grid > .allscan-custom-commands {
+  top: 7px;
+  right: 7px;
 }
