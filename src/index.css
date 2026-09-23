@@ -5601,3 +5601,38 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   color: hsl(130, 58%, 64%) !important;
   white-space: nowrap;
 }
+
+/* Favorites compact status hierarchy: Node / Rx / Linked. */
+.allscan-favorites-table tbody td:nth-child(2) {
+  box-sizing: border-box;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  padding: 4px 7px;
+  background: transparent;
+}
+.allscan-favorites-table tbody td:nth-child(2):not(.allscan-fav-cell-networked) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorite-node-number { font-size: 15px; }
+.allscan-favorite-rx,
+.allscan-favorite-linked-inline {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.allscan-favorite-linked-inline {
+  margin-top: 2px;
+  font-weight: 800;
+  opacity: .86;
+}
+.allscan-favorites-table tbody tr {
+  min-height: 50px;
+  font-size: 1.04em;
+}
+.allscan-favorite-description { font-size: 1.04em; }
+.allscan-favorite-frequency { min-height: 12px; font-size: 11px; }

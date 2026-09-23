@@ -2169,7 +2169,6 @@ function App({ config }: { config: RuntimeConfig }) {
               const fallbackLinkCount = linkedNodeCounts[favorite.node]
               const hasStatsLinkCount = stats && Number.isFinite(stats.linkCnt)
               const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
-              const linkCount = Number(linkText || 0)
               return (
               <tr
                 key={favorite.node}
@@ -2201,6 +2200,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   <span className="allscan-favorite-node-number">{favorite.node}</span>
                   <span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span>
+                  <span className="allscan-favorite-linked-inline">{linkText !== '' ? `Linked: ${linkText}` : 'Linked: —'}</span>
                 </td>
                 <td aria-hidden="true">{favorite.name}</td>
                 <td>
@@ -2222,7 +2222,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         {favorite.customDescription ? <small>User description</small> : null}
                       </span>
                       <span className="allscan-favorite-frequency" title="Frequency or node details">
-                        {favorite.frequency || favorite.referenceDesc || 'No frequency information'}
+                        {favorite.frequency || favorite.referenceDesc || ''}
                       </span>
                     </span>
                   )}
@@ -2230,7 +2230,6 @@ function App({ config }: { config: RuntimeConfig }) {
                 <td title={favorite.location}>{favorite.location}</td>
                 <td aria-hidden="true" />
                 <td>
-                  <span className={linkCount >= 3 ? 'allscan-favorite-link-count allscan-fav-cell-links' : 'allscan-favorite-link-count'}>{linkText !== '' ? `Linked: ${linkText}` : 'Linked: —'}</span>
                   {authStatus.canModify ? <span className="allscan-favorite-actions">
                     <button type="button" title="Edit friendly description" onClick={() => {
                       setFavoriteEditing(favorite.node)
