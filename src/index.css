@@ -5812,3 +5812,13 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-favorites-options {
   align-items: center;
 }
+
+
+/* Favorites content surface: title remains outside, content gets the same contained dark surface. */
+.allscan-favorites-inner {
+  padding: 12px 10px 10px;
+  border: 1px solid rgba(255, 255, 255, .16) !important;
+  border-radius: 8px;
+  background: rgba(8, 9, 10, .96) !important;
+  box-shadow: none !important;
+}
