@@ -1249,7 +1249,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   color: rgb(214, 222, 228);
   font-size: 12px;
   padding: 2px 0 2px;
@@ -1289,7 +1289,9 @@ body {
 }
 
 .allscan-favorites-file-form label {
+  flex: 0 0 auto;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .allscan-favorites-file-form select {
@@ -5432,7 +5434,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   position: absolute;
   z-index: 3;
   top: 7px;
-  left: 6px;
+  left: -30px;
 }
 @media (max-width: 620px) {
   .allscan-module-drag-handle {
@@ -5442,6 +5444,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   }
   .allscan-favorites-panel > .allscan-module-drag-handle {
     top: 5px;
-    left: 5px;
+    left: -28px;
   }
 }

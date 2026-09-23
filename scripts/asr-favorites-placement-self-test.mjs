@@ -44,6 +44,8 @@ assert(
   app.includes('aria-controls="allscan-favorites-panel"')
     && app.includes('aria-expanded={favoritesOpen ? \'true\' : \'false\'}')
     && app.includes('setFavoritesOpen((open) => !open)')
+    && app.includes("const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'")
+    && app.includes("window.localStorage.setItem(FAVORITES_OPEN_KEY, favoritesOpen ? '1' : '0')")
     && app.includes('setFavoritesOpen(isAddDeleteFavoriteAction)'),
   'Favorites toggle or selection behavior changed',
 )
@@ -103,7 +105,7 @@ assert(
     && !app.includes('favoritesPinned')
     && !css.includes('.allscan-favorites-pin')
     && css.includes('.allscan-section-title > .allscan-module-drag-handle')
-    && css.includes('left: 8px;'),
+    && css.includes('left: -30px;'),
   'Favorites pin remains or dashboard drag handles are not left-aligned',
 )
 assert(

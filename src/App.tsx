@@ -58,6 +58,7 @@ const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
+const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -488,7 +489,10 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteFiles, setFavoriteFiles] = useState<FavoritesFileOption[]>([])
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_OPEN_KEY) === '1')
+  useEffect(() => {
+    window.localStorage.setItem(FAVORITES_OPEN_KEY, favoritesOpen ? '1' : '0')
+  }, [favoritesOpen])
   const [customCommandsEnabled, setCustomCommandsEnabled] = useState(false)
   const [customCommands, setCustomCommands] = useState<CustomCommand[]>([])
   const [customCommandsOpen, setCustomCommandsOpen] = useState(false)
