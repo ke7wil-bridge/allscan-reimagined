@@ -5788,3 +5788,27 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   opacity: .28;
   cursor: default;
 }
+
+
+/* Remove the Favorites module backdrop; keep title above centered content like other modules. */
+.allscan-favorites-panel {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+.allscan-favorites-panel::before,
+.allscan-favorites-panel::after {
+  content: none !important;
+  display: none !important;
+}
+.allscan-favorites-panel > .allscan-section-title {
+  background: transparent !important;
+}
+.allscan-favorites-options,
+.allscan-favorites-legend {
+  justify-content: center;
+}
+.allscan-favorites-options {
+  align-items: center;
+}
