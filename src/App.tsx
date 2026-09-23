@@ -1301,8 +1301,8 @@ function App({ config }: { config: RuntimeConfig }) {
       const favorite = sortedFavorites[index]
       if (!favorite) return
 
+      setFavoritesScanIndex(index)
       scanIndex = (index + 1) % sortedFavorites.length
-      setFavoritesScanIndex(scanIndex)
 
       try {
         const stats = await fetchFavoriteStats(favorite.node)
