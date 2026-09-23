@@ -5834,11 +5834,11 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   flex-wrap: nowrap !important;
   justify-content: center;
   align-items: center;
-  column-gap: 16px !important;
+  column-gap: 12px !important;
   row-gap: 0 !important;
   min-height: 18px;
   margin-top: 4px !important;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 .allscan-checks-grid > label {
   justify-self: start;

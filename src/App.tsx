@@ -2640,7 +2640,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input type="checkbox" className="allscan-checkbox" disabled aria-label="Show Talker Cards (coming soon)" />
-                  Talker Cards
+                  Talkers
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
