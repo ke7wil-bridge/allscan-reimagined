@@ -5827,6 +5827,61 @@ html[data-asr-theme] .allscan-favorite-drag:hover {
 }
 
 
+/* Cross-theme Favorites activity and LCARS module parity. */
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source {
+  background: hsl(0, 56%, 24%) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-node-number,
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-rx,
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-linked-inline,
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-node-number,
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-linked-inline { color: #fff !important; }
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx { color: hsl(130, 72%, 42%) !important; }
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked.allscan-fav-cell-source {
+  background: hsl(0, 56%, 24%) !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
+    width: min(410px, calc(100vw - 24px)); height: auto; min-height: 28px; margin: 10px auto 8px; padding: 0;
+    border-radius: 0; background: transparent; color: var(--theme-text); font-size: inherit; font-style: inherit; letter-spacing: normal;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title::after { content: none; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
+    width: min(410px, calc(100vw - 24px)); height: auto; max-width: 410px; margin-top: 0; padding: 10px 8px;
+    border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-panel-solid); box-shadow: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    content: ""; position: absolute; z-index: 0; left: 0; right: 0; height: 8px; pointer-events: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before {
+    top: -8px; border-radius: 8px 8px 0 0;
+    background: linear-gradient(90deg,#cc9966 0 16%,#ccaa44 16% 34%,#ddcc99 34% 60%,#7799bb 60% 80%,#cc9966 80% 100%);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    bottom: -8px; border-radius: 0 0 8px 8px;
+    background: linear-gradient(90deg,#ccaa44 0 15%,#7799bb 15% 33%,#cc9966 33% 58%,#ddcc99 58% 81%,#887755 81% 100%);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner { position: relative; margin-top: 16px; margin-bottom: 16px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > *,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * { position: relative; z-index: 1; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-row { flex-wrap: wrap; gap: 7px 10px; }
+  html[data-asr-theme="lcars-frame"] .allscan-connect-button,
+  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button,
+  html[data-asr-theme="lcars-frame"] .allscan-action-select { width: auto; min-width: 0; max-width: none; }
+  html[data-asr-theme="lcars-frame"] .allscan-checks-row { margin-top: 4px !important; row-gap: 0; column-gap: 12px !important; font-size: inherit; }
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button {
+    border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-control); color: var(--theme-text); box-shadow: none;
+  }
+}
+
 /* Compact Node Controls: Cmds top-right with a single-row option block. */
 .allscan-controls-shell { position: relative; }
 .allscan-checks-grid {

@@ -2163,7 +2163,7 @@ function App({ config }: { config: RuntimeConfig }) {
               const networked = isNetworkedFavorite(favorite.node)
               const txActive = stats?.keyed || Number(stats?.txPct || 0) > 5
               const favCellClass = txActive ? 'allscan-fav-cell-source' : undefined
-              const nodeCellClass = networked ? 'allscan-fav-cell-networked' : undefined
+              const nodeCellClass = [networked ? 'allscan-fav-cell-networked' : '', txActive ? 'allscan-fav-cell-source' : ''].filter(Boolean).join(' ') || undefined
               const rxText = String(stats?.busyPct ?? favorite.rx ?? '').trim()
               const rxBusy = Number(rxText || 0)
               const fallbackLinkCount = linkedNodeCounts[favorite.node]
