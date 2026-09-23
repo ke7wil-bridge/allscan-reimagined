@@ -5416,12 +5416,17 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   border-radius: 2px;
   background: currentColor;
 }
-.allscan-section-title { position: relative; }
+.allscan-section-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
 .allscan-section-title > .allscan-module-drag-handle {
-  position: absolute;
-  top: 50%;
-  left: 6px;
-  transform: translateY(-50%);
+  position: static;
+  flex: 0 0 auto;
+  transform: none;
 }
 .allscan-module-drag-preview {
   position: fixed;
