@@ -157,6 +157,7 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 	$headerLogo = htmlattr($runtime['headerLogo'] ?? "$urlbase/asr-logo-bright-r-tight.png");
 	echo "<body$onload class=\"$bodyClass\">" . NL
 		. '<script>(function(){try{document.body.dataset.asrTheme=document.documentElement.dataset.asrTheme||"standard";document.body.dataset.asrMode=document.documentElement.dataset.asrMode||"dark"}catch(e){}})();</script>' . NL
+		. '<script src="' . $urlbase . '/js/asr-cmd-buttons-config.js" defer></script>' . NL
 		. '<header class="allscan-header asr-admin-header">' . NL
 		. '<div class="allscan-brand"><a class="allscan-brand-main" href="' . $urlbase . '/" aria-label="Return to main AllScan page"><div class="allscan-wordmark">'
 		. '<strong class="allscan-wordmark-mark"><span class="allscan-wordmark-silver allscan-wordmark-all">All</span><span class="allscan-wordmark-bolt-wrap" aria-hidden="true"><img class="allscan-wordmark-bolt" src="' . $urlbase . '/bolt-test-tight.png" alt=""></span><span class="allscan-wordmark-silver allscan-wordmark-can">can</span></strong>'

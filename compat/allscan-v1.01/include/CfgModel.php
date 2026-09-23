@@ -19,6 +19,7 @@ define('amiuser', 10);
 define('amipass', 11);
 define('cmdbuttons', 12);
 define('updatecheck', 13);
+define('showcmdbuttons', 14);
 if(!defined('ASR_ACCESS_POLICY_FILE'))
 	define('ASR_ACCESS_POLICY_FILE', '/etc/allscan-reimagined/config.json');
 
@@ -36,7 +37,8 @@ $gCfgDef = [
 	amiuser => '',
 	amipass => '',
 	cmdbuttons => [],
-	updatecheck => 1
+	updatecheck => 1,
+	showcmdbuttons => 1
 ];
 
 $gCfgName = [
@@ -52,7 +54,8 @@ $gCfgName = [
 	amiuser => 'AMI User',
 	amipass => 'AMI Pass',
 	cmdbuttons => 'Custom Cmd Buttons',
-	updatecheck => 'Check For Updates'
+	updatecheck => 'Check For Updates',
+	showcmdbuttons => 'Show Custom Cmd Buttons in Node Controls'
 ];
 
 $publicPermissionVals = [
@@ -77,7 +80,8 @@ $gCfgVals = [
 	amiuser => null,
 	amipass => null,
 	cmdbuttons => null,
-	updatecheck => $checkboxVals
+	updatecheck => $checkboxVals,
+	showcmdbuttons => $checkboxVals
 ];
 
 // Global Cfgs structure

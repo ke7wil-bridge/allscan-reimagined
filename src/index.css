@@ -5246,3 +5246,146 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
     align-items: end;
   }
 }
+
+/* Existing Custom Cmd Buttons surfaced in Node Controls. */
+.allscan-custom-commands {
+  position: relative;
+  z-index: 40;
+}
+.allscan-custom-commands-button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid rgba(148, 190, 212, .28);
+  border-radius: 6px;
+  background: rgba(28, 28, 30, .96);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+.allscan-custom-commands-button svg {
+  width: 13px;
+  height: 13px;
+}
+.allscan-custom-commands-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 100;
+  width: min(420px, calc(100vw - 24px));
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(148, 190, 212, .4);
+  border-radius: 8px;
+  background: #11171c;
+  color: #edf5f8;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+  text-align: left;
+}
+.allscan-custom-command-list {
+  display: grid;
+  gap: 4px;
+}
+.allscan-custom-command-list > button {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 8px;
+  border: 1px solid rgba(148, 190, 212, .2);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .045);
+  color: inherit;
+  text-align: left;
+}
+.allscan-custom-command-list > button small {
+  flex: 0 0 auto;
+  opacity: .65;
+  font-family: ui-monospace, monospace;
+}
+.allscan-custom-command-empty {
+  padding: 7px;
+  opacity: .72;
+}
+.allscan-custom-command-manage,
+.allscan-custom-command-add,
+.allscan-custom-command-save-actions button {
+  min-height: 29px;
+  padding: 4px 8px;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 5px;
+  background: rgba(74, 163, 223, .12);
+  color: inherit;
+}
+.allscan-custom-commands-editor {
+  display: grid;
+  gap: 7px;
+}
+.allscan-custom-commands-editor > small {
+  opacity: .72;
+}
+.allscan-custom-commands-editor-rows {
+  display: grid;
+  gap: 5px;
+  max-height: min(45vh, 320px);
+  overflow: auto;
+}
+.allscan-custom-command-edit-row {
+  display: grid;
+  grid-template-columns: minmax(115px, 1fr) minmax(78px, .55fr) auto;
+  gap: 5px;
+  align-items: center;
+}
+.allscan-custom-command-edit-row input {
+  min-width: 0;
+  height: 29px;
+  padding: 4px 6px;
+  border: 1px solid rgba(148, 190, 212, .3);
+  border-radius: 5px;
+  background: #090d10;
+  color: inherit;
+}
+.allscan-custom-command-edit-actions {
+  display: flex;
+  gap: 3px;
+}
+.allscan-custom-command-edit-actions button {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .045);
+  color: inherit;
+}
+.allscan-custom-command-edit-actions svg {
+  width: 13px;
+  height: 13px;
+}
+.allscan-custom-command-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+@media (max-width: 620px) {
+  .allscan-custom-commands-menu {
+    position: fixed;
+    top: 50%;
+    right: auto;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .allscan-custom-command-edit-row {
+    grid-template-columns: 1fr;
+  }
+  .allscan-custom-command-edit-actions {
+    justify-content: flex-end;
+  }
+}

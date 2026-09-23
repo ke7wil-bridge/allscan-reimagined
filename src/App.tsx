@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -14,6 +14,7 @@ import {
   fetchBridgeDestinations,
   fetchAuthStatus,
   fetchCpuTemp,
+  fetchCustomCommands,
   fetchDiagnosticsReport,
   fetchDropClients,
   fetchFavorites,
@@ -25,6 +26,7 @@ import {
   kickUrfClient,
   kickStandaloneClient,
   restartAsteriskCommand,
+  saveCustomCommands,
   summarizeConnectionTotal,
   connectBridge,
   type DiagnosticsReport,
@@ -36,6 +38,7 @@ import {
   type BridgeDestination,
   type AuthStatus,
   type DropClientEntry,
+  type CustomCommand,
   type FavoriteNode,
   type LiveConnectionRow,
   type RuntimeConfig,
@@ -469,7 +472,13 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
   const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
   const [favoritesPinned, setFavoritesPinned] = useState(() => window.localStorage.getItem(FAVORITES_PINNED_KEY) === '1')
-  const [favoriteAddNode, setFavoriteAddNode] = useState('')
+  const [customCommandsEnabled, setCustomCommandsEnabled] = useState(false)
+  const [customCommands, setCustomCommands] = useState<CustomCommand[]>([])
+  const [customCommandsOpen, setCustomCommandsOpen] = useState(false)
+  const [customCommandsManaging, setCustomCommandsManaging] = useState(false)
+  const [customCommandsDraft, setCustomCommandsDraft] = useState<CustomCommand[]>([])
+  const [customCommandsStatus, setCustomCommandsStatus] = useState('')
+  const [customCommandsSaving, setCustomCommandsSaving] = useState(false)
   const [favoriteEditing, setFavoriteEditing] = useState<string | null>(null)
   const [favoriteDescription, setFavoriteDescription] = useState('')
   const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
@@ -532,6 +541,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
   const favoritesPlacementRef = useRef<HTMLInputElement>(null)
+  const customCommandsRef = useRef<HTMLDivElement>(null)
   const restoreFavoritesPlacementFocus = useRef(false)
 
   const browserTitle = config.browserTitle
@@ -887,9 +897,16 @@ function App({ config }: { config: RuntimeConfig }) {
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+      if (!customCommandsRef.current?.contains(event.target as Node)) {
+        setCustomCommandsOpen(false)
+        setCustomCommandsManaging(false)
+      }
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      setCustomCommandsOpen(false)
+      setCustomCommandsManaging(false)
     }
     document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
@@ -956,6 +973,27 @@ function App({ config }: { config: RuntimeConfig }) {
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    if (!authStatus.canRead) return
+    let cancelled = false
+    const refreshCustomCommands = async () => {
+      try {
+        const next = await fetchCustomCommands()
+        if (cancelled) return
+        setCustomCommandsEnabled(next.enabled)
+        setCustomCommands(next.commands)
+      } catch (error) {
+        if (!cancelled) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
+      }
+    }
+    void refreshCustomCommands()
+    window.addEventListener('focus', refreshCustomCommands)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', refreshCustomCommands)
+    }
+  }, [authStatus.canRead])
 
   useEffect(() => {
     if (!config.node) {
@@ -1565,6 +1603,49 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  function beginCustomCommandManagement() {
+    setCustomCommandsDraft(customCommands.map(({ label, command }) => ({ label, command })))
+    setCustomCommandsStatus('')
+    setCustomCommandsManaging(true)
+  }
+
+  function moveCustomCommand(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= customCommandsDraft.length) return
+    setCustomCommandsDraft((current) => {
+      const next = [...current]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  async function persistCustomCommands() {
+    const commands = customCommandsDraft
+      .map(({ label, command }) => ({ label: label.trim(), command: command.trim() }))
+      .filter(({ label, command }) => label || command)
+    const invalid = commands.find(({ label, command }) => (
+      !label || label.length > 40 || label.includes(',') || !/^\*[0-9A-Da-d#;]{1,40}$/.test(command)
+    ))
+    if (invalid) {
+      setCustomCommandsStatus('Each command needs a name and a valid DTMF value beginning with *.')
+      return
+    }
+    try {
+      setCustomCommandsSaving(true)
+      setCustomCommandsStatus('Saving commands…')
+      const next = await saveCustomCommands(commands, customCommandsEnabled)
+      setCustomCommands(next.commands)
+      setCustomCommandsEnabled(next.enabled)
+      setCustomCommandsDraft(next.commands.map(({ label, command }) => ({ label, command })))
+      setCustomCommandsStatus('Commands saved.')
+      setCustomCommandsManaging(false)
+    } catch (error) {
+      setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be saved.')
+    } finally {
+      setCustomCommandsSaving(false)
+    }
+  }
+
   async function confirmBridgeControlState(
     bridgeId: string,
     linked: boolean,
@@ -1842,23 +1923,6 @@ function App({ config }: { config: RuntimeConfig }) {
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </form>
-          <form className="allscan-favorites-add" onSubmit={(event) => {
-            event.preventDefault()
-            const node = favoriteAddNode.trim()
-            if (!canPopulateNodeControl(node)) {
-              setFavoriteStatus('Enter a valid node number.')
-              return
-            }
-            setNodeValue(node)
-            void runCommandForNode('addfav', node).then(() => {
-              setFavoriteAddNode('')
-              void reloadFavorites()
-            })
-          }}>
-            <label htmlFor="allscan-favorite-add">Add Favorite</label>
-            <input id="allscan-favorite-add" inputMode="numeric" maxLength={9} value={favoriteAddNode} onChange={(event) => setFavoriteAddNode(event.target.value)} placeholder="Node number" />
-            <button type="submit" disabled={busy || !authStatus.canModify}><Plus /> Add</button>
           </form>
           <button
             type="button"
@@ -2462,6 +2526,105 @@ function App({ config }: { config: RuntimeConfig }) {
                   />
                   Disconnect before Connect
                 </label>
+                {customCommandsEnabled && (customCommands.length > 0 || authStatus.isAdmin) ? (
+                  <div ref={customCommandsRef} className="allscan-custom-commands">
+                    <button
+                      type="button"
+                      className="allscan-custom-commands-button"
+                      aria-expanded={customCommandsOpen}
+                      disabled={busy}
+                      onClick={() => {
+                        setCustomCommandsOpen((open) => !open)
+                        setCustomCommandsManaging(false)
+                        setCustomCommandsStatus('')
+                      }}
+                    >
+                      Cmds <ChevronDown />
+                    </button>
+                    {customCommandsOpen ? (
+                      <div className="allscan-custom-commands-menu">
+                        {customCommandsManaging ? (
+                          <div className="allscan-custom-commands-editor">
+                            <strong>Manage Custom Cmd Buttons</strong>
+                            <small>Commands must begin with *.</small>
+                            <div className="allscan-custom-commands-editor-rows">
+                              {customCommandsDraft.map((item, index) => (
+                                <div className="allscan-custom-command-edit-row" key={`custom-command-${index}`}>
+                                  <input
+                                    value={item.label}
+                                    maxLength={40}
+                                    aria-label={`Command ${index + 1} name`}
+                                    placeholder="Button name"
+                                    onChange={(event) => setCustomCommandsDraft((current) => current.map((entry, entryIndex) => (
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry
+                                    )))}
+                                  />
+                                  <input
+                                    value={item.command}
+                                    maxLength={41}
+                                    aria-label={`Command ${index + 1} DTMF value`}
+                                    placeholder="*712"
+                                    onChange={(event) => setCustomCommandsDraft((current) => current.map((entry, entryIndex) => (
+                                      entryIndex === index ? { ...entry, command: event.target.value } : entry
+                                    )))}
+                                  />
+                                  <span className="allscan-custom-command-edit-actions">
+                                    <button type="button" title="Move up" disabled={index === 0} onClick={() => moveCustomCommand(index, -1)}>↑</button>
+                                    <button type="button" title="Move down" disabled={index === customCommandsDraft.length - 1} onClick={() => moveCustomCommand(index, 1)}>↓</button>
+                                    <button type="button" title="Delete command" onClick={() => {
+                                      const name = item.label || item.command || 'this command'
+                                      if (window.confirm(`Delete ${name}? The change takes effect when you save.`)) {
+                                        setCustomCommandsDraft((current) => current.filter((_, entryIndex) => entryIndex !== index))
+                                      }
+                                    }}><Trash2 /></button>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              className="allscan-custom-command-add"
+                              disabled={customCommandsDraft.length >= 24}
+                              onClick={() => setCustomCommandsDraft((current) => [...current, { label: '', command: '' }])}
+                            >
+                              + Add command
+                            </button>
+                            {customCommandsStatus ? <small role="status">{customCommandsStatus}</small> : null}
+                            <div className="allscan-custom-command-save-actions">
+                              <button type="button" disabled={customCommandsSaving} onClick={() => void persistCustomCommands()}>Save</button>
+                              <button type="button" disabled={customCommandsSaving} onClick={() => setCustomCommandsManaging(false)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="allscan-custom-command-list">
+                              {customCommands.length ? customCommands.map((item, index) => (
+                                <button
+                                  type="button"
+                                  key={item.id || `${item.command}-${index}`}
+                                  disabled={busy || !authStatus.canWrite}
+                                  onClick={() => {
+                                    setCustomCommandsOpen(false)
+                                    void runCommandForNode('dtmf', item.command, false, false)
+                                  }}
+                                >
+                                  <span>{item.label}</span>
+                                  <small>{item.command}</small>
+                                </button>
+                              )) : <span className="allscan-custom-command-empty">No commands configured.</span>}
+                            </div>
+                            {customCommandsStatus ? <small role="status">{customCommandsStatus}</small> : null}
+                            {authStatus.isAdmin ? (
+                              <button type="button" className="allscan-custom-command-manage" onClick={beginCustomCommandManagement}>
+                                Manage Commands…
+                              </button>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
 

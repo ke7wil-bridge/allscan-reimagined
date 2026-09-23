@@ -122,6 +122,17 @@ export type FavoritesPayload = {
   selectedFile: string
 }
 
+export type CustomCommand = {
+  id?: string
+  label: string
+  command: string
+}
+
+export type CustomCommandsPayload = {
+  enabled: boolean
+  commands: CustomCommand[]
+}
+
 export type BridgeCardView = {
   id: string
   mode: string
@@ -843,6 +854,44 @@ export async function fetchFavorites(favsfile = ''): Promise<FavoritesPayload> {
     rows: payload.rows || [],
     files: payload.files || [],
     selectedFile: payload.selectedFile || '',
+  }
+}
+
+export async function fetchCustomCommands(): Promise<CustomCommandsPayload> {
+  const response = await fetch(`${ASR_API}?action=custom-commands`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = await response.json() as CustomCommandsPayload & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Custom commands could not be loaded.')
+  return {
+    enabled: Boolean(payload.enabled),
+    commands: Array.isArray(payload.commands) ? payload.commands : [],
+  }
+}
+
+export async function saveCustomCommands(
+  commands: CustomCommand[],
+  enabled: boolean,
+): Promise<CustomCommandsPayload> {
+  const response = await fetch(`${ASR_API}?action=custom-commands-save`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-ASR-Requested-With': 'custom-command-control',
+    },
+    body: new URLSearchParams({
+      action: 'custom-commands-save',
+      commands: JSON.stringify(commands.map(({ label, command }) => ({ label, command }))),
+      enabled: enabled ? '1' : '0',
+    }).toString(),
+  })
+  const payload = await response.json() as CustomCommandsPayload & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Custom commands could not be saved.')
+  return {
+    enabled: Boolean(payload.enabled),
+    commands: Array.isArray(payload.commands) ? payload.commands : [],
   }
 }
 

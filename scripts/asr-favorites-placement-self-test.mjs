@@ -81,10 +81,9 @@ assert(
   'Favorites does not use compact, narrowed single-column rows',
 )
 assert(
-  app.includes('id="allscan-favorite-add" inputMode="numeric" maxLength={9}')
-    && css.includes('grid-template-columns: 108px auto;')
-    && css.includes('width: 108px;'),
-  'Add Favorite node input is not sized for a nine-digit node number',
+  !app.includes('id="allscan-favorite-add"')
+    && app.includes("runCommandForNode('delfav', favorite.node)"),
+  'Favorites module still contains Add Favorite or lost confirmed row removal',
 )
 assert(
   !app.includes('Number(favorite.index)')

@@ -3338,9 +3338,84 @@ function asr_performance_stats(): array {
     return $payload;
 }
 
+
+function asr_custom_command_entries(): array {
+    global $gCfg;
+    $stored = $gCfg[cmdbuttons] ?? [];
+    if (!is_array($stored)) $stored = $stored === '' ? [] : explode(',', (string) $stored);
+    $commands = [];
+    foreach ($stored as $index => $entry) {
+        $text = trim((string) $entry);
+        if ($text === '') continue;
+        if (!preg_match('/^(.*?)(\\*[0-9A-Da-d#;]{1,40})$/D', $text, $match)) continue;
+        $command = (string) $match[2];
+        $label = trim((string) $match[1]);
+        $commands[] = [
+            'id' => (string) $index,
+            'label' => $label !== '' ? $label : $command,
+            'command' => $command,
+        ];
+    }
+    return $commands;
+}
+
+function asr_custom_commands_payload(): array {
+    global $gCfg;
+    return [
+        'ok' => true,
+        'enabled' => !empty($gCfg[showcmdbuttons]),
+        'commands' => asr_custom_command_entries(),
+    ];
+}
+
+function asr_save_custom_commands(string $raw, string $enabled): array {
+    global $cfgModel, $gCfg, $gCfgUpdated;
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) asr_error('Custom command data is invalid.');
+    if (count($decoded) > 24) asr_error('A maximum of 24 custom commands is supported.');
+
+    $stored = [];
+    foreach ($decoded as $entry) {
+        if (!is_array($entry)) asr_error('Custom command data is invalid.');
+        $label = trim(strip_tags((string) ($entry['label'] ?? '')));
+        $command = trim((string) ($entry['command'] ?? ''));
+        if ($label === '' || strlen($label) > 40 || preg_match('/[,\\x00-\\x1F\\x7F]/', $label)) {
+            asr_error('Each command needs a name of 40 characters or fewer without commas.');
+        }
+        if (!preg_match('/^\\*[0-9A-Da-d#;]{1,40}$/D', $command)) {
+            asr_error('Each DTMF command must begin with * and contain only supported DTMF characters.');
+        }
+        $stored[] = $label === $command ? $command : $label . ' ' . $command;
+    }
+
+    $gCfg[cmdbuttons] = $stored;
+    $gCfg[showcmdbuttons] = $enabled === '1' ? 1 : 0;
+    $gCfgUpdated[cmdbuttons] = time();
+    $gCfgUpdated[showcmdbuttons] = time();
+    $cfgModel->saveCfgs();
+    if ($cfgModel->error) asr_error('Custom commands could not be saved.', 500);
+    return asr_custom_commands_payload();
+}
+
 $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
+if ($action === 'custom-commands') {
+    asr_require_read();
+    asr_json(asr_custom_commands_payload());
+}
+if ($action === 'custom-commands-save') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'custom-command-control') {
+        asr_error('Invalid Custom Cmd request.', 403);
+    }
+    asr_json(asr_save_custom_commands(
+        (string) ($_POST['commands'] ?? '[]'),
+        (string) ($_POST['enabled'] ?? '0')
+    ));
+}
 if ($action === 'tgif-user-status') {
     asr_require_read();
     asr_json(asr_tgif_user_status());
