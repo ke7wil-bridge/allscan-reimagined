@@ -5719,3 +5719,22 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 @media (max-width: 900px) {
   .allscan-favorites-table tbody { grid-template-columns: 1fr; }
 }
+
+
+/* Favorite details are three distinct lines: description, frequency, location. */
+.allscan-favorite-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+.allscan-favorite-frequency,
+.allscan-favorite-location {
+  display: block;
+  width: 100%;
+  min-height: 11px;
+}
+.allscan-favorite-frequency:empty {
+  display: block;
+}
