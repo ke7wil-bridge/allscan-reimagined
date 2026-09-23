@@ -565,6 +565,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const customCommandsRef = useRef<HTMLDivElement>(null)
   const dashboardModuleOverRef = useRef<DashboardModuleKey | null>(null)
   const dashboardDragPreviewRef = useRef<HTMLDivElement>(null)
+  const dashboardDragPointerRef = useRef({ x: 0, y: 0 })
+  const dashboardDragScrollFrameRef = useRef<number | null>(null)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -896,6 +898,12 @@ function App({ config }: { config: RuntimeConfig }) {
     handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  useEffect(() => () => {
+    if (dashboardDragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -1384,11 +1392,48 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  function updateDashboardDropTarget(x: number, y: number) {
+    const module = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-dashboard-module]')
+    const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
+    if (!target || !DASHBOARD_MODULES.includes(target) || dashboardModuleOverRef.current === target) return
+    dashboardModuleOverRef.current = target
+    setDashboardModuleOver(target)
+  }
+
+  function stopDashboardDragAutoScroll() {
+    if (dashboardDragScrollFrameRef.current === null) return
+    window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
+    dashboardDragScrollFrameRef.current = null
+  }
+
+  function runDashboardDragAutoScroll() {
+    dashboardDragScrollFrameRef.current = null
+    if (!dashboardModuleDragging) return
+    const { x, y } = dashboardDragPointerRef.current
+    const edge = Math.min(120, Math.max(72, window.innerHeight * .12))
+    let delta = 0
+    if (y < edge) delta = -Math.min(24, Math.max(4, Math.ceil((edge - y) / 5)))
+    if (y > window.innerHeight - edge) delta = Math.min(24, Math.max(4, Math.ceil((y - (window.innerHeight - edge)) / 5)))
+    if (!delta) return
+    const before = window.scrollY
+    window.scrollBy(0, delta)
+    updateDashboardDropTarget(x, y)
+    if (window.scrollY !== before) {
+      dashboardDragScrollFrameRef.current = window.requestAnimationFrame(runDashboardDragAutoScroll)
+    }
+  }
+
+  function scheduleDashboardDragAutoScroll() {
+    if (dashboardDragScrollFrameRef.current !== null) return
+    dashboardDragScrollFrameRef.current = window.requestAnimationFrame(runDashboardDragAutoScroll)
+  }
+
   function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     dashboardModuleOverRef.current = key
+    dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
     setDashboardDragPoint({ x: event.clientX + 12, y: event.clientY + 12 })
     setDashboardModuleDragging(key)
     setDashboardModuleOver(key)
@@ -1397,17 +1442,16 @@ function App({ config }: { config: RuntimeConfig }) {
   function updateDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (!dashboardModuleDragging) return
     event.preventDefault()
+    dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
     if (dashboardDragPreviewRef.current) {
       dashboardDragPreviewRef.current.style.transform = `translate3d(${event.clientX + 12}px, ${event.clientY + 12}px, 0)`
     }
-    const module = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dashboard-module]')
-    const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
-    if (!target || !DASHBOARD_MODULES.includes(target) || dashboardModuleOverRef.current === target) return
-    dashboardModuleOverRef.current = target
-    setDashboardModuleOver(target)
+    updateDashboardDropTarget(event.clientX, event.clientY)
+    scheduleDashboardDragAutoScroll()
   }
 
   function clearDashboardModuleDrag() {
+    stopDashboardDragAutoScroll()
     dashboardModuleOverRef.current = null
     setDashboardModuleDragging(null)
     setDashboardModuleOver(null)

@@ -30,6 +30,8 @@ assert(
   app.includes('onPointerDown={(event) => beginDashboardModuleDrag(key, event)}')
     && app.includes('onPointerMove={updateDashboardModuleDrag}')
     && app.includes('dashboardDragPreviewRef.current.style.transform')
+    && app.includes('scheduleDashboardDragAutoScroll()')
+    && app.includes('window.scrollBy(0, delta)')
     && app.includes('if (source && target) moveDashboardModule(source, target)')
     && app.includes("event.key !== 'ArrowUp' && event.key !== 'ArrowDown'")
     && css.includes('touch-action: none;')
