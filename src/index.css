@@ -4970,6 +4970,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-favorites-panel {
   width: min(900px, calc(100vw - 40px));
   max-width: 900px;
+  overflow: visible;
 }
 .allscan-favorites-inner {
   position: relative;
@@ -4986,7 +4987,15 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   gap: 4px;
 }
 .allscan-favorites-file-form {
-  grid-template-columns: minmax(100px, 160px) auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+.allscan-favorites-file-form label {
+  grid-column: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .allscan-favorites-add {
   grid-template-columns: 108px auto;
