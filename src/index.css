@@ -5567,22 +5567,8 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   box-sizing: border-box;
 }
 
-/* Compact Favorites status polish. */
-.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked {
-  background: transparent !important;
-  box-shadow: none !important;
-  color: inherit !important;
-}
-.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-node-number {
-  color: hsl(130, 58%, 64%);
-}
-.allscan-favorite-rx.allscan-fav-cell-rx {
-  box-sizing: border-box;
-  min-width: max-content;
-  padding: 2px 6px;
-  border: 1px solid rgba(90, 194, 137, .34);
-  border-radius: 5px;
-  background: hsl(146, 48%, 16%) !important;
-  color: hsl(130, 58%, 64%) !important;
-  line-height: 1.1;
+/* Already-networked Favorites use the original boxed node treatment;
+   the Rx percentage pill is redundant in that state. */
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  display: none;
 }
