@@ -567,6 +567,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const dashboardDragPreviewRef = useRef<HTMLDivElement>(null)
   const dashboardDragPointerRef = useRef({ x: 0, y: 0 })
   const dashboardDragScrollFrameRef = useRef<number | null>(null)
+  const dashboardModuleOrderRef = useRef<DashboardModuleKey[]>(dashboardModuleOrder)
+  const dashboardDragStartOrderRef = useRef<DashboardModuleKey[] | null>(null)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -1392,12 +1394,36 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  function previewDashboardModuleMove(source: DashboardModuleKey, target: DashboardModuleKey) {
+    if (source === target) return
+    const current = dashboardModuleOrderRef.current
+    const sourceIndex = current.indexOf(source)
+    const targetIndex = current.indexOf(target)
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return
+    const next = [...current]
+    next.splice(sourceIndex, 1)
+    next.splice(targetIndex, 0, source)
+    dashboardModuleOrderRef.current = next
+    const apply = () => setDashboardModuleOrder(next)
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown
+    }
+    if (typeof viewTransitionDocument.startViewTransition === 'function') {
+      viewTransitionDocument.startViewTransition(() => flushSync(apply))
+    } else {
+      apply()
+    }
+  }
+
   function updateDashboardDropTarget(x: number, y: number) {
     const module = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-dashboard-module]')
     const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
     if (!target || !DASHBOARD_MODULES.includes(target) || dashboardModuleOverRef.current === target) return
     dashboardModuleOverRef.current = target
     setDashboardModuleOver(target)
+    if (dashboardModuleDragging && target !== dashboardModuleDragging) {
+      previewDashboardModuleMove(dashboardModuleDragging, target)
+    }
   }
 
   function stopDashboardDragAutoScroll() {
@@ -1433,6 +1459,8 @@ function App({ config }: { config: RuntimeConfig }) {
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     dashboardModuleOverRef.current = key
+    dashboardModuleOrderRef.current = dashboardModuleOrder
+    dashboardDragStartOrderRef.current = [...dashboardModuleOrder]
     dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
     setDashboardDragPoint({ x: event.clientX + 12, y: event.clientY + 12 })
     setDashboardModuleDragging(key)
@@ -1458,15 +1486,20 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function endDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    const source = dashboardModuleDragging
-    const target = dashboardModuleOverRef.current
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    flushSync(clearDashboardModuleDrag)
-    if (source && target) moveDashboardModule(source, target)
+    if (dashboardModuleDragging) writeDashboardModuleOrder(dashboardModuleOrderRef.current)
+    dashboardDragStartOrderRef.current = null
+    clearDashboardModuleDrag()
   }
 
   function cancelDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    const startOrder = dashboardDragStartOrderRef.current
+    if (startOrder) {
+      dashboardModuleOrderRef.current = startOrder
+      setDashboardModuleOrder(startOrder)
+    }
+    dashboardDragStartOrderRef.current = null
     clearDashboardModuleDrag()
   }
 
