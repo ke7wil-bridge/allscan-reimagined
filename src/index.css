@@ -5830,16 +5830,15 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   padding-right: 0;
 }
 .allscan-checks-grid {
-  display: grid !important;
-  grid-template-columns: max-content max-content;
-  grid-template-rows: repeat(2, 16px);
+  display: flex !important;
+  flex-wrap: nowrap !important;
   justify-content: center;
   align-items: center;
-  column-gap: 24px !important;
+  column-gap: 16px !important;
   row-gap: 0 !important;
-  min-height: 32px;
-  margin-top: 3px !important;
-  padding: 0;
+  min-height: 18px;
+  margin-top: 4px !important;
+  padding: 0 4px;
 }
 .allscan-checks-grid > label {
   justify-self: start;

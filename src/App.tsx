@@ -2615,24 +2615,6 @@ function App({ config }: { config: RuntimeConfig }) {
 
               <div className="allscan-checks-row allscan-checks-grid">
                 <label className="inline-flex items-center gap-[5px]">
-                  <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
-                  Show Favorites
-                </label>
-                <label className="inline-flex items-center gap-[5px]">
-                  <input type="checkbox" className="allscan-checkbox" disabled aria-label="Show Talker Cards (coming soon)" />
-                  Show Talker Cards
-                </label>
-                <label className="inline-flex items-center gap-[5px]">
-                  <input
-                    type="checkbox"
-                    className="allscan-checkbox"
-                    checked={permanent}
-                    onChange={(event) => setPermanent(event.target.checked)}
-                    disabled={!authStatus.canModify}
-                  />
-                  Permanent
-                </label>
-                <label className="inline-flex items-center gap-[5px]">
                   <input
                     type="checkbox"
                     className="allscan-checkbox"
@@ -2645,6 +2627,24 @@ function App({ config }: { config: RuntimeConfig }) {
                     disabled={!authStatus.canModify}
                   />
                   Disconnect before Connect
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input
+                    type="checkbox"
+                    className="allscan-checkbox"
+                    checked={permanent}
+                    onChange={(event) => setPermanent(event.target.checked)}
+                    disabled={!authStatus.canModify}
+                  />
+                  Permanent
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" disabled aria-label="Show Talker Cards (coming soon)" />
+                  Talker Cards
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
+                  Favorites
                 </label>
                 {customCommandsEnabled && (customCommands.length > 0 || authStatus.isAdmin) ? (
                   <div ref={customCommandsRef} className="allscan-custom-commands">
