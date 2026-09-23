@@ -5738,3 +5738,26 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-favorite-frequency:empty {
   display: block;
 }
+
+
+/* Favorites uses the shared dashboard title/header rhythm. Scanning marks the row grip. */
+.allscan-fav-scanning {
+  position: relative;
+  text-decoration: none;
+  color: inherit;
+}
+.allscan-fav-scanning .allscan-favorite-drag {
+  position: relative;
+  overflow: visible;
+}
+.allscan-fav-scanning .allscan-favorite-drag::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(223, 232, 237);
+  pointer-events: none;
+}

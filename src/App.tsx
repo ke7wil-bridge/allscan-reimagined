@@ -2074,8 +2074,9 @@ function App({ config }: { config: RuntimeConfig }) {
       className={`allscan-main-section allscan-favorites-panel allscan-dashboard-module${dashboardModuleDragging === 'favorites' ? ' is-dragging' : ''}${dashboardModuleOver === 'favorites' && dashboardModuleDragging !== 'favorites' ? ' is-drag-over' : ''}`}
       aria-label="Favorites"
     >
-      <h2 className="allscan-section-title allscan-favorites-drag-title" aria-hidden="true">
+      <h2 className="allscan-section-title">
         {dashboardModuleHandle('favorites', 'Favorites')}
+        Favorites
       </h2>
       <div className="allscan-favorites-inner">
         <div className="allscan-favorites-options">
