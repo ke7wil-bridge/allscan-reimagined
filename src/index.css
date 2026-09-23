@@ -5529,7 +5529,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   width: min(1280px, calc(100vw - 24px));
   height: 22px;
   margin: 0;
-  transform: translateX(calc(-50% - 6px));
+  transform: translateX(-50%);
   pointer-events: none;
 }
 .allscan-favorites-drag-title > .allscan-module-drag-handle {
@@ -5542,3 +5542,27 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-favorites-inner { box-sizing: border-box; overflow: hidden; }
 .allscan-favorites-table-wrap { box-sizing: border-box; width: 100%; max-width: 100%; }
 .allscan-favorites-table { box-sizing: border-box; max-width: calc(100% - 8px); }
+
+/* Favorites card containment: remove legacy table frame and keep compact rows inside panel. */
+.allscan-favorites-table-wrap {
+  overflow: hidden;
+  padding: 0;
+}
+.allscan-favorites-table {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 8px 0 10px;
+  border: 0;
+  background: transparent;
+}
+.allscan-favorites-table tbody {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.allscan-favorites-table tbody tr {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
