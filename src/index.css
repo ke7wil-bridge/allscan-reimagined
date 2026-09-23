@@ -5529,7 +5529,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   width: min(1280px, calc(100vw - 24px));
   height: 22px;
   margin: 0;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% - 6px));
   pointer-events: none;
 }
 .allscan-favorites-drag-title > .allscan-module-drag-handle {
@@ -5538,3 +5538,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 @media (max-width: 620px) {
   .allscan-favorites-drag-title { width: calc(100vw - 8px); height: 24px; }
 }
+
+.allscan-favorites-inner { box-sizing: border-box; overflow: hidden; }
+.allscan-favorites-table-wrap { box-sizing: border-box; width: 100%; max-width: 100%; }
+.allscan-favorites-table { box-sizing: border-box; max-width: calc(100% - 8px); }
