@@ -2626,7 +2626,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     }}
                     disabled={!authStatus.canModify}
                   />
-                  Disconnect before Connect
+                  Disc. before Connect
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input
