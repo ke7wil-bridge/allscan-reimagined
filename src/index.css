@@ -5761,3 +5761,30 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   background: rgb(223, 232, 237);
   pointer-events: none;
 }
+
+
+/* Favorites is a standard dashboard module: shared header width, lighter content framing. */
+.allscan-favorites-panel {
+  box-sizing: border-box;
+  width: min(1280px, calc(100vw - 24px));
+  max-width: 1280px;
+  margin: 0 auto 18px;
+}
+.allscan-favorites-panel > .allscan-section-title {
+  margin: 10px auto 8px;
+}
+.allscan-favorites-inner {
+  box-sizing: border-box;
+  width: min(980px, 100%);
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 10px 5px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorite-actions button:disabled {
+  opacity: .28;
+  cursor: default;
+}

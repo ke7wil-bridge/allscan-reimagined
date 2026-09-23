@@ -123,8 +123,7 @@ assert(
   'Supermon import is not safely contained in Cfgs → Manage Favorites',
 )
 assert(
-  app.includes('Reset the custom description for node')
-    && app.includes('Reset the custom description and color for node')
+  app.includes('Reset the custom description and color for node')
     && app.includes('Reset the saved custom order')
     && app.includes('Reset all Favorite colors')
     && app.includes('Remove node')

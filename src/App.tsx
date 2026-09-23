@@ -2106,7 +2106,6 @@ function App({ config }: { config: RuntimeConfig }) {
           <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
           <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
           <span><i className="allscan-fav-rxbar" />Rx Busy</span>
-          <span><i className="allscan-fav-dot allscan-fav-dot-links" />Links</span>
           <span><i className="allscan-fav-underline" />Scanning</span>
         </div>
         <div className="allscan-favorites-table-wrap">
@@ -2239,13 +2238,10 @@ function App({ config }: { config: RuntimeConfig }) {
                       setFavoriteEditing(favorite.node)
                       setFavoriteDescription(favorite.customDescription || favorite.description || favorite.name)
                     }}><Pencil /></button>
-                    {favorite.customDescription ? <button type="button" title="Reset to downloaded description" onClick={() => {
-                      if (window.confirm(`Reset the custom description for node ${favorite.node}? Its color, position, and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-description', { node: favorite.node })
-                    }}><RotateCcw /></button> : null}
                     <label title="Favorite accent color"><input type="color" value={favorite.color || '#4aa3df'} onChange={(event) => void favoriteOperation('set-color', { node: favorite.node, value: event.target.value })} /></label>
-                    {(favorite.customDescription || favorite.color) ? <button type="button" title="Reset this Favorite's description and color" onClick={() => {
+                    <button type="button" title="Reset this Favorite's description and color" disabled={!favorite.customDescription && !favorite.color} onClick={() => {
                       if (window.confirm(`Reset the custom description and color for node ${favorite.node}? Its position and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-favorite', { node: favorite.node })
-                    }}><RotateCcw /></button> : null}
+                    }}><RotateCcw /></button>
                     <button type="button" title="Remove Favorite" onClick={() => {
                       if (window.confirm(`Remove node ${favorite.node} from Favorites?`)) void runCommandForNode('delfav', favorite.node).then(() => reloadFavorites())
                     }}><Trash2 /></button>
