@@ -579,7 +579,6 @@ function App({ config }: { config: RuntimeConfig }) {
     () => themeOptions.filter((option) => desktopThemeViewport || option.value !== 'lcars-frame'),
     [desktopThemeViewport],
   )
-  const isAddDeleteFavoriteAction = actionValue === 'addfav' || actionValue === 'delfav'
   const bridgeConnectionLabels = useMemo(
     () => ({
       byId: new Map(
@@ -2191,7 +2190,6 @@ function App({ config }: { config: RuntimeConfig }) {
                     if (!canPopulateNodeControl(favorite.node)) return
                     setNodeValue(favorite.node)
                     nodeInputRef.current?.focus()
-                    setFavoritesOpen(isAddDeleteFavoriteAction)
                   }}
                   onDoubleClick={() => {
                     if (favoritesOpen && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)
