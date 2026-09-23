@@ -41,9 +41,10 @@ assert(
   'Stable compact pointer, touch, or keyboard module dragging is missing',
 )
 assert(
-  app.includes('aria-controls="allscan-favorites-panel"')
-    && app.includes('aria-expanded={favoritesOpen ? \'true\' : \'false\'}')
-    && app.includes('setFavoritesOpen((open) => !open)')
+  app.includes('checked={favoritesOpen}')
+    && app.includes('setFavoritesOpen(event.target.checked)')
+    && app.includes('Show Favorites')
+    && app.includes('Show Talker Cards')
     && app.includes("const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'")
     && app.includes("window.localStorage.setItem(FAVORITES_OPEN_KEY, favoritesOpen ? '1' : '0')")
     && app.includes('setFavoritesOpen(isAddDeleteFavoriteAction)'),

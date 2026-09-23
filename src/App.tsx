@@ -2581,20 +2581,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   Disconnect
                 </button>
-                <div className="allscan-favorites-wrap">
-                  <button
-                    type="button"
-                    className={`allscan-favs-button${favoritesOpen ? ' is-open' : ''}`}
-                    aria-expanded={favoritesOpen ? 'true' : 'false'}
-                    aria-controls="allscan-favorites-panel"
-                    aria-label="Favorites"
-                    title="Favorites"
-                    disabled={busy}
-                    onClick={() => setFavoritesOpen((open) => !open)}
-                  >
-                    Favs <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+
               </div>
 
               <div className="allscan-controls-lower-row">
@@ -2626,7 +2613,15 @@ function App({ config }: { config: RuntimeConfig }) {
                 {authStatus.isAdmin ? <button type="button" className="allscan-action-button allscan-kicks-bans-button" onClick={() => { setManagementTab('clients'); setUrfAccessOpen(true); void loadAslBans() }}>Manage Kicks & Bans</button> : null}
               </div>
 
-              <div className="allscan-checks-row flex flex-wrap items-center justify-center gap-y-2">
+              <div className="allscan-checks-row allscan-checks-grid">
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
+                  Show Favorites
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" disabled aria-label="Show Talker Cards (coming soon)" />
+                  Show Talker Cards
+                </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input
                     type="checkbox"

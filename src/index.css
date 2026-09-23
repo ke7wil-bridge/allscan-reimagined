@@ -5822,3 +5822,34 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   background: rgba(8, 9, 10, .96) !important;
   box-shadow: none !important;
 }
+
+
+/* Compact Node Controls redesign: Cmds top-right, two-by-two option block. */
+.allscan-controls-shell { position: relative; }
+.allscan-controls-shell > .allscan-controls-row:first-child {
+  padding-right: 62px;
+}
+.allscan-checks-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  grid-template-rows: repeat(2, 18px);
+  align-items: center;
+  gap: 0 18px !important;
+  min-height: 36px;
+  margin-top: 4px !important;
+  padding: 0 8px;
+}
+.allscan-checks-grid > label:nth-of-type(odd) { justify-self: start; }
+.allscan-checks-grid > label:nth-of-type(even) { justify-self: start; }
+.allscan-checks-grid > .allscan-custom-commands {
+  position: absolute;
+  z-index: 60;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+}
+.allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+  min-width: 54px;
+  padding-left: 7px;
+  padding-right: 7px;
+}
