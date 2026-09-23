@@ -5833,6 +5833,14 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source {
   color: #fff !important;
   box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
 }
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-drag {
+  background: hsl(0, 56%, 24%) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-drag:hover {
+  background: hsl(0, 56%, 24%) !important;
+}
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-node-number,
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-linked-inline { color: #fff !important; }
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx { color: hsl(130, 72%, 42%) !important; }
