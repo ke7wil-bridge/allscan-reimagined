@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, Pin, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
@@ -106,6 +107,12 @@ type ThemeSettings = {
 type DashboardModuleKey = 'controls' | 'favorites' | 'connections' | 'bridges'
 
 const DASHBOARD_MODULES: DashboardModuleKey[] = ['controls', 'favorites', 'connections', 'bridges']
+const DASHBOARD_MODULE_LABELS: Record<DashboardModuleKey, string> = {
+  controls: 'Node Controls',
+  favorites: 'Favorites',
+  connections: 'Connection Status',
+  bridges: 'Digital Bridge Status',
+}
 
 const themeOptions = [
   { value: 'standard', label: 'Dark Side', mode: 'dark' },
@@ -498,6 +505,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
   const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
   const [dashboardModuleOver, setDashboardModuleOver] = useState<DashboardModuleKey | null>(null)
+  const [dashboardDragPoint, setDashboardDragPoint] = useState({ x: 0, y: 0 })
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
     key: 'index' | 'node' | 'name' | 'desc' | 'location'
@@ -555,6 +563,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
   const customCommandsRef = useRef<HTMLDivElement>(null)
+  const dashboardModuleOverRef = useRef<DashboardModuleKey | null>(null)
+  const dashboardDragPreviewRef = useRef<HTMLDivElement>(null)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -1354,7 +1364,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
   function moveDashboardModule(source: DashboardModuleKey, target: DashboardModuleKey) {
     if (source === target) return
-    setDashboardModuleOrder((current) => {
+    const applyOrder = () => setDashboardModuleOrder((current) => {
       const next = [...current]
       const sourceIndex = next.indexOf(source)
       const targetIndex = next.indexOf(target)
@@ -1364,11 +1374,22 @@ function App({ config }: { config: RuntimeConfig }) {
       writeDashboardModuleOrder(next)
       return next
     })
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown
+    }
+    if (typeof viewTransitionDocument.startViewTransition === 'function') {
+      viewTransitionDocument.startViewTransition(() => flushSync(applyOrder))
+    } else {
+      applyOrder()
+    }
   }
 
   function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return
+    event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
+    dashboardModuleOverRef.current = key
+    setDashboardDragPoint({ x: event.clientX + 12, y: event.clientY + 12 })
     setDashboardModuleDragging(key)
     setDashboardModuleOver(key)
   }
@@ -1376,17 +1397,33 @@ function App({ config }: { config: RuntimeConfig }) {
   function updateDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (!dashboardModuleDragging) return
     event.preventDefault()
+    if (dashboardDragPreviewRef.current) {
+      dashboardDragPreviewRef.current.style.transform = `translate3d(${event.clientX + 12}px, ${event.clientY + 12}px, 0)`
+    }
     const module = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dashboard-module]')
     const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
-    if (!target || !DASHBOARD_MODULES.includes(target)) return
+    if (!target || !DASHBOARD_MODULES.includes(target) || dashboardModuleOverRef.current === target) return
+    dashboardModuleOverRef.current = target
     setDashboardModuleOver(target)
-    moveDashboardModule(dashboardModuleDragging, target)
+  }
+
+  function clearDashboardModuleDrag() {
+    dashboardModuleOverRef.current = null
+    setDashboardModuleDragging(null)
+    setDashboardModuleOver(null)
   }
 
   function endDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const source = dashboardModuleDragging
+    const target = dashboardModuleOverRef.current
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    setDashboardModuleDragging(null)
-    setDashboardModuleOver(null)
+    flushSync(clearDashboardModuleDrag)
+    if (source && target) moveDashboardModule(source, target)
+  }
+
+  function cancelDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    clearDashboardModuleDrag()
   }
 
   function moveDashboardModuleByKeyboard(key: DashboardModuleKey, event: ReactKeyboardEvent<HTMLButtonElement>) {
@@ -1408,7 +1445,7 @@ function App({ config }: { config: RuntimeConfig }) {
         onPointerDown={(event) => beginDashboardModuleDrag(key, event)}
         onPointerMove={updateDashboardModuleDrag}
         onPointerUp={endDashboardModuleDrag}
-        onPointerCancel={endDashboardModuleDrag}
+        onPointerCancel={cancelDashboardModuleDrag}
         onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
       >
         <span />
@@ -3170,6 +3207,17 @@ function App({ config }: { config: RuntimeConfig }) {
               })}
             </div>
           </section> : null}
+
+          {dashboardModuleDragging ? (
+            <div
+              ref={dashboardDragPreviewRef}
+              className="allscan-module-drag-preview"
+              style={{ transform: `translate3d(${dashboardDragPoint.x}px, ${dashboardDragPoint.y}px, 0)` }}
+              aria-hidden="true"
+            >
+              {DASHBOARD_MODULE_LABELS[dashboardModuleDragging]}
+            </div>
+          ) : null}
 
           <footer className="allscan-footer">
             <div className="allscan-footer-copy">

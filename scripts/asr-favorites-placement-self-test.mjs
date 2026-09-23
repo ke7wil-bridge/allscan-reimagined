@@ -29,10 +29,13 @@ assert(
 assert(
   app.includes('onPointerDown={(event) => beginDashboardModuleDrag(key, event)}')
     && app.includes('onPointerMove={updateDashboardModuleDrag}')
+    && app.includes('dashboardDragPreviewRef.current.style.transform')
+    && app.includes('if (source && target) moveDashboardModule(source, target)')
     && app.includes("event.key !== 'ArrowUp' && event.key !== 'ArrowDown'")
     && css.includes('touch-action: none;')
-    && css.includes('.allscan-module-drag-handle span'),
-  'Compact pointer, touch, or keyboard module dragging is missing',
+    && css.includes('.allscan-module-drag-preview')
+    && css.includes('.allscan-section-title > .allscan-module-drag-handle'),
+  'Stable compact pointer, touch, or keyboard module dragging is missing',
 )
 assert(
   app.includes('aria-controls="allscan-favorites-panel"')
