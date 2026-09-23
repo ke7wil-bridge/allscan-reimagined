@@ -5378,32 +5378,26 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 .allscan-module-drag-handle {
   display: inline-flex;
-  width: 28px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   margin: 0;
-  padding: 6px 7px;
+  padding: 5px;
   flex-direction: column;
   justify-content: center;
   gap: 3px;
   vertical-align: middle;
-  border: 1px solid rgba(148, 190, 212, .32);
-  border-left: 3px solid #55bff5;
-  border-radius: 5px 0 0 5px;
-  background: rgba(20, 34, 44, .94);
-  color: #b9d8e8;
-  box-shadow: inset -1px 0 rgba(255, 255, 255, .04);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: currentColor;
+  box-shadow: none;
   cursor: grab;
   touch-action: none;
-  opacity: .82;
+  opacity: .42;
 }
 .allscan-module-drag-handle:hover,
-.allscan-module-drag-handle:focus-visible {
-  opacity: 1;
-  border-color: rgba(85, 191, 245, .78);
-  border-left-color: #55bff5;
-  background: rgba(31, 55, 70, .98);
-}
-.allscan-module-drag-handle:active { cursor: grabbing; }
+.allscan-module-drag-handle:focus-visible { opacity: .9; }
+.allscan-module-drag-handle:active { cursor: grabbing; opacity: 1; }
 .allscan-module-drag-handle span {
   display: block;
   width: 12px;
@@ -5415,7 +5409,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-section-title > .allscan-module-drag-handle {
   position: absolute;
   top: 50%;
-  left: 0;
+  left: 6px;
   transform: translateY(-50%);
 }
 .allscan-module-drag-preview {
@@ -5438,16 +5432,16 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   position: absolute;
   z-index: 3;
   top: 7px;
-  left: -1px;
+  left: 6px;
 }
 @media (max-width: 620px) {
   .allscan-module-drag-handle {
-    width: 30px;
-    height: 28px;
-    opacity: .88;
+    width: 24px;
+    height: 24px;
+    opacity: .5;
   }
   .allscan-favorites-panel > .allscan-module-drag-handle {
     top: 5px;
-    left: -1px;
+    left: 5px;
   }
 }
