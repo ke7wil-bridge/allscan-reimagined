@@ -5527,7 +5527,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   position: absolute;
   z-index: 3;
   top: 7px;
-  left: calc((100% - 100vw) / 2 + 6px);
+  left: calc((100% - min(1280px, calc(100vw - 24px))) / -2 + 6px);
 }
 
 @media (max-width: 720px) {
