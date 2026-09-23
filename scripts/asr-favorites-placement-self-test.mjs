@@ -105,7 +105,8 @@ assert(
     && !app.includes('favoritesPinned')
     && !css.includes('.allscan-favorites-pin')
     && css.includes('.allscan-section-title > .allscan-module-drag-handle')
-    && css.includes('left: -30px;'),
+    && app.includes('allscan-favorites-drag-title')
+    && css.includes('.allscan-favorites-drag-title > .allscan-module-drag-handle'),
   'Favorites pin remains or dashboard drag handles are not left-aligned',
 )
 assert(

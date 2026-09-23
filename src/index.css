@@ -5439,23 +5439,13 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   pointer-events: none;
   will-change: transform;
 }
-.allscan-favorites-panel > .allscan-module-drag-handle {
-  position: absolute;
-  z-index: 3;
-  top: 7px;
-  left: -30px;
-}
 @media (max-width: 620px) {
   .allscan-module-drag-handle {
     width: 24px;
     height: 24px;
     opacity: .5;
   }
-  .allscan-favorites-panel > .allscan-module-drag-handle {
-    top: 5px;
-    left: -28px;
   }
-}
 
 
 /* Favorites + Node Controls authoritative layout (forensic consolidation). */
@@ -5520,15 +5510,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   justify-content: center;
 }
 
-/* Favorites panel is centered at 900px; the other module handles sit 6px from
-   the dashboard viewport edge. Translate that shared x coordinate into the
-   Favorites panel's local coordinate system. */
-.allscan-favorites-panel > .allscan-module-drag-handle {
-  position: absolute;
-  z-index: 3;
-  top: 7px;
-  left: calc((100% - min(1280px, calc(100vw - 24px))) / -2 + 6px);
-}
 
 @media (max-width: 720px) {
   .allscan-favorites-options { width: 100%; padding-left: 32px; padding-right: 32px; }
@@ -5538,5 +5519,22 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
     padding: 0 4px;
     grid-template-columns: max-content max-content max-content;
   }
-  .allscan-favorites-panel > .allscan-module-drag-handle { top: 5px; left: -28px; }
+  }
+
+.allscan-favorites-drag-title {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 50%;
+  width: min(1280px, calc(100vw - 24px));
+  height: 22px;
+  margin: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.allscan-favorites-drag-title > .allscan-module-drag-handle {
+  pointer-events: auto;
+}
+@media (max-width: 620px) {
+  .allscan-favorites-drag-title { width: calc(100vw - 8px); height: 24px; }
 }
