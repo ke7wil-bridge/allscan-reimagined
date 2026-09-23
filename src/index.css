@@ -5688,9 +5688,15 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 }
 .allscan-favorite-frequency:empty { display: none; }
 .allscan-favorite-location { flex: 1 1 auto; }
-.allscan-favorites-table tbody td:nth-child(7) {
+.allscan-favorites-table tbody td:nth-child(7),
+.allscan-favorites-table tbody td.allscan-favorite-actions-cell {
+  grid-area: actions;
+  display: flex;
   width: 56px;
   min-width: 56px;
+  align-self: center;
+  justify-content: flex-end;
+  overflow: visible;
 }
 .allscan-favorite-actions {
   display: grid;

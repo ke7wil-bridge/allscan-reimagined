@@ -2233,7 +2233,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 </td>
                 <td aria-hidden="true" />
                 <td aria-hidden="true" />
-                <td>
+                <td className="allscan-favorite-actions-cell">
                   {authStatus.canModify ? <span className="allscan-favorite-actions">
                     <button type="button" title="Edit friendly description" onClick={() => {
                       setFavoriteEditing(favorite.node)
