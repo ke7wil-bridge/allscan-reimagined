@@ -5456,3 +5456,43 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
     left: -28px;
   }
 }
+
+
+/* Node Controls final compact row alignment. */
+.allscan-controls-shell > .allscan-checks-row {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 0 7px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 18px;
+}
+.allscan-controls-shell > .allscan-checks-row > label { flex: 0 0 auto; }
+.allscan-controls-shell > .allscan-checks-row > .allscan-custom-commands { margin-left: auto; }
+.allscan-custom-commands-button {
+  box-sizing: border-box;
+  min-width: 70px;
+  min-height: 30px;
+  height: 30px;
+  padding: 4px 8px;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(28, 28, 30, 0.96);
+  color: rgb(230, 242, 247);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 15.4px;
+}
+.allscan-custom-commands-button svg { width: 14px; height: 14px; }
+.allscan-controls-shell > .allscan-node-messages { margin-top: 8px !important; }
+
+/* Keep every dashboard module handle in one left-side page column. */
+.allscan-favorites-panel > .allscan-module-drag-handle {
+  left: calc((min(900px, calc(100vw - 40px)) - 100vw) / 2 + 6px);
+}
+@media (max-width: 620px) {
+  .allscan-controls-shell > .allscan-checks-row { padding: 0 4px; column-gap: 8px; }
+  .allscan-favorites-panel > .allscan-module-drag-handle { left: -28px; }
+}

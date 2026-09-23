@@ -2622,22 +2622,6 @@ function App({ config }: { config: RuntimeConfig }) {
                 {authStatus.isAdmin ? <button type="button" className="allscan-action-button allscan-kicks-bans-button" onClick={() => { setManagementTab('clients'); setUrfAccessOpen(true); void loadAslBans() }}>Manage Kicks & Bans</button> : null}
               </div>
 
-              <details
-                className="allscan-node-messages mx-auto mt-[8px] rounded-[6px]"
-                open={messagesOpen}
-                onToggle={(event) => setMessagesOpen((event.currentTarget as HTMLDetailsElement).open)}
-              >
-                <summary className="allscan-node-messages-summary">
-                  <span className="allscan-node-messages-label">Node Messages</span>
-                  <span className="allscan-node-messages-text min-w-0 flex-1">
-                    {nodeMessageLatest}
-                  </span>
-                </summary>
-                <div ref={nodeMessagesBodyRef} className="allscan-node-messages-body">
-                  {nodeMessageRaw || nodeMessage || nodeMessageLatest}
-                </div>
-              </details>
-
               <div className="allscan-checks-row flex flex-wrap items-center justify-center gap-y-2">
                 <label className="inline-flex items-center gap-[5px]">
                   <input
@@ -2763,6 +2747,22 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
                 ) : null}
               </div>
+
+              <details
+                className="allscan-node-messages mx-auto mt-[8px] rounded-[6px]"
+                open={messagesOpen}
+                onToggle={(event) => setMessagesOpen((event.currentTarget as HTMLDetailsElement).open)}
+              >
+                <summary className="allscan-node-messages-summary">
+                  <span className="allscan-node-messages-label">Node Messages</span>
+                  <span className="allscan-node-messages-text min-w-0 flex-1">
+                    {nodeMessageLatest}
+                  </span>
+                </summary>
+                <div ref={nodeMessagesBodyRef} className="allscan-node-messages-body">
+                  {nodeMessageRaw || nodeMessage || nodeMessageLatest}
+                </div>
+              </details>
             </div>
 
           </section>
