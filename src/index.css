@@ -5860,7 +5860,11 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-controls-shell > .allscan-controls-row:first-child {
   position: relative;
   justify-content: flex-start !important;
+  column-gap: 6px;
   padding-right: 58px;
+}
+.allscan-controls-shell > .allscan-controls-row:first-child .allscan-node-field {
+  margin-right: 4px;
 }
 .allscan-checks-grid > .allscan-custom-commands {
   top: 7px;
