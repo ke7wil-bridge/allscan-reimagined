@@ -219,10 +219,26 @@ function getNode($fp, $node) {
 }
 
 function sendData($data, $event='errMsg') {
+	global $sharedLeader, $sharedCache;
 	echo "event: $event\n";
 	echo 'data: ' . json_encode($data) . "\n\n";
 	ob_flush();
 	flush();
+	if($sharedLeader && in_array($event, ['connection', 'errMsg'], true))
+		writeSharedMessage($sharedCache, $event, $data);
+}
+
+function writeSharedMessage($path, $event, $data) {
+	if($path === '')
+		return;
+	$messagePath = $path . '.messages';
+	$record = json_encode([
+		'time' => microtime(true),
+		'event' => $event,
+		'data' => $data,
+	]);
+	if($record !== false)
+		@file_put_contents($messagePath, $record . "\n", FILE_APPEND | LOCK_EX);
 }
 
 function writeSharedStatus($path, $current, $nodeTime) {
@@ -246,6 +262,8 @@ function writeSharedStatus($path, $current, $nodeTime) {
 function streamSharedStatus($lockHandle, $cachePath) {
 	$lastUpdate = '';
 	$lastCurrent = '';
+	$messagePath = $cachePath . '.messages';
+	$messageOffset = is_file($messagePath) ? (int) @filesize($messagePath) : 0;
 	sendData(['status' => 'Shared Asterisk status feed connected'], 'connection');
 	while(true) {
 		$payload = [];
@@ -263,6 +281,21 @@ function streamSharedStatus($lockHandle, $cachePath) {
 			}
 			sendData($payload['nodeTime'] ?? [], 'nodetimes');
 			$lastUpdate = $updated;
+		}
+		if(is_readable($messagePath)) {
+			$messages = @fopen($messagePath, 'r');
+			if($messages !== false) {
+				if($messageOffset > 0)
+					@fseek($messages, $messageOffset);
+				while(($line = fgets($messages)) !== false) {
+					$messageOffset = (int) ftell($messages);
+					$record = json_decode(trim($line), true);
+					$event = (string) ($record['event'] ?? '');
+					if(in_array($event, ['connection', 'errMsg'], true) && array_key_exists('data', $record))
+						sendData($record['data'], $event);
+				}
+				fclose($messages);
+			}
 		}
 		if(connection_aborted())
 			exit();
