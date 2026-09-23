@@ -5859,6 +5859,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 /* Keep the shell at its established width; the top row reserves only the Cmds button itself. */
 .allscan-controls-shell > .allscan-controls-row:first-child {
   position: relative;
+  justify-content: flex-start !important;
   padding-right: 58px;
 }
 .allscan-checks-grid > .allscan-custom-commands {
