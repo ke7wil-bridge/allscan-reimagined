@@ -2644,7 +2644,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
-                  Favorites
+                  Favs
                 </label>
                 {customCommandsEnabled && (customCommands.length > 0 || authStatus.isAdmin) ? (
                   <div ref={customCommandsRef} className="allscan-custom-commands">
