@@ -5829,9 +5829,9 @@ html[data-asr-theme] .allscan-favorite-drag:hover {
 
 /* Cross-theme Favorites activity and LCARS module parity. */
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source {
-  background: hsl(0, 56%, 24%) !important;
+  background: transparent !important;
   color: #fff !important;
-  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+  box-shadow: none !important;
 }
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-drag {
   background: hsl(0, 56%, 24%) !important;
