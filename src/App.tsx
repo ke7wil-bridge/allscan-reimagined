@@ -2221,13 +2221,16 @@ function App({ config }: { config: RuntimeConfig }) {
                         ) : (favorite.description || favorite.name || <em>No description</em>)}
                         {favorite.customDescription ? <small>User description</small> : null}
                       </span>
-                      <span className="allscan-favorite-frequency" title="Frequency or node details">
-                        {favorite.frequency || favorite.referenceDesc || ''}
+                      <span className="allscan-favorite-meta">
+                        <span className="allscan-favorite-frequency" title="Frequency or node details">
+                          {favorite.frequency || favorite.referenceDesc || ''}
+                        </span>
+                        <span className="allscan-favorite-location" title={favorite.location}>{favorite.location}</span>
                       </span>
                     </span>
                   )}
                 </td>
-                <td title={favorite.location}>{favorite.location}</td>
+                <td aria-hidden="true" />
                 <td aria-hidden="true" />
                 <td>
                   {authStatus.canModify ? <span className="allscan-favorite-actions">
