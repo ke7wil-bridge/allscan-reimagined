@@ -6327,3 +6327,29 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title
   border-bottom-color: #555;
   color: #f2f2f2;
 }
+
+/* Beta 8 experiment: Favorites controls/legend as a subtle module header band. */
+.allscan-favorites-inner {
+  position: relative;
+}
+.allscan-favorites-options {
+  margin: 0;
+  padding: 10px 12px 5px;
+  border: 1px solid var(--theme-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--theme-header-bg, var(--theme-panel-2));
+}
+.allscan-favorites-legend {
+  margin: 0 0 8px;
+  padding: 5px 12px 9px;
+  border: 1px solid var(--theme-border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: var(--theme-header-bg, var(--theme-panel-2));
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
+  background: #202126;
+  border-color: #555;
+}
