@@ -6433,3 +6433,18 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend 
   background: #202126 !important;
   border-bottom-color: #555 !important;
 }
+
+/* Favorites legend header geometry: truly flush to the module shell, not inset by inner padding. */
+.allscan-favorites-inner {
+  padding-top: 0 !important;
+}
+.allscan-favorites-legend {
+  width: auto !important;
+  margin: 0 -10px 8px !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+.allscan-favorites-options {
+  margin: 0 auto 8px !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
