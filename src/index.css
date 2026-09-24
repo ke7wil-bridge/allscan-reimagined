@@ -6309,7 +6309,7 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-cu
 }
 .allscan-talker-location { margin-top: 1px; }
 
-/* Beta 8: give Current/Last Talker labels the same subtle header-band treatment as bridge cards. */
+/* Beta 8 visual refinements: consolidated after visual review. */
 .allscan-talker-card {
   padding-top: 0;
   overflow: hidden;
@@ -6321,6 +6321,7 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-cu
   background: var(--theme-header-bg, rgba(127, 127, 127, .12));
   color: var(--theme-text);
   opacity: 1;
+  text-align: center;
 }
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title {
   background: #202126;
@@ -6328,210 +6329,52 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title
   color: #f2f2f2;
 }
 
-/* Beta 8 experiment: Favorites controls/legend as a subtle module header band. */
+/* Favorites: legend is the flush module header; file/reset controls remain on the module body. */
 .allscan-favorites-inner {
   position: relative;
-}
-.allscan-favorites-options {
-  margin: 0;
-  padding: 10px 12px 5px;
-  border: 1px solid var(--theme-border);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-  background: var(--theme-header-bg, var(--theme-panel-2));
-}
-.allscan-favorites-legend {
-  margin: 0 0 8px;
-  padding: 5px 12px 9px;
-  border: 1px solid var(--theme-border);
-  border-top: 0;
-  border-radius: 0 0 8px 8px;
-  background: var(--theme-header-bg, var(--theme-panel-2));
-}
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options,
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
-  background: #202126;
-  border-color: #555;
-}
-
-/* Favorites header refinement: controls and legend read as one continuous band. */
-.allscan-favorites-options {
-  padding-bottom: 4px;
-  border-bottom: 0 !important;
-  border-radius: 8px 8px 0 0;
-}
-.allscan-favorites-legend {
-  padding-top: 4px;
-  border-top: 0 !important;
-  border-radius: 0 0 8px 8px;
-}
-
-/* Favorites header: remove the seam completely by overlapping the two halves. */
-.allscan-favorites-options {
-  margin-bottom: -1px !important;
-  border-bottom-color: transparent !important;
-}
-.allscan-favorites-legend {
-  border-top-color: transparent !important;
-  box-shadow: 0 -2px 0 var(--theme-header-bg, var(--theme-panel-2));
-}
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
-  box-shadow: 0 -2px 0 #202126;
-}
-
-/* Favorites header: full-width continuous control band, flush to the container top. */
-.allscan-favorites-inner {
   padding-top: 0 !important;
 }
-.allscan-favorites-options,
 .allscan-favorites-legend {
   box-sizing: border-box;
-  width: 100%;
+  width: auto !important;
   max-width: none;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  background: var(--theme-header-bg, var(--theme-panel-2)) !important;
-}
-.allscan-favorites-options {
   justify-content: center;
-  margin-top: 0 !important;
-  padding: 10px 12px 4px;
-  border-radius: 8px 8px 0 0;
-}
-.allscan-favorites-legend {
-  justify-content: center;
-  margin-top: -1px !important;
-  margin-bottom: 8px;
-  padding: 5px 12px 9px;
-  border-radius: 0 0 8px 8px;
-}
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options,
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
-  background: #202126 !important;
-}
-
-/* Favorites header final experiment: legend is the compact full-width header; controls return to black below. */
-.allscan-favorites-legend {
-  width: 100%;
-  margin: 0 0 8px !important;
+  margin: 0 -10px 5px !important;
   padding: 7px 12px !important;
   border: 0 !important;
   border-bottom: 1px solid var(--theme-border) !important;
-  border-radius: 0 !important;
+  border-radius: 8px 8px 0 0 !important;
   box-shadow: none !important;
   background: var(--theme-header-bg, var(--theme-panel-2)) !important;
-}
-.allscan-favorites-options {
-  width: auto;
-  margin: 0 auto !important;
-  padding: 0 0 4px !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
 }
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
   background: #202126 !important;
   border-bottom-color: #555 !important;
 }
-
-/* Favorites legend header geometry: truly flush to the module shell, not inset by inner padding. */
-.allscan-favorites-inner {
-  padding-top: 0 !important;
-}
-.allscan-favorites-legend {
-  width: auto !important;
-  margin: 0 -10px 8px !important;
-  border-radius: 8px 8px 0 0 !important;
-}
-.allscan-favorites-options {
-  margin: 0 auto 8px !important;
-  padding: 0 !important;
-  background: transparent !important;
-}
-
-/* Favorites controls below the legend stay on the module's black body. */
 .allscan-favorites-options,
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options {
+  width: auto;
+  justify-content: center;
+  margin: 0 auto 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
 }
+.allscan-favorites-table-wrap { margin-top: 0 !important; }
 
-/* Talker card header labels: center within each equal-width card. */
-.allscan-talker-card-title {
-  text-align: center;
+/* URFWIL group header sits between the section title and individual bridge-card headers. */
+.allscan-urf-group-title {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
 }
-
-/* Compact Favorites body spacing below the legend. */
-.allscan-favorites-legend {
-  margin-bottom: 5px !important;
-}
-.allscan-favorites-options {
-  margin-bottom: 4px !important;
-}
-.allscan-favorites-table-wrap {
-  margin-top: 0 !important;
-}
-
-/* URFWIL group identifier: keep full title, but distinguish it from both black body and gray protocol headers. */
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   background: #15171a !important;
   border-bottom-color: #3b3e42;
 }
 
-/* Match URFWIL group title typography to individual bridge-card titles. */
-.allscan-urf-group-title {
-  font-size: 1rem !important;
-  font-weight: 700 !important;
-}
-
-/* Favorite color editor: make the hex control explicit and keep preset swatches clickable. */
-.allscan-favorite-color-popover .allscan-favorite-color-hex {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-}
-.allscan-favorite-color-popover .allscan-favorite-color-hex > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 27px;
-  padding: 0 6px;
-  border: 1px solid var(--theme-border, rgba(255,255,255,.2));
-  border-radius: 5px;
-  background: var(--theme-control, #202328);
-  box-sizing: border-box;
-}
-.allscan-favorite-color-popover .allscan-favorite-color-hex > input {
-  box-sizing: border-box;
-  height: 27px;
-}
-.allscan-favorite-color-palette button { cursor: pointer !important; touch-action: manipulation; }
-
-/* Favorite color hex value: override generic themed input rules so the value is visibly text. */
-.allscan-favorite-color-popover .allscan-favorite-color-hex > input[type="text"] {
-  display: block !important;
-  width: 100% !important;
-  min-width: 0 !important;
-  height: 27px !important;
-  padding: 4px 8px !important;
-  border: 1px solid var(--theme-border, rgba(255,255,255,.28)) !important;
-  border-radius: 5px !important;
-  background: #202328 !important;
-  color: #f2f2f2 !important;
-  -webkit-text-fill-color: #f2f2f2 !important;
-  opacity: 1 !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-  font-size: 12px !important;
-  line-height: 17px !important;
-  text-align: left !important;
-  text-transform: uppercase !important;
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  box-sizing: border-box !important;
-}
-
-/* Favorite color picker: simple read-only hex display; color selection happens in palette/field below. */
+/* Favorite color picker: explicit read-only hex display plus clickable presets. */
 .allscan-favorite-color-popover .allscan-favorite-color-hex {
   display: flex !important;
   align-items: center;
@@ -6539,12 +6382,14 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   min-height: 28px;
 }
 .allscan-favorite-color-popover .allscan-favorite-color-hex > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   min-width: 32px;
   min-height: 0;
   padding: 0;
   border: 0;
   background: transparent;
-  justify-content: flex-start;
   font-size: 11px;
   font-weight: 800;
 }
@@ -6559,30 +6404,13 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   font: 12px/16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: .02em;
 }
+.allscan-favorite-color-palette button {
+  cursor: pointer !important;
+  touch-action: manipulation;
+}
 
-/* Unified Beta 8 grab handle: compact 2x3 dot grip for modules and Favorites. */
-.allscan-grip-dots {
-  display: grid !important;
-  grid-template-columns: repeat(2, 3px);
-  grid-template-rows: repeat(3, 3px);
-  gap: 3px;
-  width: max-content;
-  height: max-content;
-  place-content: center;
-  pointer-events: none;
-}
-.allscan-grip-dots > i {
-  display: block !important;
-  width: 3px !important;
-  height: 3px !important;
-  border-radius: 50% !important;
-  background: currentColor !important;
-}
+/* Unified compact 2x3 dot grab handle for dashboard modules and Favorite rows. */
 .allscan-module-drag-handle { align-items: center; }
-.allscan-module-drag-handle > .allscan-grip-dots { opacity: 1; }
-.allscan-favorite-drag > .allscan-grip-dots { color: currentColor; }
-
-/* Six-dot grip geometry: override legacy module-handle span rules that flatten the grid wrapper. */
 .allscan-module-drag-handle > span.allscan-grip-dots,
 .allscan-favorite-drag > span.allscan-grip-dots {
   display: grid !important;
@@ -6591,11 +6419,15 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   gap: 3px !important;
   width: 9px !important;
   height: 15px !important;
+  place-content: center;
   border-radius: 0 !important;
   background: transparent !important;
+  color: currentColor;
+  pointer-events: none;
 }
 .allscan-module-drag-handle > span.allscan-grip-dots > i,
 .allscan-favorite-drag > span.allscan-grip-dots > i {
+  display: block !important;
   width: 3px !important;
   height: 3px !important;
   min-width: 3px !important;
