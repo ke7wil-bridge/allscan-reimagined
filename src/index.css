@@ -6460,3 +6460,14 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 .allscan-talker-card-title {
   text-align: center;
 }
+
+/* Compact Favorites body spacing below the legend. */
+.allscan-favorites-legend {
+  margin-bottom: 5px !important;
+}
+.allscan-favorites-options {
+  margin-bottom: 4px !important;
+}
+.allscan-favorites-table-wrap {
+  margin-top: 0 !important;
+}
