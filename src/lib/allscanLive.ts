@@ -86,6 +86,8 @@ export type LiveConnectionRow = {
 export type TalkerFeedEntry = {
   node: string
   info: string
+  description: string
+  location: string
   source: string
   duration: string
   eventEpoch: number
@@ -461,6 +463,18 @@ function htmlToText(html: string) {
     .trim()
 }
 
+function talkerInfoParts(html: string, node: string) {
+  const doc = parser.parseFromString(html, 'text/html')
+  const raw = (doc.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .trim()
+  const chunks = raw.split(/\s{2,}/).map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const identity = chunks.shift() || ''
+  const callsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || node
+  const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim()
+  return { callsign, description, location: chunks.join(' ').trim() }
+}
+
 function htmlToMessageText(html: string) {
   const withBreaks = html
     .replace(/<br\s*\/?>/gi, '\n')
@@ -603,23 +617,33 @@ function buildSnapshot(
   const rowTalkerEntry = (row: LiveConnectionRow): TalkerFeedEntry => {
     const sourceRow = sourceByIndex(row)
     const bridge = sourceRow ? bridgeAliases.get(String(sourceRow.node)) : undefined
+    const rawInfo = String(sourceRow?.info || row.info || row.node)
+    const parts = talkerInfoParts(rawInfo, row.node)
     return {
       node: row.node,
-      info: row.info || row.node,
+      info: parts.callsign,
+      description: parts.description,
+      location: parts.location,
       source: bridge?.mode?.toUpperCase() || 'AllStar',
       duration: row.received || '',
       eventEpoch: Math.max(0, Number(sourceRow?.event_epoch || 0)),
       startedEpoch: Math.max(0, Number(sourceRow?.keyed_started_epoch || 0)),
     }
   }
-  const payloadTalkerEntry = (entry: NonNullable<typeof serverCurrent>, historical = false): TalkerFeedEntry => ({
-    node: String(entry.node || ''),
-    info: htmlToText(String(entry.info || entry.node || '')),
+  const payloadTalkerEntry = (entry: NonNullable<typeof serverCurrent>, historical = false): TalkerFeedEntry => {
+    const node = String(entry.node || '')
+    const parts = talkerInfoParts(String(entry.info || entry.node || ''), node)
+    return {
+    node,
+    info: parts.callsign,
+    description: parts.description,
+    location: parts.location,
     source: String(entry.source || 'AllStar'),
     duration: String(entry.duration ?? ''),
     eventEpoch: historical ? Math.max(0, Number((entry as { event_epoch?: number }).event_epoch || 0)) : 0,
     startedEpoch: Math.max(0, Number(entry.started_epoch || 0)),
-  })
+    }
+  }
   const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
   const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
   const recentTalkers = serverHistory.length
@@ -658,17 +682,13 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
       connected: normalizeFeedTime(update.elapsed, row.connected),
     }
   })
-  const receivedByNode = new Map(nextRows.map((row) => [row.node, row.received]))
-  const updateTalkerTime = (entry: TalkerFeedEntry | null) => entry ? {
-    ...entry,
-    duration: receivedByNode.get(entry.node) || entry.duration,
-  } : null
-
   return {
     ...snapshot,
     rows: nextRows,
-    currentTalker: updateTalkerTime(snapshot.currentTalker),
-    recentTalkers: snapshot.recentTalkers.map((entry) => updateTalkerTime(entry) as TalkerFeedEntry),
+    // Talker durations are authoritative in the talker payload. nodetimes.last_keyed
+    // means time since last key and must not overwrite current/history TX duration.
+    currentTalker: snapshot.currentTalker,
+    recentTalkers: snapshot.recentTalkers,
   }
 }
 

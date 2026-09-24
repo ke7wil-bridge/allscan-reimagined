@@ -91,7 +91,7 @@ statMsg($s);
 $current = [];
 $saved = [];
 $nodeTime = [];
-$asrTalkerHistory = [];
+$asrTalkerHistory = loadTalkerHistory($sharedDir . '/talkers-' . $node . '.json');
 $asrCurrentTalker = null;
 //$n = 0;
 while(!empty($fp[$node])) {
@@ -144,24 +144,24 @@ while(!empty($fp[$node])) {
 			break;
 		}
 	}
-	if($nextCurrentTalker !== null) {
-		if($asrCurrentTalker === null || ($asrCurrentTalker['node'] ?? '') !== $nextCurrentTalker['node'])
-			$nextCurrentTalker['started_epoch'] = time();
-		else
-			$nextCurrentTalker['started_epoch'] = $asrCurrentTalker['started_epoch'] ?? time();
-	} elseif($asrCurrentTalker !== null) {
+	$previousNode = (string)($asrCurrentTalker['node'] ?? '');
+	$nextNode = (string)($nextCurrentTalker['node'] ?? '');
+	$talkerChanged = $asrCurrentTalker !== null && $previousNode !== '' && $previousNode !== $nextNode;
+	if($talkerChanged) {
 		$finished = $asrCurrentTalker;
 		$finished['event_epoch'] = time();
 		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
+		// History is transmission-event history, not unique-station history.
+		// If the same node keys three separate times, keep all three events.
 		array_unshift($asrTalkerHistory, $finished);
-		$seen = [];
-		$asrTalkerHistory = array_values(array_filter($asrTalkerHistory, static function($row) use (&$seen) {
-			$key = (string)($row['node'] ?? '');
-			if($key === '' || isset($seen[$key])) return false;
-			$seen[$key] = true;
-			return true;
-		}));
 		$asrTalkerHistory = array_slice($asrTalkerHistory, 0, 4);
+		writeTalkerHistory($sharedDir . '/talkers-' . $node . '.json', $asrTalkerHistory);
+	}
+	if($nextCurrentTalker !== null) {
+		if($asrCurrentTalker === null || $previousNode !== $nextNode)
+			$nextCurrentTalker['started_epoch'] = time();
+		else
+			$nextCurrentTalker['started_epoch'] = $asrCurrentTalker['started_epoch'] ?? time();
 	}
 	$asrCurrentTalker = $nextCurrentTalker;
 	$current[$node]['current_talker'] = $asrCurrentTalker;
@@ -281,6 +281,28 @@ function writeSharedMessage($path, $event, $data) {
 		@file_put_contents($messagePath, $record . "\n", FILE_APPEND | LOCK_EX);
 }
 
+
+function loadTalkerHistory($path) {
+	if(!is_readable($path)) return [];
+	$decoded = json_decode((string) @file_get_contents($path), true);
+	if(!is_array($decoded)) return [];
+	$rows = $decoded['last_talkers'] ?? $decoded;
+	if(!is_array($rows)) return [];
+	return array_slice(array_values(array_filter($rows, static function($row) {
+		return is_array($row) && trim((string)($row['node'] ?? '')) !== '';
+	})), 0, 4);
+}
+
+function writeTalkerHistory($path, $rows) {
+	$payload = json_encode(['updated_epoch' => time(), 'last_talkers' => array_slice(array_values($rows), 0, 4)]);
+	if($payload === false) return;
+	$tmp = $path . '.' . getmypid() . '.tmp';
+	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
+		@chmod($tmp, 0644);
+		@rename($tmp, $path);
+	} else @unlink($tmp);
+}
+
 function writeSharedStatus($path, $current, $nodeTime) {
 	$payload = json_encode([
 		'updated' => microtime(true),
@@ -375,9 +397,13 @@ function asrPollDelayUs($current = [], $node = '') {
 	}
 	$delay = $lowPower ? 1250000 : 1000000;
 	$load = sys_getloadavg();
-	$temp = is_readable('/sys/class/thermal/thermal_zone0/temp')
-		? ((int) @file_get_contents('/sys/class/thermal/thermal_zone0/temp')) / 1000
-		: 0;
+	$temp = 0;
+	foreach((array) glob('/sys/class/thermal/thermal_zone*') as $zone) {
+		$type = strtolower(trim((string) @file_get_contents($zone . '/type')));
+		if(!in_array($type, ['x86_pkg_temp', 'tcpu', 'cpu-thermal', 'cpu_thermal'], true)) continue;
+		$value = ((int) @file_get_contents($zone . '/temp')) / 1000;
+		if($value > $temp) $temp = $value;
+	}
 	if((is_array($load) && ($load[0] ?? 0) >= 4.0) || $temp >= 75)
 		$delay = 2000000;
 	return $delay;

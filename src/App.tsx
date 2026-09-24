@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -60,6 +60,7 @@ const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
 const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
+const TALKERS_OPEN_KEY = 'asrTalkersOpen.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -108,14 +109,6 @@ type ThemeSettings = {
 type DashboardModuleKey = 'talkers' | 'controls' | 'favorites' | 'connections' | 'bridges'
 
 const DASHBOARD_MODULES: DashboardModuleKey[] = ['talkers', 'controls', 'favorites', 'connections', 'bridges']
-const DASHBOARD_MODULE_LABELS: Record<DashboardModuleKey, string> = {
-  talkers: 'Talkers',
-  controls: 'Node Controls',
-  favorites: 'Favorites',
-  connections: 'Connection Status',
-  bridges: 'Digital Bridge Status',
-}
-
 const themeOptions = [
   { value: 'standard', label: 'Dark Side', mode: 'dark' },
   { value: 'standard', label: 'Bright Side', mode: 'light' },
@@ -466,6 +459,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
   const [currentTalker, setCurrentTalker] = useState<TalkerFeedEntry | null>(null)
   const [recentTalkers, setRecentTalkers] = useState<TalkerFeedEntry[]>([])
+  const [talkersOpen, setTalkersOpen] = useState(() => window.localStorage.getItem(TALKERS_OPEN_KEY) !== '0')
+  useEffect(() => { window.localStorage.setItem(TALKERS_OPEN_KEY, talkersOpen ? '1' : '0') }, [talkersOpen])
   const [backgroundNodeState, setBackgroundNodeState] = useState<LiveConnectionRow['state'] | null>(null)
   const [connectedCount, setConnectedCount] = useState(0)
   const [directCount, setDirectCount] = useState(0)
@@ -506,12 +501,15 @@ function App({ config }: { config: RuntimeConfig }) {
   const [customCommandsSaving, setCustomCommandsSaving] = useState(false)
   const [favoriteEditing, setFavoriteEditing] = useState<string | null>(null)
   const [favoriteDescription, setFavoriteDescription] = useState('')
+  const [favoriteColorDrafts, setFavoriteColorDrafts] = useState<Record<string, string>>({})
+  const [favoriteColorOpen, setFavoriteColorOpen] = useState<string | null>(null)
+  const [favoriteColorPosition, setFavoriteColorPosition] = useState<{ top: number; left: number } | null>(null)
+  const [favoriteColorHue, setFavoriteColorHue] = useState(200)
   const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
   const [favoriteStatus, setFavoriteStatus] = useState('')
   const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
   const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
   const [dashboardModuleOver, setDashboardModuleOver] = useState<DashboardModuleKey | null>(null)
-  const [dashboardDragPoint, setDashboardDragPoint] = useState({ x: 0, y: 0 })
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
     key: 'index' | 'node' | 'name' | 'desc' | 'location'
@@ -570,7 +568,6 @@ function App({ config }: { config: RuntimeConfig }) {
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
   const customCommandsRef = useRef<HTMLDivElement>(null)
   const dashboardModuleOverRef = useRef<DashboardModuleKey | null>(null)
-  const dashboardDragPreviewRef = useRef<HTMLDivElement>(null)
   const dashboardDragPointerRef = useRef({ x: 0, y: 0 })
   const dashboardDragScrollFrameRef = useRef<number | null>(null)
   const dashboardModuleOrderRef = useRef<DashboardModuleKey[]>(dashboardModuleOrder)
@@ -624,6 +621,26 @@ function App({ config }: { config: RuntimeConfig }) {
     const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
     return [currentTalker, ...history, null, null, null, null].slice(0, 5)
   }, [currentTalker, recentTalkers])
+  const talkerDuration = (talker: TalkerFeedEntry | null, index: number) => {
+    if (!talker) return '—'
+    if (index === 0 && talker.startedEpoch > 0) {
+      const elapsed = Math.max(0, Math.floor(clock.getTime() / 1000) - talker.startedEpoch)
+      const hours = Math.floor(elapsed / 3600)
+      const minutes = Math.floor((elapsed % 3600) / 60)
+      const seconds = elapsed % 60
+      return hours > 0
+        ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    const raw = String(talker.duration || '').trim()
+    if (/^\d+$/.test(raw)) {
+      const elapsed = Number(raw)
+      const minutes = Math.floor(elapsed / 60)
+      const seconds = elapsed % 60
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    return raw || '—'
+  }
 
   useEffect(() => {
     document.title = browserTitle
@@ -917,6 +934,26 @@ function App({ config }: { config: RuntimeConfig }) {
       window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!dashboardModuleDragging) return
+    const finish = () => {
+      if (dashboardModuleDragging) {
+        writeDashboardModuleOrder(dashboardModuleOrderRef.current)
+        dashboardDragStartOrderRef.current = null
+        stopDashboardDragAutoScroll()
+        dashboardModuleOverRef.current = null
+        setDashboardModuleDragging(null)
+        setDashboardModuleOver(null)
+      }
+    }
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('blur', finish)
+    return () => {
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('blur', finish)
+    }
+  }, [dashboardModuleDragging])
 
   useEffect(() => {
     if (reportBugParamHandled.current || !authStatus.isAdmin) return
@@ -1362,7 +1399,7 @@ function App({ config }: { config: RuntimeConfig }) {
     operation: Parameters<typeof manageFavorite>[0]['operation'],
     options: { node?: string; value?: string } = {},
   ) {
-    if (!authStatus.canModify) return
+    if (!authStatus.canModify) return false
     try {
       setBusy(true)
       const result = await manageFavorite({
@@ -1377,8 +1414,10 @@ function App({ config }: { config: RuntimeConfig }) {
       } else {
         setFavoriteStatus('Favorites saved.')
       }
+      return true
     } catch (error) {
       setFavoriteStatus(error instanceof Error ? error.message : 'Favorites operation failed.')
+      return false
     } finally {
       setBusy(false)
     }
@@ -1474,7 +1513,6 @@ function App({ config }: { config: RuntimeConfig }) {
     dashboardModuleOrderRef.current = dashboardModuleOrder
     dashboardDragStartOrderRef.current = [...dashboardModuleOrder]
     dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
-    setDashboardDragPoint({ x: event.clientX + 12, y: event.clientY + 12 })
     setDashboardModuleDragging(key)
     setDashboardModuleOver(key)
   }
@@ -1483,9 +1521,6 @@ function App({ config }: { config: RuntimeConfig }) {
     if (!dashboardModuleDragging) return
     event.preventDefault()
     dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
-    if (dashboardDragPreviewRef.current) {
-      dashboardDragPreviewRef.current.style.transform = `translate3d(${event.clientX + 12}px, ${event.clientY + 12}px, 0)`
-    }
     updateDashboardDropTarget(event.clientX, event.clientY)
     scheduleDashboardDragAutoScroll()
   }
@@ -1535,6 +1570,7 @@ function App({ config }: { config: RuntimeConfig }) {
         onPointerMove={updateDashboardModuleDrag}
         onPointerUp={endDashboardModuleDrag}
         onPointerCancel={cancelDashboardModuleDrag}
+        onLostPointerCapture={() => { if (dashboardModuleDragging) clearDashboardModuleDrag() }}
         onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
       >
         <span />
@@ -2085,8 +2121,7 @@ function App({ config }: { config: RuntimeConfig }) {
       aria-label="Favorites"
     >
       <h2 className="allscan-section-title">
-        {dashboardModuleHandle('favorites', 'Favorites')}
-        Favorites
+        <span className="allscan-module-title-wrap">{dashboardModuleHandle('favorites', 'Favorites')}<span className="allscan-module-title-text">Favorites</span></span>
       </h2>
       <div className="allscan-favorites-inner">
         <div className="allscan-favorites-options">
@@ -2182,18 +2217,35 @@ function App({ config }: { config: RuntimeConfig }) {
               return (
               <tr
                 key={favorite.node}
-                draggable={authStatus.canModify}
-                onDragStart={() => setFavoriteDragNode(favorite.node)}
-                onDragEnd={() => setFavoriteDragNode(null)}
+                draggable={false}
                 onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  if (favoriteDragNode) void reorderFavorite(favoriteDragNode, favorite.node)
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourceNode = event.dataTransfer.getData('text/plain') || favoriteDragNode
+                  if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
                   setFavoriteDragNode(null)
                 }}
                 style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
               >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
-                  <button type="button" className="allscan-favorite-drag" aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"><GripVertical /></button>
+                  <button type="button" className="allscan-favorite-drag" draggable={authStatus.canModify} aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"
+                    onDragStart={(event) => {
+                      event.stopPropagation()
+                      setFavoriteDragNode(favorite.node)
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', favorite.node)
+                      const row = event.currentTarget.closest('tr')
+                      if (row instanceof HTMLElement) {
+                        const ghost = row.cloneNode(true) as HTMLElement
+                        const rect = row.getBoundingClientRect()
+                        ghost.classList.add('allscan-favorite-drag-ghost')
+                        ghost.style.width = `${rect.width}px`
+                        document.body.appendChild(ghost)
+                        event.dataTransfer.setDragImage(ghost, Math.min(28, rect.width / 2), Math.min(20, rect.height / 2))
+                        requestAnimationFrame(() => ghost.remove())
+                      }
+                    }}
+                    onDragEnd={() => setFavoriteDragNode(null)}><GripVertical /></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -2250,7 +2302,94 @@ function App({ config }: { config: RuntimeConfig }) {
                       setFavoriteEditing(favorite.node)
                       setFavoriteDescription(favorite.customDescription || favorite.description || favorite.name)
                     }}><Pencil /></button>
-                    <label title="Favorite accent color"><input type="color" value={favorite.color || '#4aa3df'} onChange={(event) => void favoriteOperation('set-color', { node: favorite.node, value: event.target.value })} /></label>
+                    <span className="allscan-favorite-color-control">
+                      <button type="button" className="allscan-favorite-color-trigger" title="Favorite accent color" aria-label={'Choose color for node ' + favorite.node} onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        const popupWidth = 224
+                        const popupHeight = 300
+                        setFavoriteColorPosition({
+                          left: Math.max(8, Math.min(window.innerWidth - popupWidth - 8, rect.left - popupWidth - 7)),
+                          top: Math.max(8, Math.min(window.innerHeight - popupHeight - 8, rect.top)),
+                        })
+                        setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: current[favorite.node] || favorite.color || '#4aa3df' }))
+                        setFavoriteColorOpen((current) => current === favorite.node ? null : favorite.node)
+                      }}><Palette aria-hidden="true" /></button>
+                      {favoriteColorOpen === favorite.node && favoriteColorPosition ? <span className="allscan-favorite-color-popover" style={{ top: favoriteColorPosition.top, left: favoriteColorPosition.left }} role="dialog" aria-label={'Favorite color for node ' + favorite.node}>
+                        <span className="allscan-favorite-color-preview" style={{ backgroundColor: favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df' }} />
+                        <label>Color
+                          <input type="text" maxLength={7} value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
+                            let value = event.target.value.trim()
+                            if (!value.startsWith('#')) value = '#' + value
+                            if (/^#[0-9a-fA-F]{0,6}$/.test(value)) setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: value }))
+                          }} />
+                        </label>
+                        <span className="allscan-favorite-color-field" aria-label="Color palette"
+                          onPointerDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                            const pick = (clientX: number, clientY: number) => {
+                              const rect = event.currentTarget.getBoundingClientRect()
+                              const saturation = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+                              const lightness = Math.max(0, Math.min(1, 1 - ((clientY - rect.top) / rect.height)))
+                              const hue = favoriteColorHue
+                              const a = saturation * Math.min(lightness, 1 - lightness)
+                              const f = (n: number) => {
+                                const k = (n + hue / 30) % 12
+                                return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+                              }
+                              const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                              setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                            }
+                            pick(event.clientX, event.clientY)
+                          }}
+                          onPointerMove={(event) => {
+                            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            const saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+                            const lightness = Math.max(0, Math.min(1, 1 - ((event.clientY - rect.top) / rect.height)))
+                            const hue = favoriteColorHue
+                            const a = saturation * Math.min(lightness, 1 - lightness)
+                            const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
+                            const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                            setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                          }}
+                          onPointerUp={(event) => { event.preventDefault(); event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+                          onPointerCancel={(event) => { event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+                        style={{ backgroundColor: `hsl(${favoriteColorHue} 100% 50%)` }}><span className="allscan-favorite-color-field-white" /><span className="allscan-favorite-color-field-black" /></span>
+                        <input className="allscan-favorite-hue" aria-label="Hue" type="range" min="0" max="360" value={(360 - favoriteColorHue) % 360} onChange={(event) => {
+                          const slider = Number(event.target.value)
+                          const hue = (360 - slider) % 360
+                          setFavoriteColorHue(hue)
+                          const lightness = 0.5
+                          const saturation = 1
+                          const a = saturation * Math.min(lightness, 1 - lightness)
+                          const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
+                          const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                          setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                        }} onPointerDown={(event) => event.stopPropagation()} />
+                        <span className="allscan-favorite-color-palette">
+                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onClick={() => setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color }))} />)}
+                        </span>
+                        <span className="allscan-favorite-color-popover-actions">
+                          <button type="button" onClick={() => {
+                            const value = favoriteColorDrafts[favorite.node]
+                            if (!/^#[0-9a-fA-F]{6}$/.test(value || '')) return
+                            void favoriteOperation('set-color', { node: favorite.node, value }).then((saved) => {
+                              if (!saved) return
+                              setFavoriteColorOpen(null)
+                              setFavoriteColorDrafts((current) => { const next = { ...current }; delete next[favorite.node]; return next })
+                            })
+                          }}>Apply</button>
+                          <button type="button" onClick={() => {
+                            setFavoriteColorOpen(null)
+                            setFavoriteColorDrafts((current) => { const next = { ...current }; delete next[favorite.node]; return next })
+                          }}>Cancel</button>
+                        </span>
+                      </span> : null}
+                    </span>
                     <button type="button" title="Reset this Favorite's description and color" disabled={!favorite.customDescription && !favorite.color} onClick={() => {
                       if (window.confirm(`Reset the custom description and color for node ${favorite.node}? Its position and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-favorite', { node: favorite.node })
                     }}><RotateCcw /></button>
@@ -2546,14 +2685,13 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             </aside>
           ) : null}
-          <section
+          {talkersOpen ? <section
             data-dashboard-module="talkers"
             style={{ order: dashboardModuleOrder.indexOf('talkers') + 10 }}
             className={`allscan-main-section allscan-talkers-section allscan-dashboard-module${dashboardModuleDragging === 'talkers' ? ' is-dragging' : ''}${dashboardModuleOver === 'talkers' && dashboardModuleDragging !== 'talkers' ? ' is-drag-over' : ''}`}
           >
             <h2 className="allscan-section-title">
-              {dashboardModuleHandle('talkers', 'Talkers')}
-              Talkers
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('talkers', 'Talkers')}<span className="allscan-module-title-text">Talkers</span></span>
             </h2>
             <div className="allscan-talker-cards" aria-label="Current and recent talkers">
               {talkerCards.map((talker, index) => (
@@ -2562,14 +2700,15 @@ function App({ config }: { config: RuntimeConfig }) {
                   key={`${index}-${talker?.node || 'empty'}`}
                 >
                   <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index}`}</div>
-                  <div className="allscan-talker-callsign">{talker?.node || '—'}</div>
-                  <div className="allscan-talker-source">{talker?.source || (index === 0 ? 'No one talking' : 'No recent talker')}</div>
-                  <div className="allscan-talker-location">{talker?.info && talker.info !== talker.node ? talker.info : '\u00a0'}</div>
-                  <div className="allscan-talker-duration"><span>Duration</span><strong>{talker?.duration || '—'}</strong></div>
+                  <div className="allscan-talker-callsign">{talker ? (talker.info || talker.node) : '\u00a0'}</div>
+                  <div className="allscan-talker-source">{talker ? `${talker.source}${talker.node ? ` · ${talker.node}` : ''}` : (index === 0 ? 'No one talking' : 'No recent talker')}</div>
+                  <div className="allscan-talker-description">{talker?.description || '\u00a0'}</div>
+                  <div className="allscan-talker-location">{talker?.location || '\u00a0'}</div>
+                  <div className="allscan-talker-duration"><span>Duration</span><strong>{talkerDuration(talker, index)}</strong></div>
                 </article>
               ))}
             </div>
-          </section>
+          </section> : null}
 
           <section
             data-dashboard-module="controls"
@@ -2577,8 +2716,7 @@ function App({ config }: { config: RuntimeConfig }) {
             className={`allscan-main-section allscan-controls-section allscan-dashboard-module${dashboardModuleDragging === 'controls' ? ' is-dragging' : ''}${dashboardModuleOver === 'controls' && dashboardModuleDragging !== 'controls' ? ' is-drag-over' : ''}`}
           >
             <h2 className="allscan-section-title">
-              {dashboardModuleHandle('controls', 'Node Controls')}
-              Node Controls
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('controls', 'Node Controls')}<span className="allscan-module-title-text">Node Controls</span></span>
             </h2>
 
             <div className={`allscan-controls-shell mx-auto rounded-[8px]${messagesOpen ? ' allscan-controls-shell-messages-open' : ''}`}>
@@ -2673,14 +2811,14 @@ function App({ config }: { config: RuntimeConfig }) {
                   Permanent
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
-                  <input type="checkbox" className="allscan-checkbox" disabled aria-label="Show Talker Cards (coming soon)" />
+                  <input type="checkbox" className="allscan-checkbox" checked={talkersOpen} onChange={(event) => setTalkersOpen(event.target.checked)} aria-label="Show Talker Cards" />
                   Talkers
                 </label>
                 <label className="inline-flex items-center gap-[5px]">
                   <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
                   Favs
                 </label>
-                {customCommandsEnabled && (customCommands.length > 0 || authStatus.isAdmin) ? (
+                {(authStatus.isAdmin || (customCommandsEnabled && customCommands.length > 0)) ? (
                   <div ref={customCommandsRef} className="allscan-custom-commands">
                     <button
                       type="button"
@@ -2693,10 +2831,10 @@ function App({ config }: { config: RuntimeConfig }) {
                         setCustomCommandsStatus('')
                       }}
                     >
-                      Cmds <ChevronDown />
+                      Commands <ChevronDown />
                     </button>
                     {customCommandsOpen ? (
-                      <div className="allscan-custom-commands-menu">
+                      <div className={`allscan-custom-commands-menu${customCommandsManaging ? ' is-managing' : ''}`}>
                         {customCommandsManaging ? (
                           <div className="allscan-custom-commands-editor">
                             <strong>Manage Custom Cmd Buttons</strong>
@@ -2808,8 +2946,7 @@ function App({ config }: { config: RuntimeConfig }) {
             className={`allscan-main-section allscan-connection-section allscan-dashboard-module${dashboardModuleDragging === 'connections' ? ' is-dragging' : ''}${dashboardModuleOver === 'connections' && dashboardModuleDragging !== 'connections' ? ' is-drag-over' : ''}`}
           >
             <h2 className="allscan-section-title" data-lcars-title={`CONNECTION STATUS - NODE ${config.node}`}>
-              {dashboardModuleHandle('connections', 'Connection Status')}
-              Connection Status
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('connections', 'Connection Status')}<span className="allscan-module-title-text">Connection Status</span></span>
             </h2>
             {banStatus && !banDialog ? <p role="status" className="allscan-connection-ban-status">{banStatus}</p> : null}
 
@@ -2969,8 +3106,7 @@ function App({ config }: { config: RuntimeConfig }) {
               className="allscan-section-title"
               data-lcars-title={`DIGITAL BRIDGE STATUS - ${bridgeState.cards.map((card) => card.id.toUpperCase()).join(' / ')}`}
             >
-              {dashboardModuleHandle('bridges', 'Digital Bridge Status')}
-              Digital Bridge Status
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('bridges', 'Digital Bridge Status')}<span className="allscan-module-title-text">Digital Bridge Status</span></span>
             </h2>
             <p className="allscan-section-subtitle">
               LAST ACTIVITY: {bridgeState.updatedLabel}
@@ -3305,17 +3441,6 @@ function App({ config }: { config: RuntimeConfig }) {
               })}
             </div>
           </section> : null}
-
-          {dashboardModuleDragging ? (
-            <div
-              ref={dashboardDragPreviewRef}
-              className="allscan-module-drag-preview"
-              style={{ transform: `translate3d(${dashboardDragPoint.x}px, ${dashboardDragPoint.y}px, 0)` }}
-              aria-hidden="true"
-            >
-              {DASHBOARD_MODULE_LABELS[dashboardModuleDragging]}
-            </div>
-          ) : null}
 
           <footer className="allscan-footer">
             <div className="allscan-footer-copy">

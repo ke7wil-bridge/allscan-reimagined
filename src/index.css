@@ -1458,13 +1458,15 @@ body {
 }
 
 .allscan-connect-button {
-  width: 92px;
-  min-width: 92px;
+  width: 84px;
+  min-width: 84px;
+  padding-inline: 8px;
 }
 
 .allscan-disconnect-button {
-  width: 112px;
-  min-width: 112px;
+  width: 100px;
+  min-width: 100px;
+  padding-inline: 8px;
 }
 
 .allscan-favs-button {
@@ -5376,11 +5378,15 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-favorites-panel { view-transition-name: asr-favorites-module; }
 .allscan-connection-section { view-transition-name: asr-connections-module; }
 .allscan-bridge-section { view-transition-name: asr-bridges-module; }
-.allscan-dashboard-module.is-dragging { opacity: .72; }
+.allscan-dashboard-module.is-dragging {
+  opacity: .58;
+  filter: saturate(.72);
+}
 .allscan-dashboard-module.is-drag-over {
   box-shadow: inset 0 2px 0 #55bff5;
 }
 ::view-transition-group(asr-controls-module),
+::view-transition-group(asr-talkers-module),
 ::view-transition-group(asr-favorites-module),
 ::view-transition-group(asr-connections-module),
 ::view-transition-group(asr-bridges-module) {
@@ -5422,27 +5428,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   align-items: center;
   justify-content: center;
   gap: 9px;
-}
-.allscan-section-title > .allscan-module-drag-handle {
-  position: static;
-  flex: 0 0 auto;
-  transform: none;
-}
-.allscan-module-drag-preview {
-  position: fixed;
-  z-index: 1000;
-  top: 0;
-  left: 0;
-  padding: 5px 9px;
-  border: 1px solid rgba(85, 191, 245, .75);
-  border-radius: 6px;
-  background: rgba(13, 22, 28, .96);
-  color: #edf7fb;
-  box-shadow: 0 5px 16px rgba(0, 0, 0, .42);
-  font-size: 12px;
-  font-weight: 800;
-  pointer-events: none;
-  will-change: transform;
 }
 @media (max-width: 620px) {
   .allscan-module-drag-handle {
@@ -5915,7 +5900,7 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
   }
 }
 
-/* Compact Node Controls: Cmds top-right with a single-row option block. */
+/* Compact Node Controls: Commands top-right with a single-row option block. */
 .allscan-controls-shell { position: relative; }
 .allscan-checks-grid {
   display: flex !important;
@@ -5944,7 +5929,7 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
   padding-left: 6px;
   padding-right: 6px;
 }
-/* Keep the shell at its established width; the top row reserves only the Cmds button itself. */
+/* Keep the shell at its established width; the top row reserves only the Commands button itself. */
 .allscan-controls-shell > .allscan-controls-row:first-child {
   position: relative;
   justify-content: flex-start !important;
@@ -5957,80 +5942,369 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
 
 /* Beta 8 talker cards: five-card current/recent strip, native to every ASR theme. */
 .allscan-talkers-section { view-transition-name: asr-talkers-module; }
+.allscan-favorite-color-popover {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  padding: 9px;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.2));
+  border-radius: 8px;
+  background: var(--theme-panel-solid, #17191c);
+  color: var(--theme-text, #eaf4f8);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.allscan-favorite-color-preview { display: block; width: 100%; height: 34px; margin-bottom: 8px; border: 1px solid var(--theme-border, rgba(255,255,255,.25)); border-radius: 5px; }
+.allscan-favorite-color-popover label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; }
+.allscan-favorite-color-popover input { min-width: 0; width: 100%; padding: 4px 6px; border: 1px solid var(--theme-border, rgba(255,255,255,.2)); border-radius: 5px; background: var(--theme-control, #202328); color: var(--theme-text, #fff); font: inherit; text-transform: uppercase; }
+.allscan-favorite-color-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 8px; }
+.allscan-favorite-color-palette button { width: 17px !important; min-width: 17px !important; height: 17px !important; padding: 0 !important; border: 1px solid rgba(255,255,255,.4) !important; border-radius: 50% !important; }
+.allscan-favorite-color-popover-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.allscan-favorite-color-popover-actions button { width: auto !important; height: auto !important; min-width: 58px; padding: 5px 9px !important; }
+
+/* Stable in-app palette: row hover never moves while the picker is open. */
+.allscan-favorites-table tbody tr:has(.allscan-favorite-color-popover),
+.allscan-favorites-table tbody tr:has(.allscan-favorite-color-popover):hover {
+  transform: none !important;
+}
+.allscan-favorite-actions:has(.allscan-favorite-color-popover) { position: relative; z-index: 120; }
+.allscan-favorite-color-popover { top: 0; right: calc(100% + 7px); width: 224px; }
+.allscan-favorite-color-field { position: relative; display: block; width: 100%; height: 105px; margin-top: 8px; overflow: hidden; cursor: crosshair; border: 1px solid var(--theme-border, rgba(255,255,255,.25)); border-radius: 5px; background: hsl(200,100%,50%); }
+.allscan-favorite-color-field-white,
+.allscan-favorite-color-field-black { position: absolute; inset: 0; pointer-events: none; }
+.allscan-favorite-color-field-white { background: linear-gradient(to right, #fff, rgba(255,255,255,0)); }
+.allscan-favorite-color-field-black { background: linear-gradient(to top, #000, rgba(0,0,0,0)); }
+.allscan-favorite-hue { display: block; width: 100% !important; height: 14px !important; margin-top: 7px; padding: 0 !important; border: 0 !important; border-radius: 7px !important; appearance: none; background: linear-gradient(to right, #f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00) !important; }
+.allscan-favorite-hue::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; background: transparent; box-shadow: 0 0 0 1px #000; }
+.allscan-favorite-color-palette { grid-template-columns: repeat(7, 1fr); }
+.allscan-favorite-color-popover,
+.allscan-favorite-color-popover * { -webkit-user-drag: none; }
+.allscan-favorite-color-field { touch-action: none; user-select: none; -webkit-user-select: none; }
+.allscan-favorites-table tbody tr { -webkit-user-drag: none; }
+.allscan-favorites-table tbody tr button:not(.allscan-favorite-drag),
+.allscan-favorites-table tbody tr input,
+.allscan-favorites-table tbody tr a,
+.allscan-favorites-table tbody tr label,
+.allscan-favorites-table tbody tr .allscan-favorite-details { -webkit-user-drag: none; }
+.allscan-favorite-drag { cursor: grab; }
+.allscan-favorite-drag:active { cursor: grabbing; }
+.allscan-favorite-drag-ghost {
+  position: fixed !important;
+  top: -10000px !important;
+  left: -10000px !important;
+  z-index: -1 !important;
+  display: grid !important;
+  grid-template-columns: 30px minmax(62px, .52fr) minmax(0, 2.25fr) minmax(70px, .62fr) minmax(70px, .62fr) minmax(70px, .62fr) 56px !important;
+  align-items: stretch !important;
+  opacity: .88 !important;
+  background: var(--theme-panel-solid, #17191c) !important;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.22)) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45) !important;
+  pointer-events: none !important;
+}
+/* Drag preview must preserve the complete Favorite activity grip, including TX red. */
+.allscan-favorite-drag-ghost > td:first-child {
+  box-sizing: border-box !important;
+  display: flex !important;
+  min-width: 30px !important;
+  padding: 3px 4px !important;
+  overflow: visible !important;
+  align-items: stretch !important;
+}
+.allscan-favorite-drag-ghost .allscan-favorite-drag {
+  box-sizing: border-box !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: auto !important;
+  min-height: 34px !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+html[data-asr-theme] .allscan-favorite-drag-ghost > td.allscan-fav-cell-source .allscan-favorite-drag {
+  background: hsl(0, 56%, 24%) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+.allscan-favorite-drag-ghost {
+  border-inline-start-color: var(--theme-border, rgba(255,255,255,.22)) !important;
+}
+.allscan-favorite-drag-ghost > td:first-child {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+html[data-asr-theme] .allscan-favorite-drag-ghost > td.allscan-fav-cell-source {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* Favorites color editor must escape the module/table clipping context. */
+.allscan-favorites-panel:has(.allscan-favorite-color-popover),
+.allscan-favorites-inner:has(.allscan-favorite-color-popover),
+.allscan-favorites-table-wrap:has(.allscan-favorite-color-popover),
+.allscan-favorites-table:has(.allscan-favorite-color-popover) { overflow:visible !important; }
+.allscan-favorite-actions-cell:has(.allscan-favorite-color-popover),
+.allscan-favorite-actions:has(.allscan-favorite-color-popover),
+.allscan-favorite-color-control:has(.allscan-favorite-color-popover) { position:relative; z-index:300; overflow:visible !important; }
+.allscan-favorite-color-popover.opens-up { top:auto; bottom:0; right:calc(100% + 7px); }
+
+/* Talker cards: authoritative dashboard-native mini bridge modules. */
 .allscan-talker-cards {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  width: 100%;
-  margin: 0 auto 8px;
+  display:grid; width:min(980px,calc(100vw - 40px)); max-width:980px;
+  grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; margin:0 auto;
 }
 .allscan-talker-card {
-  min-width: 0;
-  min-height: 118px;
-  padding: 9px 10px 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  border: 1px solid var(--theme-border, rgba(255,255,255,.18));
-  border-radius: 10px;
-  background: var(--theme-surface, rgba(0,0,0,.34));
-  color: var(--theme-text, inherit);
-  box-shadow: var(--theme-shadow, 0 5px 14px rgba(0,0,0,.18));
-  overflow: hidden;
+  min-height:102px; padding:8px 9px 7px; border:1px solid var(--theme-border);
+  border-radius:8px; background:var(--theme-panel-solid); color:var(--theme-text);
+  font-family:inherit; font-size:12px; font-weight:400; line-height:1.2; text-align:left; box-shadow:none;
 }
-.allscan-talker-card.is-current {
-  border-color: var(--theme-accent, #55bff5);
-  box-shadow: inset 0 2px 0 var(--theme-accent, #55bff5), var(--theme-shadow, 0 5px 14px rgba(0,0,0,.18));
+.allscan-talker-card-title { margin-bottom:5px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:800; line-height:1.1; }
+.allscan-talker-callsign { min-height:17px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:16px; font-weight:800; line-height:1.1; }
+.allscan-talker-source { margin-top:2px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:12px; font-weight:700; line-height:1.15; }
+.allscan-talker-location { margin-top:2px; color:var(--theme-text); font:inherit; font-size:12px; font-weight:600; line-height:1.15; opacity:.92; }
+.allscan-talker-duration { display:flex; justify-content:flex-start; gap:4px; margin-top:auto; padding-top:6px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:700; text-align:left; opacity:.94; }
+.allscan-talker-duration strong { color:var(--theme-bridge-text,var(--theme-text)); font-weight:800; font-variant-numeric:tabular-nums; }
+.allscan-talker-card.is-current { border-color:var(--theme-border-strong,var(--theme-border)); box-shadow:inset 3px 0 0 var(--theme-accent); }
+.allscan-talker-card.is-current .allscan-talker-callsign { color:var(--theme-accent); }
+.allscan-talker-card.is-empty .allscan-talker-source { color:var(--theme-text); font-weight:600; opacity:.9; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card { background:#050505; border-color:#555; color:#f2f2f2; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-callsign,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-source,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-duration,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-duration strong { color:#f2f2f2; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-location { color:#e0e0e0; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-empty .allscan-talker-source { color:#ededed; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-current .allscan-talker-callsign { color:var(--theme-accent); }
+@media (max-width:780px) { .allscan-talker-cards { width:min(980px,calc(100vw - 24px)); grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:520px) { .allscan-talker-cards { width:calc(100vw - 16px); grid-template-columns:repeat(2,minmax(0,1fr)); } .allscan-talker-card { min-height:96px; } }
+
+/* Viewport-level Favorite color editor: fixed positioning bypasses every module/table clip. */
+.allscan-favorite-color-popover { position:fixed !important; right:auto !important; bottom:auto !important; z-index:10000 !important; }
+/* Compact desktop Commands popup; management gets a wider editor below. */
+@media (min-width: 621px) {
+  .allscan-custom-commands-menu { width: min(200px, calc(100vw - 24px)); }
+  .allscan-custom-command-edit-row { grid-template-columns: minmax(0, 1fr); }
+  .allscan-custom-command-edit-actions { justify-content: flex-end; }
 }
-.allscan-talker-card.is-empty { opacity: .68; }
+/* Commands stays compact for execution; management gets room for editing. */
+@media (min-width: 621px) {
+  .allscan-custom-commands-menu.is-managing { width: min(360px, calc(100vw - 24px)); }
+  .allscan-custom-commands-menu.is-managing .allscan-custom-command-edit-row {
+    grid-template-columns: minmax(110px, 1fr) minmax(75px, .55fr) auto;
+  }
+}
+/* Dashboard content alignment: Talkers and Favorites share the same 980px frame. */
+.allscan-talker-cards {
+  box-sizing: border-box;
+  width: min(980px, 100%);
+  max-width: 980px;
+}
+.allscan-talkers-section {
+  box-sizing: border-box;
+  width: min(1280px, calc(100vw - 24px));
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Favorite color action: monochrome palette only; row accent already shows the chosen color. */
+.allscan-favorite-color-trigger > svg {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
+  stroke-width: 2;
+}
+.allscan-favorite-color-dot,
+.allscan-favorite-color-icon { display: none !important; }
+/* Talker typography: inherit each ASR theme's typeface, with reference-style hierarchy. */
+.allscan-talker-card {
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: 0;
+}
 .allscan-talker-card-title {
-  width: 100%;
-  margin-bottom: 5px;
+  margin-bottom: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.15;
+  opacity: .78;
+}
+.allscan-talker-callsign {
+  min-height: 19px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: .01em;
+}
+.allscan-talker-source {
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.allscan-talker-location {
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.15;
+  opacity: .76;
+}
+.allscan-talker-duration {
+  margin-top: auto;
+  padding-top: 8px;
+  font-family: inherit;
   font-size: 11px;
   font-weight: 800;
   line-height: 1.1;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--theme-muted, currentColor);
+  opacity: .9;
 }
-.allscan-talker-callsign {
-  width: 100%;
-  font-size: clamp(17px, 1.75vw, 23px);
+.allscan-talker-duration strong {
+  font-family: inherit;
   font-weight: 900;
-  line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--theme-accent, currentColor);
 }
-.allscan-talker-source,
+/* Current Talker identity colors tuned to each theme's own visual language. */
+html[data-asr-theme="standard"][data-asr-mode="dark"] { --theme-talker-live: #f2bd4b; }
+html[data-asr-theme="standard"][data-asr-mode="light"] { --theme-talker-live: #9a6200; }
+html[data-asr-theme="deep-ocean-animated"] { --theme-talker-live: #55c7ff; }
+html[data-asr-theme="matrix"] { --theme-talker-live: #00ff66; }
+html[data-asr-theme="lcars-frame"] { --theme-talker-live: #ff9f40; }
+/* Light-mode Favorites Rx Busy: darker green for readable percentage and matching legend. */
+html[data-asr-theme="standard"][data-asr-mode="light"] {
+  --theme-fav-rx-busy: #1f7a3a;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-fav-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend .is-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend-rx {
+  color: var(--theme-fav-rx-busy) !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-rx {
+  color: #1f7a3a !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend .allscan-fav-rxbar {
+  background: #1f7a3a !important;
+  border-color: #1f7a3a !important;
+}
+/* Standard light: normal Rx stays dark, but networked dark-green cells need a bright Rx value. */
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx {
+  color: #8ff0a4 !important;
+}
+/* Standard light: Favorite frequency metadata must remain readable on the light card surface. */
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-frequency {
+  color: #4f5f66 !important;
+  opacity: 1 !important;
+}
+/* Action select: long labels fit while retaining normal separation from management controls. */
+.allscan-controls-lower-row { gap: 12px; }
+.allscan-action-select {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  padding-left: 12px;
+  padding-right: 16px;
+  background-position: right 3px center;
+}
+/* Management modal: top viewport layer above Controls/Favorites. */
+body:has(.allscan-urf-access-modal) .allscan-controls-section,
+body:has(.allscan-urf-access-modal) .allscan-favorites-panel { z-index:auto !important; }
+.allscan-urf-access-modal {
+  position:fixed !important;
+  inset:0 !important;
+  z-index:2147483646 !important;
+  isolation:isolate;
+}
+.allscan-urf-access-modal > .allscan-urf-access-panel { position:relative; z-index:1; }
+/* Dashboard module geometry: single non-LCARS source of truth. */
+.allscan-dashboard { row-gap: 18px; }
+.allscan-dashboard-module {
+  margin: 0 auto !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+.allscan-dashboard-module > .allscan-section-title {
+  box-sizing: border-box;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+  min-height: 23px;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  text-align: center !important;
+  overflow: visible;
+}
+.allscan-dashboard-module > .allscan-section-title > .allscan-module-title-wrap {
+  grid-column: 2;
+  position: relative;
+  display: inline-block;
+  width: max-content;
+  max-width: calc(100vw - 90px);
+  margin: 0;
+  transform: none !important;
+  text-align: center !important;
+}
+.allscan-dashboard-module .allscan-module-title-text {
+  display: inline-block;
+  text-align: center !important;
+}
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 7px);
+  left: auto;
+  display: inline-flex;
+  visibility: visible;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 5px;
+  transform: translateY(-50%);
+  opacity: .55;
+  z-index: 5;
+}
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle:hover,
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle:focus-visible { opacity: .95; }
+/* Favorites final optical correction after visual review. */
+.allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+  transform: translateX(-14px) !important;
+}
+/* Talkers optical title correction after final centered-title review. */
+.allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap {
+  transform: translateX(-14px) !important;
+}
+/* Current Talker: authoritative theme-aware identity color; side tab remains neutral. */
+.allscan-talker-card.is-current {
+  border-color: var(--theme-border-strong, var(--theme-border)) !important;
+  border-left-color: var(--theme-border, rgba(255,255,255,.28)) !important;
+  box-shadow: inset 3px 0 0 var(--theme-border-strong, var(--theme-border)) !important;
+}
+.allscan-talker-card.is-current .allscan-talker-callsign,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-current .allscan-talker-callsign {
+  color: var(--theme-talker-live, var(--theme-bridge-text, var(--theme-text))) !important;
+}
+/* Talker metadata has fixed semantic rows: description then location, never merged. */
+.allscan-talker-description,
 .allscan-talker-location {
-  width: 100%;
+  flex: 0 0 auto;
+  min-height: 14px;
   margin-top: 3px;
+  font-family: inherit;
   font-size: 12px;
+  font-weight: 400;
   line-height: 1.15;
+  color: var(--theme-text);
+  opacity: .76;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.allscan-talker-location { color: var(--theme-muted, currentColor); }
-.allscan-talker-duration {
-  width: 100%;
-  margin-top: auto;
-  padding-top: 6px;
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  font-size: 11px;
-  line-height: 1;
-}
-.allscan-talker-duration span { color: var(--theme-muted, currentColor); }
-.allscan-talker-duration strong { font-variant-numeric: tabular-nums; }
-@media (max-width: 900px) {
-  .allscan-talker-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 620px) {
-  .allscan-talker-cards { grid-template-columns: 1fr; gap: 6px; }
-  .allscan-talker-card { min-height: 104px; }
-}
+.allscan-talker-location { margin-top: 1px; }

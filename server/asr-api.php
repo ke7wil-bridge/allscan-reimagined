@@ -1778,22 +1778,79 @@ function asr_dmr_net_disconnect(string $bridgeId): array {
     return $payload;
 }
 
+function asr_cpu_temperature_reading(): ?array {
+    $candidates = [];
+    foreach ((array) glob('/sys/class/hwmon/hwmon*') as $hwmon) {
+        $name = strtolower(trim((string) @file_get_contents($hwmon . '/name')));
+        foreach ((array) glob($hwmon . '/temp*_input') as $input) {
+            $base = substr($input, 0, -6);
+            $label = strtolower(trim((string) @file_get_contents($base . '_label')));
+            $priority = null;
+            if ($name === 'coretemp' && str_starts_with($label, 'package id')) $priority = 100;
+            elseif ($name === 'k10temp' && in_array($label, ['tctl', 'tdie'], true)) $priority = $label === 'tdie' ? 100 : 95;
+            elseif ($name === 'zenpower' && in_array($label, ['tdie', 'tctl'], true)) $priority = $label === 'tdie' ? 100 : 95;
+            if ($priority === null) continue;
+            $raw = (float) trim((string) @file_get_contents($input));
+            if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, 'x86'];
+        }
+    }
+    foreach ((array) glob('/sys/class/thermal/thermal_zone*') as $zone) {
+        $type = strtolower(trim((string) @file_get_contents($zone . '/type')));
+        $priority = match ($type) {
+            'x86_pkg_temp' => 90,
+            'tcpu' => 85,
+            'cpu-thermal', 'cpu_thermal' => 80,
+            default => null,
+        };
+        if ($priority === null) continue;
+        $raw = (float) trim((string) @file_get_contents($zone . '/temp'));
+        if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, in_array($type, ['x86_pkg_temp', 'tcpu'], true) ? 'x86' : 'embedded'];
+    }
+    if (!$candidates) return null;
+    usort($candidates, static fn($a, $b) => $b[0] <=> $a[0]);
+    return ['celsius' => (float) $candidates[0][1], 'class' => (string) $candidates[0][2]];
+}
+
+function asr_cpu_temp_thresholds(string $class): array {
+    // x86 laptop/desktop CPUs routinely operate well above SBC/node-device temperatures.
+    // Keep legacy AllScan limits for embedded/fallback hardware; warn x86 at 80C and alarm at 90C.
+    return $class === 'x86'
+        ? ['warnC' => 80.0, 'alarmC' => 90.0]
+        : ['warnC' => (130 - 32) / 1.8, 'alarmC' => (150 - 32) / 1.8];
+}
+
 function asr_cpu_temp_payload(): array {
     $cache = '/run/allscan-reimagined/cpu-temp.json';
     if (is_readable($cache) && (int) @filemtime($cache) >= time() - 15) {
         $decoded = json_decode((string) file_get_contents($cache), true);
         if (is_array($decoded)) return $decoded;
     }
-    $raw = (string) cpuTemp();
-    $text = trim(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5));
-    preg_match('/background-color\s*:\s*([^;"\']+)/i', $raw, $background);
-    preg_match('/CPU Temp:\s*(.+?)\s*@/i', $text, $temperature);
-    $payload = [
-        'ok' => true,
-        'value' => trim((string) ($temperature[1] ?? preg_replace('/^CPU Temp:\s*/i', '', $text))),
-        'bgColor' => trim((string) ($background[1] ?? '#59461c')),
-        'updated' => gmdate('c'),
-    ];
+    $reading = asr_cpu_temperature_reading();
+    if ($reading !== null) {
+        $celsius = (float) $reading['celsius'];
+        $thresholds = asr_cpu_temp_thresholds((string) $reading['class']);
+        $ct = (int) round($celsius);
+        $ft = (int) round($celsius * 1.8 + 32);
+        $background = $celsius < $thresholds['warnC'] ? 'darkgreen' : ($celsius < $thresholds['alarmC'] ? '#660' : 'red');
+        $payload = [
+            'ok' => true,
+            'value' => $ft . '°F / ' . $ct . '°C',
+            'bgColor' => $background,
+            'updated' => gmdate('c'),
+        ];
+    } else {
+        // Preserve compatibility with hardware supported by upstream AllScan's helper (for example older Raspberry Pi installs).
+        $raw = (string) cpuTemp();
+        $text = trim(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5));
+        preg_match('/background-color\s*:\s*([^;"\']+)/i', $raw, $backgroundMatch);
+        preg_match('/CPU Temp:\s*(.+?)\s*@/i', $text, $temperature);
+        $payload = [
+            'ok' => true,
+            'value' => trim((string) ($temperature[1] ?? preg_replace('/^CPU Temp:\s*/i', '', $text))),
+            'bgColor' => trim((string) ($backgroundMatch[1] ?? '#59461c')),
+            'updated' => gmdate('c'),
+        ];
+    }
     if (is_dir(dirname($cache))) @file_put_contents($cache, json_encode($payload), LOCK_EX);
     return $payload;
 }

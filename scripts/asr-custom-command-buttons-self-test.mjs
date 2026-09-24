@@ -43,7 +43,7 @@ assert(
   'Frontend Custom Cmd transport is missing',
 )
 assert(
-  app.includes('Cmds <ChevronDown')
+  app.includes('Commands <ChevronDown')
     && app.includes('Manage Custom Cmd Buttons')
     && app.includes('Manage Commands…')
     && app.includes("runCommandForNode('dtmf', item.command")
