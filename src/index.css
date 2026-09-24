@@ -6327,31 +6327,3 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title
   border-bottom-color: #555;
   color: #f2f2f2;
 }
-
-/* Beta 8 experiment: visible header band on each Favorite card. */
-.allscan-favorites-table tbody tr {
-  padding-top: 29px;
-  overflow: hidden;
-}
-.allscan-favorite-card-header {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  padding: 0 9px;
-  border-bottom: 1px solid var(--theme-border);
-  background: var(--theme-header-bg, var(--theme-panel-2));
-  color: var(--theme-text);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  opacity: .9;
-}
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorite-card-header {
-  background: #202126;
-  border-bottom-color: #555;
-  color: #f2f2f2;
-}
