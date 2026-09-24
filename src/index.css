@@ -6471,3 +6471,9 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 .allscan-favorites-table-wrap {
   margin-top: 0 !important;
 }
+
+/* URFWIL group identifier: keep full title, but distinguish it from both black body and gray protocol headers. */
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
+  background: #15171a !important;
+  border-bottom-color: #3b3e42;
+}
