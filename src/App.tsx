@@ -3124,7 +3124,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   .map((detail) => ({ card, identity: detail.label.trim().toUpperCase(), active: card.lastCaller.trim().toUpperCase() === detail.label.trim().toUpperCase() })))
               if (!urfCards.length && !urfAccessOpen) return null
               return <div className="allscan-urf-group">
-                {urfCards.length ? <div className="allscan-urf-group-title"><span>URFWIL Multi-Mode Bridge</span></div> : null}
+                {urfCards.length ? <div className="allscan-urf-group-title"><span>URFWIL Bridge</span></div> : null}
                 <div className="allscan-urf-mini-grid">
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)
