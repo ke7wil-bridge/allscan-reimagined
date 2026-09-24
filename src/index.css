@@ -6448,3 +6448,10 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend 
   padding: 0 !important;
   background: transparent !important;
 }
+
+/* Favorites controls below the legend stay on the module's black body. */
+.allscan-favorites-options,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options {
+  background: transparent !important;
+  box-shadow: none !important;
+}
