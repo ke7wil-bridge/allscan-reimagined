@@ -6507,3 +6507,26 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   height: 27px;
 }
 .allscan-favorite-color-palette button { cursor: pointer !important; touch-action: manipulation; }
+
+/* Favorite color hex value: override generic themed input rules so the value is visibly text. */
+.allscan-favorite-color-popover .allscan-favorite-color-hex > input[type="text"] {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 27px !important;
+  padding: 4px 8px !important;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.28)) !important;
+  border-radius: 5px !important;
+  background: #202328 !important;
+  color: #f2f2f2 !important;
+  -webkit-text-fill-color: #f2f2f2 !important;
+  opacity: 1 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 12px !important;
+  line-height: 17px !important;
+  text-align: left !important;
+  text-transform: uppercase !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-sizing: border-box !important;
+}
