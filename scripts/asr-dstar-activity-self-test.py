@@ -11,9 +11,9 @@ lines=[
  "M: 2026-09-24 00:39:33.543 D-Star, TX state = OFF",
 ]
 for line in lines: status.apply_activity_line(s,line,"dstar",now)
-assert s["role"]=="idle" and s["last_user"]=="KE7WIL"
-assert s["recent_users"][0]["callsign"]=="KE7WIL"
-e=s["tx_events"][0]; assert e["callsign"]=="KE7WIL" and 8 <= e["duration_seconds"] <= 10
+assert s["role"]=="idle" and s["last_user"]=="-"
+assert s["recent_users"]==[]
+assert s["tx_events"]==[]
 # Existing network-header format remains supported.
 t=status.initial_activity_state()
 status.apply_activity_line(t,"M: 2026-09-24 00:40:00.000 D-Star, received network header from N0CALL / ABCD to CQCQCQ via XRF641 A","dstar",now)
