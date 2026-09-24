@@ -2228,6 +2228,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
               >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
+                  <div className="allscan-favorite-card-header" aria-hidden="true">Favorite</div>
                   <button type="button" className="allscan-favorite-drag" draggable={authStatus.canModify} aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"
                     onDragStart={(event) => {
                       event.stopPropagation()
