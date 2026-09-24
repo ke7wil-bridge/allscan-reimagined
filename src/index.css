@@ -6581,3 +6581,28 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
 .allscan-module-drag-handle { align-items: center; }
 .allscan-module-drag-handle > .allscan-grip-dots { opacity: 1; }
 .allscan-favorite-drag > .allscan-grip-dots { color: currentColor; }
+
+/* Six-dot grip geometry: override legacy module-handle span rules that flatten the grid wrapper. */
+.allscan-module-drag-handle > span.allscan-grip-dots,
+.allscan-favorite-drag > span.allscan-grip-dots {
+  display: grid !important;
+  grid-template-columns: repeat(2, 3px) !important;
+  grid-template-rows: repeat(3, 3px) !important;
+  gap: 3px !important;
+  width: 9px !important;
+  height: 15px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.allscan-module-drag-handle > span.allscan-grip-dots > i,
+.allscan-favorite-drag > span.allscan-grip-dots > i {
+  width: 3px !important;
+  height: 3px !important;
+  min-width: 3px !important;
+  min-height: 3px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: currentColor !important;
+}
