@@ -1423,6 +1423,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  useEffect(() => {
+    if (!favoriteStatus) return
+    const timer = window.setTimeout(() => setFavoriteStatus(''), 3000)
+    return () => window.clearTimeout(timer)
+  }, [favoriteStatus])
+
   function moveDashboardModule(source: DashboardModuleKey, target: DashboardModuleKey) {
     if (source === target) return
     const applyOrder = () => setDashboardModuleOrder((current) => {
