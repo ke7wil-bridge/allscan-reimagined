@@ -6455,3 +6455,8 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
   background: transparent !important;
   box-shadow: none !important;
 }
+
+/* Talker card header labels: center within each equal-width card. */
+.allscan-talker-card-title {
+  text-align: center;
+}
