@@ -98,6 +98,7 @@ node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
+python3 "$ROOT/scripts/asr-favorites-manager.py" --self-test
 python3 "$ROOT/scripts/asr-favorites-source.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate-integration-self-test.py"
@@ -170,6 +171,7 @@ install -m 755 scripts/asr-bridge-status-privacy-self-test.php "$STAGE/payload/s
 install -m 755 scripts/asr-echolink-self-test.php "$STAGE/payload/scripts/asr-echolink-self-test.php"
 install -m 755 scripts/asr-side-by-side-self-test.sh "$STAGE/payload/scripts/asr-side-by-side-self-test.sh"
 install -m 755 scripts/asr-favorites-update.py "$STAGE/payload/scripts/asr-favorites-update.py"
+install -m 755 scripts/asr-favorites-manager.py "$STAGE/payload/scripts/asr-favorites-manager.py"
 install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favorites-source.py"
 install -m 755 scripts/asr-loopback-validate.py "$STAGE/payload/scripts/asr-loopback-validate.py"
 install -m 755 scripts/asr-loopback-validate-integration-self-test.py "$STAGE/payload/scripts/asr-loopback-validate-integration-self-test.py"

@@ -91,6 +91,10 @@ DSTAR_TX_ON_RE = re.compile(LINE_PREFIX + r"D-Star,\s+TX state\s*=\s*ON\b", re.I
 DSTAR_TX_OFF_RE = re.compile(
     LINE_PREFIX + r"D-Star,\s+TX state\s*=\s*OFF\b.*$", re.IGNORECASE
 )
+DSTAR_FALLBACK_CALL_RE = re.compile(
+    LINE_PREFIX + r"D-Star,\s+No call or id found, using ini value:\s*([A-Z0-9]{1,8})\s*$",
+    re.IGNORECASE,
+)
 DSTAR_LINK_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}):\s+"
     r"(DExtra|DCS|DPlus)\s+(link|unlink)\s+-.*?\bRefl:\s*"
@@ -136,6 +140,7 @@ def initial_activity_state() -> dict[str, Any]:
         "source_slot": 0,
         "source_observed_at": 0.0,
         "network_relay": False,
+        "relay_user": "",
         "reflector": "",
         "module": "",
         "link_protocol": "",
@@ -186,9 +191,12 @@ def apply_activity_line(
         end = DSTAR_END_RE.fullmatch(text)
         tx_on = DSTAR_TX_ON_RE.fullmatch(text)
         tx_off = DSTAR_TX_OFF_RE.fullmatch(text)
+        fallback_call = DSTAR_FALLBACK_CALL_RE.fullmatch(text)
     else:
         return
-    match = source or end or tx_on or tx_off
+    if mode != "dstar":
+        fallback_call = None
+    match = source or end or tx_on or tx_off or fallback_call
     if match is None:
         return
     epoch = match_epoch(match, now)
@@ -218,6 +226,20 @@ def apply_activity_line(
                 "last_user": caller,
                 "last_source_user": caller,
                 "last_source_epoch": epoch,
+            })
+        return
+
+    if fallback_call is not None:
+        caller = clean_caller(fallback_call.group(3), 20)
+        if state.get("role") == "relay" and caller:
+            state.update({
+                "relay_user": caller,
+                "current_user": caller,
+                "last_user": caller,
+                "last_source_user": caller,
+                "last_source_epoch": epoch,
+                "activity_epoch": epoch,
+                "last_event_epoch": epoch,
             })
         return
 
@@ -265,16 +287,38 @@ def apply_activity_line(
             "last_event_epoch": epoch,
             "source_slot": 0,
             "network_relay": False,
+            "relay_user": "",
         })
         return
 
     if tx_off is not None:
         if state.get("role") == "relay":
+            active_epoch = int(state.get("active_start_epoch", 0) or 0)
+            relay_user = clean_caller(state.get("relay_user", ""), 20)
+            if relay_user and active_epoch and epoch >= active_epoch:
+                duration = max(0.0, float(epoch) - float(active_epoch))
+                tx_events = [
+                    item for item in state.get("tx_events", [])
+                    if isinstance(item, dict) and now - int(item.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+                ]
+                tx_events.insert(0, {
+                    "callsign": relay_user,
+                    "event": "transmit",
+                    "epoch": epoch,
+                    "start_epoch": active_epoch,
+                    "duration_seconds": duration,
+                })
+                state["tx_events"] = tx_events[:100]
+                state["recent_users"] = [{"callsign": relay_user, "last_tx_epoch": epoch}]
+                state["last_user"] = relay_user
+                state["last_source_user"] = relay_user
+                state["last_source_epoch"] = epoch
             state.update({
                 "role": "idle",
                 "current_user": "",
                 "active_start_epoch": 0,
                 "network_relay": False,
+                "relay_user": "",
             })
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
 

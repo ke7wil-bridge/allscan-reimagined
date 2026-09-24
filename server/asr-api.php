@@ -17,6 +17,8 @@ const ASR_P25_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-p25-br
 const ASR_NXDN_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-nxdn-bridge-control';
 const ASR_M17_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-m17-bridge-control';
 const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-update';
+const ASR_FAVORITES_MANAGER_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-manager';
+const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
@@ -1776,22 +1778,79 @@ function asr_dmr_net_disconnect(string $bridgeId): array {
     return $payload;
 }
 
+function asr_cpu_temperature_reading(): ?array {
+    $candidates = [];
+    foreach ((array) glob('/sys/class/hwmon/hwmon*') as $hwmon) {
+        $name = strtolower(trim((string) @file_get_contents($hwmon . '/name')));
+        foreach ((array) glob($hwmon . '/temp*_input') as $input) {
+            $base = substr($input, 0, -6);
+            $label = strtolower(trim((string) @file_get_contents($base . '_label')));
+            $priority = null;
+            if ($name === 'coretemp' && str_starts_with($label, 'package id')) $priority = 100;
+            elseif ($name === 'k10temp' && in_array($label, ['tctl', 'tdie'], true)) $priority = $label === 'tdie' ? 100 : 95;
+            elseif ($name === 'zenpower' && in_array($label, ['tdie', 'tctl'], true)) $priority = $label === 'tdie' ? 100 : 95;
+            if ($priority === null) continue;
+            $raw = (float) trim((string) @file_get_contents($input));
+            if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, 'x86'];
+        }
+    }
+    foreach ((array) glob('/sys/class/thermal/thermal_zone*') as $zone) {
+        $type = strtolower(trim((string) @file_get_contents($zone . '/type')));
+        $priority = match ($type) {
+            'x86_pkg_temp' => 90,
+            'tcpu' => 85,
+            'cpu-thermal', 'cpu_thermal' => 80,
+            default => null,
+        };
+        if ($priority === null) continue;
+        $raw = (float) trim((string) @file_get_contents($zone . '/temp'));
+        if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, in_array($type, ['x86_pkg_temp', 'tcpu'], true) ? 'x86' : 'embedded'];
+    }
+    if (!$candidates) return null;
+    usort($candidates, static fn($a, $b) => $b[0] <=> $a[0]);
+    return ['celsius' => (float) $candidates[0][1], 'class' => (string) $candidates[0][2]];
+}
+
+function asr_cpu_temp_thresholds(string $class): array {
+    // x86 laptop/desktop CPUs routinely operate well above SBC/node-device temperatures.
+    // Keep legacy AllScan limits for embedded/fallback hardware; warn x86 at 80C and alarm at 90C.
+    return $class === 'x86'
+        ? ['warnC' => 80.0, 'alarmC' => 90.0]
+        : ['warnC' => (130 - 32) / 1.8, 'alarmC' => (150 - 32) / 1.8];
+}
+
 function asr_cpu_temp_payload(): array {
     $cache = '/run/allscan-reimagined/cpu-temp.json';
     if (is_readable($cache) && (int) @filemtime($cache) >= time() - 15) {
         $decoded = json_decode((string) file_get_contents($cache), true);
         if (is_array($decoded)) return $decoded;
     }
-    $raw = (string) cpuTemp();
-    $text = trim(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5));
-    preg_match('/background-color\s*:\s*([^;"\']+)/i', $raw, $background);
-    preg_match('/CPU Temp:\s*(.+?)\s*@/i', $text, $temperature);
-    $payload = [
-        'ok' => true,
-        'value' => trim((string) ($temperature[1] ?? preg_replace('/^CPU Temp:\s*/i', '', $text))),
-        'bgColor' => trim((string) ($background[1] ?? '#59461c')),
-        'updated' => gmdate('c'),
-    ];
+    $reading = asr_cpu_temperature_reading();
+    if ($reading !== null) {
+        $celsius = (float) $reading['celsius'];
+        $thresholds = asr_cpu_temp_thresholds((string) $reading['class']);
+        $ct = (int) round($celsius);
+        $ft = (int) round($celsius * 1.8 + 32);
+        $background = $celsius < $thresholds['warnC'] ? 'darkgreen' : ($celsius < $thresholds['alarmC'] ? '#660' : 'red');
+        $payload = [
+            'ok' => true,
+            'value' => $ft . '°F / ' . $ct . '°C',
+            'bgColor' => $background,
+            'updated' => gmdate('c'),
+        ];
+    } else {
+        // Preserve compatibility with hardware supported by upstream AllScan's helper (for example older Raspberry Pi installs).
+        $raw = (string) cpuTemp();
+        $text = trim(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5));
+        preg_match('/background-color\s*:\s*([^;"\']+)/i', $raw, $backgroundMatch);
+        preg_match('/CPU Temp:\s*(.+?)\s*@/i', $text, $temperature);
+        $payload = [
+            'ok' => true,
+            'value' => trim((string) ($temperature[1] ?? preg_replace('/^CPU Temp:\s*/i', '', $text))),
+            'bgColor' => trim((string) ($backgroundMatch[1] ?? '#59461c')),
+            'updated' => gmdate('c'),
+        ];
+    }
     if (is_dir(dirname($cache))) @file_put_contents($cache, json_encode($payload), LOCK_EX);
     return $payload;
 }
@@ -2559,10 +2618,11 @@ function asr_safe_favorites_file(string $requested = ''): string {
 }
 
 function asr_ini_values(string $contents, string $key): array {
-    preg_match_all('/^\s*' . preg_quote($key, '/') . '\s*\[\]\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|(.+?))\s*$/mi', $contents, $matches, PREG_SET_ORDER);
+    $pattern = '/^\s*' . preg_quote($key, '/') . '\s*\[\]\s*=\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\\\\.|[^\'\\\\])*)\'|(.+?))\s*$/mi';
+    preg_match_all($pattern, $contents, $matches, PREG_SET_ORDER);
     return array_map(static function (array $match): string {
         $value = ($match[1] ?? '') !== '' ? $match[1] : (($match[2] ?? '') !== '' ? $match[2] : ($match[3] ?? ''));
-        return trim($value);
+        return trim(str_replace(['\\"', '\\\\'], ['"', '\\'], $value));
     }, $matches);
 }
 
@@ -2621,8 +2681,30 @@ function asr_favorite_display_data(string $label, string $node): array {
     return ['label' => $label] + asr_parse_label($label, $node);
 }
 
+function asr_favorites_user_data(string $file): array {
+    if (!is_readable(ASR_FAVORITES_USER_STATE)) return ['nodes' => [], 'order' => []];
+    $decoded = json_decode((string) file_get_contents(ASR_FAVORITES_USER_STATE), true);
+    if (!is_array($decoded)) return ['nodes' => [], 'order' => []];
+    $entry = $decoded['files'][basename($file)] ?? [];
+    return is_array($entry) ? $entry + ['nodes' => [], 'order' => []] : ['nodes' => [], 'order' => []];
+}
+
+function asr_favorites_manager(array $arguments): array {
+    if (!is_executable(ASR_FAVORITES_MANAGER_HELPER)) asr_error('Favorites manager is unavailable.', 500);
+    $command = 'sudo -n ' . escapeshellarg(ASR_FAVORITES_MANAGER_HELPER);
+    foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+    $raw = trim((string) shell_exec($command . ' 2>&1'));
+    $result = json_decode($raw, true);
+    if (!is_array($result) || empty($result['ok'])) {
+        asr_error((string) ($result['error'] ?? 'Favorites operation failed.'), 400);
+    }
+    return $result;
+}
+
 function asr_favorites_payload(string $requested = ''): array {
     $selected = asr_safe_favorites_file($requested);
+    $userData = asr_favorites_user_data($selected);
+    $nodeData = is_array($userData['nodes'] ?? null) ? $userData['nodes'] : [];
     $contents = is_readable($selected) ? (string) file_get_contents($selected) : '';
     $labels = asr_ini_values($contents, 'label');
     $cmds = asr_ini_values($contents, 'cmd');
@@ -2635,24 +2717,47 @@ function asr_favorites_payload(string $requested = ''): array {
         if ($node === '') continue;
 
         $display = asr_favorite_display_data($label, $node);
+        $custom = is_array($nodeData[$node] ?? null) ? $nodeData[$node] : [];
+        $customDescription = trim((string) ($custom['description'] ?? ''));
         $rows[] = [
             'index' => (string) $index,
             'node' => $node,
             'label' => (string) $display['label'],
             'name' => (string) $display['name'],
-            'desc' => (string) $display['desc'],
+            'description' => $customDescription !== '' ? $customDescription : (string) $display['name'],
+            'frequency' => (string) $display['desc'],
+            'desc' => $customDescription !== '' ? $customDescription : (string) $display['desc'],
+            'referenceDesc' => (string) $display['desc'],
+            'customDescription' => $customDescription,
             'location' => (string) $display['location'],
+            'color' => (string) ($custom['color'] ?? ''),
             'rx' => '',
             'lcnt' => '',
             'href' => 'http://stats.allstarlink.org/stats/' . rawurlencode($node),
         ];
     }
 
-    $files = array_map(static fn (string $file): array => [
-        'value' => basename($file),
-        'label' => basename($file),
-        'selected' => $file === $selected,
-    ], asr_favorites_files());
+    $order = array_values(array_filter(array_map('strval', (array) ($userData['order'] ?? []))));
+    if ($order) {
+        $positions = array_flip($order);
+        usort($rows, static function (array $left, array $right) use ($positions): int {
+            $a = $positions[$left['node']] ?? PHP_INT_MAX;
+            $b = $positions[$right['node']] ?? PHP_INT_MAX;
+            return $a <=> $b ?: ((int) $left['index'] <=> (int) $right['index']);
+        });
+    }
+    foreach ($rows as $index => &$row) $row['index'] = (string) $index;
+    unset($row);
+
+    $files = array_map(static function (string $file) use ($selected): array {
+        $real = realpath($file);
+        return [
+            'value' => basename($file),
+            'label' => basename($file),
+            'selected' => $file === $selected,
+            'modifiable' => is_string($real) && str_starts_with($real, '/etc/allscan/favorites'),
+        ];
+    }, asr_favorites_files());
 
     return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => basename($selected)];
 }
@@ -2693,6 +2798,22 @@ function asr_favorite_action(string $action, string $node, string $requested): a
             ? "Deleted {$node} from Favorites."
             : "Added {$node} to Favorites.",
     ];
+}
+
+function asr_favorite_manage_action(string $operation, string $requested, string $node = '', string $value = ''): array {
+    $allowed = ['preview-import', 'import', 'update-description', 'reset-description', 'set-color', 'reset-appearance', 'reorder', 'reset-order', 'reset-favorite'];
+    if (!in_array($operation, $allowed, true)) asr_error('Invalid Favorites operation.');
+    if ($node !== '' && !preg_match('/^[A-Za-z0-9*#]{3,8}$/', $node)) asr_error('Invalid node.');
+    if (strlen($value) > 20000) asr_error('Favorites value is too large.');
+    $file = asr_safe_favorites_file($requested);
+    $real = realpath($file);
+    if (!is_string($real) || !str_starts_with($real, '/etc/allscan/favorites')) {
+        asr_error('Only shared Favorites files under /etc/allscan can be modified.', 400);
+    }
+    $arguments = [$operation, '--file', $real];
+    if ($node !== '') array_push($arguments, '--node', $node);
+    if ($value !== '') array_push($arguments, '--value', $value);
+    return asr_favorites_manager($arguments);
 }
 
 function asr_drop_clients(): array {
@@ -3278,9 +3399,84 @@ function asr_performance_stats(): array {
     return $payload;
 }
 
+
+function asr_custom_command_entries(): array {
+    global $gCfg;
+    $stored = $gCfg[cmdbuttons] ?? [];
+    if (!is_array($stored)) $stored = $stored === '' ? [] : explode(',', (string) $stored);
+    $commands = [];
+    foreach ($stored as $index => $entry) {
+        $text = trim((string) $entry);
+        if ($text === '') continue;
+        if (!preg_match('/^(.*?)(\\*[0-9A-Da-d#;]{1,40})$/D', $text, $match)) continue;
+        $command = (string) $match[2];
+        $label = trim((string) $match[1]);
+        $commands[] = [
+            'id' => (string) $index,
+            'label' => $label !== '' ? $label : $command,
+            'command' => $command,
+        ];
+    }
+    return $commands;
+}
+
+function asr_custom_commands_payload(): array {
+    global $gCfg;
+    return [
+        'ok' => true,
+        'enabled' => !empty($gCfg[showcmdbuttons]),
+        'commands' => asr_custom_command_entries(),
+    ];
+}
+
+function asr_save_custom_commands(string $raw, string $enabled): array {
+    global $cfgModel, $gCfg, $gCfgUpdated;
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) asr_error('Custom command data is invalid.');
+    if (count($decoded) > 24) asr_error('A maximum of 24 custom commands is supported.');
+
+    $stored = [];
+    foreach ($decoded as $entry) {
+        if (!is_array($entry)) asr_error('Custom command data is invalid.');
+        $label = trim(strip_tags((string) ($entry['label'] ?? '')));
+        $command = trim((string) ($entry['command'] ?? ''));
+        if ($label === '' || strlen($label) > 40 || preg_match('/[,\\x00-\\x1F\\x7F]/', $label)) {
+            asr_error('Each command needs a name of 40 characters or fewer without commas.');
+        }
+        if (!preg_match('/^\\*[0-9A-Da-d#;]{1,40}$/D', $command)) {
+            asr_error('Each DTMF command must begin with * and contain only supported DTMF characters.');
+        }
+        $stored[] = $label === $command ? $command : $label . ' ' . $command;
+    }
+
+    $gCfg[cmdbuttons] = $stored;
+    $gCfg[showcmdbuttons] = $enabled === '1' ? 1 : 0;
+    $gCfgUpdated[cmdbuttons] = time();
+    $gCfgUpdated[showcmdbuttons] = time();
+    $cfgModel->saveCfgs();
+    if ($cfgModel->error) asr_error('Custom commands could not be saved.', 500);
+    return asr_custom_commands_payload();
+}
+
 $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
+if ($action === 'custom-commands') {
+    asr_require_read();
+    asr_json(asr_custom_commands_payload());
+}
+if ($action === 'custom-commands-save') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'custom-command-control') {
+        asr_error('Invalid Custom Cmd request.', 403);
+    }
+    asr_json(asr_save_custom_commands(
+        (string) ($_POST['commands'] ?? '[]'),
+        (string) ($_POST['enabled'] ?? '0')
+    ));
+}
 if ($action === 'tgif-user-status') {
     asr_require_read();
     asr_json(asr_tgif_user_status());
@@ -3443,6 +3639,17 @@ if ($action === 'favorite-command') {
     asr_require_same_origin();
     asr_require_modify();
     asr_json(asr_favorite_action((string) ($_POST['favoriteAction'] ?? ''), (string) ($_POST['node'] ?? ''), (string) ($_POST['favsfile'] ?? '')));
+}
+if ($action === 'favorite-manage') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    asr_json(asr_favorite_manage_action(
+        (string) ($_POST['operation'] ?? ''),
+        (string) ($_POST['favsfile'] ?? ''),
+        (string) ($_POST['node'] ?? ''),
+        (string) ($_POST['value'] ?? '')
+    ));
 }
 if ($action === 'drop-clients') {
     asr_require_same_origin();

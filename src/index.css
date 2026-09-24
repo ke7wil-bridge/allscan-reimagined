@@ -1249,7 +1249,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   color: rgb(214, 222, 228);
   font-size: 12px;
   padding: 2px 0 2px;
@@ -1289,7 +1289,9 @@ body {
 }
 
 .allscan-favorites-file-form label {
+  flex: 0 0 auto;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .allscan-favorites-file-form select {
@@ -1456,13 +1458,15 @@ body {
 }
 
 .allscan-connect-button {
-  width: 92px;
-  min-width: 92px;
+  width: 84px;
+  min-width: 84px;
+  padding-inline: 8px;
 }
 
 .allscan-disconnect-button {
-  width: 112px;
-  min-width: 112px;
+  width: 100px;
+  min-width: 100px;
+  padding-inline: 8px;
 }
 
 .allscan-favs-button {
@@ -1741,7 +1745,7 @@ body {
   .allscan-menu-panel {
     position: fixed;
     top: 58px;
-    right: 8px;
+    left: 8px;
     left: 8px;
     width: auto;
     max-height: none;
@@ -4782,3 +4786,1525 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 /* Recent Activity is historical only; administrative actions belong to Connected Clients. */
 .allscan-bridge-recent .allscan-bridge-inline-client-actions { display: none; }
+
+
+/* Beta 8 Favorites workspace */
+.allscan-favorites-panel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.allscan-favorites-inner {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(148, 190, 212, .28);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(24, 39, 49, .96), rgba(13, 24, 31, .96));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+}
+.allscan-favorites-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+.allscan-favorites-add,
+.allscan-favorites-file-form {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+.allscan-favorites-add label,
+.allscan-favorites-file-form label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.allscan-favorites-add input,
+.allscan-favorites-add button,
+.allscan-favorites-tools button {
+  min-height: 38px;
+  border: 1px solid rgba(148, 190, 212, .34);
+  border-radius: 10px;
+}
+.allscan-favorites-add button,
+.allscan-favorites-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 11px;
+  background: rgba(74, 163, 223, .13);
+}
+.allscan-favorites-add svg,
+.allscan-favorites-tools svg,
+.allscan-favorite-actions svg {
+  width: 15px;
+  height: 15px;
+}
+.allscan-favorites-placement {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid rgba(148, 190, 212, .24);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .035);
+}
+.allscan-favorites-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.allscan-favorites-status {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(74, 163, 223, .1);
+}
+.allscan-favorites-table-wrap {
+  overflow: visible;
+}
+.allscan-favorites-table {
+  display: block;
+}
+.allscan-favorites-table thead {
+  display: none;
+}
+.allscan-favorites-table tbody {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 10px;
+}
+.allscan-favorites-table tbody tr {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px minmax(78px, auto) 1fr auto;
+  grid-template-areas:
+    "order node name actions"
+    "order description description actions"
+    "order location rx actions";
+  gap: 5px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 190, 212, .2);
+  border-inline-start: 5px solid #4aa3df;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .045);
+  transition: transform .15s ease, border-color .15s ease, background .15s ease;
+}
+.allscan-favorites-table tbody tr:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 190, 212, .48);
+  background: rgba(255, 255, 255, .07);
+}
+.allscan-favorites-table tbody td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+.allscan-favorites-table tbody td:nth-child(1) { grid-area: order; align-self: stretch; }
+.allscan-favorites-table tbody td:nth-child(2) { grid-area: node; font-size: 18px; font-weight: 900; cursor: pointer; }
+.allscan-favorites-table tbody td:nth-child(3) { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.allscan-favorites-table tbody td:nth-child(4) { grid-area: description; }
+.allscan-favorites-table tbody td:nth-child(5) { grid-area: location; opacity: .76; font-size: 12px; }
+.allscan-favorites-table tbody td:nth-child(6) { grid-area: rx; font-size: 12px; }
+.allscan-favorites-table tbody td:nth-child(7) { grid-area: actions; align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; align-items: end; }
+.allscan-favorite-drag {
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255,255,255,.055);
+  cursor: grab;
+}
+.allscan-favorite-drag svg { width: 18px; height: 18px; }
+.allscan-favorite-description { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.allscan-favorite-description small { padding: 2px 6px; border-radius: 999px; background: rgba(90, 194, 137, .14); font-size: 10px; text-transform: uppercase; }
+.allscan-favorite-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 5px; margin-top: 7px; }
+.allscan-favorite-actions button,
+.allscan-favorite-actions label {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 8px;
+  background: rgba(255,255,255,.045);
+}
+.allscan-favorite-actions input[type="color"] { width: 20px; height: 20px; padding: 0; border: 0; background: transparent; }
+.allscan-favorite-description-editor { display: flex; flex-wrap: wrap; gap: 5px; }
+.allscan-favorite-description-editor input { flex: 1 1 180px; min-width: 0; }
+@media (max-width: 720px) {
+  .allscan-favorites-inner { padding: 9px; border-radius: 13px; }
+  .allscan-favorites-options,
+  .allscan-favorites-tools { align-items: stretch; }
+  .allscan-favorites-add,
+  .allscan-favorites-file-form { flex: 1 1 100%; }
+  .allscan-favorites-tools button { flex: 1 1 120px; }
+  .allscan-favorites-table tbody { grid-template-columns: 1fr; }
+  .allscan-favorites-table tbody tr {
+    grid-template-columns: 42px minmax(70px, auto) 1fr;
+    grid-template-areas:
+      "order node name"
+      "order description description"
+      "order location rx"
+      "actions actions actions";
+  }
+  .allscan-favorites-table tbody td:nth-child(7) {
+    flex-direction: row;
+    align-items: center;
+  }
+  .allscan-favorite-actions { margin-top: 0; }
+}
+
+
+/* Favorites compact full-width review layout */
+.allscan-favorites-panel {
+  width: min(900px, calc(100vw - 40px));
+  max-width: 900px;
+  overflow: visible;
+}
+.allscan-favorites-inner {
+  position: relative;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+}
+.allscan-favorites-options {
+  gap: 7px;
+  padding-right: 34px;
+}
+.allscan-favorites-add,
+.allscan-favorites-file-form {
+  gap: 4px;
+}
+.allscan-favorites-file-form {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+.allscan-favorites-file-form label {
+  grid-column: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.allscan-favorites-add {
+  grid-template-columns: 108px auto;
+}
+.allscan-favorites-add input {
+  width: 108px;
+}
+.allscan-favorites-add label,
+.allscan-favorites-file-form label {
+  font-size: 10px;
+}
+.allscan-favorites-add input,
+.allscan-favorites-add button,
+.allscan-favorites-tools button,
+.allscan-favorites-file-form select {
+  min-height: 30px;
+  height: 30px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.allscan-favorites-add button,
+.allscan-favorites-tools button {
+  gap: 4px;
+  padding: 4px 8px;
+}
+.allscan-favorites-placement {
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.allscan-favorites-legend {
+  margin: 0;
+  padding: 4px 6px;
+}
+.allscan-favorites-status {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+.allscan-favorites-table tbody {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.allscan-favorites-table tbody tr {
+  grid-template-columns: 24px minmax(76px, auto) minmax(190px, .82fr) minmax(120px, .5fr) minmax(160px, auto);
+  grid-template-areas:
+    "order node description location actions";
+  gap: 2px 8px;
+  min-height: 44px;
+  padding: 3px 8px;
+  border-inline-start-width: 5px;
+  border-radius: 9px;
+}
+.allscan-favorites-table tbody td:nth-child(1) { grid-area: order; }
+.allscan-favorites-table tbody td:nth-child(2) {
+  grid-area: node;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 14px;
+  font-weight: 800;
+}
+.allscan-favorites-table tbody td:nth-child(3) {
+  display: none;
+}
+.allscan-favorites-table tbody td:nth-child(4) {
+  grid-area: description;
+  align-self: center;
+  line-height: 1.15;
+  font-size: 12px;
+}
+.allscan-favorites-table tbody td:nth-child(4),
+.allscan-favorites-table tbody td:nth-child(5),
+.allscan-favorites-table tbody td:nth-child(7) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorites-table tbody td:nth-child(5) {
+  grid-area: location;
+  align-self: center;
+  font-size: 11px;
+}
+.allscan-favorites-table tbody td:nth-child(6) {
+  display: none;
+}
+.allscan-favorites-table tbody td:nth-child(7) {
+  grid-area: actions;
+  align-self: center;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+.allscan-favorite-drag {
+  width: 22px;
+  height: 100%;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 5px;
+}
+.allscan-favorite-drag svg {
+  width: 15px;
+  height: 15px;
+}
+.allscan-favorite-details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.allscan-favorite-description {
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
+  font-weight: 700;
+}
+.allscan-favorite-description > a,
+.allscan-favorite-description > em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.allscan-favorite-description small {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  font-size: 8px;
+}
+.allscan-favorite-frequency {
+  overflow: hidden;
+  color: rgba(226, 238, 244, .68);
+  font-size: 11px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.allscan-favorite-node-number {
+  line-height: 1;
+}
+.allscan-favorite-rx {
+  display: inline-flex;
+  width: fit-content;
+  min-width: 44px;
+  min-height: 16px;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .035);
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.allscan-favorite-link-count {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 20px;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  opacity: .82;
+  white-space: nowrap;
+}
+.allscan-favorite-actions {
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin-top: 0;
+}
+.allscan-favorite-actions button,
+.allscan-favorite-actions label {
+  width: 25px;
+  height: 25px;
+  border-radius: 5px;
+}
+.allscan-favorite-actions svg {
+  width: 13px;
+  height: 13px;
+}
+.allscan-favorite-actions input[type="color"] {
+  width: 17px;
+  height: 17px;
+}
+.allscan-favorite-description-editor {
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+.allscan-favorite-description-editor input {
+  min-width: 100px;
+  height: 27px;
+  font-size: 12px;
+}
+.allscan-favorite-description-editor button {
+  height: 27px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+@media (max-width: 720px) {
+  .allscan-favorites-panel {
+    width: min(100%, calc(100vw - 12px));
+  }
+  .allscan-favorites-options { padding-right: 32px; }
+  .allscan-favorites-table tbody tr {
+    grid-template-columns: 22px 70px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "order node description actions"
+      "order location location actions";
+    min-height: 52px;
+    gap: 2px 6px;
+    padding: 3px 6px;
+  }
+  .allscan-favorites-table tbody td:nth-child(7) {
+    flex-direction: column;
+    align-items: end;
+  }
+}
+
+/* Existing Custom Cmd Buttons surfaced in Node Controls. */
+.allscan-custom-commands {
+  position: relative;
+  z-index: 40;
+}
+.allscan-custom-commands-button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid rgba(148, 190, 212, .28);
+  border-radius: 6px;
+  background: rgba(28, 28, 30, .96);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+.allscan-custom-commands-button svg {
+  width: 13px;
+  height: 13px;
+}
+.allscan-custom-commands-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 100;
+  width: min(420px, calc(100vw - 24px));
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(148, 190, 212, .4);
+  border-radius: 8px;
+  background: #11171c;
+  color: #edf5f8;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+  text-align: left;
+}
+.allscan-custom-command-list {
+  display: grid;
+  gap: 4px;
+}
+.allscan-custom-command-list > button {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 8px;
+  border: 1px solid rgba(148, 190, 212, .2);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .045);
+  color: inherit;
+  text-align: left;
+}
+.allscan-custom-command-list > button small {
+  flex: 0 0 auto;
+  opacity: .65;
+  font-family: ui-monospace, monospace;
+}
+.allscan-custom-command-empty {
+  padding: 7px;
+  opacity: .72;
+}
+.allscan-custom-command-manage,
+.allscan-custom-command-add,
+.allscan-custom-command-save-actions button {
+  min-height: 29px;
+  padding: 4px 8px;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 5px;
+  background: rgba(74, 163, 223, .12);
+  color: inherit;
+}
+.allscan-custom-commands-editor {
+  display: grid;
+  gap: 7px;
+}
+.allscan-custom-commands-editor > small {
+  opacity: .72;
+}
+.allscan-custom-commands-editor-rows {
+  display: grid;
+  gap: 5px;
+  max-height: min(45vh, 320px);
+  overflow: auto;
+}
+.allscan-custom-command-edit-row {
+  display: grid;
+  grid-template-columns: minmax(115px, 1fr) minmax(78px, .55fr) auto;
+  gap: 5px;
+  align-items: center;
+}
+.allscan-custom-command-edit-row input {
+  min-width: 0;
+  height: 29px;
+  padding: 4px 6px;
+  border: 1px solid rgba(148, 190, 212, .3);
+  border-radius: 5px;
+  background: #090d10;
+  color: inherit;
+}
+.allscan-custom-command-edit-actions {
+  display: flex;
+  gap: 3px;
+}
+.allscan-custom-command-edit-actions button {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(148, 190, 212, .25);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .045);
+  color: inherit;
+}
+.allscan-custom-command-edit-actions svg {
+  width: 13px;
+  height: 13px;
+}
+.allscan-custom-command-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+@media (max-width: 620px) {
+  .allscan-custom-commands-menu {
+    position: fixed;
+    top: 50%;
+    right: auto;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .allscan-custom-command-edit-row {
+    grid-template-columns: 1fr;
+  }
+  .allscan-custom-command-edit-actions {
+    justify-content: flex-end;
+  }
+}
+
+
+/* Whole dashboard module ordering. */
+.allscan-dashboard {
+  display: flex;
+  flex-direction: column;
+}
+.allscan-dashboard > .allscan-update-notice { order: -10; }
+.allscan-dashboard > .allscan-footer { order: 100; }
+.allscan-dashboard-module {
+  position: relative;
+  transition: opacity 120ms ease, box-shadow 120ms ease;
+}
+.allscan-controls-section { view-transition-name: asr-controls-module; }
+.allscan-favorites-panel { view-transition-name: asr-favorites-module; }
+.allscan-connection-section { view-transition-name: asr-connections-module; }
+.allscan-bridge-section { view-transition-name: asr-bridges-module; }
+.allscan-dashboard-module.is-dragging {
+  opacity: .58;
+  filter: saturate(.72);
+}
+.allscan-dashboard-module.is-drag-over {
+  box-shadow: inset 0 2px 0 #55bff5;
+}
+::view-transition-group(asr-controls-module),
+::view-transition-group(asr-talkers-module),
+::view-transition-group(asr-favorites-module),
+::view-transition-group(asr-connections-module),
+::view-transition-group(asr-bridges-module) {
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
+}
+.allscan-module-drag-handle {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 5px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  vertical-align: middle;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: currentColor;
+  box-shadow: none;
+  cursor: grab;
+  touch-action: none;
+  opacity: .42;
+}
+.allscan-module-drag-handle:hover,
+.allscan-module-drag-handle:focus-visible { opacity: .9; }
+.allscan-module-drag-handle:active { cursor: grabbing; opacity: 1; }
+.allscan-module-drag-handle span {
+  display: block;
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.allscan-section-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+@media (max-width: 620px) {
+  .allscan-module-drag-handle {
+    width: 24px;
+    height: 24px;
+    opacity: .5;
+  }
+}
+
+/* Favorites + Node Controls authoritative layout. */
+.allscan-controls-section { z-index: 20; }
+.allscan-favorites-panel { z-index: 10; }
+
+.allscan-controls-shell > .allscan-checks-row {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 0 7px;
+  display: grid;
+  grid-template-columns: max-content max-content max-content;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 0;
+}
+.allscan-controls-shell > .allscan-checks-row > label:first-child { justify-self: start; }
+.allscan-controls-shell > .allscan-checks-row > label:nth-child(2) { justify-self: center; }
+.allscan-controls-shell > .allscan-checks-row > .allscan-custom-commands { justify-self: end; margin-left: 0; }
+.allscan-controls-shell > .allscan-node-messages { margin-top: 8px !important; }
+
+.allscan-custom-commands { position: relative; z-index: 220; }
+.allscan-custom-commands-button {
+  box-sizing: border-box;
+  min-width: 70px;
+  min-height: 30px;
+  height: 30px;
+  padding: 4px 8px;
+  border-color: var(--theme-border, rgba(255, 255, 255, .18));
+  background: var(--theme-control, rgba(28, 28, 30, .96));
+  color: var(--theme-text, rgb(230, 242, 247));
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 15.4px;
+}
+.allscan-custom-commands-button svg { width: 14px; height: 14px; }
+.allscan-custom-commands-menu {
+  z-index: 300;
+  background: var(--theme-panel-solid, rgb(28, 28, 30));
+  border-color: var(--theme-border, rgba(255, 255, 255, .18));
+  color: var(--theme-text, rgb(230, 242, 247));
+}
+.allscan-custom-command-manage,
+.allscan-custom-command-add,
+.allscan-custom-command-save-actions button,
+.allscan-custom-command-list > button,
+.allscan-custom-command-edit-actions button,
+.allscan-favorites-tools button {
+  background: var(--theme-control, rgba(28, 28, 30, .96));
+  border-color: var(--theme-border, rgba(255, 255, 255, .18));
+  color: var(--theme-text, rgb(230, 242, 247));
+}
+
+.allscan-favorites-options {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding-left: 0;
+  padding-right: 0;
+  justify-content: center;
+}
+
+
+@media (max-width: 720px) {
+  .allscan-favorites-options { width: 100%; padding-left: 32px; padding-right: 32px; }
+}
+@media (max-width: 620px) {
+  .allscan-controls-shell > .allscan-checks-row {
+    padding: 0 4px;
+    grid-template-columns: max-content max-content max-content;
+  }
+}
+
+.allscan-favorites-inner { box-sizing: border-box; overflow: hidden; }
+.allscan-favorites-table-wrap { box-sizing: border-box; width: 100%; max-width: 100%; }
+.allscan-favorites-table { box-sizing: border-box; max-width: calc(100% - 8px); }
+
+/* Favorites card containment: remove legacy table frame and keep compact rows inside panel. */
+.allscan-favorites-table-wrap {
+  overflow: hidden;
+  padding: 0;
+}
+.allscan-favorites-table {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 8px 0 10px;
+  border: 0;
+  background: transparent;
+}
+.allscan-favorites-table tbody {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.allscan-favorites-table tbody tr {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Keep Rx visible inside the whole-cell networked box. */
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  display: inline-block;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  padding: 0;
+  color: inherit !important;
+}
+
+/* Networked favorite node cell: compact box, unclipped content, normal node text. */
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked {
+  width: 82px !important;
+  min-width: 82px !important;
+  max-width: 82px !important;
+  padding: 4px 7px !important;
+  overflow: visible;
+  color: var(--theme-text, rgb(230, 242, 247)) !important;
+}
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-node-number {
+  display: block;
+  color: var(--theme-text, rgb(230, 242, 247)) !important;
+  white-space: nowrap;
+}
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  display: block;
+  width: max-content;
+  margin-top: 1px;
+  color: hsl(130, 58%, 64%) !important;
+  white-space: nowrap;
+}
+
+/* Favorites compact status hierarchy: Node / Rx / Linked. */
+.allscan-favorites-table tbody td:nth-child(2) {
+  box-sizing: border-box;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  padding: 4px 7px;
+  background: transparent;
+}
+.allscan-favorites-table tbody td:nth-child(2):not(.allscan-fav-cell-networked) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorite-node-number { font-size: 15px; }
+.allscan-favorite-rx,
+.allscan-favorite-linked-inline {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.allscan-favorite-linked-inline {
+  margin-top: 2px;
+  font-weight: 800;
+  opacity: .86;
+}
+.allscan-favorites-table tbody tr {
+  min-height: 50px;
+  font-size: 1.04em;
+}
+.allscan-favorite-description { font-size: 1.04em; }
+.allscan-favorite-frequency { min-height: 12px; font-size: 11px; }
+
+/* Tighten Favorites rows and simplify network/Rx status treatment. */
+.allscan-favorites-table tbody tr {
+  min-height: 44px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.allscan-favorites-table tbody td:nth-child(2) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked {
+  box-shadow: inset 0 0 0 1px hsl(130, 58%, 64%) !important;
+}
+.allscan-favorite-rx,
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-fav-cell-rx,
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked .allscan-favorite-rx {
+  color: hsl(130, 58%, 64%) !important;
+}
+
+
+/* Two-column Favorites cards: compact status, long description, 2x2 actions. */
+.allscan-favorites-table tbody {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.allscan-favorites-table tbody tr {
+  grid-template-columns: 24px 76px minmax(0, 1fr) 56px;
+  grid-template-areas: "order node description actions";
+  gap: 6px;
+  min-height: 48px;
+}
+.allscan-favorites-table tbody td:nth-child(2),
+.allscan-favorites-table tbody td:nth-child(2).allscan-fav-cell-networked {
+  width: 76px !important;
+  min-width: 76px !important;
+  max-width: 76px !important;
+  padding-left: 6px !important;
+  padding-right: 5px !important;
+}
+.allscan-favorites-table tbody td:nth-child(5) { display: none; }
+.allscan-favorite-meta {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+  align-items: baseline;
+  color: rgba(226, 238, 244, .68);
+  font-size: 10px;
+  line-height: 1.1;
+}
+.allscan-favorite-frequency,
+.allscan-favorite-location {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.allscan-favorite-frequency:empty { display: none; }
+.allscan-favorite-location { flex: 1 1 auto; }
+.allscan-favorites-table tbody td:nth-child(7),
+.allscan-favorites-table tbody td.allscan-favorite-actions-cell {
+  grid-area: actions;
+  display: flex;
+  width: 56px;
+  min-width: 56px;
+  align-self: center;
+  justify-content: flex-end;
+  overflow: visible;
+}
+.allscan-favorite-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 25px);
+  grid-auto-rows: 25px;
+  gap: 3px;
+  width: 53px;
+  justify-content: end;
+}
+@media (max-width: 900px) {
+  .allscan-favorites-table tbody { grid-template-columns: 1fr; }
+}
+
+
+/* Favorite details are three distinct lines: description, frequency, location. */
+.allscan-favorite-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+.allscan-favorite-frequency,
+.allscan-favorite-location {
+  display: block;
+  width: 100%;
+  min-height: 11px;
+}
+.allscan-favorite-frequency:empty {
+  display: block;
+}
+
+
+/* Favorites uses the shared dashboard title/header rhythm. Scanning marks the row grip. */
+.allscan-fav-scanning {
+  position: relative;
+  text-decoration: none;
+  color: inherit;
+}
+.allscan-fav-scanning .allscan-favorite-drag {
+  position: relative;
+  overflow: visible;
+}
+.allscan-fav-scanning .allscan-favorite-drag::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(223, 232, 237);
+  pointer-events: none;
+}
+
+
+/* Favorites is a standard dashboard module: shared header width, lighter content framing. */
+.allscan-favorites-panel {
+  box-sizing: border-box;
+  width: min(1280px, calc(100vw - 24px));
+  max-width: 1280px;
+  margin: 0 auto 18px;
+}
+.allscan-favorites-panel > .allscan-section-title {
+  margin: 10px auto 8px;
+}
+.allscan-favorites-inner {
+  box-sizing: border-box;
+  width: min(980px, 100%);
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 10px 5px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorite-actions button:disabled {
+  opacity: .28;
+  cursor: default;
+}
+
+
+/* Remove the Favorites module backdrop; keep title above centered content like other modules. */
+.allscan-favorites-panel {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+.allscan-favorites-panel::before,
+.allscan-favorites-panel::after {
+  content: none !important;
+  display: none !important;
+}
+.allscan-favorites-panel > .allscan-section-title {
+  background: transparent !important;
+}
+.allscan-favorites-options,
+.allscan-favorites-legend {
+  justify-content: center;
+}
+.allscan-favorites-options {
+  align-items: center;
+}
+
+
+/* Favorites content surface: title remains outside, content gets the same contained dark surface. */
+.allscan-favorites-inner {
+  padding: 12px 10px 10px;
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, .16)) !important;
+  border-radius: 8px;
+  background: var(--theme-panel-solid, rgba(8, 9, 10, .96)) !important;
+  color: var(--theme-text, rgb(230, 242, 247));
+  box-shadow: var(--theme-status-shadow, none) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody tr {
+  border-color: var(--theme-border);
+  background: var(--theme-panel-solid);
+  color: var(--theme-text);
+}
+html[data-asr-theme] .allscan-favorite-meta {
+  color: var(--theme-muted);
+}
+html[data-asr-theme] .allscan-favorite-actions button,
+html[data-asr-theme] .allscan-favorite-drag {
+  border-color: var(--theme-border);
+  background: var(--theme-control);
+  color: var(--theme-text);
+}
+html[data-asr-theme] .allscan-favorite-actions button:hover:not(:disabled),
+html[data-asr-theme] .allscan-favorite-drag:hover {
+  background: var(--theme-hover);
+}
+
+
+/* Cross-theme Favorites activity and LCARS module parity. */
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source {
+  background: transparent !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-drag {
+  background: hsl(0, 56%, 24%) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-source .allscan-favorite-drag:hover {
+  background: hsl(0, 56%, 24%) !important;
+}
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-node-number,
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-linked-inline { color: #fff !important; }
+html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx { color: hsl(130, 72%, 42%) !important; }
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
+    width: min(410px, calc(100vw - 24px)); height: auto; min-height: 28px; margin: 10px auto 8px; padding: 0;
+    border-radius: 0; background: transparent; color: var(--theme-text); font-size: inherit; font-style: inherit; letter-spacing: normal;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title::after { content: none; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
+    width: min(410px, calc(100vw - 24px)); height: auto; max-width: 410px; margin-top: 0; padding: 10px 8px;
+    border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-panel-solid); box-shadow: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    content: ""; position: absolute; z-index: 0; left: 0; right: 0; height: 8px; pointer-events: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before {
+    top: -8px; border-radius: 8px 8px 0 0;
+    background: linear-gradient(90deg,#cc9966 0 16%,#ccaa44 16% 34%,#ddcc99 34% 60%,#7799bb 60% 80%,#cc9966 80% 100%);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    bottom: -8px; border-radius: 0 0 8px 8px;
+    background: linear-gradient(90deg,#ccaa44 0 15%,#7799bb 15% 33%,#cc9966 33% 58%,#ddcc99 58% 81%,#887755 81% 100%);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner { position: relative; margin-top: 16px; margin-bottom: 16px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > *,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * { position: relative; z-index: 1; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-row { flex-wrap: wrap; gap: 7px 10px; }
+  html[data-asr-theme="lcars-frame"] .allscan-connect-button,
+  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button,
+  html[data-asr-theme="lcars-frame"] .allscan-action-select { width: auto; min-width: 0; max-width: none; }
+  html[data-asr-theme="lcars-frame"] .allscan-checks-row { margin-top: 4px !important; row-gap: 0; column-gap: 12px !important; font-size: inherit; }
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button {
+    border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-control); color: var(--theme-text); box-shadow: none;
+  }
+}
+/* LCARS Node Controls: preserve standard module geometry; LCARS only frames it. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
+    width: min(460px, calc(100vw - 24px));
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
+    width: min(460px, calc(100vw - 24px));
+    max-width: 460px;
+    padding: 10px 8px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after {
+    height: 12px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before { top: -12px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after { bottom: -12px; }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > .allscan-controls-row:first-child {
+    flex-wrap: nowrap;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-controls-lower-row {
+    flex-wrap: nowrap;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-checks-grid {
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* Compact Node Controls: Commands top-right with a single-row option block. */
+.allscan-controls-shell { position: relative; }
+.allscan-checks-grid {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: center;
+  align-items: center;
+  column-gap: 12px !important;
+  row-gap: 0 !important;
+  min-height: 18px;
+  margin-top: 4px !important;
+  padding: 0 2px;
+}
+.allscan-checks-grid > label {
+  justify-self: start;
+  white-space: nowrap;
+}
+.allscan-checks-grid > .allscan-custom-commands {
+  position: absolute;
+  z-index: 60;
+  top: 7px;
+  right: 7px;
+  margin: 0;
+}
+.allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+  min-width: 52px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* Keep the shell at its established width; the top row reserves only the Commands button itself. */
+.allscan-controls-shell > .allscan-controls-row:first-child {
+  position: relative;
+  justify-content: flex-start !important;
+  column-gap: 6px;
+  padding-right: 58px;
+}
+.allscan-controls-shell > .allscan-controls-row:first-child .allscan-node-field {
+  margin-right: 0;
+}
+
+/* Beta 8 talker cards: five-card current/recent strip, native to every ASR theme. */
+.allscan-talkers-section { view-transition-name: asr-talkers-module; }
+.allscan-favorite-color-popover {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  padding: 9px;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.2));
+  border-radius: 8px;
+  background: var(--theme-panel-solid, #17191c);
+  color: var(--theme-text, #eaf4f8);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.allscan-favorite-color-preview { display: block; width: 100%; height: 34px; margin-bottom: 8px; border: 1px solid var(--theme-border, rgba(255,255,255,.25)); border-radius: 5px; }
+.allscan-favorite-color-popover label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; }
+.allscan-favorite-color-popover input { min-width: 0; width: 100%; padding: 4px 6px; border: 1px solid var(--theme-border, rgba(255,255,255,.2)); border-radius: 5px; background: var(--theme-control, #202328); color: var(--theme-text, #fff); font: inherit; text-transform: uppercase; }
+.allscan-favorite-color-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 8px; }
+.allscan-favorite-color-palette button { width: 17px !important; min-width: 17px !important; height: 17px !important; padding: 0 !important; border: 1px solid rgba(255,255,255,.4) !important; border-radius: 50% !important; }
+.allscan-favorite-color-popover-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.allscan-favorite-color-popover-actions button { width: auto !important; height: auto !important; min-width: 58px; padding: 5px 9px !important; }
+
+/* Stable in-app palette: row hover never moves while the picker is open. */
+.allscan-favorites-table tbody tr:has(.allscan-favorite-color-popover),
+.allscan-favorites-table tbody tr:has(.allscan-favorite-color-popover):hover {
+  transform: none !important;
+}
+.allscan-favorite-actions:has(.allscan-favorite-color-popover) { position: relative; z-index: 120; }
+.allscan-favorite-color-popover { top: 0; right: calc(100% + 7px); width: 224px; }
+.allscan-favorite-color-field { position: relative; display: block; width: 100%; height: 105px; margin-top: 8px; overflow: hidden; cursor: crosshair; border: 1px solid var(--theme-border, rgba(255,255,255,.25)); border-radius: 5px; background: hsl(200,100%,50%); }
+.allscan-favorite-color-field-white,
+.allscan-favorite-color-field-black { position: absolute; inset: 0; pointer-events: none; }
+.allscan-favorite-color-field-white { background: linear-gradient(to right, #fff, rgba(255,255,255,0)); }
+.allscan-favorite-color-field-black { background: linear-gradient(to top, #000, rgba(0,0,0,0)); }
+.allscan-favorite-hue { display: block; width: 100% !important; height: 14px !important; margin-top: 7px; padding: 0 !important; border: 0 !important; border-radius: 7px !important; appearance: none; background: linear-gradient(to right, #f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00) !important; }
+.allscan-favorite-hue::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; background: transparent; box-shadow: 0 0 0 1px #000; }
+.allscan-favorite-color-palette { grid-template-columns: repeat(7, 1fr); }
+.allscan-favorite-color-popover,
+.allscan-favorite-color-popover * { -webkit-user-drag: none; }
+.allscan-favorite-color-field { touch-action: none; user-select: none; -webkit-user-select: none; }
+.allscan-favorites-table tbody tr { -webkit-user-drag: none; }
+.allscan-favorites-table tbody tr button:not(.allscan-favorite-drag),
+.allscan-favorites-table tbody tr input,
+.allscan-favorites-table tbody tr a,
+.allscan-favorites-table tbody tr label,
+.allscan-favorites-table tbody tr .allscan-favorite-details { -webkit-user-drag: none; }
+.allscan-favorite-drag { cursor: grab; }
+.allscan-favorite-drag:active { cursor: grabbing; }
+.allscan-favorite-drag-ghost {
+  position: fixed !important;
+  top: -10000px !important;
+  left: -10000px !important;
+  z-index: -1 !important;
+  display: grid !important;
+  grid-template-columns: 30px minmax(62px, .52fr) minmax(0, 2.25fr) minmax(70px, .62fr) minmax(70px, .62fr) minmax(70px, .62fr) 56px !important;
+  align-items: stretch !important;
+  opacity: .88 !important;
+  background: var(--theme-panel-solid, #17191c) !important;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.22)) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45) !important;
+  pointer-events: none !important;
+}
+/* Drag preview must preserve the complete Favorite activity grip, including TX red. */
+.allscan-favorite-drag-ghost > td:first-child {
+  box-sizing: border-box !important;
+  display: flex !important;
+  min-width: 30px !important;
+  padding: 3px 4px !important;
+  overflow: visible !important;
+  align-items: stretch !important;
+}
+.allscan-favorite-drag-ghost .allscan-favorite-drag {
+  box-sizing: border-box !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: auto !important;
+  min-height: 34px !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+html[data-asr-theme] .allscan-favorite-drag-ghost > td.allscan-fav-cell-source .allscan-favorite-drag {
+  background: hsl(0, 56%, 24%) !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px hsl(0, 100%, 70%) !important;
+}
+.allscan-favorite-drag-ghost {
+  border-inline-start-color: var(--theme-border, rgba(255,255,255,.22)) !important;
+}
+.allscan-favorite-drag-ghost > td:first-child {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+html[data-asr-theme] .allscan-favorite-drag-ghost > td.allscan-fav-cell-source {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* Favorites color editor must escape the module/table clipping context. */
+.allscan-favorites-panel:has(.allscan-favorite-color-popover),
+.allscan-favorites-inner:has(.allscan-favorite-color-popover),
+.allscan-favorites-table-wrap:has(.allscan-favorite-color-popover),
+.allscan-favorites-table:has(.allscan-favorite-color-popover) { overflow:visible !important; }
+.allscan-favorite-actions-cell:has(.allscan-favorite-color-popover),
+.allscan-favorite-actions:has(.allscan-favorite-color-popover),
+.allscan-favorite-color-control:has(.allscan-favorite-color-popover) { position:relative; z-index:300; overflow:visible !important; }
+.allscan-favorite-color-popover.opens-up { top:auto; bottom:0; right:calc(100% + 7px); }
+
+/* Talker cards: authoritative dashboard-native mini bridge modules. */
+.allscan-talker-cards {
+  display:grid; width:min(980px,calc(100vw - 40px)); max-width:980px;
+  grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; margin:0 auto;
+}
+.allscan-talker-card {
+  min-height:102px; padding:8px 9px 7px; border:1px solid var(--theme-border);
+  border-radius:8px; background:var(--theme-panel-solid); color:var(--theme-text);
+  font-family:inherit; font-size:12px; font-weight:400; line-height:1.2; text-align:left; box-shadow:none;
+}
+.allscan-talker-card-title { margin-bottom:5px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:800; line-height:1.1; }
+.allscan-talker-callsign { min-height:17px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:16px; font-weight:800; line-height:1.1; }
+.allscan-talker-source { margin-top:2px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:12px; font-weight:700; line-height:1.15; }
+.allscan-talker-location { margin-top:2px; color:var(--theme-text); font:inherit; font-size:12px; font-weight:600; line-height:1.15; opacity:.92; }
+.allscan-talker-duration { display:flex; justify-content:flex-start; gap:4px; margin-top:auto; padding-top:6px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:700; text-align:left; opacity:.94; }
+.allscan-talker-duration strong { color:var(--theme-bridge-text,var(--theme-text)); font-weight:800; font-variant-numeric:tabular-nums; }
+.allscan-talker-card.is-current { border-color:var(--theme-border-strong,var(--theme-border)); box-shadow:inset 3px 0 0 var(--theme-accent); }
+.allscan-talker-card.is-current .allscan-talker-callsign { color:var(--theme-accent); }
+.allscan-talker-card.is-empty .allscan-talker-source { color:var(--theme-text); font-weight:600; opacity:.9; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card { background:#050505; border-color:#555; color:#f2f2f2; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-callsign,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-source,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-duration,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-duration strong { color:#f2f2f2; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-location { color:#e0e0e0; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-empty .allscan-talker-source { color:#ededed; opacity:1; }
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-current .allscan-talker-callsign { color:var(--theme-accent); }
+@media (max-width:780px) { .allscan-talker-cards { width:min(980px,calc(100vw - 24px)); grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:520px) { .allscan-talker-cards { width:calc(100vw - 16px); grid-template-columns:repeat(2,minmax(0,1fr)); } .allscan-talker-card { min-height:96px; } }
+
+/* Viewport-level Favorite color editor: fixed positioning bypasses every module/table clip. */
+.allscan-favorite-color-popover { position:fixed !important; right:auto !important; bottom:auto !important; z-index:10000 !important; }
+/* Compact desktop Commands popup; management gets a wider editor below. */
+@media (min-width: 621px) {
+  .allscan-custom-commands-menu { width: min(200px, calc(100vw - 24px)); }
+  .allscan-custom-command-edit-row { grid-template-columns: minmax(0, 1fr); }
+  .allscan-custom-command-edit-actions { justify-content: flex-end; }
+}
+/* Commands stays compact for execution; management gets room for editing. */
+@media (min-width: 621px) {
+  .allscan-custom-commands-menu.is-managing { width: min(360px, calc(100vw - 24px)); }
+  .allscan-custom-commands-menu.is-managing .allscan-custom-command-edit-row {
+    grid-template-columns: minmax(110px, 1fr) minmax(75px, .55fr) auto;
+  }
+}
+/* Dashboard content alignment: Talkers and Favorites share the same 980px frame. */
+.allscan-talker-cards {
+  box-sizing: border-box;
+  width: min(980px, 100%);
+  max-width: 980px;
+}
+.allscan-talkers-section {
+  box-sizing: border-box;
+  width: min(1280px, calc(100vw - 24px));
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Favorite color action: monochrome palette only; row accent already shows the chosen color. */
+.allscan-favorite-color-trigger > svg {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
+  stroke-width: 2;
+}
+.allscan-favorite-color-dot,
+.allscan-favorite-color-icon { display: none !important; }
+/* Talker typography: inherit each ASR theme's typeface, with reference-style hierarchy. */
+.allscan-talker-card {
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.allscan-talker-card-title {
+  margin-bottom: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.15;
+  opacity: .78;
+}
+.allscan-talker-callsign {
+  min-height: 19px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: .01em;
+}
+.allscan-talker-source {
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.allscan-talker-location {
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.15;
+  opacity: .76;
+}
+.allscan-talker-duration {
+  margin-top: auto;
+  padding-top: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  opacity: .9;
+}
+.allscan-talker-duration strong {
+  font-family: inherit;
+  font-weight: 900;
+}
+/* Current Talker identity colors tuned to each theme's own visual language. */
+html[data-asr-theme="standard"][data-asr-mode="dark"] { --theme-talker-live: #f2bd4b; }
+html[data-asr-theme="standard"][data-asr-mode="light"] { --theme-talker-live: #9a6200; }
+html[data-asr-theme="deep-ocean-animated"] { --theme-talker-live: #55c7ff; }
+html[data-asr-theme="matrix"] { --theme-talker-live: #00ff66; }
+html[data-asr-theme="lcars-frame"] { --theme-talker-live: #ff9f40; }
+/* Light-mode Favorites Rx Busy: darker green for readable percentage and matching legend. */
+html[data-asr-theme="standard"][data-asr-mode="light"] {
+  --theme-fav-rx-busy: #1f7a3a;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-fav-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend .is-rx,
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend-rx {
+  color: var(--theme-fav-rx-busy) !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-rx {
+  color: #1f7a3a !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-legend .allscan-fav-rxbar {
+  background: #1f7a3a !important;
+  border-color: #1f7a3a !important;
+}
+/* Standard light: normal Rx stays dark, but networked dark-green cells need a bright Rx value. */
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx {
+  color: #8ff0a4 !important;
+}
+/* Standard light: Favorite frequency metadata must remain readable on the light card surface. */
+html[data-asr-theme="standard"][data-asr-mode="light"] .allscan-favorite-frequency {
+  color: #4f5f66 !important;
+  opacity: 1 !important;
+}
+/* Action select: long labels fit while retaining normal separation from management controls. */
+.allscan-controls-lower-row { gap: 12px; }
+.allscan-action-select {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  padding-left: 12px;
+  padding-right: 16px;
+  background-position: right 3px center;
+}
+/* Management modal: top viewport layer above Controls/Favorites. */
+body:has(.allscan-urf-access-modal) .allscan-controls-section,
+body:has(.allscan-urf-access-modal) .allscan-favorites-panel { z-index:auto !important; }
+.allscan-urf-access-modal {
+  position:fixed !important;
+  inset:0 !important;
+  z-index:2147483646 !important;
+  isolation:isolate;
+}
+.allscan-urf-access-modal > .allscan-urf-access-panel { position:relative; z-index:1; }
+/* Dashboard module geometry: single non-LCARS source of truth. */
+.allscan-dashboard { row-gap: 18px; }
+.allscan-dashboard-module {
+  margin: 0 auto !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+.allscan-dashboard-module > .allscan-section-title {
+  box-sizing: border-box;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+  min-height: 23px;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  text-align: center !important;
+  overflow: visible;
+}
+.allscan-dashboard-module > .allscan-section-title > .allscan-module-title-wrap {
+  grid-column: 2;
+  position: relative;
+  display: inline-block;
+  width: max-content;
+  max-width: calc(100vw - 90px);
+  margin: 0;
+  transform: none !important;
+  text-align: center !important;
+}
+.allscan-dashboard-module .allscan-module-title-text {
+  display: inline-block;
+  text-align: center !important;
+}
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 7px);
+  left: auto;
+  display: inline-flex;
+  visibility: visible;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 5px;
+  transform: translateY(-50%);
+  opacity: .55;
+  z-index: 5;
+}
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle:hover,
+.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle:focus-visible { opacity: .95; }
+/* Favorites final optical correction after visual review. */
+.allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+  transform: translateX(-14px) !important;
+}
+/* Talkers optical title correction after final centered-title review. */
+.allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap {
+  transform: translateX(-14px) !important;
+}
+/* Current Talker: authoritative theme-aware identity color; side tab remains neutral. */
+.allscan-talker-card.is-current {
+  border-color: var(--theme-border-strong, var(--theme-border)) !important;
+  border-left-color: var(--theme-border, rgba(255,255,255,.28)) !important;
+  box-shadow: inset 3px 0 0 var(--theme-border-strong, var(--theme-border)) !important;
+}
+.allscan-talker-card.is-current .allscan-talker-callsign,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-current .allscan-talker-callsign {
+  color: var(--theme-talker-live, var(--theme-bridge-text, var(--theme-text))) !important;
+}
+/* Talker metadata has fixed semantic rows: description then location, never merged. */
+.allscan-talker-description,
+.allscan-talker-location {
+  flex: 0 0 auto;
+  min-height: 14px;
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--theme-text);
+  opacity: .76;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.allscan-talker-location { margin-top: 1px; }

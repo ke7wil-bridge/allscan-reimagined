@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { flushSync } from 'react-dom'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -14,16 +15,19 @@ import {
   fetchBridgeDestinations,
   fetchAuthStatus,
   fetchCpuTemp,
+  fetchCustomCommands,
   fetchDiagnosticsReport,
   fetchDropClients,
   fetchFavorites,
   fetchFavoriteStats,
+  manageFavorite,
   fetchReleaseStatus,
   fetchUrfBlacklist,
   updateUrfBlacklist,
   kickUrfClient,
   kickStandaloneClient,
   restartAsteriskCommand,
+  saveCustomCommands,
   summarizeConnectionTotal,
   connectBridge,
   type DiagnosticsReport,
@@ -35,8 +39,10 @@ import {
   type BridgeDestination,
   type AuthStatus,
   type DropClientEntry,
+  type CustomCommand,
   type FavoriteNode,
   type LiveConnectionRow,
+  type TalkerFeedEntry,
   type RuntimeConfig,
   type ReleaseStatus,
   type UrfBan,
@@ -52,6 +58,9 @@ const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
+const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
+const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
+const TALKERS_OPEN_KEY = 'asrTalkersOpen.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -97,8 +106,9 @@ type ThemeSettings = {
   mode?: 'dark' | 'light'
 }
 
-type FavoritesPlacement = 'above' | 'below'
+type DashboardModuleKey = 'talkers' | 'controls' | 'favorites' | 'connections' | 'bridges'
 
+const DASHBOARD_MODULES: DashboardModuleKey[] = ['talkers', 'controls', 'favorites', 'connections', 'bridges']
 const themeOptions = [
   { value: 'standard', label: 'Dark Side', mode: 'dark' },
   { value: 'standard', label: 'Bright Side', mode: 'light' },
@@ -187,23 +197,32 @@ function writeAutodiscPreference(checked: boolean) {
   }
 }
 
-function normalizeFavoritesPlacement(value: string | null): FavoritesPlacement {
-  return value === 'below' ? 'below' : 'above'
+function normalizeDashboardModuleOrder(value: unknown): DashboardModuleKey[] {
+  if (!Array.isArray(value)) return [...DASHBOARD_MODULES]
+  const known = value.filter((item): item is DashboardModuleKey => (
+    typeof item === 'string' && DASHBOARD_MODULES.includes(item as DashboardModuleKey)
+  ))
+  return [...new Set(known), ...DASHBOARD_MODULES.filter((item) => !known.includes(item))]
 }
 
-function readFavoritesPlacement(): FavoritesPlacement {
-  if (typeof window === 'undefined') return 'above'
+function readDashboardModuleOrder(): DashboardModuleKey[] {
+  if (typeof window === 'undefined') return [...DASHBOARD_MODULES]
   try {
-    return normalizeFavoritesPlacement(window.localStorage.getItem(FAVORITES_PLACEMENT_KEY))
+    const saved = window.localStorage.getItem(DASHBOARD_MODULE_ORDER_KEY)
+    if (saved) return normalizeDashboardModuleOrder(JSON.parse(saved))
+    const legacyPlacement = window.localStorage.getItem(FAVORITES_PLACEMENT_KEY)
+    return legacyPlacement === 'below'
+      ? ['talkers', 'controls', 'connections', 'favorites', 'bridges']
+      : [...DASHBOARD_MODULES]
   } catch {
-    return 'above'
+    return [...DASHBOARD_MODULES]
   }
 }
 
-function writeFavoritesPlacement(placement: FavoritesPlacement) {
+function writeDashboardModuleOrder(order: DashboardModuleKey[]) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(FAVORITES_PLACEMENT_KEY, placement)
+    window.localStorage.setItem(DASHBOARD_MODULE_ORDER_KEY, JSON.stringify(order))
   } catch {
     // Ignore preference write failures.
   }
@@ -438,6 +457,10 @@ function formatUtc(date: Date) {
 
 function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
+  const [currentTalker, setCurrentTalker] = useState<TalkerFeedEntry | null>(null)
+  const [recentTalkers, setRecentTalkers] = useState<TalkerFeedEntry[]>([])
+  const [talkersOpen, setTalkersOpen] = useState(() => window.localStorage.getItem(TALKERS_OPEN_KEY) !== '0')
+  useEffect(() => { window.localStorage.setItem(TALKERS_OPEN_KEY, talkersOpen ? '1' : '0') }, [talkersOpen])
   const [backgroundNodeState, setBackgroundNodeState] = useState<LiveConnectionRow['state'] | null>(null)
   const [connectedCount, setConnectedCount] = useState(0)
   const [directCount, setDirectCount] = useState(0)
@@ -465,8 +488,28 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteFiles, setFavoriteFiles] = useState<FavoritesFileOption[]>([])
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoritesPlacement, setFavoritesPlacement] = useState<FavoritesPlacement>(readFavoritesPlacement)
+  const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_OPEN_KEY) === '1')
+  useEffect(() => {
+    window.localStorage.setItem(FAVORITES_OPEN_KEY, favoritesOpen ? '1' : '0')
+  }, [favoritesOpen])
+  const [customCommandsEnabled, setCustomCommandsEnabled] = useState(false)
+  const [customCommands, setCustomCommands] = useState<CustomCommand[]>([])
+  const [customCommandsOpen, setCustomCommandsOpen] = useState(false)
+  const [customCommandsManaging, setCustomCommandsManaging] = useState(false)
+  const [customCommandsDraft, setCustomCommandsDraft] = useState<CustomCommand[]>([])
+  const [customCommandsStatus, setCustomCommandsStatus] = useState('')
+  const [customCommandsSaving, setCustomCommandsSaving] = useState(false)
+  const [favoriteEditing, setFavoriteEditing] = useState<string | null>(null)
+  const [favoriteDescription, setFavoriteDescription] = useState('')
+  const [favoriteColorDrafts, setFavoriteColorDrafts] = useState<Record<string, string>>({})
+  const [favoriteColorOpen, setFavoriteColorOpen] = useState<string | null>(null)
+  const [favoriteColorPosition, setFavoriteColorPosition] = useState<{ top: number; left: number } | null>(null)
+  const [favoriteColorHue, setFavoriteColorHue] = useState(200)
+  const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
+  const [favoriteStatus, setFavoriteStatus] = useState('')
+  const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
+  const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
+  const [dashboardModuleOver, setDashboardModuleOver] = useState<DashboardModuleKey | null>(null)
   const [favoritesScanIndex, setFavoritesScanIndex] = useState(0)
   const [favoriteSort, setFavoriteSort] = useState<{
     key: 'index' | 'node' | 'name' | 'desc' | 'location'
@@ -523,8 +566,12 @@ function App({ config }: { config: RuntimeConfig }) {
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
-  const favoritesPlacementRef = useRef<HTMLInputElement>(null)
-  const restoreFavoritesPlacementFocus = useRef(false)
+  const customCommandsRef = useRef<HTMLDivElement>(null)
+  const dashboardModuleOverRef = useRef<DashboardModuleKey | null>(null)
+  const dashboardDragPointerRef = useRef({ x: 0, y: 0 })
+  const dashboardDragScrollFrameRef = useRef<number | null>(null)
+  const dashboardModuleOrderRef = useRef<DashboardModuleKey[]>(dashboardModuleOrder)
+  const dashboardDragStartOrderRef = useRef<DashboardModuleKey[] | null>(null)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -533,7 +580,6 @@ function App({ config }: { config: RuntimeConfig }) {
     () => themeOptions.filter((option) => desktopThemeViewport || option.value !== 'lcars-frame'),
     [desktopThemeViewport],
   )
-  const isAddDeleteFavoriteAction = actionValue === 'addfav' || actionValue === 'delfav'
   const bridgeConnectionLabels = useMemo(
     () => ({
       byId: new Map(
@@ -570,6 +616,31 @@ function App({ config }: { config: RuntimeConfig }) {
     () => summarizeConnectionTotal(directCount, adjacentCount, bridgeState.cards),
     [adjacentCount, bridgeState.cards, directCount],
   )
+
+  const talkerCards = useMemo(() => {
+    const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
+    return [currentTalker, ...history, null, null, null, null].slice(0, 5)
+  }, [currentTalker, recentTalkers])
+  const talkerDuration = (talker: TalkerFeedEntry | null, index: number) => {
+    if (!talker) return '—'
+    if (index === 0 && talker.startedEpoch > 0) {
+      const elapsed = Math.max(0, Math.floor(clock.getTime() / 1000) - talker.startedEpoch)
+      const hours = Math.floor(elapsed / 3600)
+      const minutes = Math.floor((elapsed % 3600) / 60)
+      const seconds = elapsed % 60
+      return hours > 0
+        ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    const raw = String(talker.duration || '').trim()
+    if (/^\d+$/.test(raw)) {
+      const elapsed = Number(raw)
+      const minutes = Math.floor(elapsed / 60)
+      const seconds = elapsed % 60
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    return raw || '—'
+  }
 
   useEffect(() => {
     document.title = browserTitle
@@ -742,27 +813,7 @@ function App({ config }: { config: RuntimeConfig }) {
     return { ...stats, txPct }
   }
 
-  const sortedFavorites = useMemo(() => {
-    const items = [...favorites]
-    const dir = favoriteSort.direction === 'asc' ? 1 : -1
-    const key = favoriteSort.key
-
-    items.sort((a, b) => {
-      if (key === 'index' || key === 'node') {
-        const av = Number(key === 'index' ? a.index : a.node)
-        const bv = Number(key === 'index' ? b.index : b.node)
-        if (Number.isFinite(av) && Number.isFinite(bv) && av !== bv) return (av - bv) * dir
-      }
-
-      const av = String(a[key] || '').toLowerCase()
-      const bv = String(b[key] || '').toLowerCase()
-      if (av < bv) return -1 * dir
-      if (av > bv) return 1 * dir
-      return 0
-    })
-
-    return items
-  }, [favorites, favoriteSort])
+  const sortedFavorites = favorites
 
   const sortedConnectionRows = useMemo(() => {
     const pinnedRows = rows
@@ -872,18 +923,37 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [themeSettings, config.lowPowerMode])
 
   useEffect(() => {
-    if (!restoreFavoritesPlacementFocus.current) return
-    restoreFavoritesPlacementFocus.current = false
-    const frame = window.requestAnimationFrame(() => favoritesPlacementRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [favoritesPlacement])
-
-  useEffect(() => {
     const handleResize = () => setDesktopThemeViewport(isDesktopThemeViewport())
     handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => () => {
+    if (dashboardDragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dashboardModuleDragging) return
+    const finish = () => {
+      if (dashboardModuleDragging) {
+        writeDashboardModuleOrder(dashboardModuleOrderRef.current)
+        dashboardDragStartOrderRef.current = null
+        stopDashboardDragAutoScroll()
+        dashboardModuleOverRef.current = null
+        setDashboardModuleDragging(null)
+        setDashboardModuleOver(null)
+      }
+    }
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('blur', finish)
+    return () => {
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('blur', finish)
+    }
+  }, [dashboardModuleDragging])
 
   useEffect(() => {
     if (reportBugParamHandled.current || !authStatus.isAdmin) return
@@ -899,9 +969,16 @@ function App({ config }: { config: RuntimeConfig }) {
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+      if (!customCommandsRef.current?.contains(event.target as Node)) {
+        setCustomCommandsOpen(false)
+        setCustomCommandsManaging(false)
+      }
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      setCustomCommandsOpen(false)
+      setCustomCommandsManaging(false)
     }
     document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
@@ -970,6 +1047,27 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [])
 
   useEffect(() => {
+    if (!authStatus.canRead) return
+    let cancelled = false
+    const refreshCustomCommands = async () => {
+      try {
+        const next = await fetchCustomCommands()
+        if (cancelled) return
+        setCustomCommandsEnabled(next.enabled)
+        setCustomCommands(next.commands)
+      } catch (error) {
+        if (!cancelled) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
+      }
+    }
+    void refreshCustomCommands()
+    window.addEventListener('focus', refreshCustomCommands)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', refreshCustomCommands)
+    }
+  }, [authStatus.canRead])
+
+  useEffect(() => {
     if (!config.node) {
       const messageTimer = window.setTimeout(() => {
         appendNodeMessage('No local node number was detected. Run the Reimagined setup again.')
@@ -1000,6 +1098,8 @@ function App({ config }: { config: RuntimeConfig }) {
         setAdjacentCount(snapshot.adjacentCount)
         setLinkedNodes(snapshot.linkedNodes)
         setLinkedNodeCounts(snapshot.linkedNodeCounts)
+        setCurrentTalker(snapshot.currentTalker)
+        setRecentTalkers(snapshot.recentTalkers)
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       },
       (message) => {
@@ -1248,8 +1348,8 @@ function App({ config }: { config: RuntimeConfig }) {
       const favorite = sortedFavorites[index]
       if (!favorite) return
 
+      setFavoritesScanIndex(index)
       scanIndex = (index + 1) % sortedFavorites.length
-      setFavoritesScanIndex(scanIndex)
 
       try {
         const stats = await fetchFavoriteStats(favorite.node)
@@ -1286,6 +1386,209 @@ function App({ config }: { config: RuntimeConfig }) {
         ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
         : { key, direction: 'asc' }
     ))
+  }
+
+  async function reloadFavorites() {
+    const next = await fetchFavorites(selectedFavoriteFile)
+    setFavorites(next.rows)
+    setFavoriteFiles(next.files)
+    if (next.selectedFile !== selectedFavoriteFile) setSelectedFavoriteFile(next.selectedFile)
+  }
+
+  async function favoriteOperation(
+    operation: Parameters<typeof manageFavorite>[0]['operation'],
+    options: { node?: string; value?: string } = {},
+  ) {
+    if (!authStatus.canModify) return false
+    try {
+      setBusy(true)
+      const result = await manageFavorite({
+        operation,
+        favsfile: selectedFavoriteFile,
+        node: options.node,
+        value: options.value,
+      })
+      if (operation !== 'preview-import') await reloadFavorites()
+      if (operation === 'import') {
+        setFavoriteStatus(`Imported ${Number(result.added || 0)} new Favorite(s); existing entries and customizations were preserved.`)
+      } else {
+        setFavoriteStatus('Favorites saved.')
+      }
+      return true
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Favorites operation failed.')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function moveDashboardModule(source: DashboardModuleKey, target: DashboardModuleKey) {
+    if (source === target) return
+    const applyOrder = () => setDashboardModuleOrder((current) => {
+      const next = [...current]
+      const sourceIndex = next.indexOf(source)
+      const targetIndex = next.indexOf(target)
+      if (sourceIndex < 0 || targetIndex < 0) return current
+      next.splice(sourceIndex, 1)
+      next.splice(targetIndex, 0, source)
+      writeDashboardModuleOrder(next)
+      return next
+    })
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown
+    }
+    if (typeof viewTransitionDocument.startViewTransition === 'function') {
+      viewTransitionDocument.startViewTransition(() => flushSync(applyOrder))
+    } else {
+      applyOrder()
+    }
+  }
+
+  function previewDashboardModuleMove(source: DashboardModuleKey, target: DashboardModuleKey) {
+    if (source === target) return
+    const current = dashboardModuleOrderRef.current
+    const sourceIndex = current.indexOf(source)
+    const targetIndex = current.indexOf(target)
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return
+    const next = [...current]
+    next.splice(sourceIndex, 1)
+    next.splice(targetIndex, 0, source)
+    dashboardModuleOrderRef.current = next
+    const apply = () => setDashboardModuleOrder(next)
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => unknown
+    }
+    if (typeof viewTransitionDocument.startViewTransition === 'function') {
+      viewTransitionDocument.startViewTransition(() => flushSync(apply))
+    } else {
+      apply()
+    }
+  }
+
+  function updateDashboardDropTarget(x: number, y: number) {
+    const module = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-dashboard-module]')
+    const target = module?.dataset.dashboardModule as DashboardModuleKey | undefined
+    if (!target || !DASHBOARD_MODULES.includes(target) || dashboardModuleOverRef.current === target) return
+    dashboardModuleOverRef.current = target
+    setDashboardModuleOver(target)
+    if (dashboardModuleDragging && target !== dashboardModuleDragging) {
+      previewDashboardModuleMove(dashboardModuleDragging, target)
+    }
+  }
+
+  function stopDashboardDragAutoScroll() {
+    if (dashboardDragScrollFrameRef.current === null) return
+    window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
+    dashboardDragScrollFrameRef.current = null
+  }
+
+  function runDashboardDragAutoScroll() {
+    dashboardDragScrollFrameRef.current = null
+    if (!dashboardModuleDragging) return
+    const { x, y } = dashboardDragPointerRef.current
+    const edge = Math.min(120, Math.max(72, window.innerHeight * .12))
+    let delta = 0
+    if (y < edge) delta = -Math.min(24, Math.max(4, Math.ceil((edge - y) / 5)))
+    if (y > window.innerHeight - edge) delta = Math.min(24, Math.max(4, Math.ceil((y - (window.innerHeight - edge)) / 5)))
+    if (!delta) return
+    const before = window.scrollY
+    window.scrollBy(0, delta)
+    updateDashboardDropTarget(x, y)
+    if (window.scrollY !== before) {
+      dashboardDragScrollFrameRef.current = window.requestAnimationFrame(runDashboardDragAutoScroll)
+    }
+  }
+
+  function scheduleDashboardDragAutoScroll() {
+    if (dashboardDragScrollFrameRef.current !== null) return
+    dashboardDragScrollFrameRef.current = window.requestAnimationFrame(runDashboardDragAutoScroll)
+  }
+
+  function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dashboardModuleOverRef.current = key
+    dashboardModuleOrderRef.current = dashboardModuleOrder
+    dashboardDragStartOrderRef.current = [...dashboardModuleOrder]
+    dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
+    setDashboardModuleDragging(key)
+    setDashboardModuleOver(key)
+  }
+
+  function updateDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!dashboardModuleDragging) return
+    event.preventDefault()
+    dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
+    updateDashboardDropTarget(event.clientX, event.clientY)
+    scheduleDashboardDragAutoScroll()
+  }
+
+  function clearDashboardModuleDrag() {
+    stopDashboardDragAutoScroll()
+    dashboardModuleOverRef.current = null
+    setDashboardModuleDragging(null)
+    setDashboardModuleOver(null)
+  }
+
+  function endDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    if (dashboardModuleDragging) writeDashboardModuleOrder(dashboardModuleOrderRef.current)
+    dashboardDragStartOrderRef.current = null
+    clearDashboardModuleDrag()
+  }
+
+  function cancelDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    const startOrder = dashboardDragStartOrderRef.current
+    if (startOrder) {
+      dashboardModuleOrderRef.current = startOrder
+      setDashboardModuleOrder(startOrder)
+    }
+    dashboardDragStartOrderRef.current = null
+    clearDashboardModuleDrag()
+  }
+
+  function moveDashboardModuleByKeyboard(key: DashboardModuleKey, event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const index = dashboardModuleOrder.indexOf(key)
+    const targetIndex = index + (event.key === 'ArrowUp' ? -1 : 1)
+    const target = dashboardModuleOrder[targetIndex]
+    if (target) moveDashboardModule(key, target)
+  }
+
+  function dashboardModuleHandle(key: DashboardModuleKey, label: string) {
+    return (
+      <button
+        type="button"
+        className="allscan-module-drag-handle"
+        aria-label={`Move ${label}. Use arrow keys or drag.`}
+        title={`Move ${label}`}
+        onPointerDown={(event) => beginDashboardModuleDrag(key, event)}
+        onPointerMove={updateDashboardModuleDrag}
+        onPointerUp={endDashboardModuleDrag}
+        onPointerCancel={cancelDashboardModuleDrag}
+        onLostPointerCapture={() => { if (dashboardModuleDragging) clearDashboardModuleDrag() }}
+        onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
+      >
+        <span />
+        <span />
+      </button>
+    )
+  }
+
+  async function reorderFavorite(sourceNode: string, targetNode: string) {
+    if (sourceNode === targetNode) return
+    const order = favorites.map((favorite) => favorite.node)
+    const sourceIndex = order.indexOf(sourceNode)
+    const targetIndex = order.indexOf(targetNode)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const [moved] = order.splice(sourceIndex, 1)
+    order.splice(targetIndex, 0, moved)
+    setFavorites(order.map((node) => favorites.find((favorite) => favorite.node === node)!).filter(Boolean))
+    await favoriteOperation('reorder', { value: JSON.stringify(order) })
   }
 
   function toggleConnectionSort(key: ConnectionSortKey) {
@@ -1505,6 +1808,49 @@ function App({ config }: { config: RuntimeConfig }) {
       appendNodeMessage(error instanceof Error ? error.message : 'Command failed.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  function beginCustomCommandManagement() {
+    setCustomCommandsDraft(customCommands.map(({ label, command }) => ({ label, command })))
+    setCustomCommandsStatus('')
+    setCustomCommandsManaging(true)
+  }
+
+  function moveCustomCommand(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= customCommandsDraft.length) return
+    setCustomCommandsDraft((current) => {
+      const next = [...current]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  async function persistCustomCommands() {
+    const commands = customCommandsDraft
+      .map(({ label, command }) => ({ label: label.trim(), command: command.trim() }))
+      .filter(({ label, command }) => label || command)
+    const invalid = commands.find(({ label, command }) => (
+      !label || label.length > 40 || label.includes(',') || !/^\*[0-9A-Da-d#;]{1,40}$/.test(command)
+    ))
+    if (invalid) {
+      setCustomCommandsStatus('Each command needs a name and a valid DTMF value beginning with *.')
+      return
+    }
+    try {
+      setCustomCommandsSaving(true)
+      setCustomCommandsStatus('Saving commands…')
+      const next = await saveCustomCommands(commands, customCommandsEnabled)
+      setCustomCommands(next.commands)
+      setCustomCommandsEnabled(next.enabled)
+      setCustomCommandsDraft(next.commands.map(({ label, command }) => ({ label, command })))
+      setCustomCommandsStatus('Commands saved.')
+      setCustomCommandsManaging(false)
+    } catch (error) {
+      setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be saved.')
+    } finally {
+      setCustomCommandsSaving(false)
     }
   }
 
@@ -1769,9 +2115,14 @@ function App({ config }: { config: RuntimeConfig }) {
   const favoritesPanel = favoritesOpen ? (
     <section
       id="allscan-favorites-panel"
-      className="allscan-main-section allscan-favorites-panel"
+      data-dashboard-module="favorites"
+      style={{ order: dashboardModuleOrder.indexOf('favorites') + 10 }}
+      className={`allscan-main-section allscan-favorites-panel allscan-dashboard-module${dashboardModuleDragging === 'favorites' ? ' is-dragging' : ''}${dashboardModuleOver === 'favorites' && dashboardModuleDragging !== 'favorites' ? ' is-drag-over' : ''}`}
       aria-label="Favorites"
     >
+      <h2 className="allscan-section-title">
+        <span className="allscan-module-title-wrap">{dashboardModuleHandle('favorites', 'Favorites')}<span className="allscan-module-title-text">Favorites</span></span>
+      </h2>
       <div className="allscan-favorites-inner">
         <div className="allscan-favorites-options">
           <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
@@ -1786,26 +2137,20 @@ function App({ config }: { config: RuntimeConfig }) {
               ))}
             </select>
           </form>
-          <label className="allscan-favorites-placement">
-            <input
-              ref={favoritesPlacementRef}
-              type="checkbox"
-              checked={favoritesPlacement === 'below'}
-              onChange={(event) => {
-                const placement = event.target.checked ? 'below' : 'above'
-                restoreFavoritesPlacementFocus.current = true
-                setFavoritesPlacement(placement)
-                writeFavoritesPlacement(placement)
-              }}
-            />
-            Keep below Connection Status on this browser
-          </label>
+          <div className="allscan-favorites-tools">
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              if (window.confirm('Reset the saved custom order for this Favorites list? Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
+            }}><RotateCcw /> Reset order</button>
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              if (window.confirm('Reset all Favorite colors for this list? Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
+            }}><RotateCcw /> Reset colors</button>
+          </div>
         </div>
+        {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
         <div className="allscan-favorites-legend">
           <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
           <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
           <span><i className="allscan-fav-rxbar" />Rx Busy</span>
-          <span><i className="allscan-fav-dot allscan-fav-dot-links" />Links</span>
           <span><i className="allscan-fav-underline" />Scanning</span>
         </div>
         <div className="allscan-favorites-table-wrap">
@@ -1869,11 +2214,38 @@ function App({ config }: { config: RuntimeConfig }) {
               const fallbackLinkCount = linkedNodeCounts[favorite.node]
               const hasStatsLinkCount = stats && Number.isFinite(stats.linkCnt)
               const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
-              const linkCount = Number(linkText || 0)
               return (
-              <tr key={favorite.node}>
+              <tr
+                key={favorite.node}
+                draggable={false}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourceNode = event.dataTransfer.getData('text/plain') || favoriteDragNode
+                  if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
+                  setFavoriteDragNode(null)
+                }}
+                style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
+              >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
-                  <span>{favorite.index}</span>
+                  <button type="button" className="allscan-favorite-drag" draggable={authStatus.canModify} aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"
+                    onDragStart={(event) => {
+                      event.stopPropagation()
+                      setFavoriteDragNode(favorite.node)
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', favorite.node)
+                      const row = event.currentTarget.closest('tr')
+                      if (row instanceof HTMLElement) {
+                        const ghost = row.cloneNode(true) as HTMLElement
+                        const rect = row.getBoundingClientRect()
+                        ghost.classList.add('allscan-favorite-drag-ghost')
+                        ghost.style.width = `${rect.width}px`
+                        document.body.appendChild(ghost)
+                        event.dataTransfer.setDragImage(ghost, Math.min(28, rect.width / 2), Math.min(20, rect.height / 2))
+                        requestAnimationFrame(() => ghost.remove())
+                      }
+                    }}
+                    onDragEnd={() => setFavoriteDragNode(null)}><GripVertical /></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -1881,20 +2253,151 @@ function App({ config }: { config: RuntimeConfig }) {
                     if (!canPopulateNodeControl(favorite.node)) return
                     setNodeValue(favorite.node)
                     nodeInputRef.current?.focus()
-                    setFavoritesOpen(isAddDeleteFavoriteAction)
                   }}
+                  onDoubleClick={() => {
+                    if (favoritesOpen && canPopulateNodeControl(favorite.node)) void runCommandForNode('connect', favorite.node)
+                  }}
+                  title={favoritesOpen ? 'Double-click to connect' : 'Select node'}
                 >
-                  {favorite.node}
+                  <span className="allscan-favorite-node-number">{favorite.node}</span>
+                  <span className={rxBusy > 2 ? 'allscan-favorite-rx allscan-fav-cell-rx' : 'allscan-favorite-rx'}>{rxText !== '' ? `Rx: ${rxText}%` : 'Rx: —'}</span>
+                  <span className="allscan-favorite-linked-inline">{linkText !== '' ? `Linked: ${linkText}` : 'Linked: —'}</span>
                 </td>
+                <td aria-hidden="true">{favorite.name}</td>
                 <td>
-                  {favorite.href ? (
-                    <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.name}</a>
-                  ) : favorite.name}
+                  {favoriteEditing === favorite.node ? (
+                    <form className="allscan-favorite-description-editor" onSubmit={(event) => {
+                      event.preventDefault()
+                      void favoriteOperation('update-description', { node: favorite.node, value: favoriteDescription }).then(() => setFavoriteEditing(null))
+                    }}>
+                      <input autoFocus value={favoriteDescription} onChange={(event) => setFavoriteDescription(event.target.value)} maxLength={200} aria-label={`Friendly description for ${favorite.node}`} />
+                      <button type="submit" disabled={busy}>Save</button>
+                      <button type="button" onClick={() => setFavoriteEditing(null)}>Cancel</button>
+                    </form>
+                  ) : (
+                    <span className="allscan-favorite-details">
+                      <span className="allscan-favorite-description" title={favorite.description || favorite.name || 'No description'}>
+                        {favorite.href ? (
+                          <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.description || favorite.name || <em>No description</em>}</a>
+                        ) : (favorite.description || favorite.name || <em>No description</em>)}
+                        {favorite.customDescription ? <small>User description</small> : null}
+                      </span>
+                      <span className="allscan-favorite-meta">
+                        <span className="allscan-favorite-frequency" title="Frequency or node details">
+                          {(() => {
+                            const detail = (favorite.frequency || favorite.referenceDesc || '').trim()
+                            return detail === '-' || detail === '–' || detail === '—' ? '' : detail
+                          })()}
+                        </span>
+                        <span className="allscan-favorite-location" title={favorite.location}>{favorite.location}</span>
+                      </span>
+                    </span>
+                  )}
                 </td>
-                <td>{favorite.desc}</td>
-                <td>{favorite.location}</td>
-                <td className={rxBusy > 2 ? 'allscan-fav-cell-rx' : undefined}>{rxText}</td>
-                <td className={linkCount >= 3 ? 'allscan-fav-cell-links' : undefined}>{linkText}</td>
+                <td aria-hidden="true" />
+                <td aria-hidden="true" />
+                <td className="allscan-favorite-actions-cell">
+                  {authStatus.canModify ? <span className="allscan-favorite-actions">
+                    <button type="button" title="Edit friendly description" onClick={() => {
+                      setFavoriteEditing(favorite.node)
+                      setFavoriteDescription(favorite.customDescription || favorite.description || favorite.name)
+                    }}><Pencil /></button>
+                    <span className="allscan-favorite-color-control">
+                      <button type="button" className="allscan-favorite-color-trigger" title="Favorite accent color" aria-label={'Choose color for node ' + favorite.node} onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        const popupWidth = 224
+                        const popupHeight = 300
+                        setFavoriteColorPosition({
+                          left: Math.max(8, Math.min(window.innerWidth - popupWidth - 8, rect.left - popupWidth - 7)),
+                          top: Math.max(8, Math.min(window.innerHeight - popupHeight - 8, rect.top)),
+                        })
+                        setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: current[favorite.node] || favorite.color || '#4aa3df' }))
+                        setFavoriteColorOpen((current) => current === favorite.node ? null : favorite.node)
+                      }}><Palette aria-hidden="true" /></button>
+                      {favoriteColorOpen === favorite.node && favoriteColorPosition ? <span className="allscan-favorite-color-popover" style={{ top: favoriteColorPosition.top, left: favoriteColorPosition.left }} role="dialog" aria-label={'Favorite color for node ' + favorite.node}>
+                        <span className="allscan-favorite-color-preview" style={{ backgroundColor: favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df' }} />
+                        <label>Color
+                          <input type="text" maxLength={7} value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
+                            let value = event.target.value.trim()
+                            if (!value.startsWith('#')) value = '#' + value
+                            if (/^#[0-9a-fA-F]{0,6}$/.test(value)) setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: value }))
+                          }} />
+                        </label>
+                        <span className="allscan-favorite-color-field" aria-label="Color palette"
+                          onPointerDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                            const pick = (clientX: number, clientY: number) => {
+                              const rect = event.currentTarget.getBoundingClientRect()
+                              const saturation = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+                              const lightness = Math.max(0, Math.min(1, 1 - ((clientY - rect.top) / rect.height)))
+                              const hue = favoriteColorHue
+                              const a = saturation * Math.min(lightness, 1 - lightness)
+                              const f = (n: number) => {
+                                const k = (n + hue / 30) % 12
+                                return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+                              }
+                              const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                              setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                            }
+                            pick(event.clientX, event.clientY)
+                          }}
+                          onPointerMove={(event) => {
+                            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            const saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+                            const lightness = Math.max(0, Math.min(1, 1 - ((event.clientY - rect.top) / rect.height)))
+                            const hue = favoriteColorHue
+                            const a = saturation * Math.min(lightness, 1 - lightness)
+                            const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
+                            const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                            setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                          }}
+                          onPointerUp={(event) => { event.preventDefault(); event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+                          onPointerCancel={(event) => { event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+                        style={{ backgroundColor: `hsl(${favoriteColorHue} 100% 50%)` }}><span className="allscan-favorite-color-field-white" /><span className="allscan-favorite-color-field-black" /></span>
+                        <input className="allscan-favorite-hue" aria-label="Hue" type="range" min="0" max="360" value={(360 - favoriteColorHue) % 360} onChange={(event) => {
+                          const slider = Number(event.target.value)
+                          const hue = (360 - slider) % 360
+                          setFavoriteColorHue(hue)
+                          const lightness = 0.5
+                          const saturation = 1
+                          const a = saturation * Math.min(lightness, 1 - lightness)
+                          const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
+                          const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                          setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
+                        }} onPointerDown={(event) => event.stopPropagation()} />
+                        <span className="allscan-favorite-color-palette">
+                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onClick={() => setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color }))} />)}
+                        </span>
+                        <span className="allscan-favorite-color-popover-actions">
+                          <button type="button" onClick={() => {
+                            const value = favoriteColorDrafts[favorite.node]
+                            if (!/^#[0-9a-fA-F]{6}$/.test(value || '')) return
+                            void favoriteOperation('set-color', { node: favorite.node, value }).then((saved) => {
+                              if (!saved) return
+                              setFavoriteColorOpen(null)
+                              setFavoriteColorDrafts((current) => { const next = { ...current }; delete next[favorite.node]; return next })
+                            })
+                          }}>Apply</button>
+                          <button type="button" onClick={() => {
+                            setFavoriteColorOpen(null)
+                            setFavoriteColorDrafts((current) => { const next = { ...current }; delete next[favorite.node]; return next })
+                          }}>Cancel</button>
+                        </span>
+                      </span> : null}
+                    </span>
+                    <button type="button" title="Reset this Favorite's description and color" disabled={!favorite.customDescription && !favorite.color} onClick={() => {
+                      if (window.confirm(`Reset the custom description and color for node ${favorite.node}? Its position and Favorite membership will stay unchanged.`)) void favoriteOperation('reset-favorite', { node: favorite.node })
+                    }}><RotateCcw /></button>
+                    <button type="button" title="Remove Favorite" onClick={() => {
+                      if (window.confirm(`Remove node ${favorite.node} from Favorites?`)) void runCommandForNode('delfav', favorite.node).then(() => reloadFavorites())
+                    }}><Trash2 /></button>
+                  </span> : null}
+                </td>
               </tr>
               )
             })}
@@ -2150,7 +2653,7 @@ function App({ config }: { config: RuntimeConfig }) {
           </div>
         </div>
 
-        <main className="mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
+        <main className="allscan-dashboard mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
           {releaseStatus?.updateAvailable ? (
             <aside
               className="allscan-update-notice"
@@ -2182,9 +2685,38 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             </aside>
           ) : null}
-          <section className="allscan-main-section allscan-controls-section">
+          {talkersOpen ? <section
+            data-dashboard-module="talkers"
+            style={{ order: dashboardModuleOrder.indexOf('talkers') + 10 }}
+            className={`allscan-main-section allscan-talkers-section allscan-dashboard-module${dashboardModuleDragging === 'talkers' ? ' is-dragging' : ''}${dashboardModuleOver === 'talkers' && dashboardModuleDragging !== 'talkers' ? ' is-drag-over' : ''}`}
+          >
             <h2 className="allscan-section-title">
-              Node Controls
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('talkers', 'Talkers')}<span className="allscan-module-title-text">Talkers</span></span>
+            </h2>
+            <div className="allscan-talker-cards" aria-label="Current and recent talkers">
+              {talkerCards.map((talker, index) => (
+                <article
+                  className={`allscan-talker-card${index === 0 && talker ? ' is-current' : ''}${!talker ? ' is-empty' : ''}`}
+                  key={`${index}-${talker?.node || 'empty'}`}
+                >
+                  <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index}`}</div>
+                  <div className="allscan-talker-callsign">{talker ? (talker.info || talker.node) : '\u00a0'}</div>
+                  <div className="allscan-talker-source">{talker ? `${talker.source}${talker.node ? ` · ${talker.node}` : ''}` : (index === 0 ? 'No one talking' : 'No recent talker')}</div>
+                  <div className="allscan-talker-description">{talker?.description || '\u00a0'}</div>
+                  <div className="allscan-talker-location">{talker?.location || '\u00a0'}</div>
+                  <div className="allscan-talker-duration"><span>Duration</span><strong>{talkerDuration(talker, index)}</strong></div>
+                </article>
+              ))}
+            </div>
+          </section> : null}
+
+          <section
+            data-dashboard-module="controls"
+            style={{ order: dashboardModuleOrder.indexOf('controls') + 10 }}
+            className={`allscan-main-section allscan-controls-section allscan-dashboard-module${dashboardModuleDragging === 'controls' ? ' is-dragging' : ''}${dashboardModuleOver === 'controls' && dashboardModuleDragging !== 'controls' ? ' is-drag-over' : ''}`}
+          >
+            <h2 className="allscan-section-title">
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('controls', 'Node Controls')}<span className="allscan-module-title-text">Node Controls</span></span>
             </h2>
 
             <div className={`allscan-controls-shell mx-auto rounded-[8px]${messagesOpen ? ' allscan-controls-shell-messages-open' : ''}`}>
@@ -2221,20 +2753,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   Disconnect
                 </button>
-                <div className="allscan-favorites-wrap">
-                  <button
-                    type="button"
-                    className={`allscan-favs-button${favoritesOpen ? ' is-open' : ''}`}
-                    aria-expanded={favoritesOpen ? 'true' : 'false'}
-                    aria-controls="allscan-favorites-panel"
-                    aria-label="Favorites"
-                    title="Favorites"
-                    disabled={busy}
-                    onClick={() => setFavoritesOpen((open) => !open)}
-                  >
-                    Favs <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+
               </div>
 
               <div className="allscan-controls-lower-row">
@@ -2266,6 +2785,140 @@ function App({ config }: { config: RuntimeConfig }) {
                 {authStatus.isAdmin ? <button type="button" className="allscan-action-button allscan-kicks-bans-button" onClick={() => { setManagementTab('clients'); setUrfAccessOpen(true); void loadAslBans() }}>Manage Kicks & Bans</button> : null}
               </div>
 
+              <div className="allscan-checks-row allscan-checks-grid">
+                <label className="inline-flex items-center gap-[5px]">
+                  <input
+                    type="checkbox"
+                    className="allscan-checkbox"
+                    checked={autodisc}
+                    onChange={(event) => {
+                      const checked = event.target.checked
+                      setAutodisc(checked)
+                      writeAutodiscPreference(checked)
+                    }}
+                    disabled={!authStatus.canModify}
+                  />
+                  Disc. before Connect
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input
+                    type="checkbox"
+                    className="allscan-checkbox"
+                    checked={permanent}
+                    onChange={(event) => setPermanent(event.target.checked)}
+                    disabled={!authStatus.canModify}
+                  />
+                  Permanent
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" checked={talkersOpen} onChange={(event) => setTalkersOpen(event.target.checked)} aria-label="Show Talker Cards" />
+                  Talkers
+                </label>
+                <label className="inline-flex items-center gap-[5px]">
+                  <input type="checkbox" className="allscan-checkbox" checked={favoritesOpen} onChange={(event) => setFavoritesOpen(event.target.checked)} />
+                  Favs
+                </label>
+                {(authStatus.isAdmin || (customCommandsEnabled && customCommands.length > 0)) ? (
+                  <div ref={customCommandsRef} className="allscan-custom-commands">
+                    <button
+                      type="button"
+                      className="allscan-custom-commands-button"
+                      aria-expanded={customCommandsOpen}
+                      disabled={busy}
+                      onClick={() => {
+                        setCustomCommandsOpen((open) => !open)
+                        setCustomCommandsManaging(false)
+                        setCustomCommandsStatus('')
+                      }}
+                    >
+                      Commands <ChevronDown />
+                    </button>
+                    {customCommandsOpen ? (
+                      <div className={`allscan-custom-commands-menu${customCommandsManaging ? ' is-managing' : ''}`}>
+                        {customCommandsManaging ? (
+                          <div className="allscan-custom-commands-editor">
+                            <strong>Manage Custom Cmd Buttons</strong>
+                            <small>Commands must begin with *.</small>
+                            <div className="allscan-custom-commands-editor-rows">
+                              {customCommandsDraft.map((item, index) => (
+                                <div className="allscan-custom-command-edit-row" key={`custom-command-${index}`}>
+                                  <input
+                                    value={item.label}
+                                    maxLength={40}
+                                    aria-label={`Command ${index + 1} name`}
+                                    placeholder="Button name"
+                                    onChange={(event) => setCustomCommandsDraft((current) => current.map((entry, entryIndex) => (
+                                      entryIndex === index ? { ...entry, label: event.target.value } : entry
+                                    )))}
+                                  />
+                                  <input
+                                    value={item.command}
+                                    maxLength={41}
+                                    aria-label={`Command ${index + 1} DTMF value`}
+                                    placeholder="*712"
+                                    onChange={(event) => setCustomCommandsDraft((current) => current.map((entry, entryIndex) => (
+                                      entryIndex === index ? { ...entry, command: event.target.value } : entry
+                                    )))}
+                                  />
+                                  <span className="allscan-custom-command-edit-actions">
+                                    <button type="button" title="Move up" disabled={index === 0} onClick={() => moveCustomCommand(index, -1)}>↑</button>
+                                    <button type="button" title="Move down" disabled={index === customCommandsDraft.length - 1} onClick={() => moveCustomCommand(index, 1)}>↓</button>
+                                    <button type="button" title="Delete command" onClick={() => {
+                                      const name = item.label || item.command || 'this command'
+                                      if (window.confirm(`Delete ${name}? The change takes effect when you save.`)) {
+                                        setCustomCommandsDraft((current) => current.filter((_, entryIndex) => entryIndex !== index))
+                                      }
+                                    }}><Trash2 /></button>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              className="allscan-custom-command-add"
+                              disabled={customCommandsDraft.length >= 24}
+                              onClick={() => setCustomCommandsDraft((current) => [...current, { label: '', command: '' }])}
+                            >
+                              + Add command
+                            </button>
+                            {customCommandsStatus ? <small role="status">{customCommandsStatus}</small> : null}
+                            <div className="allscan-custom-command-save-actions">
+                              <button type="button" disabled={customCommandsSaving} onClick={() => void persistCustomCommands()}>Save</button>
+                              <button type="button" disabled={customCommandsSaving} onClick={() => setCustomCommandsManaging(false)}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="allscan-custom-command-list">
+                              {customCommands.length ? customCommands.map((item, index) => (
+                                <button
+                                  type="button"
+                                  key={item.id || `${item.command}-${index}`}
+                                  disabled={busy || !authStatus.canWrite}
+                                  onClick={() => {
+                                    setCustomCommandsOpen(false)
+                                    void runCommandForNode('dtmf', item.command, false, false)
+                                  }}
+                                >
+                                  <span>{item.label}</span>
+                                  <small>{item.command}</small>
+                                </button>
+                              )) : <span className="allscan-custom-command-empty">No commands configured.</span>}
+                            </div>
+                            {customCommandsStatus ? <small role="status">{customCommandsStatus}</small> : null}
+                            {authStatus.isAdmin ? (
+                              <button type="button" className="allscan-custom-command-manage" onClick={beginCustomCommandManagement}>
+                                Manage Commands…
+                              </button>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
               <details
                 className="allscan-node-messages mx-auto mt-[8px] rounded-[6px]"
                 open={messagesOpen}
@@ -2281,42 +2934,19 @@ function App({ config }: { config: RuntimeConfig }) {
                   {nodeMessageRaw || nodeMessage || nodeMessageLatest}
                 </div>
               </details>
-
-              <div className="allscan-checks-row flex flex-wrap items-center justify-center gap-y-2">
-                <label className="inline-flex items-center gap-[5px]">
-                  <input
-                    type="checkbox"
-                    className="allscan-checkbox"
-                    checked={permanent}
-                    onChange={(event) => setPermanent(event.target.checked)}
-                    disabled={!authStatus.canModify}
-                  />
-                  Permanent
-                </label>
-                <label className="inline-flex items-center gap-[5px]">
-                  <input
-                    type="checkbox"
-                    className="allscan-checkbox"
-                    checked={autodisc}
-                    onChange={(event) => {
-                      const checked = event.target.checked
-                      setAutodisc(checked)
-                      writeAutodiscPreference(checked)
-                    }}
-                    disabled={!authStatus.canModify}
-                  />
-                  Disconnect before Connect
-                </label>
-              </div>
             </div>
 
           </section>
 
-          {favoritesPlacement === 'above' ? favoritesPanel : null}
+          {favoritesPanel}
 
-          <section className="allscan-main-section allscan-connection-section">
+          <section
+            data-dashboard-module="connections"
+            style={{ order: dashboardModuleOrder.indexOf('connections') + 10 }}
+            className={`allscan-main-section allscan-connection-section allscan-dashboard-module${dashboardModuleDragging === 'connections' ? ' is-dragging' : ''}${dashboardModuleOver === 'connections' && dashboardModuleDragging !== 'connections' ? ' is-drag-over' : ''}`}
+          >
             <h2 className="allscan-section-title" data-lcars-title={`CONNECTION STATUS - NODE ${config.node}`}>
-              Connection Status
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('connections', 'Connection Status')}<span className="allscan-module-title-text">Connection Status</span></span>
             </h2>
             {banStatus && !banDialog ? <p role="status" className="allscan-connection-ban-status">{banStatus}</p> : null}
 
@@ -2467,14 +3097,16 @@ function App({ config }: { config: RuntimeConfig }) {
             </>
           ) : null}
 
-          {favoritesPlacement === 'below' ? favoritesPanel : null}
-
-          {bridgeState.cards.length || urfAccessOpen ? <section className="allscan-main-section allscan-bridge-section">
+          {bridgeState.cards.length || urfAccessOpen ? <section
+            data-dashboard-module="bridges"
+            style={{ order: dashboardModuleOrder.indexOf('bridges') + 10 }}
+            className={`allscan-main-section allscan-bridge-section allscan-dashboard-module${dashboardModuleDragging === 'bridges' ? ' is-dragging' : ''}${dashboardModuleOver === 'bridges' && dashboardModuleDragging !== 'bridges' ? ' is-drag-over' : ''}`}
+          >
             <h2
               className="allscan-section-title"
               data-lcars-title={`DIGITAL BRIDGE STATUS - ${bridgeState.cards.map((card) => card.id.toUpperCase()).join(' / ')}`}
             >
-              Digital Bridge Status
+              <span className="allscan-module-title-wrap">{dashboardModuleHandle('bridges', 'Digital Bridge Status')}<span className="allscan-module-title-text">Digital Bridge Status</span></span>
             </h2>
             <p className="allscan-section-subtitle">
               LAST ACTIVITY: {bridgeState.updatedLabel}

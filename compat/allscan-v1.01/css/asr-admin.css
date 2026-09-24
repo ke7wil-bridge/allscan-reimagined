@@ -4022,3 +4022,86 @@ body.asr-rollback-dialog-open {
 .asr-tgif-page{max-width:760px;margin:0 auto;padding:22px 18px 36px}.asr-tgif-page h1{margin:0 0 14px}.asr-tgif-copy,.asr-tgif-note{line-height:1.55}.asr-tgif-status{margin:18px 0;padding:12px 14px;border:1px solid currentColor;border-radius:8px;font-weight:600}.asr-tgif-status.is-error{font-weight:700}.asr-tgif-form{display:grid;gap:14px}.asr-tgif-form label{display:grid;gap:6px}.asr-tgif-form input{box-sizing:border-box;width:100%;min-height:42px;padding:8px 10px}.asr-tgif-actions{display:flex;gap:10px;flex-wrap:wrap}.asr-tgif-actions button{min-height:42px;padding:8px 14px}.asr-tgif-note{margin-top:16px;font-size:.94em;opacity:.85}
 .asr-tgif-card-status{margin:10px 0;padding:10px 12px;border:1px solid currentColor;border-radius:8px;font-weight:600}.asr-tgif-card-status.is-error{font-weight:700}.asr-tgif-card-fields{margin-top:10px}.asr-tgif-card-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}.asr-tgif-card-actions button{min-height:40px;padding:8px 14px}
 .asr-tgif-captcha{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:10px}.asr-tgif-captcha[hidden]{display:none}.asr-tgif-captcha img{max-width:260px;height:auto;border-radius:6px}.asr-tgif-captcha label{min-width:180px;flex:1}
+
+/* Structured editor for legacy Custom Cmd Buttons configuration. */
+.asr-cmd-config-editor {
+	display:grid;
+	gap:10px;
+	width:min(680px, 100%);
+	margin:4px auto;
+	text-align:left;
+}
+.asr-cmd-config-help {
+	margin:0;
+	color:rgba(234,244,248,.76);
+	font-size:13px;
+}
+.asr-cmd-config-rows {
+	display:grid;
+	gap:7px;
+}
+.asr-cmd-config-row {
+	display:grid;
+	grid-template-columns:minmax(150px,1fr) minmax(100px,.55fr) auto;
+	gap:7px;
+	align-items:center;
+}
+.asr-cmd-config-row input {
+	box-sizing:border-box;
+	width:100%;
+}
+.asr-cmd-config-row-actions {
+	display:flex;
+	gap:4px;
+}
+.asr-cmd-config-row-actions button,
+.asr-cmd-config-add {
+	min-height:32px;
+	padding:4px 8px;
+}
+.asr-cmd-config-delete {
+	color:#ff8a8a;
+}
+.asr-cmd-config-toggle {
+	display:inline-flex;
+	align-items:center;
+	gap:7px;
+	min-height:34px;
+}
+@media (max-width: 640px) {
+	.asr-cmd-config-row {
+		grid-template-columns:1fr;
+	}
+	.asr-cmd-config-row-actions {
+		justify-content:flex-end;
+	}
+}
+
+/* Safe Supermon merge inside Manage Favorites. */
+.asr-supermon-import {
+	display:grid;
+	gap:8px;
+	margin:8px auto 20px;
+	padding:12px;
+	border:1px solid rgba(148,190,212,.28);
+	border-radius:8px;
+	background:rgba(255,255,255,.035);
+	text-align:left;
+}
+.asr-supermon-import h2,
+.asr-supermon-import p { margin:0; }
+.asr-supermon-import-controls {
+	display:flex;
+	align-items:end;
+	gap:8px;
+	flex-wrap:wrap;
+}
+.asr-supermon-import-controls label {
+	display:grid;
+	gap:4px;
+	min-width:210px;
+	flex:1;
+}
+.asr-supermon-import-controls select,
+.asr-supermon-import-controls button { min-height:36px; }
+.asr-supermon-import-status { min-height:18px; }

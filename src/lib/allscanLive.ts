@@ -83,8 +83,21 @@ export type LiveConnectionRow = {
   linkedNodes?: string[]
 }
 
+export type TalkerFeedEntry = {
+  node: string
+  info: string
+  description: string
+  location: string
+  source: string
+  duration: string
+  eventEpoch: number
+  startedEpoch: number
+}
+
 export type ConnectionSnapshot = {
   rows: LiveConnectionRow[]
+  currentTalker: TalkerFeedEntry | null
+  recentTalkers: TalkerFeedEntry[]
   connectedCount: number
   directCount: number
   adjacentCount: number
@@ -98,8 +111,13 @@ export type FavoriteNode = {
   node: string
   label: string
   name: string
+  description: string
+  frequency: string
   desc: string
+  referenceDesc: string
+  customDescription: string
   location: string
+  color: string
   rx: string
   lcnt: string
   href: string
@@ -115,6 +133,17 @@ export type FavoritesPayload = {
   rows: FavoriteNode[]
   files: FavoritesFileOption[]
   selectedFile: string
+}
+
+export type CustomCommand = {
+  id?: string
+  label: string
+  command: string
+}
+
+export type CustomCommandsPayload = {
+  enabled: boolean
+  commands: CustomCommand[]
 }
 
 export type BridgeCardView = {
@@ -351,6 +380,8 @@ type FeedNode = {
   lnodes: string[]
   num_links?: string | number
   num_alinks?: string | number
+  keyed_started_epoch?: number
+  event_epoch?: number
 }
 
 type FeedPayload = Record<
@@ -359,6 +390,8 @@ type FeedPayload = Record<
     node: string
     info: string
     remote_nodes: FeedNode[]
+    current_talker?: { node?: string; info?: string; source?: string; duration?: string | number; started_epoch?: number } | null
+    last_talkers?: Array<{ node?: string; info?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
   }
 >
 
@@ -430,6 +463,18 @@ function htmlToText(html: string) {
     .trim()
 }
 
+function talkerInfoParts(html: string, node: string) {
+  const doc = parser.parseFromString(html, 'text/html')
+  const raw = (doc.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .trim()
+  const chunks = raw.split(/\s{2,}/).map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const identity = chunks.shift() || ''
+  const callsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || node
+  const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim()
+  return { callsign, description, location: chunks.join(' ').trim() }
+}
+
 function htmlToMessageText(html: string) {
   const withBreaks = html
     .replace(/<br\s*\/?>/gi, '\n')
@@ -496,7 +541,7 @@ function buildSnapshot(
   bridgeAliases: Map<string, RuntimeBridgeConfig>,
 ): ConnectionSnapshot {
   const nodeKey = Object.keys(payload)[0]
-  if (!nodeKey) return { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+  if (!nodeKey) return { rows: [], currentTalker: null, recentTalkers: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
 
   const nodeData = payload[nodeKey]
   const remoteRows: LiveConnectionRow[] = []
@@ -565,8 +610,53 @@ function buildSnapshot(
   const connectedCount = Math.max(allLinkedIds.size, directCount)
   const adjacentCount = Math.max(connectedCount - directCount, 0)
 
+  const talkerRows = remoteRows.filter((row) => row.node && row.info !== 'NO CONNECTION')
+  const serverCurrent = nodeData.current_talker
+  const serverHistory = Array.isArray(nodeData.last_talkers) ? nodeData.last_talkers : []
+  const sourceByIndex = (row: LiveConnectionRow) => row.sourceIndex === undefined ? undefined : nodeData.remote_nodes[row.sourceIndex]
+  const rowTalkerEntry = (row: LiveConnectionRow): TalkerFeedEntry => {
+    const sourceRow = sourceByIndex(row)
+    const bridge = sourceRow ? bridgeAliases.get(String(sourceRow.node)) : undefined
+    const rawInfo = String(sourceRow?.info || row.info || row.node)
+    const parts = talkerInfoParts(rawInfo, row.node)
+    return {
+      node: row.node,
+      info: parts.callsign,
+      description: parts.description,
+      location: parts.location,
+      source: bridge?.mode?.toUpperCase() || 'AllStar',
+      duration: row.received || '',
+      eventEpoch: Math.max(0, Number(sourceRow?.event_epoch || 0)),
+      startedEpoch: Math.max(0, Number(sourceRow?.keyed_started_epoch || 0)),
+    }
+  }
+  const payloadTalkerEntry = (entry: NonNullable<typeof serverCurrent>, historical = false): TalkerFeedEntry => {
+    const node = String(entry.node || '')
+    const parts = talkerInfoParts(String(entry.info || entry.node || ''), node)
+    return {
+    node,
+    info: parts.callsign,
+    description: parts.description,
+    location: parts.location,
+    source: String(entry.source || 'AllStar'),
+    duration: String(entry.duration ?? ''),
+    eventEpoch: historical ? Math.max(0, Number((entry as { event_epoch?: number }).event_epoch || 0)) : 0,
+    startedEpoch: Math.max(0, Number(entry.started_epoch || 0)),
+    }
+  }
+  const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
+  const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
+  const recentTalkers = serverHistory.length
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    : talkerRows
+      .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
+      .map(rowTalkerEntry)
+      .slice(0, 4)
+
   return {
     rows: [buildLocalRow(nodeKey, nodeData.remote_nodes), ...detailRows],
+    currentTalker,
+    recentTalkers,
     connectedCount,
     directCount,
     adjacentCount,
@@ -592,8 +682,14 @@ function patchSnapshotTimes(snapshot: ConnectionSnapshot, payload: FeedPayload):
       connected: normalizeFeedTime(update.elapsed, row.connected),
     }
   })
-
-  return { ...snapshot, rows: nextRows }
+  return {
+    ...snapshot,
+    rows: nextRows,
+    // Talker durations are authoritative in the talker payload. nodetimes.last_keyed
+    // means time since last key and must not overwrite current/history TX duration.
+    currentTalker: snapshot.currentTalker,
+    recentTalkers: snapshot.recentTalkers,
+  }
 }
 
 function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSnapshot): ConnectionSnapshot {
@@ -629,7 +725,7 @@ export function subscribeConnectionFeed(
   const bridgeNodes = new Set(
     configuredBridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || '']).filter(Boolean),
   )
-  let snapshot: ConnectionSnapshot = { rows: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
+  let snapshot: ConnectionSnapshot = { rows: [], currentTalker: null, recentTalkers: [], connectedCount: 0, directCount: 0, adjacentCount: 0, linkedNodes: [], keyedNodes: [], linkedNodeCounts: {} }
   let source: EventSource | undefined
   let reconnectTimer: number | undefined
   let reconnectDelay = CONNECTION_RECONNECT_INITIAL_MS
@@ -791,6 +887,29 @@ export function subscribeConnectionFeed(
   }
 }
 
+export async function manageFavorite(args: {
+  operation: 'preview-import' | 'import' | 'update-description' | 'reset-description' | 'set-color' | 'reset-appearance' | 'reorder' | 'reset-order' | 'reset-favorite'
+  favsfile: string
+  node?: string
+  value?: string
+}) {
+  const response = await fetch(ASR_API + '?action=favorite-manage', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      action: 'favorite-manage',
+      operation: args.operation,
+      favsfile: args.favsfile,
+      node: args.node || '',
+      value: args.value || '',
+    }).toString(),
+  })
+  const payload = await response.json() as { ok?: boolean; error?: string; [key: string]: unknown }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites operation failed.')
+  return payload
+}
+
 export async function fetchCpuTemp() {
   const response = await fetch(`${ASR_API}?action=cpu-temp`, { credentials: 'same-origin', cache: 'no-store' })
   const payload = (await response.json()) as { value?: string; bgColor?: string }
@@ -815,6 +934,44 @@ export async function fetchFavorites(favsfile = ''): Promise<FavoritesPayload> {
     rows: payload.rows || [],
     files: payload.files || [],
     selectedFile: payload.selectedFile || '',
+  }
+}
+
+export async function fetchCustomCommands(): Promise<CustomCommandsPayload> {
+  const response = await fetch(`${ASR_API}?action=custom-commands`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = await response.json() as CustomCommandsPayload & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Custom commands could not be loaded.')
+  return {
+    enabled: Boolean(payload.enabled),
+    commands: Array.isArray(payload.commands) ? payload.commands : [],
+  }
+}
+
+export async function saveCustomCommands(
+  commands: CustomCommand[],
+  enabled: boolean,
+): Promise<CustomCommandsPayload> {
+  const response = await fetch(`${ASR_API}?action=custom-commands-save`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-ASR-Requested-With': 'custom-command-control',
+    },
+    body: new URLSearchParams({
+      action: 'custom-commands-save',
+      commands: JSON.stringify(commands.map(({ label, command }) => ({ label, command }))),
+      enabled: enabled ? '1' : '0',
+    }).toString(),
+  })
+  const payload = await response.json() as CustomCommandsPayload & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Custom commands could not be saved.')
+  return {
+    enabled: Boolean(payload.enabled),
+    commands: Array.isArray(payload.commands) ? payload.commands : [],
   }
 }
 
