@@ -228,7 +228,7 @@ grep -q '/asr/assets/index-test.js' "$ASR_WEB_DIR/index.html"
 
 archive="$TEST_ROOT/asr-webroot.tar.gz"
 ln -sfn /etc/allscan/favorites.ini "$ASR_WEB_DIR/favorites.ini"
-COPYFILE_DISABLE=1 tar --no-xattrs -czf "$archive" -C "$WEB_ROOT" asr
+COPYFILE_DISABLE=1 tar --no-xattrs --exclude="asr/bridge-live.json" -czf "$archive" -C "$WEB_ROOT" asr
 python3 - "$archive" "$SCRIPT_DIR/asr-rollback.py" <<'PY'
 import importlib.util
 import sys

@@ -277,6 +277,8 @@ install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-deletion-qu
 install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-creation-intents
 [ -f "$MASTER_DIR/scripts/asr-release-check.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-release-check.py" /usr/local/sbin/allscan-reimagined-release-check
+[ -f "$MASTER_DIR/scripts/asr-updater.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-updater.py" /usr/local/sbin/allscan-reimagined-updater
 [ -f "$MASTER_DIR/scripts/asr-rollback.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback
 mkdir -p "$CONFIG_DIR"
@@ -296,6 +298,7 @@ cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
+d /run/allscan-reimagined/update-jobs 0750 root $WEB_GROUP -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
 d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
 d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
@@ -306,6 +309,7 @@ systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
 install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
+install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/update-jobs
 if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
   && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ]; then
   if ! /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile; then
@@ -738,6 +742,20 @@ else
   rm -f /etc/systemd/system/allscan-reimagined-release-check.timer
   systemctl daemon-reload
 fi
+cat > /etc/systemd/system/allscan-reimagined-update@.service <<'EOF'
+[Unit]
+Description=Run queued AllScan Reimagined update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+TimeoutStartSec=45min
+ExecStart=/usr/local/sbin/allscan-reimagined-updater run-job %i
+EOF
 cat > /etc/systemd/system/allscan-reimagined-rollback@.service <<'EOF'
 [Unit]
 Description=Run a queued AllScan Reimagined rollback
@@ -977,6 +995,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecy
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --status-json [0-9]*

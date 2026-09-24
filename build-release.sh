@@ -31,6 +31,8 @@ allscan-v1.01/include/asrFavorites.php
 allscan-v1.01/include/asrRuntime.php
 allscan-v1.01/include/common.php
 allscan-v1.01/include/dbUtils.php
+allscan-v1.01/js/asr-cmd-buttons-config.js
+allscan-v1.01/js/asr-favorites-config.js
 allscan-v1.01/lookup/index.php
 allscan-v1.01/performance/index.php
 allscan-v1.01/tgif/index.php
@@ -48,22 +50,18 @@ ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\.
   exit 1
 }
 
-for file in install.sh asr-api.php src/lib/allscanLive.ts scripts/asr-release-check.py compat/allscan-v1.01/include/common.php; do
+for file in asr-api.php src/lib/allscanLive.ts compat/allscan-v1.01/include/common.php; do
   if ! grep -Fq "$VERSION_LABEL" "$ROOT/$file"; then
     echo "$file does not contain expected version label: $VERSION_LABEL" >&2
     exit 1
   fi
 done
-grep -Fq "ASR_VERSION=\"$VERSION\"" "$ROOT/install.sh" || {
-  echo "install.sh ASR_VERSION does not match package.json version: $VERSION" >&2
+grep -Fq 'SCRIPT_DIR/package.json' "$ROOT/install.sh" || {
+  echo "install.sh must read its version from the release manifest." >&2
   exit 1
 }
 grep -Fq "const ASR_VERSION = '$VERSION';" "$ROOT/asr-api.php" || {
   echo "asr-api.php ASR_VERSION does not match package.json version: $VERSION" >&2
-  exit 1
-}
-grep -Fq "ASR_INSTALLED_VERSION = \"$VERSION\"" "$ROOT/scripts/asr-release-check.py" || {
-  echo "asr-release-check.py installed version does not match package.json version: $VERSION" >&2
   exit 1
 }
 grep -Fq '<title>AllScan Reimagined</title>' "$ROOT/index.html" || {
@@ -79,6 +77,7 @@ grep -Fq "<p>$PUBLIC_BETA_LABEL keeps the original AllScan" \
   echo "Help public release wording does not match: $PUBLIC_BETA_LABEL" >&2
   exit 1
 }
+python3 "$ROOT/scripts/asr-updater-self-test.py"
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
@@ -188,6 +187,8 @@ while IFS= read -r compat_file; do
   install -m 644 "compat/$compat_file" "$STAGE/payload/compat/$compat_file"
 done <<< "$COMPAT_MANIFEST"
 install -m 755 install.sh "$STAGE/install.sh"
+install -m 644 package.json "$STAGE/package.json"
+install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
@@ -211,7 +212,7 @@ find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi
-COPYFILE_DISABLE=1 tar --no-xattrs --format ustar --uid 0 --gid 0 --uname root --gname root \
+COPYFILE_DISABLE=1 tar --no-xattrs --format ustar --owner=0 --group=0 --numeric-owner \
   --exclude='._*' --exclude='.DS_Store' -czf "$PACKAGE" -C "$OUT" "allscan-reimagined-$VERSION"
 if command -v xattr >/dev/null 2>&1; then
   xattr -c "$PACKAGE" 2>/dev/null || true

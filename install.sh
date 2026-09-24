@@ -7,9 +7,16 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
 fi
 umask 022
 
-ASR_VERSION="1.0.0-beta.7.6"
-ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ASR_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SCRIPT_DIR/package.json")
+BROWSER_UPDATE=0
+if [ "$#" -eq 1 ] && [ "$1" = "--browser-update" ]; then
+  BROWSER_UPDATE=1
+elif [ "$#" -ne 0 ]; then
+  echo "ERROR: Unsupported installer argument." >&2
+  exit 2
+fi
+ASR_BACKUP_RETENTION="${ASR_BACKUP_RETENTION:-10}"
 PAYLOAD_DIR="$SCRIPT_DIR/payload"
 RELEASE_DIR="/opt/allscan-reimagined/releases/$ASR_VERSION"
 BACKUP_DIR="/root/allscan-reimagined-backups/$(date +%Y%m%d-%H%M%S)"
@@ -351,7 +358,10 @@ has_interactive_tty() {
 ask() {
   local prompt="$1" default="${2:-y}" answer
   ASK_WAS_DEFAULT=0
-  if [ -t 0 ]; then
+  if [ "$BROWSER_UPDATE" -eq 1 ]; then
+    answer="$default"
+    ASK_WAS_DEFAULT=1
+  elif [ -t 0 ]; then
     if ! IFS= read -r -p "$prompt " answer; then
       answer=""
     fi
@@ -456,13 +466,25 @@ if { [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" 
   fail "The official AllScan update requires an interactive terminal. Run 'bash ./install.sh' directly in an interactive shell; do not run it through a heredoc or wrapper."
 fi
 
+if [ "$BROWSER_UPDATE" -eq 1 ]; then
+  [ -d "$ASR_WEB_DIR" ] && [ -d /opt/allscan-reimagined/current ] \
+    || fail "Browser updates require a completed initial ASR installation."
+  [ "$current_version" = "$latest_version" ] && [ "$STOCK_OVERLAY_DETECTED" -eq 0 ] \
+    || fail "The official AllScan backend needs an interactive upgrade."
+  [ -s /etc/allscan-reimagined/config.json ] \
+    || fail "ASR configuration is missing."
+  php -r 'json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);' \
+    /etc/allscan-reimagined/config.json \
+    || fail "ASR configuration is invalid."
+fi
+
 echo
 echo "============================================================"
 echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        v1.0.0 Beta 7.6"
+echo "Reimagined release:        $ASR_VERSION"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -476,6 +498,7 @@ echo "separately when opening each address."
 echo "A complete ASR rollback backup will be created before changes."
 echo
 
+[ ! -e "$BACKUP_DIR" ] || fail "A rollback backup already exists for this second; retry the update."
 install -d -o root -g root -m 700 "$BACKUP_DIR"
 mkdir -p "$BACKUP_DIR/runtime/protected" "$BACKUP_DIR/runtime/systemd"
 chmod 700 "$BACKUP_DIR/runtime" "$BACKUP_DIR/runtime/protected" "$BACKUP_DIR/runtime/systemd"
@@ -599,6 +622,9 @@ fi
 python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
   finalize-backup "$BACKUP_DIR" "$PRE_UPDATE_ASR_VERSION"
 CHANGES_STARTED=1
+if [ "$BROWSER_UPDATE" -eq 1 ]; then
+  /usr/local/sbin/allscan-reimagined-updater internal-progress "$ASR_UPDATE_JOB_ID" installing >/dev/null
+fi
 systemctl stop \
   allscan-reimagined-reapply.path \
   allscan-reimagined-reapply.timer \
@@ -680,7 +706,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -694,8 +720,10 @@ CURRENT_LINK_CHANGED=1
 ln -sfn "$RELEASE_DIR" /opt/allscan-reimagined/current
 
 echo "[4/8] Detecting node identity, branding, and bridges..."
-if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+if [ "$BROWSER_UPDATE" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh" < /dev/tty
+elif [ "$BROWSER_UPDATE" -eq 1 ]; then
+  STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh" --non-interactive
 else
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh"
 fi
@@ -729,6 +757,9 @@ else
     --canonical /etc/allscan/favorites.ini \
     --stock-favorites "$STOCK_ALLSCAN_DIR/favorites.ini" \
     --migration-dir /var/lib/allscan-reimagined/migrations
+fi
+if [ "$BROWSER_UPDATE" -eq 1 ]; then
+  /usr/local/sbin/allscan-reimagined-updater internal-progress "$ASR_UPDATE_JOB_ID" restoring >/dev/null
 fi
 ASR_INSTALL_LOCK_HELD=1 STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" \
   "$RELEASE_DIR/scripts/asr-reapply.sh"
@@ -900,6 +931,7 @@ echo "[6/8] Installing automatic update-survival services..."
 install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-reapply.sh" /usr/local/sbin/allscan-reimagined-reapply
 install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-integrity-check.sh" /usr/local/sbin/allscan-reimagined-integrity-check
 install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback
+install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-updater.py" /usr/local/sbin/allscan-reimagined-updater
 cat > /etc/systemd/system/allscan-reimagined-reapply.service <<'EOF'
 [Unit]
 Description=Reapply AllScan Reimagined after an official AllScan update
@@ -937,6 +969,9 @@ WantedBy=timers.target
 EOF
 systemctl daemon-reload
 
+if [ "$BROWSER_UPDATE" -eq 1 ]; then
+  /usr/local/sbin/allscan-reimagined-updater internal-progress "$ASR_UPDATE_JOB_ID" health >/dev/null
+fi
 echo "[7/8] Validating the installed application..."
 echo "  Checking installed PHP files..."
 validate_command "ASR API PHP syntax" php -l "$ASR_WEB_DIR/asr-api.php" >/dev/null
@@ -1176,7 +1211,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    v1.0.0 Beta 7.6"
+echo "AllScan Reimagined:    $ASR_VERSION"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"
