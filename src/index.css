@@ -6378,3 +6378,34 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend 
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
   box-shadow: 0 -2px 0 #202126;
 }
+
+/* Favorites header: full-width continuous control band, flush to the container top. */
+.allscan-favorites-inner {
+  padding-top: 0 !important;
+}
+.allscan-favorites-options,
+.allscan-favorites-legend {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  background: var(--theme-header-bg, var(--theme-panel-2)) !important;
+}
+.allscan-favorites-options {
+  justify-content: center;
+  margin-top: 0 !important;
+  padding: 10px 12px 4px;
+  border-radius: 8px 8px 0 0;
+}
+.allscan-favorites-legend {
+  justify-content: center;
+  margin-top: -1px !important;
+  margin-bottom: 8px;
+  padding: 5px 12px 9px;
+  border-radius: 0 0 8px 8px;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
+  background: #202126 !important;
+}
