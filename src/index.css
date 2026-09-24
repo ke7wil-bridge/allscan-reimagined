@@ -6353,3 +6353,15 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend 
   background: #202126;
   border-color: #555;
 }
+
+/* Favorites header refinement: controls and legend read as one continuous band. */
+.allscan-favorites-options {
+  padding-bottom: 4px;
+  border-bottom: 0 !important;
+  border-radius: 8px 8px 0 0;
+}
+.allscan-favorites-legend {
+  padding-top: 4px;
+  border-top: 0 !important;
+  border-radius: 0 0 8px 8px;
+}
