@@ -6308,3 +6308,22 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-cu
   text-overflow: ellipsis;
 }
 .allscan-talker-location { margin-top: 1px; }
+
+/* Beta 8: give Current/Last Talker labels the same subtle header-band treatment as bridge cards. */
+.allscan-talker-card {
+  padding-top: 0;
+  overflow: hidden;
+}
+.allscan-talker-card-title {
+  margin: 0 -9px 7px;
+  padding: 7px 9px 6px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-header-bg, rgba(127, 127, 127, .12));
+  color: var(--theme-text);
+  opacity: 1;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title {
+  background: #202126;
+  border-bottom-color: #555;
+  color: #f2f2f2;
+}
