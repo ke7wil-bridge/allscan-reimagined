@@ -6327,3 +6327,14 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title
   border-bottom-color: #555;
   color: #f2f2f2;
 }
+
+/* Beta 8 experiment: bridge/talker-style header band for Favorites column labels. */
+.allscan-favorites-table thead th {
+  background: var(--theme-header-bg, var(--theme-panel-2)) !important;
+  border-top: 0;
+  border-bottom: 1px solid var(--theme-border-strong, var(--theme-border));
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-table thead th {
+  background: #202126 !important;
+  border-bottom-color: #555;
+}
