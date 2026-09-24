@@ -126,15 +126,10 @@ def main() -> int:
         "A new untitled bridge does not retain the New Digital Bridge label",
     )
     require(
-        "D-Star is not supported by ASR. Delete this bridge card before saving." in settings,
-        "Settings does not reject unsupported legacy D-Star cards clearly",
-    )
-    require(
-        "add_bridge dstar" not in (ROOT / "scripts/asr-configure.sh").read_text(encoding="utf-8")
-        and "'dstar' => ['D-Star Bridge'" not in api
-        and "dstar-clients.json" not in common
-        and "Linked D-Star Gateways" not in app,
-        "Active D-Star support remains in ASR",
+        "D-Star Live Status" in settings
+        and "'dstar' => ['D-Star Bridge'" in api
+        and "D-Star" in instructions,
+        "Settings, API, and help must retain D-Star status support",
     )
     require(
         'name="bridgeFixedRecovery[]"' in settings
@@ -308,7 +303,7 @@ def main() -> int:
             'placeholder=""',
             '<option value=""></option>',
             "card.cardType === 'ysf_net'",
-            "!['standard', 'dmr_net', 'ysf_net'].includes",
+            "card.cardType !== 'standard' && card.cardType !== 'dmr_net'",
             "[card.id]: event.target.value",
             "result.currentDestination",
         ])
