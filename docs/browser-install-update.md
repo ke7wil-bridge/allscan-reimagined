@@ -39,7 +39,7 @@ The release installer retains the newest ten rollback backups by default. Browse
 
 Use **Admin → Reimagined Settings** for routine ASR configuration. AllStar node configuration and stock AllScan settings remain in their existing locations. The updater retains ASR configuration, Favorites and metadata, Custom Commands, scanning and bridge settings, branding, uploaded content, TGIF persistent state, and other user-owned paths according to the [preservation inventory](browser-updater-state-inventory.md). Browser-only dashboard preferences stay in the browser profile.
 
-The inventory still needs destructive sandbox checks before preservation is qualified for a published release.
+An isolated sandbox preserved the contents of 21 sampled user files through an update, forced failure, and queued rollback. A metadata-rich Favorites fixture also retained its description, order, and color through reapply. Browser-local preferences, visual rendering, and live radio operation still need targeted checks before publication.
 
 ## Release model and troubleshooting
 

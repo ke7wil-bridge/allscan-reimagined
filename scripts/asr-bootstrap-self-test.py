@@ -20,15 +20,19 @@ NAME = "allscan-reimagined-" + VERSION + ".tar.gz"
 PREFIX = "https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v" + VERSION + "/"
 
 
-def archive_bytes(link=False):
+def archive_bytes(link=False, legacy=False, wrong_version=False):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz") as archive:
-        for name, value in {
-            "install.sh": b"#!/bin/bash\nexit 0\n",
-            "package.json": json.dumps({"version": VERSION}).encode(),
+        files = {
+            "install.sh": (b'#!/bin/bash\nASR_VERSION="' +
+                           (b"1.0.0-beta.7" if wrong_version else VERSION.encode()) +
+                           b'"\nexit 0\n'),
             "payload/server/asr-api.php": b"<?php",
             "payload/web/index.html": b"<html></html>",
-        }.items():
+        }
+        if not legacy:
+            files["package.json"] = json.dumps({"version": VERSION}).encode()
+        for name, value in files.items():
             data = tarfile.TarInfo("allscan-reimagined-" + VERSION + "/" + name)
             data.size = len(value)
             archive.addfile(data, io.BytesIO(value))
@@ -78,6 +82,8 @@ def fails(payload, *, wrong_hash=False):
 
 
 run_case(archive_bytes())
+run_case(archive_bytes(legacy=True))
+fails(archive_bytes(legacy=True, wrong_version=True))
 fails(archive_bytes(link=True))
 fails(archive_bytes(), wrong_hash=True)
 print("ASR bootstrap self-test: ok")

@@ -116,13 +116,21 @@ with tarfile.open(package, "r:gz") as archive:
         expanded += member.size
         if member.size > 128 * 1024 * 1024 or expanded > 768 * 1024 * 1024:
             raise ValueError("Release expands beyond size limit")
-    required = (root + "/install.sh", root + "/package.json",
-                root + "/payload/server/asr-api.php", root + "/payload/web/index.html")
+    required = (root + "/install.sh", root + "/payload/server/asr-api.php",
+                root + "/payload/web/index.html")
     if any(path not in seen for path in required):
         raise ValueError("Release package is incomplete")
-    manifest = archive.extractfile(root + "/package.json")
-    if manifest is None or json.load(manifest).get("version") != version:
-        raise ValueError("Release version does not match archive")
+    if root + "/package.json" in seen:
+        manifest = archive.extractfile(root + "/package.json")
+        if manifest is None or json.load(manifest).get("version") != version:
+            raise ValueError("Release version does not match archive")
+    else:
+        # Published releases before Beta 7.6 embed the version in install.sh.
+        installer = archive.extractfile(root + "/install.sh")
+        if (installer is None or archive.getmember(root + "/install.sh").size > 1024 * 1024
+                or not any(line.strip() == b'ASR_VERSION="' + version.encode() + b'"'
+                           for line in installer.read().splitlines())):
+            raise ValueError("Legacy release version does not match archive")
     for member in members:
         target = stage.joinpath(*PurePosixPath(member.name).parts)
         if member.isdir():

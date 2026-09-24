@@ -526,10 +526,13 @@ def run(job: str) -> int:
                 os.chmod(JOB_ROOT / (job + ".log"), 0o600)
             except OSError:
                 pass
-            status(job, "restoring")
-            restored = previous is not None and recover(previous, before)
-            status(job, "failed", message=("Update failed; previous installation restored."
-                   if restored else "Update failed; recovery needs attention."))
+            if previous is None:
+                status(job, "failed", message="Update could not start.")
+            else:
+                status(job, "restoring")
+                restored = recover(previous, before)
+                status(job, "failed", message=("Update failed; previous installation restored."
+                       if restored else "Update failed; recovery needs attention."))
             return_code = 1
         finally:
             signal.signal(signal.SIGTERM, previous_sigterm)

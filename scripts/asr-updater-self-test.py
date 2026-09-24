@@ -177,6 +177,16 @@ def self_test():
                 "20260924-120001"]
         assert up.backup_since({"20260924-120001"}) is None
 
+        # A preflight failure cannot imply that recovery is needed.
+        up.status(job, "queued")
+        with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
+                up, "install_busy", return_value=False), mock.patch.object(
+                up, "preflight", side_effect=up.UpdateError("ASR is up to date")), mock.patch.object(
+                up, "recover") as recovery:
+            assert up.run(job) == 1
+            recovery.assert_not_called()
+        assert up.read_status(job)["message"] == "Update could not start."
+
         # Failure after the installer boundary calls recovery; never expose
         # subprocess diagnostics in browser status.
         up.status(job, "queued")
