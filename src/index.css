@@ -6477,3 +6477,9 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   background: #15171a !important;
   border-bottom-color: #3b3e42;
 }
+
+/* Match URFWIL group title typography to individual bridge-card titles. */
+.allscan-urf-group-title {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+}
