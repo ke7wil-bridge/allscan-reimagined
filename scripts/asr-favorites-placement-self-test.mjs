@@ -14,7 +14,7 @@ const common = readFileSync(new URL('../compat/allscan-v1.01/include/common.php'
 
 assert(
   app.includes("const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'")
-    && app.includes("const DASHBOARD_MODULES: DashboardModuleKey[] = ['controls', 'favorites', 'connections', 'bridges']")
+    && app.includes("const DASHBOARD_MODULES: DashboardModuleKey[] = ['talkers', 'controls', 'favorites', 'connections', 'bridges']")
     && app.includes('useState<DashboardModuleKey[]>(readDashboardModuleOrder)'),
   'Dashboard module order is not initialized from a browser-persistent model',
 )
@@ -29,15 +29,14 @@ assert(
 assert(
   app.includes('onPointerDown={(event) => beginDashboardModuleDrag(key, event)}')
     && app.includes('onPointerMove={updateDashboardModuleDrag}')
-    && app.includes('dashboardDragPreviewRef.current.style.transform')
     && app.includes('scheduleDashboardDragAutoScroll()')
     && app.includes('previewDashboardModuleMove(dashboardModuleDragging, target)')
     && app.includes('writeDashboardModuleOrder(dashboardModuleOrderRef.current)')
     && app.includes('window.scrollBy(0, delta)')
     && app.includes("event.key !== 'ArrowUp' && event.key !== 'ArrowDown'")
     && css.includes('touch-action: none;')
-    && css.includes('.allscan-module-drag-preview')
-    && css.includes('.allscan-section-title > .allscan-module-drag-handle'),
+    && css.includes('.allscan-module-drag-handle')
+    && css.includes('.allscan-grip-dots'),
   'Stable compact pointer, touch, or keyboard module dragging is missing',
 )
 assert(
@@ -47,12 +46,12 @@ assert(
     && app.includes('Talker Cards')
     && app.includes("const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'")
     && app.includes("window.localStorage.setItem(FAVORITES_OPEN_KEY, favoritesOpen ? '1' : '0')")
-    && app.includes('setFavoritesOpen(isAddDeleteFavoriteAction)'),
+    && app.includes("if (action === 'addfav' || action === 'delfav') setFavoritesOpen(true)"),
   'Favorites toggle or selection behavior changed',
 )
 assert(
   app.includes('draggable={authStatus.canModify}')
-    && app.includes('onDrop={() =>')
+    && app.includes('onDrop={(event) =>')
     && app.includes("favoriteOperation('reorder'"),
   'Favorites does not provide bounded, persistent row reordering',
 )
@@ -105,10 +104,10 @@ assert(
   !app.includes('allscan-favorites-pin')
     && !app.includes('favoritesPinned')
     && !css.includes('.allscan-favorites-pin')
-    && css.includes('.allscan-section-title > .allscan-module-drag-handle')
+    && css.includes('.allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle')
     && app.includes('<h2 className="allscan-section-title">')
     && app.includes("{dashboardModuleHandle('favorites', 'Favorites')}")
-    && app.includes('        Favorites'),
+    && app.includes('<span className="allscan-module-title-text">Favorites</span>'),
   'Favorites pin remains or dashboard drag handles are not left-aligned',
 )
 assert(

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -1423,6 +1423,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  useEffect(() => {
+    if (!favoriteStatus) return
+    const timer = window.setTimeout(() => setFavoriteStatus(''), 3000)
+    return () => window.clearTimeout(timer)
+  }, [favoriteStatus])
+
   function moveDashboardModule(source: DashboardModuleKey, target: DashboardModuleKey) {
     if (source === target) return
     const applyOrder = () => setDashboardModuleOrder((current) => {
@@ -1573,8 +1579,9 @@ function App({ config }: { config: RuntimeConfig }) {
         onLostPointerCapture={() => { if (dashboardModuleDragging) clearDashboardModuleDrag() }}
         onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
       >
-        <span />
-        <span />
+        <span className="allscan-grip-dots" aria-hidden="true">
+          <i /><i /><i /><i /><i /><i />
+        </span>
       </button>
     )
   }
@@ -2124,6 +2131,12 @@ function App({ config }: { config: RuntimeConfig }) {
         <span className="allscan-module-title-wrap">{dashboardModuleHandle('favorites', 'Favorites')}<span className="allscan-module-title-text">Favorites</span></span>
       </h2>
       <div className="allscan-favorites-inner">
+        <div className="allscan-favorites-legend">
+          <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
+          <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
+          <span><i className="allscan-fav-rxbar" />Rx Busy</span>
+          <span><i className="allscan-fav-underline" />Scanning</span>
+        </div>
         <div className="allscan-favorites-options">
           <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
             <label htmlFor="allscan-favsfile">Favorites File</label>
@@ -2147,12 +2160,7 @@ function App({ config }: { config: RuntimeConfig }) {
           </div>
         </div>
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
-        <div className="allscan-favorites-legend">
-          <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
-          <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
-          <span><i className="allscan-fav-rxbar" />Rx Busy</span>
-          <span><i className="allscan-fav-underline" />Scanning</span>
-        </div>
+
         <div className="allscan-favorites-table-wrap">
         <table className="allscan-favorites-table">
           <thead>
@@ -2245,7 +2253,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         requestAnimationFrame(() => ghost.remove())
                       }
                     }}
-                    onDragEnd={() => setFavoriteDragNode(null)}><GripVertical /></button>
+                    onDragEnd={() => setFavoriteDragNode(null)}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -2316,13 +2324,10 @@ function App({ config }: { config: RuntimeConfig }) {
                       }}><Palette aria-hidden="true" /></button>
                       {favoriteColorOpen === favorite.node && favoriteColorPosition ? <span className="allscan-favorite-color-popover" style={{ top: favoriteColorPosition.top, left: favoriteColorPosition.left }} role="dialog" aria-label={'Favorite color for node ' + favorite.node}>
                         <span className="allscan-favorite-color-preview" style={{ backgroundColor: favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df' }} />
-                        <label>Color
-                          <input type="text" maxLength={7} value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
-                            let value = event.target.value.trim()
-                            if (!value.startsWith('#')) value = '#' + value
-                            if (/^#[0-9a-fA-F]{0,6}$/.test(value)) setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: value }))
-                          }} />
-                        </label>
+                        <div className="allscan-favorite-color-hex">
+                          <span>Hex</span>
+                          <code>{(favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df').toUpperCase()}</code>
+                        </div>
                         <span className="allscan-favorite-color-field" aria-label="Color palette"
                           onPointerDown={(event) => {
                             event.preventDefault()
@@ -2371,7 +2376,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                         }} onPointerDown={(event) => event.stopPropagation()} />
                         <span className="allscan-favorite-color-palette">
-                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onClick={() => setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color }))} />)}
+                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color })) }} />)}
                         </span>
                         <span className="allscan-favorite-color-popover-actions">
                           <button type="button" onClick={() => {
@@ -3123,7 +3128,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   .map((detail) => ({ card, identity: detail.label.trim().toUpperCase(), active: card.lastCaller.trim().toUpperCase() === detail.label.trim().toUpperCase() })))
               if (!urfCards.length && !urfAccessOpen) return null
               return <div className="allscan-urf-group">
-                {urfCards.length ? <div className="allscan-urf-group-title"><span>URFWIL Multi-Mode Bridge</span></div> : null}
+                {urfCards.length ? <div className="allscan-urf-group-title"><span>URFWIL Bridge</span></div> : null}
                 <div className="allscan-urf-mini-grid">
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)

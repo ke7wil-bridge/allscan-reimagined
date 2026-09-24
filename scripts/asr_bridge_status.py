@@ -230,17 +230,14 @@ def apply_activity_line(
         return
 
     if fallback_call is not None:
-        caller = clean_caller(fallback_call.group(3), 20)
-        if state.get("role") == "relay" and caller:
-            state.update({
-                "relay_user": caller,
-                "current_user": caller,
-                "last_user": caller,
-                "last_source_user": caller,
-                "last_source_epoch": epoch,
-                "activity_epoch": epoch,
-                "last_event_epoch": epoch,
-            })
+        # MMDVM emits the configured local callsign when it cannot resolve the
+        # real D-Star source.  That is bridge identity, not talker evidence.
+        # Keep the relay active, but never attribute the transmission to it.
+        state.update({
+            "observed": True,
+            "activity_epoch": epoch,
+            "last_event_epoch": epoch,
+        })
         return
 
     if end is not None:

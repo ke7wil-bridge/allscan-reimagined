@@ -6308,3 +6308,133 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card.is-cu
   text-overflow: ellipsis;
 }
 .allscan-talker-location { margin-top: 1px; }
+
+/* Beta 8 visual refinements: consolidated after visual review. */
+.allscan-talker-card {
+  padding-top: 0;
+  overflow: hidden;
+}
+.allscan-talker-card-title {
+  margin: 0 -9px 7px;
+  padding: 7px 9px 6px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-header-bg, rgba(127, 127, 127, .12));
+  color: var(--theme-text);
+  opacity: 1;
+  text-align: center;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-talker-card-title {
+  background: #202126;
+  border-bottom-color: #555;
+  color: #f2f2f2;
+}
+
+/* Favorites: legend is the flush module header; file/reset controls remain on the module body. */
+.allscan-favorites-inner {
+  position: relative;
+  padding-top: 0 !important;
+}
+.allscan-favorites-legend {
+  box-sizing: border-box;
+  width: auto !important;
+  max-width: none;
+  justify-content: center;
+  margin: 0 -10px 5px !important;
+  padding: 7px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--theme-border) !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: none !important;
+  background: var(--theme-header-bg, var(--theme-panel-2)) !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
+  background: #202126 !important;
+  border-bottom-color: #555 !important;
+}
+.allscan-favorites-options,
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options {
+  width: auto;
+  justify-content: center;
+  margin: 0 auto 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.allscan-favorites-table-wrap { margin-top: 0 !important; }
+
+/* URFWIL group header sits between the section title and individual bridge-card headers. */
+.allscan-urf-group-title {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
+  background: #15171a !important;
+  border-bottom-color: #3b3e42;
+}
+
+/* Favorite color picker: explicit read-only hex display plus clickable presets. */
+.allscan-favorite-color-popover .allscan-favorite-color-hex {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > code {
+  display: block;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.28));
+  border-radius: 5px;
+  background: #202328;
+  color: #f2f2f2;
+  font: 12px/16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .02em;
+}
+.allscan-favorite-color-palette button {
+  cursor: pointer !important;
+  touch-action: manipulation;
+}
+
+/* Unified compact 2x3 dot grab handle for dashboard modules and Favorite rows. */
+.allscan-module-drag-handle { align-items: center; }
+.allscan-module-drag-handle > span.allscan-grip-dots,
+.allscan-favorite-drag > span.allscan-grip-dots {
+  display: grid !important;
+  grid-template-columns: repeat(2, 3px) !important;
+  grid-template-rows: repeat(3, 3px) !important;
+  gap: 3px !important;
+  width: 9px !important;
+  height: 15px !important;
+  place-content: center;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: currentColor;
+  pointer-events: none;
+}
+.allscan-module-drag-handle > span.allscan-grip-dots > i,
+.allscan-favorite-drag > span.allscan-grip-dots > i {
+  display: block !important;
+  width: 3px !important;
+  height: 3px !important;
+  min-width: 3px !important;
+  min-height: 3px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: currentColor !important;
+}
