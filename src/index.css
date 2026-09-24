@@ -6409,3 +6409,27 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
   background: #202126 !important;
 }
+
+/* Favorites header final experiment: legend is the compact full-width header; controls return to black below. */
+.allscan-favorites-legend {
+  width: 100%;
+  margin: 0 0 8px !important;
+  padding: 7px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--theme-border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--theme-header-bg, var(--theme-panel-2)) !important;
+}
+.allscan-favorites-options {
+  width: auto;
+  margin: 0 auto !important;
+  padding: 0 0 4px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
+  background: #202126 !important;
+  border-bottom-color: #555 !important;
+}

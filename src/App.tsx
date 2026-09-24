@@ -2124,6 +2124,12 @@ function App({ config }: { config: RuntimeConfig }) {
         <span className="allscan-module-title-wrap">{dashboardModuleHandle('favorites', 'Favorites')}<span className="allscan-module-title-text">Favorites</span></span>
       </h2>
       <div className="allscan-favorites-inner">
+        <div className="allscan-favorites-legend">
+          <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
+          <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
+          <span><i className="allscan-fav-rxbar" />Rx Busy</span>
+          <span><i className="allscan-fav-underline" />Scanning</span>
+        </div>
         <div className="allscan-favorites-options">
           <form className="allscan-favorites-file-form" onSubmit={(event) => event.preventDefault()}>
             <label htmlFor="allscan-favsfile">Favorites File</label>
@@ -2147,12 +2153,7 @@ function App({ config }: { config: RuntimeConfig }) {
           </div>
         </div>
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
-        <div className="allscan-favorites-legend">
-          <span><i className="allscan-fav-dot allscan-fav-dot-networked" />Already Networked</span>
-          <span><i className="allscan-fav-dot allscan-fav-dot-tx" />Recent TX</span>
-          <span><i className="allscan-fav-rxbar" />Rx Busy</span>
-          <span><i className="allscan-fav-underline" />Scanning</span>
-        </div>
+
         <div className="allscan-favorites-table-wrap">
         <table className="allscan-favorites-table">
           <thead>
