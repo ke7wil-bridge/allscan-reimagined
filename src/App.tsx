@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
+import UpdateAsrDialog from './components/UpdateAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
@@ -557,6 +558,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [urfAccessBusy, setUrfAccessBusy] = useState(false)
   const [urfAccessStatus, setUrfAccessStatus] = useState('')
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const nodeInputRef = useRef<HTMLInputElement>(null)
@@ -2602,6 +2604,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
                   {authStatus.loggedIn ? <a role="menuitem" href={asrPath('user/settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
@@ -2681,8 +2684,11 @@ function App({ config }: { config: RuntimeConfig }) {
                 ) : null}
               </div>
               <div className="allscan-update-actions">
+                {authStatus.isAdmin ? (
+                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update ASR</button>
+                ) : null}
                 {releaseStatus.releaseUrl ? (
-                  <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Update instructions (recommended)</a>
+                  <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release details</a>
                 ) : null}
                 {releaseStatus.package.url ? (
                   <a href={releaseStatus.package.url}>Download archive (advanced)</a>
@@ -3521,6 +3527,8 @@ function App({ config }: { config: RuntimeConfig }) {
           </div>
         </div>
       ) : null}
+
+      {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} /> : null}
 
       {diagnosticsOpen ? (
         <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>

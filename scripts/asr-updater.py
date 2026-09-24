@@ -26,6 +26,7 @@ import urllib.request
 RELEASE_ROOT = Path("/opt/allscan-reimagined/current")
 WEB_ROOT = Path("/var/www/html" if Path("/var/www/html/allscan").is_dir() else "/srv/http")
 JOB_ROOT = Path("/run/allscan-reimagined/update-jobs")
+PERSIST_ROOT = Path("/var/lib/allscan-reimagined/update-jobs")
 GATE = Path("/run/lock/allscan-reimagined-updater.lock")
 INSTALL_LOCK = Path("/run/lock/allscan-reimagined-rollback.lock")
 ROLLBACK_JOBS = Path("/run/allscan-reimagined/rollback-jobs")
@@ -59,6 +60,11 @@ def owned_jobs() -> None:
     os.chmod(JOB_ROOT, 0o750)
     if group >= 0:
         os.chown(JOB_ROOT, 0, group)
+    PERSIST_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    persistent = PERSIST_ROOT.lstat()
+    if not stat.S_ISDIR(persistent.st_mode) or persistent.st_uid != 0:
+        raise UpdateError("Persistent update journal is not root-owned")
+    os.chmod(PERSIST_ROOT, 0o700)
 
 
 def group_exists(name: str) -> bool:
@@ -98,6 +104,18 @@ def status(job: str, state: str, **extra: str) -> dict:
         elif group_exists("http"):
             os.chown(temp, 0, grp.getgrnam("http").gr_gid)
         os.replace(temp, path)
+        journal = PERSIST_ROOT / (job + ".json")
+        saved_fd, saved_temp = tempfile.mkstemp(prefix=".update-", dir=PERSIST_ROOT)
+        try:
+            with os.fdopen(saved_fd, "w") as handle:
+                json.dump(data, handle)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(saved_temp, 0o600)
+            os.replace(saved_temp, journal)
+        finally:
+            Path(saved_temp).unlink(missing_ok=True)
     finally:
         Path(temp).unlink(missing_ok=True)
     return data
@@ -113,7 +131,8 @@ def read_status(job: str) -> dict:
     if not JOB_RE.fullmatch(job):
         raise UpdateError("Invalid job ID")
     try:
-        data = json.loads((JOB_ROOT / (job + ".json")).read_text())
+        runtime = JOB_ROOT / (job + ".json")
+        data = json.loads((runtime if runtime.is_file() else PERSIST_ROOT / (job + ".json")).read_text())
     except (OSError, ValueError) as exc:
         raise UpdateError("Update job not found") from exc
     if not isinstance(data, dict) or data.get("jobId") != job or data.get("state") not in STATES:
@@ -274,6 +293,19 @@ def stage_release(package: Path, destination: Path, version: str) -> Path:
                 os.chmod(target, 0o644)
     return destination / root
 
+
+def check_available() -> dict:
+    installed = current_version()
+    try:
+        release = release_for_update(installed)
+    except UpdateError as exc:
+        if str(exc) != "ASR is up to date":
+            raise
+        return {"ok": True, "installedVersion": installed,
+                "availableVersion": installed, "updateAvailable": False}
+    return {"ok": True, "installedVersion": installed,
+            "availableVersion": release["version"], "updateAvailable": True}
+
 def preflight() -> dict:
     installed = current_version()
     release = release_for_update(installed)
@@ -338,7 +370,7 @@ def queue() -> dict:
     if os.geteuid() != 0:
         raise UpdateError("Root required")
     with guard():
-        if active_jobs(JOB_ROOT) or active_jobs(ROLLBACK_JOBS) or install_busy():
+        if active_jobs(JOB_ROOT) or active_jobs(PERSIST_ROOT) or active_jobs(ROLLBACK_JOBS) or install_busy():
             raise UpdateError("Another maintenance operation is running")
         owned_jobs()
         job = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(4)
@@ -455,6 +487,11 @@ def run(job: str) -> int:
             previous = checks["installedVersion"]
             release = checks["release"]
             before = {p.name for p in BACKUPS.iterdir() if p.is_dir()}
+            metadata = PERSIST_ROOT / (job + ".meta.json")
+            metadata.write_text(json.dumps({
+                "previous": previous, "before": sorted(before),
+            }) + "\n")
+            os.chmod(metadata, 0o600)
             work = Path(tempfile.mkdtemp(prefix="asr-update-", dir=WORK_ROOT))
             package = work / "release.tar.gz"
             status(job, "downloading", currentVersion=previous, availableVersion=release["version"])
@@ -501,15 +538,72 @@ def run(job: str) -> int:
         return return_code
 
 
+
+def recover_interrupted() -> dict:
+    if os.geteuid() != 0:
+        raise UpdateError("Root required")
+    owned_jobs()
+    with guard():
+        stale = []
+        for path in PERSIST_ROOT.glob("*.json"):
+            if path.name.endswith(".meta.json") or not JOB_RE.fullmatch(path.stem):
+                continue
+            try:
+                data = read_status(path.stem)
+            except UpdateError:
+                continue
+            if data["state"] not in {"complete", "failed"}:
+                stale.append(path.stem)
+        if not stale:
+            return {"ok": True, "status": "nothing_to_recover"}
+        for job in sorted(stale):
+            try:
+                last_change = dt.datetime.fromisoformat(read_status(job)["updatedAt"])
+                if (dt.datetime.now(dt.timezone.utc) - last_change).total_seconds() < 90:
+                    raise UpdateError("Update may still be starting; check again shortly")
+            except (KeyError, ValueError):
+                raise UpdateError("Update status time is invalid")
+            active = subprocess.run(
+                ["systemctl", "is-active", "--quiet",
+                 f"allscan-reimagined-update@{job}.service"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            if active.returncode == 0 or install_busy():
+                raise UpdateError("Update is still running")
+            meta_path = PERSIST_ROOT / (job + ".meta.json")
+            try:
+                meta = json.loads(meta_path.read_text())
+                previous = meta["previous"]
+                before = set(meta["before"])
+                if not VERSION_RE.fullmatch(previous) or not all(
+                        re.fullmatch(r"[0-9]{8}-[0-9]{6}", item) for item in before):
+                    raise ValueError("Invalid update metadata")
+            except (OSError, ValueError, KeyError, TypeError):
+                previous, before = None, set()
+            if previous is None:
+                status(job, "failed", message="Update could not start.")
+                continue
+            status(job, "restoring")
+            restored = recover(previous, before)
+            status(job, "failed", message=(
+                "Update failed; previous installation restored." if restored
+                else "Update failed; recovery needs attention."))
+        return {"ok": True, "status": "recovery_checked"}
+
 def main(argv: list[str]) -> int:
     try:
         if argv == ["--queue-update"]:
             print(json.dumps(queue()))
+        elif argv == ["--recover-json"]:
+            print(json.dumps(recover_interrupted()))
+        elif argv == ["--check-json"]:
+            if os.geteuid() != 0:
+                raise UpdateError("Root required")
+            print(json.dumps(check_available()))
         elif argv == ["--preflight-json"]:
             if os.geteuid() != 0:
                 raise UpdateError("Root required")
             with guard():
-                if active_jobs(JOB_ROOT) or active_jobs(ROLLBACK_JOBS) or install_busy():
+                if active_jobs(JOB_ROOT) or active_jobs(PERSIST_ROOT) or active_jobs(ROLLBACK_JOBS) or install_busy():
                     raise UpdateError("Another maintenance operation is running")
                 result = preflight()
                 result.pop("release")

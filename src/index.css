@@ -6438,3 +6438,67 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   border-radius: 50% !important;
   background: currentColor !important;
 }
+
+/* Standalone updater dialog; kept separate from the broader Settings layout. */
+.asr-update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: rgba(3, 10, 21, .76);
+}
+.asr-update-dialog {
+  width: min(100%, 590px);
+  max-height: 100%;
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid #4f7ba4;
+  border-radius: 12px;
+  background: #13263a;
+  color: #f1f6fb;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .5);
+  line-height: 1.45;
+}
+.asr-update-dialog p { margin: 10px 0; }
+.asr-update-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.asr-update-head h2 { margin: 0; font-size: 1.45rem; }
+.asr-update-head button { font-size: 1.6rem; line-height: 1; }
+.asr-update-dialog button {
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid #77b5ed;
+  border-radius: 6px;
+  background: #214b70;
+  color: #fff;
+  cursor: pointer;
+}
+.asr-update-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.asr-update-dialog button:focus-visible, .asr-update-dialog a:focus-visible {
+  outline: 3px solid #f5c94d; outline-offset: 2px;
+}
+.asr-update-versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.asr-update-versions div, .asr-update-preflight, .asr-update-job, .asr-update-confirm {
+  padding: 12px;
+  border: 1px solid #456783;
+  border-radius: 8px;
+  background: #18344e;
+}
+.asr-update-versions dt { opacity: .82; }
+.asr-update-versions dd { margin: 2px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.asr-update-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0; }
+.asr-update-preflight, .asr-update-job, .asr-update-confirm { margin: 14px 0; }
+.asr-update-error { color: #ffcccc; font-weight: 700; overflow-wrap: anywhere; }
+.asr-update-dialog footer { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 20px; font-size: .92rem; }
+.asr-update-dialog footer a { color: #a4d7ff; }
+@media (max-width: 420px) {
+  .asr-update-dialog { padding: 14px; }
+  .asr-update-versions { grid-template-columns: 1fr; }
+}

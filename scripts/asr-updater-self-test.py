@@ -50,12 +50,14 @@ def self_test():
     with tempfile.TemporaryDirectory(prefix="asr-updater-test-") as tmp:
         root = Path(tmp)
         up.JOB_ROOT = root / "jobs"
+        up.PERSIST_ROOT = root / "persistent"
         up.ROLLBACK_JOBS = root / "rollback"
         up.BACKUPS = root / "backups"
         up.WORK_ROOT = root
         up.GATE = root / "gate.lock"
         up.INSTALL_LOCK = root / "install.lock"
         up.JOB_ROOT.mkdir()
+        up.PERSIST_ROOT.mkdir()
         up.BACKUPS.mkdir()
         up.group_exists = lambda _g: False
         job = "20260924-120000-aabbccdd"
@@ -105,6 +107,13 @@ def self_test():
             assert chosen["sha256"] == hashlib.sha256(package()).hexdigest()
             release["assets"][0]["browser_download_url"] = "https://example.invalid/" + name
             fails(lambda: up.release_for_update("1.0.0-beta.7.6"))
+
+        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.6"), mock.patch.object(
+                up, "release_for_update", side_effect=up.UpdateError("ASR is up to date")):
+            assert up.check_available()["updateAvailable"] is False
+        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.6"), mock.patch.object(
+                up, "release_for_update", return_value={"version": version}):
+            assert up.check_available()["availableVersion"] == version
 
         archive = root / "release.tar.gz"
         archive.write_bytes(package())
@@ -214,6 +223,26 @@ def self_test():
             assert up.run(job) == 1
             recovery.assert_called_once()
         assert up.read_status(job)["state"] == "failed"
+
+        # Persistent journal survives loss of /run, then browser recovery
+        # refuses a live unit and repairs a stopped interrupted job.
+        up.status(job, "installing")
+        (up.PERSIST_ROOT / (job + ".meta.json")).write_text(json.dumps({
+            "previous": "1.0.0-beta.7.6", "before": []}))
+        (up.JOB_ROOT / (job + ".json")).unlink()
+        persistent_status = up.PERSIST_ROOT / (job + ".json")
+        old_status = json.loads(persistent_status.read_text())
+        old_status["updatedAt"] = "2026-01-01T00:00:00+00:00"
+        persistent_status.write_text(json.dumps(old_status))
+        assert up.read_status(job)["state"] == "installing"
+        with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
+                up, "owned_jobs"), mock.patch.object(
+                up, "install_busy", return_value=False), mock.patch.object(
+                up.subprocess, "run", return_value=SimpleNamespace(returncode=3)), mock.patch.object(
+                up, "recover", return_value=True) as recovery:
+            assert up.recover_interrupted()["status"] == "recovery_checked"
+            recovery.assert_called_once_with("1.0.0-beta.7.6", set())
+        assert up.read_status(job)["message"] == "Update failed; previous installation restored."
 
     print("ASR updater self-test: ok")
 

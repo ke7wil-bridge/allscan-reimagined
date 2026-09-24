@@ -420,8 +420,12 @@ def queue_rollback(backup_id: str) -> dict[str, Any]:
     except BlockingIOError as exc:
         gate_handle.close()
         raise RollbackError("Another maintenance operation is running") from exc
-    update_jobs = Path("/run/allscan-reimagined/update-jobs")
-    if update_jobs.is_dir():
+    for update_jobs in (
+        Path("/run/allscan-reimagined/update-jobs"),
+        Path("/var/lib/allscan-reimagined/update-jobs"),
+    ):
+        if not update_jobs.is_dir():
+            continue
         for update_status in update_jobs.glob("*.json"):
             try:
                 state = json.loads(update_status.read_text()).get("state")

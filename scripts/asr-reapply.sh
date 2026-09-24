@@ -310,6 +310,7 @@ chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
 install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/update-jobs
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/update-jobs
 if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
   && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ]; then
   if ! /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile; then
@@ -995,6 +996,8 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecy
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --check-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*

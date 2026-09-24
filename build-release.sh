@@ -77,6 +77,7 @@ grep -Fq "<p>$PUBLIC_BETA_LABEL keeps the original AllScan" \
   echo "Help public release wording does not match: $PUBLIC_BETA_LABEL" >&2
   exit 1
 }
+python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
@@ -90,6 +91,7 @@ python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
+bash -n "$ROOT/bootstrap.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
@@ -187,6 +189,7 @@ while IFS= read -r compat_file; do
   install -m 644 "compat/$compat_file" "$STAGE/payload/compat/$compat_file"
 done <<< "$COMPAT_MANIFEST"
 install -m 755 install.sh "$STAGE/install.sh"
+install -m 755 bootstrap.sh "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"

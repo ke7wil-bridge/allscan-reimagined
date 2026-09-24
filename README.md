@@ -39,70 +39,18 @@ This archive is **Beta 7.6** and remains a prerelease.
 
 ## Install
 
-First run `sudo -i` by itself. Confirm the new prompt begins with `root@` and
-ends with `#`; stop if it does not. Then download the Beta 7.6 archive and its
-`.sha256` companion from the GitHub prerelease, verify it, and run the installer
-directly from that interactive root shell:
+After a release is published, run this one-time command from an interactive
+terminal on the ASL3 node:
 
 ```bash
-set -euo pipefail
-[ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." >&2; exit 1; }
-
-pkg="/tmp/allscan-reimagined-1.0.0-beta.7.6.tar.gz"
-checksum="${pkg}.sha256"
-stage="$(mktemp -d /tmp/asr-beta-7-4-install.XXXXXX)"
-base="https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v1.0.0-beta.7.6"
-
-curl -fL "$base/$(basename "$pkg")" -o "$pkg"
-curl -fL "$base/$(basename "$checksum")" -o "$checksum"
-(cd /tmp && sha256sum -c "$(basename "$checksum")")
-
-tar -xzf "$pkg" -C "$stage"
-cd "$stage/allscan-reimagined-1.0.0-beta.7.6"
-
-php -l payload/server/asr-api.php
-php -l payload/compat/allscan-v1.01/asr-settings/index.php
-php -l payload/compat/allscan-v1.01/asr-instructions/index.php
-php -l payload/compat/allscan-v1.01/astapi/AMI.php
-php -l payload/compat/allscan-v1.01/astapi/server.php
-php -l payload/compat/allscan-v1.01/astapi/asrEchoLink.php
-php -l payload/compat/allscan-v1.01/include/asrBridgeStatus.php
-php -l payload/scripts/asr-bridge-clients.php
-php payload/scripts/asr-bridge-clients.php --self-test
-php payload/scripts/asr-settings-bridge-self-test.php
-php payload/scripts/asr-bridge-status-privacy-self-test.php
-php payload/scripts/asr-echolink-self-test.php
-php payload/scripts/asr-access-policy-self-test.php
-php payload/scripts/asr-lookup-map-self-test.php
-sh -n payload/scripts/asr-asterisk-read.sh
-bash -n payload/scripts/asr-reapply.sh
-bash -n payload/scripts/asr-integrity-check.sh
-bash payload/scripts/asr-favorites-permissions.sh --self-test
-bash payload/scripts/asr-side-by-side-self-test.sh
-python3 payload/scripts/asr-patch-connected-clients.py --self-test
-python3 payload/scripts/asr-patch-allscan-index.py --self-test
-python3 payload/scripts/asr-migrate-tgif-environment.py --self-test
-python3 payload/scripts/asr-bridge-lifecycle.py self-test
-python3 payload/scripts/asr-startup-bridge-summary.py --self-test
-python3 payload/scripts/asr-release-check.py --self-test
-python3 payload/scripts/asr-rollback.py self-test
-python3 payload/scripts/asr-installer-rollback-self-test.py --self-test
-python3 payload/scripts/asr-bridge-control.py --self-test
-python3 payload/scripts/asr-bridge-stale-status-self-test.py
-python3 payload/scripts/asr-ysf-bridge-control.py --self-test
-python3 payload/scripts/asr-protected-config-metadata.py --self-test
-python3 payload/scripts/asr-favorites-update.py --self-test
-python3 payload/scripts/asr-favorites-source.py --self-test
-php payload/scripts/asr-favorites-discovery-self-test.php
-python3 payload/scripts/asr-installer-prompts-self-test.py
-python3 payload/scripts/asr-instructions-self-test.py
-python3 payload/scripts/asr-stock-count-helper.py --self-test
-php payload/scripts/asr-runtime-source-self-test.php
-
-bash ./install.sh
+curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
 ```
 
-Do not run the final installer through a heredoc or other non-interactive wrapper. When the official AllScan backend needs an update, both installers require an interactive terminal.
+The bootstrap downloads a published ASR archive, verifies its companion
+SHA-256 asset, and starts the installer. Complete its prompts, including those
+from the official AllScan installer if stock AllScan needs an update. After
+installation, use the browser for routine ASR updates and recovery. See the
+[browser installation and update guide](docs/browser-install-update.md).
 
 ## Setup Prompts
 
@@ -163,27 +111,15 @@ If bridge services are detected, the installer reviews the bridge card node numb
 
 ## Updates
 
-To update AllScan Reimagined, install the latest Reimagined release. The installer:
+Open **Admin → Update ASR** in `/asr/`. Check for a release, run preflight,
+then confirm installation. The root-owned updater verifies the release and
+checksum, creates a rollback backup, runs the existing installer, checks the
+served application, and restores the previous version on failure. No update
+starts automatically. The latest ten rollback backups are retained by default.
 
-1. Reports the installed and latest official AllScan backend versions.
-2. Backs up the existing stock and Reimagined state before changing files.
-3. Runs the official AllScan installer/updater when required.
-4. Preserves existing users, passwords, permissions, Favorites, and node settings.
-5. Detects the primary node number, callsign, and known bridge services.
-6. Applies Apache, session, file-permission, and endpoint hardening.
-7. Installs persistence services that maintain `/asr/` without replacing stock
-   `/allscan/`.
-8. Installs a low-frequency cached release checker that never installs updates
-   automatically.
-9. Verifies the pages and runtime configuration before reporting success.
-
-If the official AllScan backend is already current, the official updater is skipped.
-
-After a successful installation, ASR automatically retains the newest 10 rollback backups under `/root/allscan-reimagined-backups/` and removes older timestamped ASR backups. Set `ASR_BACKUP_RETENTION` to a different positive number when running `bash ./install.sh` if the node needs a different retention policy.
-
-The on-screen rollback control is the final expandable section above Save in
-Reimagined Settings. It has its own confirmation button; the normal Save
-button never starts a rollback.
+For manual recovery, open **Admin → Reimagined Settings → Backups & Rollback**.
+A stopped, interrupted update can also be checked from the Update ASR dialog.
+See the [full browser workflow](docs/browser-install-update.md).
 
 ## Personal Configuration
 
@@ -199,14 +135,8 @@ Uploaded logos are stored in:
 /var/lib/allscan-reimagined/
 ```
 
-Rerun personalization without reinstalling:
-
-```bash
-/opt/allscan-reimagined/current/scripts/asr-configure.sh --force
-/usr/local/sbin/allscan-reimagined-reapply
-```
-
-Back up `/etc/allscan-reimagined/config.json` before forced reconfiguration if the node has hand-tuned bridge mappings.
+For routine ASR configuration, use **Admin → Reimagined Settings** in
+the browser. Browser-only dashboard preferences remain in the browser profile.
 
 ### Smaller-node performance
 
@@ -237,7 +167,7 @@ release/
 
 ## Layered Install
 
-The installer treats stock AllScan as the base layer and then overlays AllScan Reimagined on top of it. When the target node does not already have the required official AllScan backend, `install.sh` runs the upstream AllScan installer/updater first and then applies the Reimagined layer so `/asr/` shares the original application's users, data, and node settings.
+The installer keeps stock AllScan at `/allscan/` and ASR at `/asr/`. If the stock backend needs installation or upgrading, the first installer invokes the upstream AllScan installer interactively. Later browser updates stop at preflight when a stock backend upgrade is required.
 
 The repository itself does not vendor the full upstream AllScan source tree. The compat snapshot under `compat/allscan-v1.01/` contains the files needed for the overlay layer.
 
@@ -259,6 +189,8 @@ docker compose up --build
 
 ## Documentation
 
+- [Browser installation, updates, backups, and recovery](docs/browser-install-update.md)
+- [Updater user-state preservation inventory](docs/browser-updater-state-inventory.md)
 - [Lookup page and station origin map](docs/lookup-map.md)
 - [Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md)
 - [Beta 7.3 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.3.md)

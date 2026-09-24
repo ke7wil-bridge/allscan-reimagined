@@ -10,6 +10,7 @@ const ASR_RUNTIME_SECRETS = '/etc/allscan-reimagined/secrets.json';
 const ASR_STATION_MAP_CACHE = '/etc/allscan-reimagined/station-map-cache.json';
 const ASR_LOOKUP_DATA_CACHE = '/run/allscan-reimagined/lookup-data.json';
 const ASR_RELEASE_STATUS_CACHE = '/run/allscan-reimagined/release-check/release-status.json';
+const ASR_UPDATER_HELPER = '/usr/local/sbin/allscan-reimagined-updater';
 const ASR_RELEASE_STATUS_MAX_AGE = 259200;
 const ASR_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-bridge-control';
 const ASR_YSF_BRIDGE_CONTROL_HELPER = '/usr/local/sbin/allscan-reimagined-ysf-bridge-control';
@@ -562,6 +563,42 @@ function asr_release_status_payload(): array {
             'sha256' => $checksum,
         ],
     ];
+}
+
+
+function asr_updater_command(string $operation, string $jobId = ''): array {
+    $allowed = [
+        'check' => '--check-json',
+        'preflight' => '--preflight-json',
+        'queue' => '--queue-update',
+        'recover' => '--recover-json',
+        'status' => '--status-json',
+    ];
+    if (!isset($allowed[$operation])) asr_error('Invalid update operation.', 400);
+    if ($operation === 'status' && !preg_match('/^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/D', $jobId)) {
+        asr_error('Invalid update job ID.', 400);
+    }
+    if (!is_executable(ASR_UPDATER_HELPER)) asr_error('ASR updater is not installed.', 503);
+    $argv = ['sudo', '-n', ASR_UPDATER_HELPER, $allowed[$operation]];
+    if ($operation === 'status') $argv[] = $jobId;
+    $process = @proc_open($argv, [
+        0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) asr_error('ASR updater is unavailable.', 503);
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1], 16384);
+    fclose($pipes[1]);
+    // The helper's raw output is root-only; never pass stderr to the browser.
+    stream_get_contents($pipes[2], 16384);
+    fclose($pipes[2]);
+    $exit = proc_close($process);
+    $payload = json_decode((string) $stdout, true);
+    if (!is_array($payload)) asr_error('ASR updater did not return a valid status.', 503);
+    if ($exit !== 0 || empty($payload['ok'])) {
+        $reason = (string) ($payload['error'] ?? 'Update operation could not complete.');
+        asr_error(substr(preg_replace('/[^A-Za-z0-9 .,;:-]/', '', $reason), 0, 180), 409);
+    }
+    return $payload;
 }
 
 function asr_dmr_net_live_statuses(): array {
@@ -3509,6 +3546,20 @@ if ($action === 'runtime-config') asr_json(asr_runtime_config());
 if ($action === 'release-status') {
     asr_require_read();
     asr_json(asr_release_status_payload());
+}
+if (in_array($action, ['update-check', 'update-preflight', 'update-queue', 'update-recover', 'update-job-status'], true)) {
+    header('Cache-Control: no-store');
+    asr_require_admin();
+    if ($action === 'update-check') asr_json(asr_updater_command('check'));
+    if ($action === 'update-job-status') {
+        asr_json(asr_updater_command('status', (string) ($_GET['jobId'] ?? '')));
+    }
+    asr_require_post();
+    asr_require_same_origin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'asr-update-control') {
+        asr_error('Invalid ASR update request.', 403);
+    }
+    asr_json(asr_updater_command($action === 'update-preflight' ? 'preflight' : ($action === 'update-recover' ? 'recover' : 'queue')));
 }
 if ($action === 'bridge-clients') {
     asr_require_read();
