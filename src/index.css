@@ -6483,3 +6483,27 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   font-size: 1rem !important;
   font-weight: 700 !important;
 }
+
+/* Favorite color editor: make the hex control explicit and keep preset swatches clickable. */
+.allscan-favorite-color-popover .allscan-favorite-color-hex {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 27px;
+  padding: 0 6px;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.2));
+  border-radius: 5px;
+  background: var(--theme-control, #202328);
+  box-sizing: border-box;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > input {
+  box-sizing: border-box;
+  height: 27px;
+}
+.allscan-favorite-color-palette button { cursor: pointer !important; touch-action: manipulation; }

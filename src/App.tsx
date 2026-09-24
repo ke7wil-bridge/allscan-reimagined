@@ -2317,8 +2317,8 @@ function App({ config }: { config: RuntimeConfig }) {
                       }}><Palette aria-hidden="true" /></button>
                       {favoriteColorOpen === favorite.node && favoriteColorPosition ? <span className="allscan-favorite-color-popover" style={{ top: favoriteColorPosition.top, left: favoriteColorPosition.left }} role="dialog" aria-label={'Favorite color for node ' + favorite.node}>
                         <span className="allscan-favorite-color-preview" style={{ backgroundColor: favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df' }} />
-                        <label>Color
-                          <input type="text" maxLength={7} value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
+                        <label className="allscan-favorite-color-hex"><span>Color</span>
+                          <input type="text" maxLength={7} aria-label="Hex color" value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
                             let value = event.target.value.trim()
                             if (!value.startsWith('#')) value = '#' + value
                             if (/^#[0-9a-fA-F]{0,6}$/.test(value)) setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: value }))
@@ -2372,7 +2372,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                         }} onPointerDown={(event) => event.stopPropagation()} />
                         <span className="allscan-favorite-color-palette">
-                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onClick={() => setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color }))} />)}
+                          {['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#4aa3df','#3b82f6','#6366f1','#a855f7','#ec4899','#f8fafc','#94a3b8','#475569','#111827'].map((color) => <button type="button" key={color} title={color} aria-label={'Select ' + color} style={{ backgroundColor: color }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: color })) }} />)}
                         </span>
                         <span className="allscan-favorite-color-popover-actions">
                           <button type="button" onClick={() => {
