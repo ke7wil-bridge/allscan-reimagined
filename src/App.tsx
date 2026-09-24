@@ -2317,13 +2317,10 @@ function App({ config }: { config: RuntimeConfig }) {
                       }}><Palette aria-hidden="true" /></button>
                       {favoriteColorOpen === favorite.node && favoriteColorPosition ? <span className="allscan-favorite-color-popover" style={{ top: favoriteColorPosition.top, left: favoriteColorPosition.left }} role="dialog" aria-label={'Favorite color for node ' + favorite.node}>
                         <span className="allscan-favorite-color-preview" style={{ backgroundColor: favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df' }} />
-                        <label className="allscan-favorite-color-hex"><span>Color</span>
-                          <input type="text" maxLength={7} aria-label="Hex color" value={favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df'} onChange={(event) => {
-                            let value = event.target.value.trim()
-                            if (!value.startsWith('#')) value = '#' + value
-                            if (/^#[0-9a-fA-F]{0,6}$/.test(value)) setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: value }))
-                          }} />
-                        </label>
+                        <div className="allscan-favorite-color-hex">
+                          <span>Hex</span>
+                          <code>{(favoriteColorDrafts[favorite.node] || favorite.color || '#4aa3df').toUpperCase()}</code>
+                        </div>
                         <span className="allscan-favorite-color-field" aria-label="Color palette"
                           onPointerDown={(event) => {
                             event.preventDefault()

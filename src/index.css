@@ -6530,3 +6530,32 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   -webkit-appearance: none !important;
   box-sizing: border-box !important;
 }
+
+/* Favorite color picker: simple read-only hex display; color selection happens in palette/field below. */
+.allscan-favorite-color-popover .allscan-favorite-color-hex {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > span {
+  min-width: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  justify-content: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+}
+.allscan-favorite-color-popover .allscan-favorite-color-hex > code {
+  display: block;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--theme-border, rgba(255,255,255,.28));
+  border-radius: 5px;
+  background: #202328;
+  color: #f2f2f2;
+  font: 12px/16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .02em;
+}
