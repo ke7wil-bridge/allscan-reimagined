@@ -6559,3 +6559,25 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   font: 12px/16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: .02em;
 }
+
+/* Unified Beta 8 grab handle: compact 2x3 dot grip for modules and Favorites. */
+.allscan-grip-dots {
+  display: grid !important;
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 3px;
+  width: max-content;
+  height: max-content;
+  place-content: center;
+  pointer-events: none;
+}
+.allscan-grip-dots > i {
+  display: block !important;
+  width: 3px !important;
+  height: 3px !important;
+  border-radius: 50% !important;
+  background: currentColor !important;
+}
+.allscan-module-drag-handle { align-items: center; }
+.allscan-module-drag-handle > .allscan-grip-dots { opacity: 1; }
+.allscan-favorite-drag > .allscan-grip-dots { color: currentColor; }

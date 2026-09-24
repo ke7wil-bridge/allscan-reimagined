@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, GripVertical, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -1579,8 +1579,9 @@ function App({ config }: { config: RuntimeConfig }) {
         onLostPointerCapture={() => { if (dashboardModuleDragging) clearDashboardModuleDrag() }}
         onKeyDown={(event) => moveDashboardModuleByKeyboard(key, event)}
       >
-        <span />
-        <span />
+        <span className="allscan-grip-dots" aria-hidden="true">
+          <i /><i /><i /><i /><i /><i />
+        </span>
       </button>
     )
   }
@@ -2252,7 +2253,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         requestAnimationFrame(() => ghost.remove())
                       }
                     }}
-                    onDragEnd={() => setFavoriteDragNode(null)}><GripVertical /></button>
+                    onDragEnd={() => setFavoriteDragNode(null)}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
                 </td>
                 <td
                   className={nodeCellClass}
