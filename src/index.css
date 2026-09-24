@@ -6365,3 +6365,16 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend 
   border-top: 0 !important;
   border-radius: 0 0 8px 8px;
 }
+
+/* Favorites header: remove the seam completely by overlapping the two halves. */
+.allscan-favorites-options {
+  margin-bottom: -1px !important;
+  border-bottom-color: transparent !important;
+}
+.allscan-favorites-legend {
+  border-top-color: transparent !important;
+  box-shadow: 0 -2px 0 var(--theme-header-bg, var(--theme-panel-2));
+}
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-legend {
+  box-shadow: 0 -2px 0 #202126;
+}
