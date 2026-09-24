@@ -808,6 +808,18 @@ Unit=allscan-reimagined-bridge-clients.service
 [Install]
 WantedBy=timers.target
 EOF
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/tgif-users
+install -d -o root -g root -m 700 /var/lib/allscan-reimagined/tgif-users/tokens
+if [ -d /run/allscan-reimagined/tgif-users/tokens ]; then
+  for legacy_token in /run/allscan-reimagined/tgif-users/tokens/*.json; do
+    [ -f "$legacy_token" ] || continue
+    persistent_token="/var/lib/allscan-reimagined/tgif-users/tokens/$(basename "$legacy_token")"
+    if [ ! -e "$persistent_token" ]; then
+      install -o root -g root -m 600 "$legacy_token" "$persistent_token"
+    fi
+    rm -f -- "$legacy_token"
+  done
+fi
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service <<'EOF'
 [Unit]
 Description=Refresh per-user TGIF connected-client sessions
@@ -821,7 +833,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/run/allscan-reimagined
+ReadWritePaths=/run/allscan-reimagined /var/lib/allscan-reimagined/tgif-users
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'
