@@ -176,6 +176,7 @@ if [ "$needs_reapply" -eq 0 ]; then
     performance/index.php \
     css/asr-admin.css \
     astapi/server.php \
+    astapi/asrAmiGuard.php \
     astapi/asrEchoLink.php \
     astapi/AMI.php; do
     [ -f "$compat_dir/$relative" ] || continue

@@ -20,6 +20,7 @@ allscan-v1.01/asr-instructions/index.php
 allscan-v1.01/asr-settings/index.php
 allscan-v1.01/asr-settings/rollback-status.php
 allscan-v1.01/astapi/AMI.php
+allscan-v1.01/astapi/asrAmiGuard.php
 allscan-v1.01/astapi/asrEchoLink.php
 allscan-v1.01/astapi/server.php
 allscan-v1.01/css/asr-admin.css
@@ -31,6 +32,8 @@ allscan-v1.01/include/asrFavorites.php
 allscan-v1.01/include/asrRuntime.php
 allscan-v1.01/include/common.php
 allscan-v1.01/include/dbUtils.php
+allscan-v1.01/js/asr-cmd-buttons-config.js
+allscan-v1.01/js/asr-favorites-config.js
 allscan-v1.01/lookup/index.php
 allscan-v1.01/performance/index.php
 allscan-v1.01/tgif/index.php
@@ -108,6 +111,7 @@ python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.01/astapi/asrAmiGuard.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/server.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
@@ -118,6 +122,7 @@ if command -v php >/dev/null 2>&1; then
   php "$ROOT/scripts/asr-runtime-source-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
   php "$ROOT/scripts/asr-access-policy-self-test.php"
+  php "$ROOT/scripts/asr-ami-guard-self-test.php"
 else
   echo "PHP is not available locally; packaged PHP tests must pass on the target node."
 fi
@@ -169,6 +174,7 @@ install -m 755 scripts/asr-startup-bridge-summary.py "$STAGE/payload/scripts/asr
 install -m 755 scripts/asr-settings-bridge-self-test.php "$STAGE/payload/scripts/asr-settings-bridge-self-test.php"
 install -m 755 scripts/asr-bridge-status-privacy-self-test.php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
 install -m 755 scripts/asr-echolink-self-test.php "$STAGE/payload/scripts/asr-echolink-self-test.php"
+install -m 755 scripts/asr-ami-guard-self-test.php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 install -m 755 scripts/asr-side-by-side-self-test.sh "$STAGE/payload/scripts/asr-side-by-side-self-test.sh"
 install -m 755 scripts/asr-favorites-update.py "$STAGE/payload/scripts/asr-favorites-update.py"
 install -m 755 scripts/asr-favorites-manager.py "$STAGE/payload/scripts/asr-favorites-manager.py"
@@ -196,11 +202,13 @@ install -m 644 "release-notes/v${VERSION}.md" "$STAGE/release-notes/v${VERSION}.
 
 if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/astapi/asrAmiGuard.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/server.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/include/asrBridgeStatus.php" >/dev/null
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
+  php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 fi
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test

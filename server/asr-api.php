@@ -2938,11 +2938,13 @@ function asr_diagnostics_report(): array {
         asr_file_status(__DIR__ . '/asr-connected-clients.json'),
         asr_file_status(__DIR__ . '/astapi/server.php'),
         asr_file_status(__DIR__ . '/astapi/AMI.php'),
+        asr_file_status(__DIR__ . '/astapi/asrAmiGuard.php'),
     ]];
     $sections[] = ['Syntax Checks', [
         asr_diag_command('php -l ' . escapeshellarg(__DIR__ . '/asr-api.php'), 1200),
         asr_diag_command('php -l ' . escapeshellarg(__DIR__ . '/astapi/server.php'), 1200),
         asr_diag_command('php -l ' . escapeshellarg(__DIR__ . '/astapi/AMI.php'), 1200),
+        asr_diag_command('php -l ' . escapeshellarg(__DIR__ . '/astapi/asrAmiGuard.php'), 1200),
     ]];
     $sections[] = ['System', [
         asr_diag_command('uptime', 1000),

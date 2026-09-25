@@ -64,6 +64,7 @@ php -l payload/server/asr-api.php
 php -l payload/compat/allscan-v1.01/asr-settings/index.php
 php -l payload/compat/allscan-v1.01/asr-instructions/index.php
 php -l payload/compat/allscan-v1.01/astapi/AMI.php
+php -l payload/compat/allscan-v1.01/astapi/asrAmiGuard.php
 php -l payload/compat/allscan-v1.01/astapi/server.php
 php -l payload/compat/allscan-v1.01/astapi/asrEchoLink.php
 php -l payload/compat/allscan-v1.01/include/asrBridgeStatus.php
@@ -72,6 +73,7 @@ php payload/scripts/asr-bridge-clients.php --self-test
 php payload/scripts/asr-settings-bridge-self-test.php
 php payload/scripts/asr-bridge-status-privacy-self-test.php
 php payload/scripts/asr-echolink-self-test.php
+php payload/scripts/asr-ami-guard-self-test.php
 php payload/scripts/asr-access-policy-self-test.php
 php payload/scripts/asr-lookup-map-self-test.php
 sh -n payload/scripts/asr-asterisk-read.sh
