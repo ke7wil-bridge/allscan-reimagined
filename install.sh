@@ -944,6 +944,7 @@ validate_command "stock entry-point PHP syntax under /asr" php -l "$ASR_WEB_DIR/
 validate_command "rollback status PHP syntax" php -l "$ASR_WEB_DIR/asr-settings/rollback-status.php" >/dev/null
 validate_command "instructions PHP syntax" php -l "$ASR_WEB_DIR/asr-instructions/index.php" >/dev/null
 validate_command "Asterisk Manager PHP syntax" php -l "$ASR_WEB_DIR/astapi/AMI.php" >/dev/null
+validate_command "AMI circuit breaker PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrAmiGuard.php" >/dev/null
 validate_command "ASTAPI server PHP syntax" php -l "$ASR_WEB_DIR/astapi/server.php" >/dev/null
 validate_command "EchoLink helper PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php" >/dev/null
 validate_command "Bridge-status privacy helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php" >/dev/null

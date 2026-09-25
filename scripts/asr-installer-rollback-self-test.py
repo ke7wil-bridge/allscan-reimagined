@@ -157,6 +157,7 @@ def assert_installer_order(installer: Path) -> None:
     assert 'php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php"' in text
     assert 'php "$RELEASE_DIR/scripts/asr-echolink-self-test.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/AMI.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/astapi/asrAmiGuard.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php"' in text
     assert 'php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php"' in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"' in text
@@ -184,7 +185,7 @@ def assert_installer_order(installer: Path) -> None:
     assert "scripts/asr_bridge_status.py:/usr/local/sbin/allscan-reimagined-standard-bridge-status" in text
     assert "/usr/local/sbin/asr_bridge_status.py" in text
     standard_active_check = text.index(
-        'validate_command "configured Standard DMR/YSF status service is active"'
+        'validate_command "configured Standard DMR/YSF/D-Star status service is active"'
     )
     dmr_net_active_check = text.index(
         'validate_command "configured DMR Net live service is active"'
@@ -198,7 +199,7 @@ def assert_installer_order(installer: Path) -> None:
     assert standard_active_condition >= 0
     standard_active_block = text[standard_active_condition:standard_active_check]
     assert 'item.get("cardType", "standard") == "standard"' in standard_active_block
-    assert '.startswith(("dmr", "ysf"))' in standard_active_block
+    assert '.startswith(("dmr", "ysf", "dstar"))' in standard_active_block
     assert "allscan-reimagined-bridge-lifecycle" in text
     assert "remove_asr_managed_wiring" in text
     assert "allscan-reimagined-friendly-names.conf" in text
@@ -469,6 +470,7 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "allscan-reimagined-bridge-lifecycle reconcile" in integrity_text
     assert "astapi/asrEchoLink.php" in integrity_text
     assert "astapi/AMI.php" in integrity_text
+    assert "astapi/asrAmiGuard.php" in integrity_text
     assert "include/asrBridgeStatus.php" in integrity_text
     assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ]" in integrity_text
     assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ]" in integrity_text

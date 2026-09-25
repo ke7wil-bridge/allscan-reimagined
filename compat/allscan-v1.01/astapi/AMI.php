@@ -3,27 +3,65 @@ define('AMI_DEBUG_LOG', 'log.txt');
 
 class AMI {
 public $aslver = '2.0/unknown';
+private $readTimeout = 5;
+
+function __construct($readTimeout = 5) {
+	$this->readTimeout = max(1, (int) $readTimeout);
+}
 
 function connect($ip, $port) {
 	if(!validIpAddr($ip) || !$port)
 		return false;
-	return fsockopen($ip, $port, $errno, $errstr, 5);
+	$fp = fsockopen($ip, $port, $errno, $errstr, 5);
+	if($fp !== false)
+		stream_set_timeout($fp, $this->readTimeout);
+	return $fp;
 }
 
-function login($fp, $user, $password) {
+function login($fp, $user, $password, $detectVersion=true) {
 	$actionID = $user . $password;
 	fwrite($fp,"ACTION: LOGIN\r\nUSERNAME: $user\r\nSECRET: $password\r\nEVENTS: 0\r\nActionID: $actionID\r\n\r\n");
 	$res = $this->getResponse($fp, $actionID);
 	// logToFile('RES: ' . varDumpClean($res, true), AMI_DEBUG_LOG);
-	$ok = (strpos($res[2], "Authentication accepted") !== false);
+	$ok = is_array($res) && strpos(implode("\n", $res), "Authentication accepted") !== false;
 	if(!$ok)
 		return false;
+	if($detectVersion)
+		$this->detectAslVersion($fp);
+	return $ok;
+}
+
+function detectAslVersion($fp) {
 	// Determine App-rpt version. ASL3 and Asterisk 20 have some differences in AMI commands
 	// eg. in ASL2 restart command is "restart now" but in ASL3 it's "core restart now".
 	$s = $this->command($fp, 'rpt show version');
 	if(preg_match('/app_rpt version: ([0-9\.]{1,9})/', $s, $m) == 1)
 		$this->aslver = $m[1];
-	return $ok;
+}
+
+function action($fp, $action, $fields=[]) {
+	$actionID = strtolower($action) . mt_rand();
+	$request = "ACTION: $action\r\n";
+	foreach($fields as $name => $value)
+		$request .= "$name: $value\r\n";
+	$request .= "ActionID: $actionID\r\n\r\n";
+	if(fwrite($fp, $request) === false)
+		return 'Write failed';
+	return $this->getResponse($fp, $actionID);
+}
+
+function coreStartupId($fp) {
+	$res = $this->action($fp, 'CoreStatus');
+	if(!is_array($res))
+		return '';
+	$values = [];
+	foreach($res as $line) {
+		if(preg_match('/^(CoreStartupDate|CoreStartupTime):\s*(.+)$/', $line, $m) == 1)
+			$values[$m[1]] = trim($m[2]);
+	}
+	if(empty($values['CoreStartupDate']) || empty($values['CoreStartupTime']))
+		return '';
+	return $values['CoreStartupDate'] . 'T' . $values['CoreStartupTime'];
 }
 
 function command($fp, $cmdString, $debug=false) {
@@ -104,12 +142,18 @@ function getResponse($fp, $actionID, $debug=false) {
 	$ignore = ['Privilege: Command', 'Command output follows'];
 	$t0 = time();
 	$response = [];
-	if($debug)
-		$sn = getScriptName();
+	$sn = getScriptName();
 	while(time() - $t0 < 20) {
 		$str = fgets($fp);
-		if($str === false)
-			return $response;
+		if($str === false) {
+			$meta = stream_get_meta_data($fp);
+			if(!empty($meta['timed_out'])) {
+				if($debug)
+					logToFile("$sn: Timeout", AMI_DEBUG_LOG);
+				return 'Timeout';
+			}
+			return 'Connection closed';
+		}
 		$str = trim($str);
 		if($str === '')
 			continue;
@@ -121,7 +165,13 @@ function getResponse($fp, $actionID, $debug=false) {
 			$response[] = $str;
 			while(time() - $t0 < 20) {
 				$str = fgets($fp);
-				if($str === false || $str === "\r\n" || $str === "\n")
+				if($str === false) {
+					$meta = stream_get_meta_data($fp);
+					if(!empty($meta['timed_out']))
+						return 'Timeout';
+					return 'Connection closed';
+				}
+				if($str === "\r\n" || $str === "\n")
 					return $response;
 				$str = trim($str);
 				if($str === '' || in_array($str, $ignore))
@@ -132,8 +182,6 @@ function getResponse($fp, $actionID, $debug=false) {
 			}
 		}
 	}
-	if(count($response))
-		return $response;
 	logToFile("$sn: Timeout", AMI_DEBUG_LOG);
 	return 'Timeout';
 }
