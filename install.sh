@@ -720,7 +720,7 @@ CURRENT_LINK_CHANGED=1
 ln -sfn "$RELEASE_DIR" /opt/allscan-reimagined/current
 
 echo "[4/8] Detecting node identity, branding, and bridges..."
-if [ "$BROWSER_UPDATE" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+if [ "$BROWSER_UPDATE" -eq 0 ] && [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh" < /dev/tty
 elif [ "$BROWSER_UPDATE" -eq 1 ]; then
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh" --non-interactive
@@ -979,6 +979,7 @@ validate_command "stock entry-point PHP syntax under /asr" php -l "$ASR_WEB_DIR/
 validate_command "rollback status PHP syntax" php -l "$ASR_WEB_DIR/asr-settings/rollback-status.php" >/dev/null
 validate_command "instructions PHP syntax" php -l "$ASR_WEB_DIR/asr-instructions/index.php" >/dev/null
 validate_command "Asterisk Manager PHP syntax" php -l "$ASR_WEB_DIR/astapi/AMI.php" >/dev/null
+validate_command "AMI circuit breaker PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrAmiGuard.php" >/dev/null
 validate_command "ASTAPI server PHP syntax" php -l "$ASR_WEB_DIR/astapi/server.php" >/dev/null
 validate_command "EchoLink helper PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php" >/dev/null
 validate_command "Bridge-status privacy helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php" >/dev/null

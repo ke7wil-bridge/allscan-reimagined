@@ -125,7 +125,7 @@ with tarfile.open(package, "r:gz") as archive:
         if manifest is None or json.load(manifest).get("version") != version:
             raise ValueError("Release version does not match archive")
     else:
-        # Published releases before Beta 7.6 embed the version in install.sh.
+        # Legacy published releases embed the version directly in install.sh.
         installer = archive.extractfile(root + "/install.sh")
         if (installer is None or archive.getmember(root + "/install.sh").size > 1024 * 1024
                 or not any(line.strip() == b'ASR_VERSION="' + version.encode() + b'"'

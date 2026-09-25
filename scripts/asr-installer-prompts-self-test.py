@@ -81,6 +81,10 @@ def main() -> int:
         "installer prompts must not use a short input timeout",
     )
     require(
+        "[ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then" in installer,
+        "installer must not redirect configuration from /dev/tty without interactive stdin",
+    )
+    require(
         'requested_asr_login" != "$current_asr_login' in installer,
         "ASR login policy does not preserve an unchanged selection",
     )

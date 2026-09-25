@@ -9,6 +9,7 @@ require_once('../include/apiInit.php');
 require_once('AMI.php');
 require_once('nodeInfo.php');
 require_once(__DIR__ . '/asrEchoLink.php');
+require_once(__DIR__ . '/asrAmiGuard.php');
 
 if(!readOk()) {
 	statErr('Insufficient user permission to retrieve data.');
@@ -47,6 +48,7 @@ set_time_limit(0);
 $sharedDir = '/run/allscan-reimagined';
 $sharedLock = $sharedDir . '/astapi-' . $node . '.lock';
 $sharedCache = $sharedDir . '/astapi-' . $node . '.json';
+$guardPath = $sharedDir . '/astapi-' . $node . '.breaker';
 $sharedHandle = is_dir($sharedDir) ? @fopen($sharedLock, 'c') : false;
 $sharedLeader = $sharedHandle !== false && @flock($sharedHandle, LOCK_EX | LOCK_NB);
 if($sharedHandle !== false && !$sharedLeader) {
@@ -71,13 +73,25 @@ if($fp[$node] === false) {
 }
 
 // Log in
-if($ami->login($fp[$node], $amicfg->user, $amicfg->pass) !== false) {
+if($ami->login($fp[$node], $amicfg->user, $amicfg->pass, false) !== false) {
 	statMsg($s . 'Login OK');
 } else {
 	unset($fp[$node]);
 	statErr($s . 'Login Failed. Check AMI Configs.');
 	exit();
 }
+
+$asteriskBootId = $ami->coreStartupId($fp[$node]);
+$guardState = asrAmiGuardLoad($guardPath);
+if(asrAmiGuardBlocks($guardState, $asteriskBootId)) {
+	@fclose($fp[$node]);
+	streamGuardedStatus($sharedCache, $guardPath, $asteriskBootId,
+		$host, $port, $amicfg->user, $amicfg->pass);
+	exit();
+}
+if(!empty($guardState))
+	asrAmiGuardClear($guardPath);
+$ami->detectAslVersion($fp[$node]);
 
 // Log version info
 $s = "ASL Ver: $ami->aslver, AllScan Ver: "	. substr($AllScanVersion, 1);
@@ -95,7 +109,16 @@ $asrTalkerHistory = loadTalkerHistory($sharedDir . '/talkers-' . $node . '.json'
 $asrCurrentTalker = null;
 //$n = 0;
 while(!empty($fp[$node])) {
-	$connectedNodes = getNode($fp[$node], $node);
+	$nodeResult = getNode($fp[$node], $node);
+	if(empty($nodeResult['ok'])) {
+		$reason = (string) ($nodeResult['error'] ?? 'Asterisk status request failed');
+		asrAmiGuardOpen($guardPath, $asteriskBootId, $reason);
+		@fclose($fp[$node]);
+		streamGuardedStatus($sharedCache, $guardPath, $asteriskBootId,
+			$host, $port, $amicfg->user, $amicfg->pass, $reason);
+		exit();
+	}
+	$connectedNodes = $nodeResult['nodes'];
 	$sortedConnectedNodes = sortNodes($connectedNodes);
 	$info = getAstInfo($fp[$node], $node);
 	// Build array of time values
@@ -230,7 +253,6 @@ function checkRxStatsSupport($ami, $fp) {
 // Get status for this $node
 function getNode($fp, $node) {
 	global $ami;
-	static $errCnt=0;
 	$rptStatus = [];
 	$sawStatus = [];
 	$actionRand = mt_rand(); // AMI actionID
@@ -238,24 +260,62 @@ function getNode($fp, $node) {
 	if(fwrite($fp, "ACTION: RptStatus\r\nCOMMAND: XStat\r\nNODE: $node\r\nActionID: $actionID\r\n\r\n") !== false) {
 		$rptStatus = $ami->getResponse($fp, $actionID);
 	} else {
-		sendData(['status'=>'XStat failed!']);
-		// On ASL3 if Asterisk restarts above error repeats indefinitely. Let client JS reinit connection.
-		if(++$errCnt > 9)
-			exit();
+		return ['ok' => false, 'error' => 'XStat write failed'];
 	}
+	if(!is_array($rptStatus) || !in_array("ActionID: $actionID", $rptStatus, true))
+		return ['ok' => false, 'error' => 'XStat response timed out'];
 	// format of Conn lines: Node# isKeyed lastKeySecAgo lastUnkeySecAgo
 	$actionID = 'sawstat' . $actionRand;
 	if(fwrite($fp, "ACTION: RptStatus\r\nCOMMAND: SawStat\r\nNODE: $node\r\nActionID: $actionID\r\n\r\n") !== false) {
 		$sawStatus = $ami->getResponse($fp, $actionID);
 	} else {
-		sendData(['status'=>'sawStat failed!']);
-		// On ASL3 if Asterisk restarts above error repeats indefinitely. Let client JS reinit connection.
-		if(++$errCnt > 9)
-			exit();
+		return ['ok' => false, 'error' => 'SawStat write failed'];
 	}
+	if(!is_array($sawStatus) || !in_array("ActionID: $actionID", $sawStatus, true))
+		return ['ok' => false, 'error' => 'SawStat response timed out'];
 	// Returns an array of currently connected nodes
 	$current = parseNode($fp, $rptStatus, $sawStatus);
-	return $current;
+	return ['ok' => true, 'nodes' => $current];
+}
+
+function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $user, $pass, $reason='') {
+	if($reason === '') {
+		$state = asrAmiGuardLoad($guardPath);
+		$reason = (string) ($state['reason'] ?? 'Asterisk status request timed out');
+	}
+	statMsg('Status polling paused to protect Asterisk; showing last confirmed connections. ' . $reason);
+	$payload = [];
+	if(is_readable($cachePath)) {
+		$payload = json_decode((string) @file_get_contents($cachePath), true);
+		if(!is_array($payload))
+			$payload = [];
+	}
+	if(!empty($payload['current']))
+		sendData($payload['current'], 'nodes');
+	if(!empty($payload['nodeTime']))
+		sendData($payload['nodeTime'], 'nodetimes');
+	$lastProbe = 0;
+	while(!connection_aborted()) {
+		$now = time();
+		if($now - $lastProbe >= 15) {
+			$lastProbe = $now;
+			$probe = new AMI();
+			$probeFp = $probe->connect($host, $port);
+			$currentBootId = '';
+			if($probeFp !== false && $probe->login($probeFp, $user, $pass, false) !== false)
+				$currentBootId = $probe->coreStartupId($probeFp);
+			if(is_resource($probeFp))
+				@fclose($probeFp);
+			if($currentBootId !== '' && $bootId !== '' && !hash_equals($bootId, $currentBootId)) {
+				asrAmiGuardClear($guardPath);
+				return;
+			}
+		}
+		echo ": status polling circuit breaker active\n\n";
+		@ob_flush();
+		flush();
+		sleep(5);
+	}
 }
 
 function sendData($data, $event='errMsg') {

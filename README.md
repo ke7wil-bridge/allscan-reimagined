@@ -1,46 +1,33 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 7.6 installs the current official AllScan backend at
+Gleason's AllScan. Beta 8 installs the current official AllScan backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 7.6** and remains a prerelease.
+This archive is **Beta 8** and remains a prerelease. Beta 7.5 is the previous
+published prerelease; the development line advances directly to Beta 8.
 
-## What's New in Beta 7.6
+## What's New in Beta 8
 
-- DMR and YSF Talking status now ends only on real end/watchdog evidence or,
-  when fresh Asterisk keyed telemetry is available, a verified unkeyed sample
-  after a short grace period. Legitimate long transmissions are not hidden by
-  a blind timeout.
-- Expanded Favorites can stay above or below Connection Status. The accessible
-  setting is stored per browser and keeps the panel in normal page flow on
-  desktop, tablet, and mobile.
-- ST:ASL now includes Logout in its visible Admin menu while keeping the
-  existing Logout placement in every other theme and responsive layout.
-- Installer guidance starts with `sudo -i`, an immediate root check, and a
-  deterministic `022` umask. The DMR self-test fixtures remain secure under
-  caller umasks `0022`, `0002`, and `0000`.
-- A fresh install can run the official AllScan installer when stock
-  `/allscan/` is absent. ASR verifies the resulting version and compatibility
-  layer before creating `/asr/`, and preserves official-installer ownership on
-  failure.
-- Beta 7.3 Bridge Cards, controls, ownership boundaries, and manual/shared
-  bridge behavior remain unchanged. Beta 7.6 does not provision or adopt
-  managed bridges, and existing manual/shared bridges remain external and
-  untouched. Guided ASR-managed bridge creation remains separate Beta 8 work,
-  with immutable ownership recorded at creation and retire/recreate required
-  for managed mode or role changes.
+- Connection Status now uses bounded Asterisk Manager reads and a per-node
+  circuit breaker, so one unhealthy AMI request cannot indefinitely stall or
+  erase otherwise healthy node status.
+- Beta 8 development adds the bridge-management and dashboard work on top of
+  the Beta 7.5 public baseline.
+- Existing manual/shared bridges remain external and untouched. ASR-managed
+  bridges retain immutable ownership recorded at creation, with
+  retire/recreate required for managed mode or role changes.
 
-[Read the prior Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md).
+[Read the Beta 8 development notes](release-notes/v1.0.0-beta.8.md).
 
 ## Install
 
-After a release is published, run this one-time command from an interactive
-terminal on the ASL3 node:
+After a Beta 8 release is published, run this one-time command from an
+interactive terminal on the ASL3 node:
 
 ```bash
 curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
@@ -192,6 +179,7 @@ docker compose up --build
 - [Browser installation, updates, backups, and recovery](docs/browser-install-update.md)
 - [Updater user-state preservation inventory](docs/browser-updater-state-inventory.md)
 - [Lookup page and station origin map](docs/lookup-map.md)
+- [Beta 8 development notes](release-notes/v1.0.0-beta.8.md)
 - [Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md)
 - [Beta 7.3 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.3.md)
 - [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)

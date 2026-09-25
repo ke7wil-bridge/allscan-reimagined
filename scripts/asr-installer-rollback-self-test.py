@@ -157,6 +157,7 @@ def assert_installer_order(installer: Path) -> None:
     assert 'php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php"' in text
     assert 'php "$RELEASE_DIR/scripts/asr-echolink-self-test.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/AMI.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/astapi/asrAmiGuard.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php"' in text
     assert 'php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php"' in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"' in text
@@ -469,6 +470,7 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "allscan-reimagined-bridge-lifecycle reconcile" in integrity_text
     assert "astapi/asrEchoLink.php" in integrity_text
     assert "astapi/AMI.php" in integrity_text
+    assert "astapi/asrAmiGuard.php" in integrity_text
     assert "include/asrBridgeStatus.php" in integrity_text
     assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.service ]" in integrity_text
     assert "[ ! -e /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh.timer ]" in integrity_text

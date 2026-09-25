@@ -101,17 +101,17 @@ def self_test():
                 return json.dumps([release]).encode()
             return (hashlib.sha256(package()).hexdigest() + "  " + name + "\n").encode()
         with mock.patch.object(up, "fetch", side_effect=fetch):
-            chosen = up.release_for_update("1.0.0-beta.7.6")
+            chosen = up.release_for_update("1.0.0-beta.7.5")
             assert chosen["version"] == version
             assert chosen["url"] == base + name
             assert chosen["sha256"] == hashlib.sha256(package()).hexdigest()
             release["assets"][0]["browser_download_url"] = "https://example.invalid/" + name
-            fails(lambda: up.release_for_update("1.0.0-beta.7.6"))
+            fails(lambda: up.release_for_update("1.0.0-beta.7.5"))
 
-        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.6"), mock.patch.object(
+        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.5"), mock.patch.object(
                 up, "release_for_update", side_effect=up.UpdateError("ASR is up to date")):
             assert up.check_available()["updateAvailable"] is False
-        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.6"), mock.patch.object(
+        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.5"), mock.patch.object(
                 up, "release_for_update", return_value={"version": version}):
             assert up.check_available()["availableVersion"] == version
 
@@ -144,7 +144,7 @@ def self_test():
             if str(path) == "/etc/allscan-reimagined/config.json":
                 return real_read_text(config_dir / "config.json", *args, **kwargs)
             return real_read_text(path, *args, **kwargs)
-        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.6"), mock.patch.object(
+        with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.5"), mock.patch.object(
                 up, "release_for_update", return_value={"version": version}), mock.patch.object(
                 up, "fetch", return_value=b'$AllScanVersion = "v1.01";'), mock.patch.object(
                 up.shutil, "which", return_value="/usr/bin/test"), mock.patch.object(
@@ -171,7 +171,7 @@ def self_test():
         (backup / "manifest.json").write_text("{}")
         with mock.patch.object(up, "healthy", side_effect=[False, True]), mock.patch.object(
                 up.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as rollback:
-            assert up.recover("1.0.0-beta.7.6", set())
+            assert up.recover("1.0.0-beta.7.5", set())
             assert rollback.call_args.args[0] == [
                 "/usr/local/sbin/allscan-reimagined-rollback", "rollback",
                 "20260924-120001"]
@@ -190,7 +190,7 @@ def self_test():
         # Failure after the installer boundary calls recovery; never expose
         # subprocess diagnostics in browser status.
         up.status(job, "queued")
-        checks = {"installedVersion": "1.0.0-beta.7.6",
+        checks = {"installedVersion": "1.0.0-beta.7.5",
                   "release": {"version": version, "url": base + name, "sha256": "0" * 64}}
         with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
                 up, "preflight", return_value=checks), mock.patch.object(
@@ -238,7 +238,7 @@ def self_test():
         # refuses a live unit and repairs a stopped interrupted job.
         up.status(job, "installing")
         (up.PERSIST_ROOT / (job + ".meta.json")).write_text(json.dumps({
-            "previous": "1.0.0-beta.7.6", "before": []}))
+            "previous": "1.0.0-beta.7.5", "before": []}))
         (up.JOB_ROOT / (job + ".json")).unlink()
         persistent_status = up.PERSIST_ROOT / (job + ".json")
         old_status = json.loads(persistent_status.read_text())
@@ -251,7 +251,7 @@ def self_test():
                 up.subprocess, "run", return_value=SimpleNamespace(returncode=3)), mock.patch.object(
                 up, "recover", return_value=True) as recovery:
             assert up.recover_interrupted()["status"] == "recovery_checked"
-            recovery.assert_called_once_with("1.0.0-beta.7.6", set())
+            recovery.assert_called_once_with("1.0.0-beta.7.5", set())
         assert up.read_status(job)["message"] == "Update failed; previous installation restored."
 
     print("ASR updater self-test: ok")
