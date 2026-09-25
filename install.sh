@@ -9,6 +9,7 @@ umask 022
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ASR_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SCRIPT_DIR/package.json")
+ASR_VERSION_LABEL="v$(printf '%s' "$ASR_VERSION" | sed -E 's/-beta\.([0-9]+)/ Beta \1/; s/-test/ Test/; s/-/ /g')"
 BROWSER_UPDATE=0
 if [ "$#" -eq 1 ] && [ "$1" = "--browser-update" ]; then
   BROWSER_UPDATE=1
@@ -484,7 +485,7 @@ echo " AllScan Reimagined Installer"
 echo "============================================================"
 echo "Existing AllScan backend: $current_version"
 echo "Latest official backend:  $latest_version"
-echo "Reimagined release:        $ASR_VERSION"
+echo "Reimagined release:        $ASR_VERSION_LABEL"
 echo
 echo "Existing AllScan users, passwords, permissions, Favorites,"
 echo "database, and node settings will be preserved."
@@ -1212,7 +1213,7 @@ fi
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"
-echo "AllScan Reimagined:    $ASR_VERSION"
+echo "AllScan Reimagined:    $ASR_VERSION_LABEL"
 echo "Personal configuration: /etc/allscan-reimagined/config.json"
 echo "Rollback backup:        $BACKUP_DIR"
 echo "Stock AllScan:           http://$(hostname -I | awk '{print $1}')/allscan/"
