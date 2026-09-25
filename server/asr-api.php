@@ -22,8 +22,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.7.6';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 7.6';
+const ASR_VERSION = '1.0.0-beta.8';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
