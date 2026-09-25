@@ -694,7 +694,7 @@ CURRENT_LINK_CHANGED=1
 ln -sfn "$RELEASE_DIR" /opt/allscan-reimagined/current
 
 echo "[4/8] Detecting node identity, branding, and bridges..."
-if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh" < /dev/tty
 else
   STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" "$RELEASE_DIR/scripts/asr-configure.sh"
