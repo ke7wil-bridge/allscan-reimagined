@@ -152,6 +152,7 @@ install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
+install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
 install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
@@ -164,6 +165,7 @@ install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
 install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
+install -m 755 scripts/asr-dmr-roster-stability-self-test.py "$STAGE/payload/scripts/asr-dmr-roster-stability-self-test.py"
 install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25-bridge-control.py"
 install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
 install -m 755 scripts/asr-m17-bridge-control.py "$STAGE/payload/scripts/asr-m17-bridge-control.py"
@@ -198,6 +200,16 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
+python3 - "$STAGE" "$ROOT/install.sh" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+stage, installer = Path(sys.argv[1]), Path(sys.argv[2]).read_text()
+for name in set(re.findall(r'\$RELEASE_(?:STAGE|DIR)/scripts/([A-Za-z0-9_.-]+)', installer)):
+    if not (stage / "payload/scripts" / name).is_file():
+        raise SystemExit(f"Installer references a missing packaged script: {name}")
+PY
 install -m 644 "release-notes/v${VERSION}.md" "$STAGE/release-notes/v${VERSION}.md"
 
 if command -v php >/dev/null 2>&1; then
