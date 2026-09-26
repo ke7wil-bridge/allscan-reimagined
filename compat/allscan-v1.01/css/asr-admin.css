@@ -1963,6 +1963,34 @@ h5 {
 	cursor:pointer;
 }
 
+.asr-update-recovery-tools {
+	display:flex;
+	align-items:center;
+	gap:10px;
+	flex-wrap:wrap;
+	margin-top:10px;
+}
+
+.asr-update-recovery-button {
+	min-height:34px;
+	padding:6px 10px;
+	border:1px solid rgba(255,255,255,0.22);
+	border-radius:6px;
+	background:#292b2e;
+	color:#e6e9ec;
+	font-size:12px;
+	font-weight:700;
+	cursor:pointer;
+}
+
+.asr-update-recovery-button:hover,
+.asr-update-recovery-button:focus-visible {
+	border-color:rgba(255,255,255,0.42);
+	background:#34373b;
+	outline:2px solid rgba(255,255,255,0.18);
+	outline-offset:2px;
+}
+
 .asr-rollback-button:hover,
 .asr-rollback-button:focus-visible {
 	border-color:#ffc06f;

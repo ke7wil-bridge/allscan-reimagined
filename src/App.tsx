@@ -565,6 +565,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
   const reportBugParamHandled = useRef(false)
+  const updateAsrParamHandled = useRef(false)
   const nodeMessagesArmed = useRef(false)
   const lastNodeMessage = useRef('')
   const nodeMessagesBodyRef = useRef<HTMLDivElement>(null)
@@ -966,6 +967,19 @@ function App({ config }: { config: RuntimeConfig }) {
     openDiagnosticsReport()
     // This effect intentionally reacts only when admin authorization becomes available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus.isAdmin])
+
+  useEffect(() => {
+    if (updateAsrParamHandled.current || !authStatus.isAdmin) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('updateAsr') !== '1') return
+    updateAsrParamHandled.current = true
+    params.delete('updateAsr')
+    const query = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    // Opening the requested admin dialog is the purpose of this URL-driven effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUpdateDialogOpen(true)
   }, [authStatus.isAdmin])
 
   useEffect(() => {

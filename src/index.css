@@ -6452,8 +6452,9 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
 }
 .asr-update-dialog {
   width: min(100%, 590px);
-  max-height: 100%;
+  max-height: calc(100dvh - max(32px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   border: 1px solid #4f7ba4;
   border-radius: 12px;
@@ -6499,6 +6500,28 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
 .asr-update-dialog footer { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 20px; font-size: .92rem; }
 .asr-update-dialog footer a { color: #a4d7ff; }
 @media (max-width: 420px) {
-  .asr-update-dialog { padding: 14px; }
+  .asr-update-overlay {
+    place-items: start center;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .asr-update-dialog {
+    max-height: calc(100dvh - max(16px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    padding: 14px;
+  }
   .asr-update-versions { grid-template-columns: 1fr; }
+  .asr-update-actions button { flex: 1 1 100%; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .asr-update-overlay {
+    place-items: start center;
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+  .asr-update-dialog {
+    max-height: calc(100dvh - max(12px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    padding: 12px 14px;
+  }
+  .asr-update-versions { margin: 10px 0; }
+  .asr-update-dialog footer { margin-top: 12px; }
 }
