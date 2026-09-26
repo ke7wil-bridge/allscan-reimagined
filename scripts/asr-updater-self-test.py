@@ -149,6 +149,7 @@ def self_test():
                 up, "fetch", return_value=b'$AllScanVersion = "v1.01";'), mock.patch.object(
                 up.shutil, "which", return_value="/usr/bin/test"), mock.patch.object(
                 up.subprocess, "run", return_value=SimpleNamespace(returncode=0)), mock.patch.object(
+                up.shutil, "disk_usage", return_value=SimpleNamespace(total=10 * 1024 ** 3, used=1024 ** 3, free=9 * 1024 ** 3)), mock.patch.object(
                 Path, "read_text", local_config_read):
             assert up.preflight()["rebootRequired"] is False
             stock.write_text('$AllScanVersion = "v1.00";\n')
