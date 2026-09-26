@@ -15,8 +15,8 @@ const LABELS: Record<string, string> = {
   failed: 'Update needs attention',
 }
 
-export default function UpdateAsrDialog({ onClose }: { onClose: () => void }) {
-  const [available, setAvailable] = useState<UpdateCheck | null>(null)
+export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onClose: () => void; initialUpdate?: UpdateCheck | null }) {
+  const [available, setAvailable] = useState<UpdateCheck | null>(initialUpdate)
   const [job, setJob] = useState<UpdateJob | null>(null)
   const [jobId, setJobId] = useState(() => window.localStorage.getItem(STORED_JOB) || '')
   const [busy, setBusy] = useState(false)

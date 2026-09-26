@@ -3542,7 +3542,7 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
       ) : null}
 
-      {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} /> : null}
+      {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
       {diagnosticsOpen ? (
         <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>
