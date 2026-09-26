@@ -17,8 +17,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ASR_INSTALLED_VERSION = "1.0.0-beta.8"
-ASR_INSTALLED_LABEL = "v1.0.0 Beta 8"
+def installed_version() -> str:
+    """Read the installed master version, falling back to the source manifest in development."""
+    manifest = Path(__file__).resolve().parent.parent / "package.json"
+    if manifest.is_file():
+        return str(json.loads(manifest.read_text())["version"])
+    api = Path("/opt/allscan-reimagined/current/server/asr-api.php")
+    if api.is_file():
+        match = re.search(r"const\s+ASR_VERSION\s*=\s*['\"]([^'\"]+)['\"]", api.read_text())
+        if match and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z]+\.[0-9.]+)?", match.group(1)):
+            return match.group(1)
+    raise ValueError("Installed ASR version is unavailable")
+
+
+ASR_INSTALLED_VERSION = installed_version()
+ASR_INSTALLED_LABEL = "v" + ASR_INSTALLED_VERSION.replace("-beta.", " Beta ")
 ASR_RELEASES_API = (
     "https://api.github.com/repos/ke7wil-bridge/allscan-reimagined/releases?per_page=20"
 )

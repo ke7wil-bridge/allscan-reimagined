@@ -51,22 +51,18 @@ ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\.
   exit 1
 }
 
-for file in install.sh asr-api.php src/lib/allscanLive.ts scripts/asr-release-check.py compat/allscan-v1.01/include/common.php; do
+for file in asr-api.php src/lib/allscanLive.ts compat/allscan-v1.01/include/common.php; do
   if ! grep -Fq "$VERSION_LABEL" "$ROOT/$file"; then
     echo "$file does not contain expected version label: $VERSION_LABEL" >&2
     exit 1
   fi
 done
-grep -Fq "ASR_VERSION=\"$VERSION\"" "$ROOT/install.sh" || {
-  echo "install.sh ASR_VERSION does not match package.json version: $VERSION" >&2
+grep -Fq 'SCRIPT_DIR/package.json' "$ROOT/install.sh" || {
+  echo "install.sh must read its version from the release manifest." >&2
   exit 1
 }
 grep -Fq "const ASR_VERSION = '$VERSION';" "$ROOT/asr-api.php" || {
   echo "asr-api.php ASR_VERSION does not match package.json version: $VERSION" >&2
-  exit 1
-}
-grep -Fq "ASR_INSTALLED_VERSION = \"$VERSION\"" "$ROOT/scripts/asr-release-check.py" || {
-  echo "asr-release-check.py installed version does not match package.json version: $VERSION" >&2
   exit 1
 }
 grep -Fq '<title>AllScan Reimagined</title>' "$ROOT/index.html" || {
@@ -82,6 +78,8 @@ grep -Fq "<p>$PUBLIC_BETA_LABEL keeps the original AllScan" \
   echo "Help public release wording does not match: $PUBLIC_BETA_LABEL" >&2
   exit 1
 }
+python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
+python3 "$ROOT/scripts/asr-updater-self-test.py"
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
@@ -94,6 +92,7 @@ python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
+bash -n "$ROOT/bootstrap.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
@@ -196,6 +195,9 @@ while IFS= read -r compat_file; do
   install -m 644 "compat/$compat_file" "$STAGE/payload/compat/$compat_file"
 done <<< "$COMPAT_MANIFEST"
 install -m 755 install.sh "$STAGE/install.sh"
+install -m 755 bootstrap.sh "$STAGE/bootstrap.sh"
+install -m 644 package.json "$STAGE/package.json"
+install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"

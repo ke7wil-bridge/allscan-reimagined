@@ -2301,6 +2301,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		<?php elseif(empty($rollbackCandidates)): ?>
 			<p class="asr-rollback-status">No valid previous ASR versions are currently available.</p>
 		<?php endif; ?>
+		<div class="asr-update-recovery-tools">
+			<button id="asrUpdateRecoveryCheck" class="asr-update-recovery-button" type="button">Check Interrupted Update Recovery</button>
+			<span id="asrUpdateRecoveryStatus" class="asr-rollback-status" role="status" aria-live="polite"></span>
+		</div>
+		<p class="asr-settings-inline-note">Use this only if an ASR update was interrupted by a reboot, power loss, or crash. Normal update failures are handled automatically.</p>
 		<p class="asr-rollback-warning"><strong>Important:</strong> After confirming a rollback, keep this page open. Do not reload it, close it, use the browser Back button, or navigate elsewhere. Wait for the <strong>Rollback Completed</strong> confirmation, then select <strong>OK</strong> to return to the main dashboard. Rollback has its own button; Save Reimagined Settings does not perform a rollback, and unsaved settings edits will not be saved. If the selected older version predates this feature, the rollback menu will no longer appear there; the safety backup and command-line recovery helper remain available.</p>
 	</fieldset>
 
@@ -2358,6 +2363,8 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var max = form ? parseInt(form.getAttribute('data-max-bridges') || '16', 10) : 16;
 	var diagnosticsLoaded = false;
 	var rollbackSelect = document.getElementById('asrRollbackSelect');
+	var updateRecoveryCheck = document.getElementById('asrUpdateRecoveryCheck');
+	var updateRecoveryStatus = document.getElementById('asrUpdateRecoveryStatus');
 	var rollbackReview = document.getElementById('asrRollbackReview');
 	var rollbackForm = document.getElementById('asrRollbackForm');
 	var rollbackId = document.getElementById('asrRollbackId');
@@ -2378,6 +2385,15 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var rollbackQueuedVersion = <?php echo json_encode((string) ($rollbackQueuedVersion ?? ''), JSON_UNESCAPED_SLASHES); ?>;
 	var rollbackInProgress = !!rollbackJobId && /^\d{8}-\d{6}-[a-f0-9]{8}$/.test(rollbackJobId);
 	var tgifState = null;
+	if(updateRecoveryCheck) updateRecoveryCheck.addEventListener('click', function() {
+		updateRecoveryCheck.disabled = true;
+		if(updateRecoveryStatus) updateRecoveryStatus.textContent = 'Checking for an interrupted update…';
+		fetch(asrBase + '/asr-api.php?action=update-recover', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'X-Requested-With':'XMLHttpRequest'}})
+			.then(function(response) { return response.json().then(function(data) { if(!response.ok || data.ok === false) throw new Error(data.error || 'Recovery check failed.'); return data; }); })
+			.then(function(data) { if(updateRecoveryStatus) updateRecoveryStatus.textContent = data.status === 'nothing_to_recover' ? 'No interrupted update needs recovery.' : 'Interrupted update recovery check finished.'; })
+			.catch(function(error) { if(updateRecoveryStatus) updateRecoveryStatus.textContent = error && error.message ? error.message : 'Recovery check failed.'; })
+			.finally(function() { updateRecoveryCheck.disabled = false; });
+	});
 	function tgifRequest(action, options) {
 		return fetch(asrBase + '/asr-api.php?action=' + encodeURIComponent(action), options || {credentials:'same-origin', cache:'no-store'})
 			.then(function(response) { return response.json().then(function(data) {

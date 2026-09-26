@@ -411,6 +411,30 @@ def queue_rollback(backup_id: str) -> dict[str, Any]:
             "Legacy schema-1 rollback cannot be queued from the web UI; "
             "run the rollback helper interactively with --confirm-legacy-overlay."
         )
+    # The updater queue also checks rollback jobs; share its gate to close the race.
+    gate = Path("/run/lock/allscan-reimagined-updater.lock")
+    gate.parent.mkdir(parents=True, exist_ok=True)
+    gate_handle = gate.open("a+")
+    try:
+        fcntl.flock(gate_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        gate_handle.close()
+        raise RollbackError("Another maintenance operation is running") from exc
+    for update_jobs in (
+        Path("/run/allscan-reimagined/update-jobs"),
+        Path("/var/lib/allscan-reimagined/update-jobs"),
+    ):
+        if not update_jobs.is_dir():
+            continue
+        for update_status in update_jobs.glob("*.json"):
+            try:
+                state = json.loads(update_status.read_text()).get("state")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if state in {"queued", "preflight", "downloading", "verifying",
+                         "staging", "backup", "installing", "health", "restoring"}:
+                gate_handle.close()
+                raise RollbackError("An ASR update is queued or running")
     JOB_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(JOB_ROOT, 0o700)
     job_id = f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(4)}"
@@ -435,6 +459,7 @@ def queue_rollback(backup_id: str) -> dict[str, Any]:
         payload["error"] = "The rollback job could not be started."
         atomic_json(JOB_ROOT / f"{job_id}.json", payload)
         raise RollbackError(payload["error"])
+    gate_handle.close()
     return payload
 
 

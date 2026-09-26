@@ -340,6 +340,61 @@ export type ReleaseStatus = {
   }
 }
 
+
+export type UpdateCheck = {
+  ok: boolean
+  installedVersion: string
+  availableVersion: string
+  updateAvailable: boolean
+}
+
+export type UpdatePreflight = {
+  ok: boolean
+  installedVersion: string
+  availableVersion: string
+  compatible: boolean
+  diskSpace: string
+  services: string
+  configuration: string
+  backup: string
+  restartRequired: boolean
+  rebootRequired: boolean
+}
+
+export type UpdateJob = {
+  ok: boolean
+  jobId: string
+  state: string
+  updatedAt: string
+  currentVersion?: string
+  availableVersion?: string
+  message?: string
+}
+
+async function updateRequest<T>(action: string, method: 'GET' | 'POST' = 'GET', jobId = ''): Promise<T> {
+  const url = new URL(ASR_API, window.location.href)
+  url.searchParams.set('action', action)
+  if (jobId) url.searchParams.set('jobId', jobId)
+  const response = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: method === 'POST' ? { 'X-ASR-Requested-With': 'asr-update-control' } : undefined,
+  })
+  const payload = (await response.json()) as T & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || 'ASR update request failed.')
+  }
+  return payload
+}
+
+export const checkAsrUpdate = () => updateRequest<UpdateCheck>('update-check')
+export const preflightAsrUpdate = () => updateRequest<UpdatePreflight>('update-preflight', 'POST')
+export const queueAsrUpdate = () => updateRequest<UpdateJob>('update-queue', 'POST')
+export const recoverAsrUpdate = () => updateRequest<{ ok: boolean; status: string }>('update-recover', 'POST')
+export const fetchAsrUpdateJob = (jobId: string) =>
+  updateRequest<UpdateJob>('update-job-status', 'GET', jobId)
+
 export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
   const response = await fetch(`${ASR_API}?action=runtime-config`, {
     credentials: 'same-origin',

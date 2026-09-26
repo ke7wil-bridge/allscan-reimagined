@@ -81,7 +81,7 @@ def main() -> int:
         "installer prompts must not use a short input timeout",
     )
     require(
-        "if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then" in installer,
+        "[ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then" in installer,
         "installer must not redirect configuration from /dev/tty without interactive stdin",
     )
     require(

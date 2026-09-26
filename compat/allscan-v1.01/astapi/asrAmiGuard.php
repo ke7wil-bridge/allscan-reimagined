@@ -47,4 +47,3 @@ function asrAmiGuardOpen($path, $bootId, $reason) {
 function asrAmiGuardClear($path) {
 	return !file_exists($path) || @unlink($path);
 }
-

@@ -200,8 +200,12 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 		$html->a("$urlbase/user/", null, 'Users'),
 		$html->a("$urlbase/cfg/", null, 'Configs'),
 	];
-	if($isAdmin)
-		array_splice($admin, 2, 0, [$html->a("$urlbase/asr-instructions/", null, 'Help & Instructions')]);
+	if($isAdmin) {
+		array_splice($admin, 2, 0, [
+			$html->a("$urlbase/?updateAsr=1", null, 'Update ASR'),
+			$html->a("$urlbase/asr-instructions/", null, 'Help & Instructions'),
+		]);
+	}
 	if($node !== '')
 		$admin[] = '<a role="menuitem" href="http://stats.allstarlink.org/stats/' . htmlattr($node) . '" target="_blank" rel="noreferrer">Node Status</a>';
 	if(!$loggedIn) {
@@ -371,6 +375,9 @@ function getHdrLinks() {
 			$url = "$urlbase/asr-settings/";
 			$title = 'Reimagined Settings';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
+			$url = "$urlbase/?updateAsr=1";
+			$title = 'Update ASR';
+			$lnk[] = $html->a($url, null, $title);
 			$url = "$urlbase/asr-instructions/";
 			$title = 'Help & Instructions';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
