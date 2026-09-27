@@ -219,8 +219,8 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 	$returnMainMenu = $showReturnMain
 		? '<a class="allscan-menu-proxy-row allscan-menu-direct-row asr-admin-menu-main-row" role="menuitem" href="' . $urlbase . '/"><span>Main Page</span></a>'
 		: '';
-	$reportBugMenu = $isAdmin
-		? '<a class="allscan-menu-proxy-row asr-admin-report-bug-row" role="menuitem" href="' . $urlbase . '/?reportBug=1"><span>Report a Bug</span></a>'
+	$supportFeedbackMenu = $isAdmin
+		? '<a class="allscan-menu-proxy-row asr-admin-report-bug-row" role="menuitem" href="' . $urlbase . '/?supportFeedback=1"><span>Support &amp; Feedback</span></a>'
 		: '';
 	$logoutMenu = $loggedIn
 		? '<a class="allscan-menu-proxy-row asr-admin-logout-row" role="menuitem" href="' . $urlbase . '/user/?logout=1"><span>Logout</span></a>'
@@ -232,7 +232,7 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="admin" aria-expanded="false"><span>Admin</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
 		. '<button type="button" class="allscan-menu-proxy-row" data-submenu="resources" aria-expanded="false"><span>Resources</span><span class="allscan-menu-row-icon" aria-hidden="true">⌄</span></button>'
 		. '<a class="allscan-menu-proxy-row allscan-menu-direct-row" role="menuitem" href="' . $urlbase . '/lookup/"><span>Lookup</span></a>'
-		. $reportBugMenu
+		. $supportFeedbackMenu
 		. $logoutMenu
 		. '</div>'
 		. '<button type="button" class="allscan-submenu-back"><span class="allscan-submenu-back-icon" aria-hidden="true">‹</span><span>Menu</span></button>'
@@ -400,7 +400,7 @@ function getHdrLinks() {
 		$title = 'Lookup';
 		$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
 		if(adminUser())
-			$lnk[] = $html->a("$urlbase/", ['reportBug'=>1], 'Report a Bug');
+			$lnk[] = $html->a("$urlbase/", ['supportFeedback'=>1], 'Support & Feedback');
 		$lnk[] = $html->a("$urlbase/user/", ['logout'=>1], 'Logout');
 	} else {
 		// Show Login link

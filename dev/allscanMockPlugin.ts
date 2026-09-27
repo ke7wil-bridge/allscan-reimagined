@@ -132,7 +132,7 @@ function adminMenu(current: MockRoute) {
           ${item(`${ASR_BASE}/cfg/`, 'Configs', 'cfg')}
           <a role="menuitem" href="http://stats.allstarlink.org/stats/100000">Node Status</a>
           ${item(`${ASR_BASE}/lookup/`, 'Lookup')}
-          ${item(`${ASR_BASE}/?reportBug=1`, 'Report a Bug')}
+          ${item(`${ASR_BASE}/?supportFeedback=1`, 'Support & Feedback')}
           <a role="menuitem" href="${ASR_BASE}/user/?logout=1">Logout</a>
         </div>
       </div>

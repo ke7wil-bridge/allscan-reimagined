@@ -1,15 +1,20 @@
 name = "asr-support"
 main = "src/worker.js"
-compatibility_date = "2026-09-01"
+compatibility_date = "2026-09-27"
+compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_KV_ID"
+id = "REPLACE_WITH_RATE_LIMIT_KV_ID"
 
-[[r2_buckets]]
+[[kv_namespaces]]
 binding = "ATTACHMENTS"
-bucket_name = "asr-support-attachments"
+id = "REPLACE_WITH_ATTACHMENTS_KV_ID"
 
 [vars]
-ATTACHMENT_BASE_URL = "https://support-files.example.org"
-# GITHUB_APP_ID, GITHUB_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY are secrets.
+ATTACHMENT_BASE_URL = "https://asr-support.example.workers.dev/attachments"
+
+[observability]
+enabled = true
+# The attachment KV namespace remains private. ATTACHMENT_BASE_URL must point to this Worker's /attachments route.
+# Configure GITHUB_APP_ID, GITHUB_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY, and RATE_LIMIT_SALT with `wrangler secret put`.
