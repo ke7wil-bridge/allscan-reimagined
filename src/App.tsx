@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import UpdateAsrDialog from './components/UpdateAsrDialog'
+import SupportAsrDialog from './components/SupportAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
@@ -559,10 +560,14 @@ function App({ config }: { config: RuntimeConfig }) {
   const [urfAccessStatus, setUrfAccessStatus] = useState('')
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [supportDialogOpen, setSupportDialogOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const nodeInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const lcarsAdminButtonRef = useRef<HTMLButtonElement>(null)
+  const supportReturnFocusRef = useRef<HTMLElement | null>(null)
   const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
   const reportBugParamHandled = useRef(false)
   const updateAsrParamHandled = useRef(false)
@@ -1034,6 +1039,20 @@ function App({ config }: { config: RuntimeConfig }) {
       window.location.assign(asrPath())
     }
   }
+
+  const openSupportDialog = () => {
+    supportReturnFocusRef.current = effectiveThemeSettings.theme === 'lcars-frame' && desktopThemeViewport
+      ? lcarsAdminButtonRef.current
+      : menuButtonRef.current
+    setMenuOpen(false)
+    setOpenSubmenu(null)
+    setSupportDialogOpen(true)
+  }
+
+  const closeSupportDialog = useCallback(() => {
+    setSupportDialogOpen(false)
+    window.requestAnimationFrame(() => supportReturnFocusRef.current?.focus())
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -2478,6 +2497,7 @@ function App({ config }: { config: RuntimeConfig }) {
             <div className="allscan-lcars-access-buttons" aria-label="ST:ASL menu groups">
               {headerMenuGroups.map(([key, label]) => (
                 <button
+                  ref={key === 'admin' ? lcarsAdminButtonRef : undefined}
                   key={key}
                   type="button"
                   className={`allscan-lcars-access-button allscan-lcars-access-${key}${openSubmenu === key ? ' is-active' : ''}`}
@@ -2507,6 +2527,7 @@ function App({ config }: { config: RuntimeConfig }) {
               </button>
             </div>
             <button
+              ref={menuButtonRef}
               type="button"
               className="allscan-menu-button"
               aria-haspopup="menu"
@@ -2582,6 +2603,16 @@ function App({ config }: { config: RuntimeConfig }) {
                     <button
                       type="button"
                       role="menuitem"
+                      className="allscan-menu-proxy-row allscan-menu-support-row"
+                      onClick={openSupportDialog}
+                    >
+                      <span>Support ASR</span>
+                    </button>
+                  ) : null}
+                  {authStatus.loggedIn ? (
+                    <button
+                      type="button"
+                      role="menuitem"
                       className="allscan-menu-proxy-row allscan-menu-logout-row"
                       onClick={() => void logoutAllScan()}
                     >
@@ -2628,7 +2659,10 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.loggedIn
                     && effectiveThemeSettings.theme === 'lcars-frame'
                     && desktopThemeViewport ? (
-                      <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
+                      <>
+                        <button type="button" role="menuitem" onClick={openSupportDialog}>Support ASR</button>
+                        <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
+                      </>
                     ) : null}
                   {!authStatus.loggedIn ? (
                     <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Login</a>
@@ -3543,6 +3577,12 @@ function App({ config }: { config: RuntimeConfig }) {
       ) : null}
 
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
+
+      {supportDialogOpen ? (
+        <SupportAsrDialog
+          onClose={closeSupportDialog}
+        />
+      ) : null}
 
       {diagnosticsOpen ? (
         <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>
