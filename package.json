@@ -8,6 +8,8 @@
     "dev:mock": "ASR_MOCK=1 vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:support": "node scripts/asr-support-self-test.mjs",
+    "test:support:browser": "node scripts/asr-support-browser-self-test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -108,6 +108,7 @@ python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
 python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
+node "$ROOT/scripts/asr-support-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrAmiGuard.php" >/dev/null
