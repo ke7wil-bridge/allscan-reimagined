@@ -1,0 +1,15 @@
+name = "asr-support"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_KV_ID"
+
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "asr-support-attachments"
+
+[vars]
+ATTACHMENT_BASE_URL = "https://support-files.example.org"
+# GITHUB_APP_ID, GITHUB_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY are secrets.

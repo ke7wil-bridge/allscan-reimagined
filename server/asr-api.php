@@ -2894,6 +2894,7 @@ function asr_drop_client(string $channel): array {
 }
 
 function asr_redact_diagnostics(string $text): string {
+    $text = preg_replace('/-----BEGIN [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----[\\s\\S]*?-----END [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----/i', '[REDACTED PRIVATE KEY]', $text) ?? $text;
     $text = preg_replace('/(Authorization\s*:\s*(?:Bearer|Basic)\s+)[^\s"\'<>]+/i', '$1[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(ami(pass|password)?|password|passwd|secret|token|cookie|session|hash)(["\'\s:=]+)[^\\s"\'&<>]+/i', '$1$3[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(cpass|PHPSESSID)=([^;\\s]+)/i', '$1=[REDACTED]', $text) ?? $text;
