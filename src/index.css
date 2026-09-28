@@ -2058,6 +2058,28 @@ html[data-asr-theme="matrix"] {
 }
 
 html[data-asr-theme="lcars-frame"] {
+  --lcars-tan: #cc9966;
+  --lcars-gold: #ccaa44;
+  --lcars-cream: #ddcc99;
+  --lcars-blue: #7799bb;
+  --lcars-brown: #887755;
+  --lcars-module-band-height: 28px;
+  --lcars-node-controls-top-band: linear-gradient(
+    90deg,
+    var(--lcars-tan) 0 16%,
+    var(--lcars-gold) 16% 34%,
+    var(--lcars-cream) 34% 60%,
+    var(--lcars-blue) 60% 80%,
+    var(--lcars-tan) 80% 100%
+  );
+  --lcars-node-controls-bottom-band: linear-gradient(
+    90deg,
+    var(--lcars-gold) 0 15%,
+    var(--lcars-blue) 15% 33%,
+    var(--lcars-tan) 33% 58%,
+    var(--lcars-cream) 58% 81%,
+    var(--lcars-brown) 81% 100%
+  );
   --theme-bg: #050407;
   --theme-panel: rgba(12, 12, 16, 0.94);
   --theme-panel-solid: rgba(12, 12, 16, 0.99);
@@ -2796,7 +2818,7 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     font-size: 17px;
     font-weight: 950;
     line-height: 1;
-    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.24);
+    box-shadow: none;
     cursor: pointer;
   }
 
@@ -2826,7 +2848,6 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button.is-active {
     filter: brightness(1.08);
     box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
       0 0 0 2px rgba(204, 153, 102, 0.52),
       0 0 16px rgba(204, 153, 102, 0.45);
   }
@@ -2835,7 +2856,6 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-theme:focus-visible,
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-theme.is-active {
     box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
       0 0 0 2px rgba(119, 153, 187, 0.62),
       0 0 16px rgba(119, 153, 187, 0.56);
   }
@@ -2843,7 +2863,6 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-aux:hover,
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-aux:focus-visible {
     box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
       0 0 0 2px rgba(136, 119, 85, 0.62),
       0 0 16px rgba(136, 119, 85, 0.54);
   }
@@ -2893,131 +2912,14 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     border-radius: 10px;
   }
 
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
-    width: 711px;
-    height: 36px;
-    margin: 22px auto 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 18px;
-    border-radius: 24px 24px 0 0;
-    background: linear-gradient(90deg, #cc9966 0 16%, #ccaa44 16% 34%, #ddcc99 34% 60%, #7799bb 60% 80%, #cc9966 80% 100%);
-    color: #170b04;
-    font-size: 0;
-    font-style: normal;
-    letter-spacing: 0.15em;
-    text-align: center;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title::after {
-    content: "NODE CONTROLS";
-    font: 900 16px/18.4px Arial, Helvetica, sans-serif;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
-    position: relative;
-    width: 718px;
-    height: 134px;
-    max-width: none;
-    margin-top: 0;
-    padding: 10px 8px 44px;
-    border: 0;
-    border-radius: 0 0 28px 28px;
-    background: rgba(8, 7, 10, 0.96);
-    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.38);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-row {
-    flex-wrap: nowrap;
-    gap: 8px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-connect-button {
-    width: 84px;
-    min-width: 84px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button {
-    width: 106px;
-    min-width: 106px;
-  }
-
   html[data-asr-theme="lcars-frame"] .allscan-favs-button {
     width: auto;
     min-width: 70px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-action-select {
-    width: 140px;
-    min-width: 140px;
-    max-width: 140px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-checks-row {
-    margin-top: 5px !important;
-    row-gap: 14px;
-    column-gap: 26px;
-    font-size: 13px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 36px;
-    border-radius: 0 0 28px 28px;
-    background: linear-gradient(90deg, #ccaa44 0 15%, #7799bb 15% 33%, #cc9966 33% 58%, #ddcc99 58% 81%, #887755 81% 100%);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-action-button,
-  html[data-asr-theme="lcars-frame"] .allscan-favs-button {
     border: 0;
     border-radius: 18px;
-    background: #cc9966;
-    color: #170b04;
-    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.24);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-action-button:hover,
-  html[data-asr-theme="lcars-frame"] .allscan-action-button:focus-visible,
-  html[data-asr-theme="lcars-frame"] .allscan-favs-button:hover,
-  html[data-asr-theme="lcars-frame"] .allscan-favs-button:focus-visible {
-    filter: brightness(1.08);
-    box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
-      0 0 0 2px rgba(204, 153, 102, 0.58),
-      0 0 16px rgba(204, 153, 102, 0.5);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-connect-button {
-    background: #7799bb;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-connect-button:hover,
-  html[data-asr-theme="lcars-frame"] .allscan-connect-button:focus-visible {
-    box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
-      0 0 0 2px rgba(119, 153, 187, 0.62),
-      0 0 16px rgba(119, 153, 187, 0.56);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button {
-    background: #887755;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button:hover,
-  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button:focus-visible {
-    box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
-      0 0 0 2px rgba(136, 119, 85, 0.62),
-      0 0 16px rgba(136, 119, 85, 0.54);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-favs-button {
     background: #ccaa44;
+    color: #170b04;
+    box-shadow: none;
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-favs-button:hover,
@@ -3026,53 +2928,8 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
   html[data-asr-theme="lcars-frame"] .allscan-favs-button:active {
     filter: brightness(1.08);
     box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.24),
       0 0 0 2px rgba(204, 170, 68, 0.68),
       0 0 16px rgba(204, 170, 68, 0.58);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-node-input,
-  html[data-asr-theme="lcars-frame"] .allscan-action-select {
-    border: 2px solid #cc9966;
-    border-radius: 18px;
-    background: #0b0b0f;
-    color: #f5eadc;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-node-messages,
-  html[data-asr-theme="lcars-frame"] .allscan-node-messages-summary,
-  html[data-asr-theme="lcars-frame"] .allscan-node-messages-body {
-    border-color: #cc9966;
-    background: #090608;
-    color: #fff6c8;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-node-messages {
-    width: 560px;
-    margin: 6px auto 0;
-    position: relative;
-    z-index: 2;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
-    width: 690px;
-    max-width: calc(100% - 28px);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell-messages-open {
-    height: auto;
-    min-height: 184px;
-    padding-bottom: 48px;
-    overflow: visible;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell-messages-open .allscan-node-messages-body {
-    max-height: 300px;
-    border-color: rgba(255, 255, 255, 0.16);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section {
-    margin-bottom: 15px;
   }
 
   html[data-asr-theme="lcars-frame"] .allscan-connection-section {
@@ -3540,19 +3397,8 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
 }
 
 .allscan-node-messages,
-.allscan-node-messages[open],
-html[data-asr-theme="lcars-frame"] .allscan-node-messages,
-html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
+.allscan-node-messages[open] {
   box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.allscan-node-messages,
-.allscan-node-messages[open],
-html[data-asr-theme="lcars-frame"] .allscan-node-messages,
-html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -5836,67 +5682,38 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-linked-inline { color: #fff !important; }
 html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networked .allscan-favorite-rx { color: hsl(130, 72%, 42%) !important; }
 @media (min-width: 1200px) {
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
-    width: min(410px, calc(100vw - 24px)); height: auto; min-height: 28px; margin: 10px auto 8px; padding: 0;
-    border-radius: 0; background: transparent; color: var(--theme-text); font-size: inherit; font-style: inherit; letter-spacing: normal;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title::after { content: none; }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
-    width: min(410px, calc(100vw - 24px)); height: auto; max-width: 410px; margin-top: 0; padding: 10px 8px;
-    border: 1px solid var(--theme-border); border-radius: 8px; background: var(--theme-panel-solid); box-shadow: none;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
   html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before,
   html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
-    content: ""; position: absolute; z-index: 0; left: 0; right: 0; height: 8px; pointer-events: none;
+    content: "";
+    position: absolute;
+    z-index: 0;
+    left: 0;
+    right: 0;
+    height: 8px;
+    pointer-events: none;
   }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
+
   html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before {
-    top: -8px; border-radius: 8px 8px 0 0;
+    top: -8px;
+    border-radius: 8px 8px 0 0;
     background: linear-gradient(90deg,#cc9966 0 16%,#ccaa44 16% 34%,#ddcc99 34% 60%,#7799bb 60% 80%,#cc9966 80% 100%);
   }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after,
+
   html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
-    bottom: -8px; border-radius: 0 0 8px 8px;
+    bottom: -8px;
+    border-radius: 0 0 8px 8px;
     background: linear-gradient(90deg,#ccaa44 0 15%,#7799bb 15% 33%,#cc9966 33% 58%,#ddcc99 58% 81%,#887755 81% 100%);
   }
-  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner { position: relative; margin-top: 16px; margin-bottom: 16px; }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > *,
-  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * { position: relative; z-index: 1; }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-row { flex-wrap: wrap; gap: 7px 10px; }
-  html[data-asr-theme="lcars-frame"] .allscan-connect-button,
-  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button,
-  html[data-asr-theme="lcars-frame"] .allscan-action-select { width: auto; min-width: 0; max-width: none; }
-  html[data-asr-theme="lcars-frame"] .allscan-checks-row { margin-top: 4px !important; row-gap: 0; column-gap: 12px !important; font-size: inherit; }
-  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button {
-    border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-control); color: var(--theme-text); box-shadow: none;
+
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner {
+    position: relative;
+    margin-top: 16px;
+    margin-bottom: 16px;
   }
-}
-/* LCARS Node Controls: preserve standard module geometry; LCARS only frames it. */
-@media (min-width: 1200px) {
-  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
-    width: min(460px, calc(100vw - 24px));
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
-    width: min(460px, calc(100vw - 24px));
-    max-width: 460px;
-    padding: 10px 8px;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before,
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after {
-    height: 12px;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before { top: -12px; }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after { bottom: -12px; }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > .allscan-controls-row:first-child {
-    flex-wrap: nowrap;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-controls-lower-row {
-    flex-wrap: nowrap;
-  }
-  html[data-asr-theme="lcars-frame"] .allscan-checks-grid {
-    flex-wrap: nowrap !important;
+
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * {
+    position: relative;
+    z-index: 1;
   }
 }
 
@@ -6526,152 +6343,787 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   .asr-update-dialog footer { margin-top: 12px; }
 }
 
-/* Optional project support dialog. */
-.asr-support-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483600;
-  display: grid;
-  place-items: center;
-  padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  background: rgba(0, 0, 0, .66);
-}
-
-.asr-support-dialog {
-  width: min(100%, 520px);
-  max-height: calc(100dvh - max(32px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
-  overflow: auto;
-  overscroll-behavior: contain;
-  box-sizing: border-box;
-  padding: 20px;
-  border: 1px solid var(--theme-border-strong, var(--theme-border));
-  border-radius: 12px;
-  background: var(--theme-panel-solid);
-  color: var(--theme-text);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, .52);
-  line-height: 1.5;
-}
-
-.asr-support-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.asr-support-head h2 {
-  margin: 0;
-  font-size: 1.4rem;
-  line-height: 1.2;
-}
-
-.asr-support-dialog p {
-  margin: 14px 0 0;
-}
-
-.asr-support-close,
-.asr-support-actions a,
-.asr-support-actions button {
-  border: 1px solid var(--theme-border);
-  border-radius: 7px;
-  background: var(--theme-panel-2);
-  color: var(--theme-text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.asr-support-close {
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  font-size: 1.55rem;
-  line-height: 1;
-}
-
-.asr-support-actions {
-  display: flex;
-  align-items: stretch;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 22px;
-}
-
-.asr-support-actions a,
-.asr-support-actions button {
-  display: inline-flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 14px;
-  font-weight: 750;
-  text-align: center;
-  text-decoration: none;
-}
-
-.asr-support-actions a {
-  flex-direction: column;
-  border-color: var(--theme-border-strong, var(--theme-border));
-  background: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-panel-2));
-}
-
-.asr-support-actions small {
-  font-size: .72rem;
-  font-weight: 600;
-  opacity: .82;
-}
-
-.asr-support-close:hover,
-.asr-support-actions a:hover,
-.asr-support-actions button:hover {
-  background: var(--theme-hover);
-}
-
-.asr-support-close:focus-visible,
-.asr-support-actions a:focus-visible,
-.asr-support-actions button:focus-visible {
-  outline: 3px solid var(--theme-accent);
-  outline-offset: 2px;
-}
-
-@media (max-width: 420px) {
-  .asr-support-overlay {
-    padding-top: max(8px, env(safe-area-inset-top));
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+/* ST:ASL Node Controls: Beta 8 geometry with a flush LCARS frame. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title {
+    box-sizing: border-box;
+    width: 456px;
+    height: var(--lcars-module-band-height);
+    min-height: var(--lcars-module-band-height);
+    margin: 0 auto !important;
+    padding: 0 14px;
+    border-radius: 18px 18px 0 0;
+    background: var(--lcars-node-controls-top-band);
+    color: #170b04;
+    font: 950 16px/18px Arial, Helvetica, sans-serif;
+    font-style: normal;
+    letter-spacing: .08em;
   }
 
-  .asr-support-dialog {
-    max-height: calc(100dvh - max(16px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
-    padding: 16px;
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title::after {
+    content: none;
   }
 
-  .asr-support-actions {
-    flex-direction: column;
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title > .allscan-module-title-wrap {
+    transform: translateX(-14px) !important;
   }
 
-  .asr-support-actions a,
-  .asr-support-actions button {
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title .allscan-module-drag-handle {
+    width: 24px;
+    height: 24px;
+    padding: 3px;
+    color: #170b04;
+    opacity: .7;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title .allscan-module-title-text {
+    -webkit-text-stroke: .15px currentColor;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title .allscan-module-drag-handle > .allscan-grip-dots {
+    grid-template-columns: repeat(2, 4px) !important;
+    grid-template-rows: repeat(3, 4px) !important;
+    width: 11px !important;
+    height: 18px !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title .allscan-module-drag-handle > .allscan-grip-dots > i {
+    width: 4px !important;
+    height: 4px !important;
+    min-width: 4px !important;
+    min-height: 4px !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell {
+    box-sizing: border-box;
+    width: 456px;
+    max-width: 456px;
+    height: auto;
+    min-height: 0;
+    margin: 0 auto var(--lcars-module-band-height);
+    padding: 6px;
+    border: 1px solid #cc9966;
+    border-right-color: transparent;
+    border-left-color: transparent;
+    border-radius: 0 !important;
+    background: #09080b;
+    box-shadow: 0 18px 38px rgba(0, 0, 0, .38);
+    overflow: visible;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::before {
+    content: none;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    left: -1px;
+    width: 456px;
+    bottom: calc(-1 * var(--lcars-module-band-height));
+    height: var(--lcars-module-band-height);
+    border-radius: 0 0 18px 18px;
+    background: var(--lcars-node-controls-bottom-band);
+    pointer-events: none;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > .allscan-controls-row:first-child {
+    flex-wrap: nowrap;
+    gap: 7px 6px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-checks-grid {
+    position: static;
+    font-family: Inter, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    line-height: 14.3px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-node-input {
+    width: 76px;
+    min-width: 76px;
+    max-width: 76px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-action-select {
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-connect-button {
+    width: 84px;
+    min-width: 84px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-disconnect-button {
+    width: 100px;
+    min-width: 100px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button {
+    border: 1px solid #cc9966;
+    border-radius: 18px;
+    background: #cc9966;
+    color: #170b04;
+    box-shadow: none;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button:focus-visible,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:focus-visible {
+    filter: brightness(1.08);
+    box-shadow:
+      0 0 0 2px rgba(204, 153, 102, .58),
+      0 0 16px rgba(204, 153, 102, .5);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-connect-button {
+    border-color: #7799bb;
+    background: #7799bb;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-connect-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-connect-button:focus-visible {
+    box-shadow:
+      0 0 0 2px rgba(119, 153, 187, .62),
+      0 0 16px rgba(119, 153, 187, .56);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-disconnect-button {
+    border-color: #887755;
+    background: #887755;
+    color: #09080b;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-disconnect-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-disconnect-button:focus-visible {
+    box-shadow:
+      0 0 0 2px rgba(136, 119, 85, .62),
+      0 0 16px rgba(136, 119, 85, .54);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-custom-commands-button {
+    border-color: #ccaa44;
+    background: #ccaa44;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-custom-commands-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-custom-commands-button:focus-visible {
+    box-shadow:
+      0 0 0 2px rgba(204, 170, 68, .68),
+      0 0 16px rgba(204, 170, 68, .58);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-go-button {
+    border-color: #ddcc99;
+    background: #ddcc99;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-go-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-go-button:focus-visible {
+    box-shadow:
+      0 0 0 2px rgba(221, 204, 153, .68),
+      0 0 16px rgba(221, 204, 153, .54);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-kicks-bans-button {
+    border-color: #cc9966;
+    background: #cc9966;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-kicks-bans-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-kicks-bans-button:focus-visible {
+    box-shadow:
+      0 0 0 2px rgba(204, 153, 102, .58),
+      0 0 16px rgba(204, 153, 102, .5);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-node-input,
+  html[data-asr-theme="lcars-frame"] .allscan-action-select {
+    border: 2px solid #cc9966;
+    border-radius: 18px;
+    background: #0b0b0f;
+    color: #f5eadc;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell > .allscan-node-messages,
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages,
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages[open] {
+    box-sizing: border-box;
     width: 100%;
+    max-width: 100%;
+    margin: 8px 0 0 !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages-summary {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages,
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages-summary,
+  html[data-asr-theme="lcars-frame"] .allscan-node-messages-body {
+    border-color: #cc9966;
+    background: #090608;
+    color: #fff6c8;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell-messages-open {
+    height: auto;
+    min-height: 0;
+    padding-bottom: 6px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell-messages-open .allscan-node-messages-body {
+    max-height: 300px;
+    border-color: rgba(255, 255, 255, .16);
   }
 }
 
-@media (max-height: 520px) and (orientation: landscape) {
-  .asr-support-overlay {
-    padding-top: max(6px, env(safe-area-inset-top));
-    padding-bottom: max(6px, env(safe-area-inset-bottom));
+/* ST:ASL Talkers + Favorites: compact 28px LCARS module chrome.
+   Node Controls remains the authoritative geometry reference. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] {
+    --lcars-talkers-top-band: linear-gradient(90deg,
+      var(--lcars-blue) 0 18%, var(--lcars-tan) 18% 39%,
+      var(--lcars-gold) 39% 63%, var(--lcars-brown) 63% 82%,
+      var(--lcars-cream) 82% 100%);
+    --lcars-talkers-bottom-band: linear-gradient(90deg,
+      var(--lcars-cream) 0 14%, var(--lcars-brown) 14% 35%,
+      var(--lcars-blue) 35% 59%, var(--lcars-gold) 59% 78%,
+      var(--lcars-tan) 78% 100%);
+    --lcars-favorites-top-band: linear-gradient(90deg,
+      var(--lcars-brown) 0 17%, var(--lcars-cream) 17% 38%,
+      var(--lcars-tan) 38% 61%, var(--lcars-blue) 61% 79%,
+      var(--lcars-gold) 79% 100%);
+    --lcars-favorites-bottom-band: linear-gradient(90deg,
+      var(--lcars-tan) 0 16%, var(--lcars-blue) 16% 37%,
+      var(--lcars-gold) 37% 60%, var(--lcars-cream) 60% 82%,
+      var(--lcars-brown) 82% 100%);
   }
 
-  .asr-support-dialog {
-    max-height: calc(100dvh - max(12px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
-    padding: 12px 14px;
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel {
+    position: relative;
   }
 
-  .asr-support-dialog p {
-    margin-top: 8px;
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title {
+    box-sizing: border-box;
+    height: var(--lcars-module-band-height);
+    min-height: var(--lcars-module-band-height);
+    margin: 0 auto !important;
+    padding: 0 14px !important;
+    border-radius: 18px 18px 0 0;
+    color: #170b04;
+    font: 950 16px/18px Arial, Helvetica, sans-serif;
+    font-style: normal;
+    letter-spacing: .08em;
   }
 
-  .asr-support-actions {
-    margin-top: 12px;
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title {
+    width: min(980px, calc(100vw - 120px));
+    background: var(--lcars-talkers-top-band) !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title {
+    width: min(980px, 100%);
+    background: var(--lcars-favorites-top-band) !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+    transform: translateX(-14px) !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title .allscan-module-title-text,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title .allscan-module-title-text {
+    -webkit-text-stroke: .15px currentColor;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title .allscan-module-drag-handle,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title .allscan-module-drag-handle {
+    width: 24px; height: 24px; padding: 3px; color: #170b04; opacity: .7;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section .allscan-talker-cards {
+    position: relative;
+    margin-top: 0;
+    margin-bottom: var(--lcars-module-band-height);
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section .allscan-talker-cards::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(-1 * var(--lcars-module-band-height));
+    height: var(--lcars-module-band-height);
+    border-radius: 0 0 18px 18px;
+    background: var(--lcars-talkers-bottom-band);
+    pointer-events: none;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner {
+    margin-top: 0;
+    margin-bottom: var(--lcars-module-band-height);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::before {
+    content: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    left: 0; right: 0;
+    bottom: calc(-1 * var(--lcars-module-band-height));
+    height: var(--lcars-module-band-height);
+    border-radius: 0 0 18px 18px;
+    background: var(--lcars-favorites-bottom-band);
+  }
+}
+
+/* ST:ASL Talkers/Favorites final spacing refinements. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner {
+    margin-top: 6px;
+    margin-bottom: calc(var(--lcars-module-band-height) + 6px);
+    border-radius: 0 !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    bottom: calc(-1 * (var(--lcars-module-band-height) + 6px));
+  }
+}
+
+
+/* ST:ASL Favorites bottom band: render outside the clipped square body. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner {
+    overflow: visible;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+/* ST:ASL dashboard rhythm: shared outer module gap and 6px body-to-band breathing room. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] {
+    --lcars-module-gap: 18px;
+    --lcars-module-inner-gap: 6px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard {
+    row-gap: var(--lcars-module-gap);
+    padding-top: var(--lcars-module-gap);
+  }
+
+  /* Legacy wide modules keep their side treatment, but use the same 28px bands. */
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title {
+    height: var(--lcars-module-band-height);
+    min-height: var(--lcars-module-band-height);
+    border-radius: 18px 18px 0 0;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-subtitle {
+    line-height: var(--lcars-module-band-height);
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-status-shell {
+    padding-top: var(--lcars-module-inner-gap);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-status-shell::after {
+    height: var(--lcars-module-band-height);
+    margin-top: var(--lcars-module-inner-gap);
+    border-radius: 0 0 18px 18px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-grid {
+    padding-top: var(--lcars-module-inner-gap);
+    padding-bottom: var(--lcars-module-inner-gap);
+    row-gap: var(--lcars-module-inner-gap);
+    border-radius: 0 0 18px 18px;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-grid::after {
+    height: var(--lcars-module-band-height);
+    border-radius: 0 0 18px 18px;
+  }
+}
+
+/* ST:ASL Connection/Bridge: match the tight top-band-to-body spacing used by compact modules. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-status-shell,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-grid {
+    padding-top: 0;
+  }
+}
+
+/* ST:ASL Connection/Bridge: the screenshot-visible gap is outside the content shells. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title {
+    margin-bottom: 6px !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title {
+    margin-bottom: 6px !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-urf-group {
+    margin-top: 0;
+  }
+}
+
+/* ST:ASL module-title typography: Node Controls is the single visual reference. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module > .allscan-section-title .allscan-module-title-text,
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-subtitle {
+    font: 950 16px/18px Arial, Helvetica, sans-serif;
+    font-style: normal;
+    letter-spacing: .08em;
+    -webkit-text-stroke: .15px currentColor;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-subtitle {
+    line-height: 18px;
+  }
+}
+
+/* ST:ASL only: Talker cards use square corners. */
+html[data-asr-theme="lcars-frame"] .allscan-talker-card {
+  border-radius: 0 !important;
+}
+
+/* ST:ASL module-title standard: ALL CAPS, left anchored, visible grip first. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module > .allscan-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 14px !important;
+    text-align: left !important;
+    text-transform: uppercase;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module > .allscan-section-title > .allscan-module-title-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: auto;
+    max-width: 100%;
+    margin: 0;
+    transform: none !important;
+    text-align: left !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module .allscan-module-title-text {
+    display: inline-block;
+    text-align: left !important;
+    text-transform: uppercase;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle {
+    position: static;
+    flex: 0 0 24px;
+    display: inline-flex;
+    visibility: visible;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    padding: 3px;
+    transform: none;
+    color: #170b04;
+    opacity: .7;
+    z-index: 5;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module .allscan-module-drag-handle > .allscan-grip-dots {
+    grid-template-columns: repeat(2, 4px) !important;
+    grid-template-rows: repeat(3, 4px) !important;
+    width: 11px !important;
+    height: 18px !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-dashboard-module .allscan-module-drag-handle > .allscan-grip-dots > i {
+    width: 4px !important;
+    height: 4px !important;
+    min-width: 4px !important;
+    min-height: 4px !important;
+  }
+
+  /* Retire the old duplicate LCARS-generated titles; the draggable title is authoritative. */
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title::after {
+    content: none;
+  }
+}
+
+/* ST:ASL bridge secondary status: center Last Activity in the 28px title band. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-subtitle {
+    top: 0;
+    height: var(--lcars-module-band-height);
+    display: flex;
+    align-items: center;
+    line-height: 1;
+  }
+}
+
+/* ST:ASL Talker cards: LCARS chrome with dark readable bodies; functional live colors stay authoritative. */
+html[data-asr-theme="lcars-frame"] .allscan-talker-card {
+  background: #09080b;
+  color: #f5eadc;
+  border-color: #4a4037;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(1) { --lcars-talker-card-color: var(--lcars-blue); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(2) { --lcars-talker-card-color: var(--lcars-tan); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(3) { --lcars-talker-card-color: var(--lcars-gold); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(4) { --lcars-talker-card-color: var(--lcars-brown); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(5) { --lcars-talker-card-color: var(--lcars-cream); }
+
+html[data-asr-theme="lcars-frame"] .allscan-talker-card-title {
+  background: var(--lcars-talker-card-color);
+  border-bottom-color: var(--lcars-talker-card-color);
+  color: #170b04;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card .allscan-talker-callsign,
+html[data-asr-theme="lcars-frame"] .allscan-talker-card .allscan-talker-source,
+html[data-asr-theme="lcars-frame"] .allscan-talker-card .allscan-talker-duration,
+html[data-asr-theme="lcars-frame"] .allscan-talker-card .allscan-talker-duration strong {
+  color: #f5eadc;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card .allscan-talker-location,
+html[data-asr-theme="lcars-frame"] .allscan-talker-card.is-empty .allscan-talker-source {
+  color: #ddcc99;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card.is-current {
+  border-color: #4a4037 !important;
+  border-top-color: var(--lcars-talker-edge) !important;
+  box-shadow: inset 3px 0 0 var(--theme-talker-live) !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card.is-current .allscan-talker-callsign {
+  color: var(--theme-talker-live);
+}
+
+/* ST:ASL Talker cards: restrained LCARS top-edge accents only. */
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(1) { --lcars-talker-edge: var(--lcars-gold); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(2) { --lcars-talker-edge: var(--lcars-blue); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(3) { --lcars-talker-edge: var(--lcars-tan); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(4) { --lcars-talker-edge: var(--lcars-cream); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card:nth-child(5) { --lcars-talker-edge: var(--lcars-brown); }
+html[data-asr-theme="lcars-frame"] .allscan-talker-card {
+  border-top: 5px solid var(--lcars-talker-edge) !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-talker-card-title {
+  background: #09080b !important;
+  color: #f5eadc !important;
+}
+
+/* ST:ASL Favorites interior: near-black structure; brown remains an accent, not a wash. */
+html[data-asr-theme="lcars-frame"] .allscan-favorites-inner {
+  background: #09080b !important;
+  border-color: #4a4037 !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-favorites-legend {
+  background: #121013 !important;
+  border-bottom-color: #4a4037 !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 3px !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-favorites-table tbody tr {
+  background: #09080b !important;
+  border-color: #4a4037 !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-favorite-actions button,
+html[data-asr-theme="lcars-frame"] .allscan-favorite-drag {
+  background: #121013;
+  border-color: #5a4b3d;
+}
+html[data-asr-theme="lcars-frame"] .allscan-favorite-actions button:hover:not(:disabled),
+html[data-asr-theme="lcars-frame"] .allscan-favorite-drag:hover {
+  background: #1b1718;
+}
+
+/* ST:ASL Favorites: tighten legend/control vertical rhythm without changing table rows. */
+html[data-asr-theme="lcars-frame"] .allscan-favorites-options {
+  margin-bottom: 2px !important;
+}
+
+/* ST:ASL bridge cards: dark structural chrome with restrained LCARS accents. */
+html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
+  background: #09080b !important;
+  color: #f5eadc !important;
+  border-color: #4a4037 !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card {
+  --lcars-bridge-edge: var(--lcars-tan);
+  background: #09080b !important;
+  border-color: #4a4037 !important;
+  border-top: 5px solid var(--lcars-bridge-edge) !important;
+}
+/* Stable irregular LCARS bridge accents: repeat every 11 cards so added bridges stay varied. */
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 1) { --lcars-bridge-edge: var(--lcars-blue); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 2) { --lcars-bridge-edge: var(--lcars-gold); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 3) { --lcars-bridge-edge: var(--lcars-brown); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 4) { --lcars-bridge-edge: var(--lcars-cream); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 5) { --lcars-bridge-edge: var(--lcars-blue); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 6) { --lcars-bridge-edge: var(--lcars-tan); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 7) { --lcars-bridge-edge: var(--lcars-gold); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 8) { --lcars-bridge-edge: var(--lcars-cream); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 9) { --lcars-bridge-edge: var(--lcars-brown); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n + 10) { --lcars-bridge-edge: var(--lcars-tan); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-card:nth-child(11n) { --lcars-bridge-edge: var(--lcars-blue); }
+html[data-asr-theme="lcars-frame"] .allscan-bridge-head {
+  background: #09080b !important;
+  color: #f5eadc !important;
+  border-bottom-color: #4a4037 !important;
+}
+html[data-asr-theme="lcars-frame"] .allscan-bridge-body,
+html[data-asr-theme="lcars-frame"] .allscan-bridge-row,
+html[data-asr-theme="lcars-frame"] .allscan-bridge-detail-wrap {
+  background: #09080b;
+  border-color: #4a4037 !important;
+}
+
+/* ST:ASL bridge-card titles: restore readable hierarchy on dark headers. */
+html[data-asr-theme="lcars-frame"] .allscan-bridge-head-title {
+  color: #f5eadc !important;
+  font-weight: 800 !important;
+}
+
+/* ST:ASL URFWIL group bar: quiet structural label; bridge-card accents carry LCARS color. */
+html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
+  position: relative;
+  background: #09080b !important;
+  border-top: 1px solid #4a4037 !important;
+  border-bottom: 1px solid #4a4037 !important;
+  box-shadow: none !important;
+}
+
+/* ST:ASL desktop header: four approved controls; dropdowns open cleanly below both button rows. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-menu-slot {
+    width: 357px;
+    min-height: 173px;
+    align-self: start;
+    justify-self: end;
+    align-items: flex-end;
+    padding: 69px 0 10px 74px;
+    transform: translateX(58px);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-slot::before {
+    display: block !important;
+    content: "LCARS ACCESS" !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-access-numbers { display: block !important; }
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-buttons { display: grid !important; }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-button,
+  html[data-asr-theme="lcars-frame"] .allscan-lookup-main-button { display: none !important; }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel {
+    top: 138px;
+    right: 4px;
+    width: 288px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    z-index: 80;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-submenu-back { display: none !important; }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-proxy-list { display: none !important; }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-list {
+    display: grid !important;
+    gap: 3px;
+    padding: 7px;
+    border: 2px solid #cc9966;
+    border-radius: 0 0 18px 18px;
+    background: #090608;
+    box-shadow: 0 18px 36px rgba(0,0,0,.56);
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-row { display: none; }
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-row:first-child,
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-report-row,
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-logout-row { display: flex; }
+  html[data-asr-theme="lcars-frame"] .allscan-submenu {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 288px;
+    max-height: calc(100vh - 185px);
+    overflow-y: auto;
+    padding: 7px;
+    border: 2px solid #cc9966;
+    border-radius: 0 0 18px 18px;
+    background: #090608;
+    box-shadow: 0 18px 36px rgba(0,0,0,.56);
+    z-index: 81;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button.is-active {
+    position: relative;
+    z-index: 82;
+  }
+}
+
+.asr-feedback-box{width:min(720px,calc(100vw - 24px));max-height:min(90vh,820px);overflow:auto}
+.asr-feedback-box>label,.asr-feedback-inline label{display:grid;gap:5px;margin:9px 0;font-weight:600}
+.asr-feedback-box textarea,.asr-feedback-box input{box-sizing:border-box;width:100%;padding:8px;border:1px solid rgba(127,127,127,.55);border-radius:4px;background:var(--asr-input-bg,#111);color:inherit}
+.asr-feedback-box textarea{min-height:90px;resize:vertical}
+.asr-feedback-types{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}
+.asr-feedback-types button{padding:9px 6px;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;cursor:pointer}
+.asr-feedback-types button.is-active{font-weight:800;outline:2px solid currentColor;outline-offset:-3px}
+.asr-feedback-inline{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.asr-feedback-check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}
+.asr-feedback-check input{width:auto}
+.asr-feedback-public{padding:9px;border:1px solid rgba(255,190,0,.6);border-radius:4px}
+.asr-feedback-preview{min-height:360px!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.asr-feedback-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important}
+.asr-feedback-files{display:grid;gap:6px;margin:8px 0}
+.asr-feedback-files span{display:flex;align-items:center;justify-content:space-between;gap:8px;overflow-wrap:anywhere}
+.asr-feedback-files button,.asr-feedback-review-images button{flex:0 0 auto;padding:5px 8px;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;cursor:pointer}
+.asr-feedback-review-images{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:8px 0}
+.asr-feedback-review-images figure{margin:0;display:grid;gap:4px}
+.asr-feedback-review-images img{width:100%;max-height:130px;object-fit:contain;background:#000;border:1px solid rgba(127,127,127,.4)}
+.asr-feedback-review-images figcaption{font-size:12px;overflow-wrap:anywhere}
+.asr-feedback-success{padding:10px;border:1px solid rgba(50,200,100,.65);border-radius:4px}
+@media(max-width:640px){.asr-feedback-types,.asr-feedback-inline{grid-template-columns:1fr}}
+
+/* ST:ASL approved flat controls: remove legacy beveled button depth while preserving hover focus rings. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button,
+  html[data-asr-theme="lcars-frame"] .allscan-favs-button,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button {
+    box-shadow: none !important;
+  }
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button:focus-visible,
+  html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button.is-active,
+  html[data-asr-theme="lcars-frame"] .allscan-favs-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-favs-button:focus-visible,
+  html[data-asr-theme="lcars-frame"] .allscan-favs-button.is-open,
+  html[data-asr-theme="lcars-frame"] .allscan-favs-button:active,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-shell .allscan-action-button:focus-visible,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:hover,
+  html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:focus-visible {
+    box-shadow: none !important;
   }
 }

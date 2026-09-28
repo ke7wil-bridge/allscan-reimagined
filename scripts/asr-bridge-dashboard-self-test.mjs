@@ -234,23 +234,13 @@ try {
     (appSource.match(/\[card\.id\]: ''/g) || []).length >= 5,
     'a Net Bridge destination field is not cleared after connect and disconnect actions',
   )
-  const adminSubmenu = appSource.match(
-    /allscan-submenu-admin[\s\S]+?allscan-submenu-theme/,
-  )?.[0] || ''
-  assert(
-    adminSubmenu.includes("effectiveThemeSettings.theme === 'lcars-frame'")
-      && adminSubmenu.includes('&& desktopThemeViewport')
-      && adminSubmenu.includes('authStatus.loggedIn')
-      && adminSubmenu.includes('onClick={() => void logoutAllScan()}>Logout</button>'),
-    'ST:ASL desktop Admin menu does not expose authenticated Logout',
-  )
   assert(
     appSource.includes('allscan-menu-proxy-row allscan-menu-logout-row'),
-    'the existing standard-theme and mobile Logout action was removed',
+    'the theme-independent Logout action was removed',
   )
   assert(
-    (appSource.match(/onClick=\{\(\) => void logoutAllScan\(\)\}/g) || []).length === 2,
-    'Logout must have exactly one standard render site and one ST:ASL desktop render site',
+    (appSource.match(/onClick=\{\(\) => void logoutAllScan\(\)\}/g) || []).length === 1,
+    'Logout must have exactly one theme-independent render site',
   )
   assert(
     appSource.includes('bridgeLastTalker(card)')

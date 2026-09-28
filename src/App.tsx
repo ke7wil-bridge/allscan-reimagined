@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import UpdateAsrDialog from './components/UpdateAsrDialog'
-import SupportAsrDialog from './components/SupportAsrDialog'
+import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
@@ -18,7 +18,6 @@ import {
   fetchAuthStatus,
   fetchCpuTemp,
   fetchCustomCommands,
-  fetchDiagnosticsReport,
   fetchDropClients,
   fetchFavorites,
   fetchFavoriteStats,
@@ -32,7 +31,6 @@ import {
   saveCustomCommands,
   summarizeConnectionTotal,
   connectBridge,
-  type DiagnosticsReport,
   type FavoritesFileOption,
   type FavoriteStats,
   sendNodeCommand,
@@ -532,9 +530,6 @@ function App({ config }: { config: RuntimeConfig }) {
   const [rowActions, setRowActions] = useState<{ row: LiveConnectionRow; left: number; top: number } | null>(null)
   const [dropClients, setDropClients] = useState<DropClientEntry[]>([])
   const [dropClientStatus, setDropClientStatus] = useState('No named client channels loaded yet.')
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  const [diagnosticsReport, setDiagnosticsReport] = useState<DiagnosticsReport | null>(null)
-  const [diagnosticsStatus, setDiagnosticsStatus] = useState('No diagnostics report loaded yet.')
   const [menuOpen, setMenuOpen] = useState(false)
   const [openSubmenu, setOpenSubmenu] = useState<HeaderMenuKey | null>(null)
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => readThemeSettings())
@@ -560,15 +555,11 @@ function App({ config }: { config: RuntimeConfig }) {
   const [urfAccessStatus, setUrfAccessStatus] = useState('')
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
-  const [supportDialogOpen, setSupportDialogOpen] = useState(false)
+  const [supportFeedbackOpen, setSupportFeedbackOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const nodeInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
-  const lcarsAdminButtonRef = useRef<HTMLButtonElement>(null)
-  const supportReturnFocusRef = useRef<HTMLElement | null>(null)
-  const diagnosticsTextRef = useRef<HTMLTextAreaElement>(null)
   const reportBugParamHandled = useRef(false)
   const updateAsrParamHandled = useRef(false)
   const nodeMessagesArmed = useRef(false)
@@ -964,15 +955,17 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [dashboardModuleDragging])
 
   useEffect(() => {
-    if (reportBugParamHandled.current || !authStatus.isAdmin) return
+    if (reportBugParamHandled.current) return
     const params = new URLSearchParams(window.location.search)
-    if (params.get('reportBug') !== '1') return
+    if (params.get('reportBug') !== '1' && params.get('supportFeedback') !== '1') return
     reportBugParamHandled.current = true
-    window.history.replaceState(null, '', window.location.pathname)
-    openDiagnosticsReport()
-    // This effect intentionally reacts only when admin authorization becomes available.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus.isAdmin])
+    params.delete('reportBug')
+    params.delete('supportFeedback')
+    const query = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSupportFeedbackOpen(true)
+  }, [])
 
   useEffect(() => {
     if (updateAsrParamHandled.current || !authStatus.isAdmin) return
@@ -1039,20 +1032,6 @@ function App({ config }: { config: RuntimeConfig }) {
       window.location.assign(asrPath())
     }
   }
-
-  const openSupportDialog = () => {
-    supportReturnFocusRef.current = effectiveThemeSettings.theme === 'lcars-frame' && desktopThemeViewport
-      ? lcarsAdminButtonRef.current
-      : menuButtonRef.current
-    setMenuOpen(false)
-    setOpenSubmenu(null)
-    setSupportDialogOpen(true)
-  }
-
-  const closeSupportDialog = useCallback(() => {
-    setSupportDialogOpen(false)
-    window.requestAnimationFrame(() => supportReturnFocusRef.current?.focus())
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -2091,69 +2070,6 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
-  async function loadDiagnosticsReport() {
-    if (!authStatus.isAdmin) {
-      setDiagnosticsStatus('Admin permission is required to generate a bug report.')
-      return
-    }
-
-    try {
-      setBusy(true)
-      setDiagnosticsStatus('Generating diagnostics report...')
-      const report = await fetchDiagnosticsReport()
-      setDiagnosticsReport(report)
-      setDiagnosticsStatus('Review this report before sending it.')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Diagnostics report could not be generated.'
-      setDiagnosticsStatus(message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function openDiagnosticsReport() {
-    setMenuOpen(false)
-    setOpenSubmenu(null)
-    setDiagnosticsOpen(true)
-    void loadDiagnosticsReport()
-  }
-
-  async function copyDiagnosticsReport() {
-    const report = diagnosticsReport?.report || ''
-    if (!report) return
-
-    try {
-      await navigator.clipboard.writeText(report)
-      setDiagnosticsStatus('Diagnostics report copied.')
-      return
-    } catch {
-      const textarea = diagnosticsTextRef.current
-      if (!textarea) {
-        setDiagnosticsStatus('Copy failed. Select the report text and copy it manually.')
-        return
-      }
-
-      textarea.focus()
-      textarea.select()
-      try {
-        if (document.execCommand('copy')) {
-          setDiagnosticsStatus('Diagnostics report copied.')
-          return
-        }
-      } catch {
-        // Fall through to the manual-copy message below.
-      }
-      setDiagnosticsStatus('Copy failed. The report text is selected; press Ctrl+C or Cmd+C.')
-    }
-  }
-
-  function emailDiagnosticsReport() {
-    if (!diagnosticsReport?.report) return
-    const subject = encodeURIComponent(diagnosticsReport.subject || 'ASR Bug Report')
-    const body = encodeURIComponent(diagnosticsReport.report)
-    window.location.href = `mailto:${diagnosticsReport.email}?subject=${subject}&body=${body}`
-  }
-
   const favoritesPanel = favoritesOpen ? (
     <section
       id="allscan-favorites-panel"
@@ -2497,7 +2413,6 @@ function App({ config }: { config: RuntimeConfig }) {
             <div className="allscan-lcars-access-buttons" aria-label="ST:ASL menu groups">
               {headerMenuGroups.map(([key, label]) => (
                 <button
-                  ref={key === 'admin' ? lcarsAdminButtonRef : undefined}
                   key={key}
                   type="button"
                   className={`allscan-lcars-access-button allscan-lcars-access-${key}${openSubmenu === key ? ' is-active' : ''}`}
@@ -2505,11 +2420,19 @@ function App({ config }: { config: RuntimeConfig }) {
                   aria-expanded={menuOpen && openSubmenu === key ? 'true' : 'false'}
                   onClick={(event) => {
                     event.stopPropagation()
-                    setMenuOpen(true)
-                    setOpenSubmenu((current) => current === key ? null : key)
+                    const isLcarsDesktop = effectiveThemeSettings.theme === 'lcars-frame' && desktopThemeViewport
+                    if (isLcarsDesktop && key === 'admin') {
+                      const closeCurrentMenu = menuOpen && openSubmenu === null
+                      setMenuOpen(!closeCurrentMenu)
+                      setOpenSubmenu(null)
+                      return
+                    }
+                    const closeCurrentMenu = menuOpen && openSubmenu === key
+                    setMenuOpen(!closeCurrentMenu)
+                    setOpenSubmenu(closeCurrentMenu ? null : key)
                   }}
                 >
-                  {label} <ChevronDown className="h-3 w-3" />
+                  {key === 'admin' && effectiveThemeSettings.theme === 'lcars-frame' && desktopThemeViewport ? 'Menu' : label} <ChevronDown className="h-3 w-3" />
                 </button>
               ))}
               <button
@@ -2527,7 +2450,6 @@ function App({ config }: { config: RuntimeConfig }) {
               </button>
             </div>
             <button
-              ref={menuButtonRef}
               type="button"
               className="allscan-menu-button"
               aria-haspopup="menu"
@@ -2589,26 +2511,14 @@ function App({ config }: { config: RuntimeConfig }) {
                   >
                     <span>Lookup</span>
                   </a>
-                  {authStatus.isAdmin ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="allscan-menu-proxy-row allscan-menu-report-row"
-                      onClick={openDiagnosticsReport}
-                    >
-                      <span>Report a Bug</span>
-                    </button>
-                  ) : null}
-                  {authStatus.loggedIn ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="allscan-menu-proxy-row allscan-menu-support-row"
-                      onClick={openSupportDialog}
-                    >
-                      <span>Support ASR</span>
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="allscan-menu-proxy-row allscan-menu-report-row"
+                    onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setSupportFeedbackOpen(true) }}
+                  >
+                    <span>Support &amp; Feedback</span>
+                  </button>
                   {authStatus.loggedIn ? (
                     <button
                       type="button"
@@ -2647,23 +2557,11 @@ function App({ config }: { config: RuntimeConfig }) {
                 </div>
 
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
-                  {authStatus.loggedIn ? <a role="menuitem" href={asrPath('user/settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
+                  {authStatus.loggedIn ? <a role="menuitem" href={asrPath('asr-settings/?section=account')} onClick={() => setMenuOpen(false)}>My Account</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
-                  {authStatus.loggedIn
-                    && effectiveThemeSettings.theme === 'lcars-frame'
-                    && desktopThemeViewport ? (
-                      <>
-                        <button type="button" role="menuitem" onClick={openSupportDialog}>Support ASR</button>
-                        <button type="button" role="menuitem" onClick={() => void logoutAllScan()}>Logout</button>
-                      </>
-                    ) : null}
                   {!authStatus.loggedIn ? (
                     <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Login</a>
                   ) : null}
@@ -3578,45 +3476,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
-      {supportDialogOpen ? (
-        <SupportAsrDialog
-          onClose={closeSupportDialog}
-        />
-      ) : null}
-
-      {diagnosticsOpen ? (
-        <div className="allscan-drop-client-modal" onClick={() => setDiagnosticsOpen(false)}>
-          <div className="allscan-drop-client-box allscan-diagnostics-box" onClick={(event) => event.stopPropagation()}>
-            <h3>Report a Bug</h3>
-            <div className="allscan-drop-client-help">
-              This creates an admin-only diagnostics report for KE7WIL. Review it before emailing.
-            </div>
-            <div className="allscan-drop-client-status">{diagnosticsStatus}</div>
-            <textarea
-              ref={diagnosticsTextRef}
-              className="allscan-diagnostics-report"
-              readOnly
-              spellCheck={false}
-              value={diagnosticsReport?.report || ''}
-              aria-label="Diagnostics report"
-            />
-            <div className="allscan-drop-client-actions">
-              <button type="button" className="allscan-action-button" disabled={busy} onClick={() => void loadDiagnosticsReport()}>
-                Refresh
-              </button>
-              <button type="button" className="allscan-action-button" disabled={!diagnosticsReport?.report} onClick={() => void copyDiagnosticsReport()}>
-                Copy
-              </button>
-              <button type="button" className="allscan-action-button" disabled={!diagnosticsReport?.report} onClick={emailDiagnosticsReport}>
-                Email
-              </button>
-              <button type="button" className="allscan-action-button" onClick={() => setDiagnosticsOpen(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
     </div>
   )
 }
