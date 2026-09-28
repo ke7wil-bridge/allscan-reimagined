@@ -7127,3 +7127,34 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     box-shadow: none !important;
   }
 }
+
+/* ST:ASL module-band geometry: bottom bands are literal vertical mirrors of
+   their title bands. Horizontal gradients retain their independent colors. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] {
+    --lcars-module-band-radius: 18px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title {
+    border-radius: var(--lcars-module-band-radius) var(--lcars-module-band-radius) 0 0 !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section .allscan-status-shell {
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section .allscan-talker-cards::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel .allscan-favorites-inner::after,
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section .allscan-status-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section .allscan-bridge-grid::after,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section .allscan-controls-shell::after {
+    border-radius: var(--lcars-module-band-radius) var(--lcars-module-band-radius) 0 0 !important;
+    transform: scaleY(-1);
+    transform-origin: center;
+  }
+}
