@@ -7019,15 +7019,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
 
 /* ST:ASL desktop header: four approved controls; dropdowns open cleanly below both button rows. */
 @media (min-width: 1200px) {
-  html[data-asr-theme="lcars-frame"] .allscan-menu-slot {
-    width: 357px;
-    min-height: 173px;
-    align-self: start;
-    justify-self: end;
-    align-items: flex-end;
-    padding: 69px 0 10px 74px;
-    transform: translateX(58px);
-  }
   html[data-asr-theme="lcars-frame"] .allscan-menu-slot::before {
     display: block !important;
     content: "LCARS ACCESS" !important;
@@ -7036,15 +7027,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-buttons { display: grid !important; }
   html[data-asr-theme="lcars-frame"] .allscan-menu-button,
   html[data-asr-theme="lcars-frame"] .allscan-lookup-main-button { display: none !important; }
+  /* Base menu-panel geometry is defined above; only approved late overrides remain here. */
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel {
     top: 138px;
-    right: 4px;
-    width: 288px;
-    padding: 0;
-    border: 0;
     border-radius: 0;
-    background: transparent;
-    box-shadow: none;
     z-index: 80;
   }
   html[data-asr-theme="lcars-frame"] .allscan-submenu-back { display: none !important; }
@@ -7062,18 +7048,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-row:first-child,
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-report-row,
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-logout-row { display: flex; }
+  /* Base submenu geometry is defined above; only approved late overrides remain here. */
   html[data-asr-theme="lcars-frame"] .allscan-submenu {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 288px;
     max-height: calc(100vh - 185px);
-    overflow-y: auto;
-    padding: 7px;
-    border: 2px solid #cc9966;
-    border-radius: 0 0 18px 18px;
     background: #090608;
-    box-shadow: 0 18px 36px rgba(0,0,0,.56);
     z-index: 81;
   }
   html[data-asr-theme="lcars-frame"] .allscan-lcars-access-button.is-active {
