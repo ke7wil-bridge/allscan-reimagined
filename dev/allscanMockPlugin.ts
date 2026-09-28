@@ -132,7 +132,7 @@ function adminMenu(current: MockRoute) {
           ${item(`${ASR_BASE}/cfg/`, 'Configs', 'cfg')}
           <a role="menuitem" href="http://stats.allstarlink.org/stats/100000">Node Status</a>
           ${item(`${ASR_BASE}/lookup/`, 'Lookup')}
-          ${item(`${ASR_BASE}/?reportBug=1`, 'Report a Bug')}
+          ${item(`${ASR_BASE}/?supportFeedback=1`, 'Support & Feedback')}
           <a role="menuitem" href="${ASR_BASE}/user/?logout=1">Logout</a>
         </div>
       </div>
@@ -594,7 +594,7 @@ function favoritesPayload() {
       { value: '/etc/allscan/favorites.ini', label: 'favorites.ini', selected: true },
     ],
     rows: [
-      { index: '1', node: '100010', label: 'Public Test Node', name: 'Public Test Node', desc: 'Selection test', location: 'Test', rx: '', lcnt: '', href: '' },
+      { index: '1', node: '100010', label: 'Public Test Node', name: 'Public Test Node', desc: 'Selection test', location: 'Test', color: '#a855f7', rx: '', lcnt: '', href: '' },
       { index: '2', node: '100011', label: 'Private Bridge Node', name: 'Private Bridge Node', desc: 'Private selection test', location: 'Local', rx: '', lcnt: '', href: '' },
       { index: '3', node: '12345', label: 'Standard Public Node', name: 'Standard Public Node', desc: 'Five-digit selection test', location: 'Test', rx: '', lcnt: '', href: '' },
     ],

@@ -30,6 +30,8 @@ require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
 require_once __DIR__ . '/include/asrFavorites.php';
 require_once __DIR__ . '/include/asrBridgeStatus.php';
+require_once __DIR__ . '/include/asrLinkState.php';
+require_once __DIR__ . '/include/asrPerformanceContract.php';
 
 $msg = [];
 asInit($msg);
@@ -1562,7 +1564,7 @@ function asr_ysf_net_destination_rows(string $bridgeId): array {
         $catalogLines = asr_command_lines($catalogCommand, 65536);
         $catalog = json_decode(implode("\n", $catalogLines), true);
         if (is_array($catalog) && ($catalog['state'] ?? '') === 'no_valid_list') {
-            asr_error('No valid YSF reflector list is installed. Import YSFHosts.txt in Reimagined Settings.', 503);
+            asr_error('No valid YSF reflector list is installed. Import YSFHosts.txt in Settings.', 503);
         }
         asr_error('YSF reflector cache is still initializing. Try again shortly.', 503);
     }
@@ -1625,7 +1627,7 @@ function asr_ysf_net_resolve_destination(string $bridgeId, string $query): array
             $matches[$item['id']] = $item;
         }
     }
-    if(count($matches) === 0) asr_error('YSF reflector name or ID was not found. Import a current YSFHosts.txt list or add an unlisted reflector in Reimagined Settings.');
+    if(count($matches) === 0) asr_error('YSF reflector name or ID was not found. Import a current YSFHosts.txt list or add an unlisted reflector in Settings.');
     if(count($matches) > 1) asr_error('More than one reflector uses that name. Enter its five-digit ID.');
     return array_values($matches)[0];
 }
@@ -1812,83 +1814,6 @@ function asr_dmr_net_disconnect(string $bridgeId): array {
     }
     if (!is_array($payload)) asr_error('DMR Net Bridge disconnect returned an invalid response.', 500);
     if ($status !== 0 || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? 'DMR Net Bridge disconnect failed.'), 500);
-    return $payload;
-}
-
-function asr_cpu_temperature_reading(): ?array {
-    $candidates = [];
-    foreach ((array) glob('/sys/class/hwmon/hwmon*') as $hwmon) {
-        $name = strtolower(trim((string) @file_get_contents($hwmon . '/name')));
-        foreach ((array) glob($hwmon . '/temp*_input') as $input) {
-            $base = substr($input, 0, -6);
-            $label = strtolower(trim((string) @file_get_contents($base . '_label')));
-            $priority = null;
-            if ($name === 'coretemp' && str_starts_with($label, 'package id')) $priority = 100;
-            elseif ($name === 'k10temp' && in_array($label, ['tctl', 'tdie'], true)) $priority = $label === 'tdie' ? 100 : 95;
-            elseif ($name === 'zenpower' && in_array($label, ['tdie', 'tctl'], true)) $priority = $label === 'tdie' ? 100 : 95;
-            if ($priority === null) continue;
-            $raw = (float) trim((string) @file_get_contents($input));
-            if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, 'x86'];
-        }
-    }
-    foreach ((array) glob('/sys/class/thermal/thermal_zone*') as $zone) {
-        $type = strtolower(trim((string) @file_get_contents($zone . '/type')));
-        $priority = match ($type) {
-            'x86_pkg_temp' => 90,
-            'tcpu' => 85,
-            'cpu-thermal', 'cpu_thermal' => 80,
-            default => null,
-        };
-        if ($priority === null) continue;
-        $raw = (float) trim((string) @file_get_contents($zone . '/temp'));
-        if ($raw > 0) $candidates[] = [$priority, $raw / 1000.0, in_array($type, ['x86_pkg_temp', 'tcpu'], true) ? 'x86' : 'embedded'];
-    }
-    if (!$candidates) return null;
-    usort($candidates, static fn($a, $b) => $b[0] <=> $a[0]);
-    return ['celsius' => (float) $candidates[0][1], 'class' => (string) $candidates[0][2]];
-}
-
-function asr_cpu_temp_thresholds(string $class): array {
-    // x86 laptop/desktop CPUs routinely operate well above SBC/node-device temperatures.
-    // Keep legacy AllScan limits for embedded/fallback hardware; warn x86 at 80C and alarm at 90C.
-    return $class === 'x86'
-        ? ['warnC' => 80.0, 'alarmC' => 90.0]
-        : ['warnC' => (130 - 32) / 1.8, 'alarmC' => (150 - 32) / 1.8];
-}
-
-function asr_cpu_temp_payload(): array {
-    $cache = '/run/allscan-reimagined/cpu-temp.json';
-    if (is_readable($cache) && (int) @filemtime($cache) >= time() - 15) {
-        $decoded = json_decode((string) file_get_contents($cache), true);
-        if (is_array($decoded)) return $decoded;
-    }
-    $reading = asr_cpu_temperature_reading();
-    if ($reading !== null) {
-        $celsius = (float) $reading['celsius'];
-        $thresholds = asr_cpu_temp_thresholds((string) $reading['class']);
-        $ct = (int) round($celsius);
-        $ft = (int) round($celsius * 1.8 + 32);
-        $background = $celsius < $thresholds['warnC'] ? 'darkgreen' : ($celsius < $thresholds['alarmC'] ? '#660' : 'red');
-        $payload = [
-            'ok' => true,
-            'value' => $ft . '°F / ' . $ct . '°C',
-            'bgColor' => $background,
-            'updated' => gmdate('c'),
-        ];
-    } else {
-        // Preserve compatibility with hardware supported by upstream AllScan's helper (for example older Raspberry Pi installs).
-        $raw = (string) cpuTemp();
-        $text = trim(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5));
-        preg_match('/background-color\s*:\s*([^;"\']+)/i', $raw, $backgroundMatch);
-        preg_match('/CPU Temp:\s*(.+?)\s*@/i', $text, $temperature);
-        $payload = [
-            'ok' => true,
-            'value' => trim((string) ($temperature[1] ?? preg_replace('/^CPU Temp:\s*/i', '', $text))),
-            'bgColor' => trim((string) ($backgroundMatch[1] ?? '#59461c')),
-            'updated' => gmdate('c'),
-        ];
-    }
-    if (is_dir(dirname($cache))) @file_put_contents($cache, json_encode($payload), LOCK_EX);
     return $payload;
 }
 
@@ -2894,6 +2819,7 @@ function asr_drop_client(string $channel): array {
 }
 
 function asr_redact_diagnostics(string $text): string {
+    $text = preg_replace('/-----BEGIN [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----[\\s\\S]*?-----END [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----/i', '[REDACTED PRIVATE KEY]', $text) ?? $text;
     $text = preg_replace('/(Authorization\s*:\s*(?:Bearer|Basic)\s+)[^\s"\'<>]+/i', '$1[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(ami(pass|password)?|password|passwd|secret|token|cookie|session|hash)(["\'\s:=]+)[^\\s"\'&<>]+/i', '$1$3[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(cpass|PHPSESSID)=([^;\\s]+)/i', '$1=[REDACTED]', $text) ?? $text;
@@ -2947,8 +2873,7 @@ function asr_diagnostics_report(): array {
     }
 
     $sections = [];
-    $sections[] = ['ASR Bug Report', [
-        'Send to: ke7wil@gmail.com',
+    $sections[] = ['ASR Support Diagnostics', [
         'Generated: ' . date('c'),
         'Generated by: ' . (string) ($user->name ?? 'unknown'),
     ]];
@@ -3015,8 +2940,6 @@ function asr_diagnostics_report(): array {
 
     return [
         'ok' => true,
-        'email' => 'ke7wil@gmail.com',
-        'subject' => 'ASR Bug Report - Node ' . ($node ?: 'unknown'),
         'report' => trim(implode(PHP_EOL, $lines)) . PHP_EOL,
     ];
 }
@@ -3173,19 +3096,32 @@ function asr_bridge_collector_required(array $bridges): bool {
 
 function asr_bridge_exact_readiness(array $bridge, array $control, string $linked): array {
     $mode = asr_bridge_mode($bridge);
+    $modeLabel = $mode === 'dstar' ? 'D-Star' : ($mode === 'zello' ? 'Zello' : strtoupper($mode));
+    $node = trim((string) ($bridge['node'] ?? ''));
     $cardType = (string) ($bridge['cardType'] ?? 'standard');
     $backendMode = (string) ($bridge['backendMode'] ?? (isset($bridge['bridgePermission']) ? 'managed' : 'display_only'));
     if ($cardType === 'standard' && in_array($mode, ['p25', 'nxdn', 'm17'], true) && $backendMode === 'display_only') {
-        return ['state' => 'display_only', 'ready' => false, 'summary' => strtoupper($mode) . ' backend controls are not configured.', 'missing' => []];
+        return ['state' => 'display_only', 'ready' => false, 'summary' => 'ASR is monitoring this ' . $modeLabel . ' bridge but will not operate its externally installed service.', 'missing' => []];
     }
     if ($cardType === 'standard' && !in_array($mode, ['p25', 'nxdn', 'm17'], true)) {
-        return ['state' => 'simple', 'ready' => $linked === 'yes', 'summary' => $linked === 'yes' ? ucfirst($mode) . ' Standard Bridge link is present.' : ucfirst($mode) . ' Standard Bridge link is not currently present.', 'missing' => $linked === 'yes' ? [] : ['AllStar bridge link is not present.']];
+        if ($linked === 'unknown') return ['state' => 'unknown', 'ready' => false, 'summary' => 'ASR cannot confirm whether AllStar node ' . ($node !== '' ? $node : '(not set)') . ' is connected. The bridge may still be running; check Asterisk link-state reporting.', 'missing' => []];
+        return ['state' => 'simple', 'ready' => $linked === 'connected', 'summary' => $linked === 'connected' ? $modeLabel . ' Standard Bridge is connected through AllStar node ' . $node . '.' : $modeLabel . ' Standard Bridge is not linked. Check AllStar node ' . ($node !== '' ? $node : '(not set)') . ' and the external bridge service.', 'missing' => $linked === 'connected' ? [] : ['AllStar bridge link is disconnected.']];
     }
     $ready = !empty($control['ready']);
     $reason = trim((string) ($control['reason'] ?? ''));
     $missing = is_array($control['missing'] ?? null) ? array_values(array_map('strval', $control['missing'])) : [];
     if (!$ready && $reason === '') $reason = strtoupper($mode) . ' backend not ready: status or helper evidence is unavailable.';
     return ['state' => $ready ? 'ready' : 'not_ready', 'ready' => $ready, 'summary' => $ready ? strtoupper($mode) . ' backend ready.' : $reason, 'missing' => $missing];
+}
+
+function asr_allstar_link_snapshot(string $node): array {
+    $helper = '/usr/local/sbin/allscan-reimagined-asterisk-read';
+    $runner = !is_executable($helper) ? null : static function(string $mainNode) use ($helper): array {
+        $lines = []; $status = 1;
+        exec('sudo -n ' . escapeshellarg($helper) . ' lstats ' . escapeshellarg($mainNode) . ' 2>/dev/null', $lines, $status);
+        return [$lines, $status];
+    };
+    return asrLinkStateSnapshot($node, '/run/allscan-reimagined', $runner);
 }
 
 function asr_bridge_exact_resources(array $bridge): array {
@@ -3258,9 +3194,7 @@ function asr_bridge_diagnostics(): array {
     $clientFile = asr_file_status(asrRuntimeFilePath('connected-clients.json'));
     $asrClientFile = asr_file_status(__DIR__ . '/asr-connected-clients.json');
     $node = (string) ($runtime['node'] ?? '');
-    $asteriskRead = '/usr/local/sbin/allscan-reimagined-asterisk-read';
-    $lstats = $node !== '' ? implode("\n", asr_command_lines('sudo -n ' . escapeshellarg($asteriskRead) . ' lstats ' . escapeshellarg($node), 10000)) : '';
-    $nodesOutput = $node !== '' ? implode("\n", asr_command_lines('sudo -n ' . escapeshellarg($asteriskRead) . ' nodes ' . escapeshellarg($node), 6000)) : '';
+    $linkSnapshot = asr_allstar_link_snapshot($node);
     $rows = [];
     $nextModeState = asr_next_mode_statuses();
     $controlStates = array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses(), $nextModeState['controls']);
@@ -3270,12 +3204,9 @@ function asr_bridge_diagnostics(): array {
         $id = (string) ($bridge['id'] ?? '');
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id)) continue;
         $bridgeNode = (string) ($bridge['node'] ?? '');
-        $linked = 'unknown';
-        if ($bridgeNode !== '') {
-            $linkedByLstats = $lstats !== '' && preg_match('/(^|\s)' . preg_quote($bridgeNode, '/') . '\s/m', $lstats);
-            $linkedByNodes = $nodesOutput !== '' && preg_match('/(^|[,\s])T?' . preg_quote($bridgeNode, '/') . '([,\s]|$)/m', $nodesOutput);
-            $linked = ($linkedByLstats || $linkedByNodes) ? 'yes' : 'no';
-        }
+        $linked = $bridgeNode !== '' && !empty($linkSnapshot['available'])
+            ? (isset($linkSnapshot['nodes'][$bridgeNode]) ? 'connected' : 'disconnected')
+            : 'unknown';
         $source = (string) ($bridge['clientSource'] ?? 'auto');
         if ($source === 'disabled') $source = 'auto';
         $sourceStatus = ['status' => $source === 'auto' ? 'auto-detect' : 'configured'];
@@ -3329,6 +3260,7 @@ function asr_bridge_diagnostics(): array {
     return [
         'ok' => true,
         'node' => $node,
+        'linkStateSource' => (string) ($linkSnapshot['source'] ?? 'none'),
         'collectorRequired' => asr_bridge_collector_required($bridges),
         'collectorTimer' => $collectorTimer,
         'collectorService' => $collectorService,
@@ -3348,10 +3280,7 @@ function asr_format_bytes(int|float $bytes): string {
 }
 
 function asr_uptime_label(float $seconds): string {
-    $days = (int) floor($seconds / 86400);
-    $hours = (int) floor(($seconds % 86400) / 3600);
-    $minutes = (int) floor(($seconds % 3600) / 60);
-    return ($days > 0 ? $days . 'd ' : '') . $hours . 'h ' . $minutes . 'm';
+    return asrPerformanceUptimeLabel($seconds);
 }
 
 function asr_process_count(string $name): int {
@@ -3436,6 +3365,108 @@ function asr_performance_stats(): array {
     ];
     if (is_dir(dirname($cachePath))) @file_put_contents($cachePath, json_encode($payload), LOCK_EX);
     return $payload;
+}
+
+function asr_require_settings_admin_request(): void {
+    asr_require_same_origin();
+    asr_require_admin();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'settings-admin') asr_error('Invalid administrator request.', 403);
+}
+
+function asr_settings_users_payload(): array {
+    global $userModel, $user, $timezoneDef;
+    $rows = [];
+    foreach ((array) $userModel->getUsers(null, 'name', PERMISSION_NONE) as $entry) {
+        $rows[] = [
+            'id' => (int) $entry->user_id, 'name' => (string) $entry->name,
+            'email' => (string) $entry->email, 'location' => (string) $entry->location,
+            'nodes' => array_values(array_map('strval', (array) $entry->nodenums)),
+            'permission' => (int) $entry->permission,
+            'permissionName' => (string) $userModel->getPermissionName((int) $entry->permission),
+            'timezoneId' => (int) $entry->timezone_id,
+            'isSelf' => (int) $entry->user_id === (int) $user->user_id,
+        ];
+    }
+    $permissions = [];
+    foreach ($userModel->getPermissionList(userPermission(), PERMISSION_NONE) as $value => $label) {
+        if (!superUser() && (int) $value >= userPermission()) continue;
+        $permissions[] = ['value' => (int) $value, 'label' => (string) $label];
+    }
+    $timezones = [];
+    foreach ((array) $timezoneDef as $value => $label) $timezones[] = ['value' => (int) $value, 'label' => (string) $label];
+    return ['ok' => true, 'users' => $rows, 'permissions' => $permissions, 'timezones' => $timezones];
+}
+
+function asr_settings_user_save(): array {
+    global $userModel, $user;
+    $id = (int) ($_POST['userId'] ?? 0);
+    $editing = $id > 0;
+    if ($editing && $id === (int) $user->user_id) asr_error('Use My Account to edit your own account.', 400);
+    $target = $editing ? $userModel->getUserById($id, PERMISSION_NONE) : (object) ['last_login' => 0];
+    if ($editing && !$target) asr_error('User not found.', 404);
+    $permission = (int) ($_POST['permission'] ?? PERMISSION_NONE);
+    if ($permission < PERMISSION_NONE || $permission > userPermission() || (!superUser() && $permission >= userPermission())) asr_error('You cannot assign that permission level.', 403);
+    if (!$editing && $permission <= PERMISSION_NONE) asr_error('A new user must have an enabled permission level.', 400);
+    $target->user_id = $id;
+    $target->name = trim((string) ($_POST['name'] ?? ''));
+    $target->email = strtolower(trim((string) ($_POST['email'] ?? '')));
+    $target->location = trim((string) ($_POST['location'] ?? ''));
+    $target->nodenums = parseIntList((string) ($_POST['nodes'] ?? ''));
+    $target->permission = $permission;
+    $target->timezone_id = (int) ($_POST['timezoneId'] ?? 0);
+    $target->pass = (string) ($_POST['password'] ?? '');
+    if (!$userModel->validateFields($target)) asr_error((string) $userModel->error, 400);
+    if (!$editing && !$userModel->validatePassword($target->pass)) asr_error((string) $userModel->error, 400);
+    $result = $editing ? $userModel->update($target) : $userModel->add($target);
+    if ($result === null || $result === false) asr_error('User could not be saved: ' . (string) $userModel->error, 500);
+    return asr_settings_users_payload();
+}
+
+function asr_settings_user_delete(): array {
+    global $userModel, $user;
+    $id = (int) ($_POST['userId'] ?? 0);
+    if ($id === (int) $user->user_id) asr_error('You cannot delete your own signed-in account.', 400);
+    $target = $userModel->getUserById($id, PERMISSION_NONE);
+    if (!$target) asr_error('User not found.', 404);
+    if (!superUser() && (!adminUser() || userPermission() <= userPermission($target))) asr_error('You cannot delete an account at this permission level.', 403);
+    if (!$userModel->delete($target)) asr_error('User could not be deleted.', 500);
+    return asr_settings_users_payload();
+}
+
+function asr_settings_config_payload(): array {
+    global $gCfg;
+    return ['ok' => true, 'config' => [
+        'call' => (string) ($gCfg[call] ?? ''), 'location' => (string) ($gCfg[location] ?? ''),
+        'title' => (string) ($gCfg[title] ?? ''), 'nodenum' => (string) ($gCfg[nodenum] ?? ''),
+        'autodisc' => !empty($gCfg[autodisc_def]), 'updatecheck' => !empty($gCfg[updatecheck]),
+        'showcmdbuttons' => !empty($gCfg[showcmdbuttons]),
+        'favoritesLocations' => implode("\n", (array) ($gCfg[favsIniLoc] ?? [])),
+        'amiHost' => (string) ($gCfg[amihost] ?? ''), 'amiPort' => (string) ($gCfg[amiport] ?? ''),
+        'amiUser' => (string) ($gCfg[amiuser] ?? ''), 'amiPassword' => '', 'amiPasswordSaved' => (string) ($gCfg[amipass] ?? '') !== '',
+        'commandButtons' => implode("\n", (array) ($gCfg[cmdbuttons] ?? [])),
+    ]];
+}
+
+function asr_settings_config_save(): array {
+    global $gCfg, $cfgModel;
+    $single = static fn(string $key, int $max = 255): string => substr(trim((string) ($_POST[$key] ?? '')), 0, $max);
+    $lines = static function(string $key): array {
+        $values = preg_split('/\R+/', trim((string) ($_POST[$key] ?? ''))) ?: [];
+        return array_values(array_filter(array_map(static fn($value) => substr(trim($value), 0, 500), $values), static fn($value) => $value !== ''));
+    };
+    $gCfg[call] = $single('call', 24); $gCfg[location] = $single('location', 64);
+    $gCfg[title] = $single('title', 100); $gCfg[nodenum] = $single('nodenum', 10);
+    if ($gCfg[nodenum] !== '' && !preg_match('/^[0-9]{1,10}$/D', $gCfg[nodenum])) asr_error('Node number must contain digits only.', 400);
+    $gCfg[autodisc_def] = !empty($_POST['autodisc']) ? 1 : 0;
+    $gCfg[updatecheck] = !empty($_POST['updatecheck']) ? 1 : 0;
+    $gCfg[showcmdbuttons] = !empty($_POST['showcmdbuttons']) ? 1 : 0;
+    $gCfg[favsIniLoc] = $lines('favoritesLocations'); $gCfg[cmdbuttons] = $lines('commandButtons');
+    $gCfg[amihost] = $single('amiHost'); $gCfg[amiport] = $single('amiPort', 6);
+    $gCfg[amiuser] = $single('amiUser');
+    $nextAmiPassword = $single('amiPassword'); if ($nextAmiPassword !== '') $gCfg[amipass] = $nextAmiPassword;
+    $cfgModel->saveCfgs();
+    if (!empty($cfgModel->error)) asr_error('Advanced configuration could not be saved.', 500);
+    return asr_settings_config_payload();
 }
 
 
@@ -3728,7 +3759,29 @@ if ($action === 'bridge-diagnostics') {
 if ($action === 'performance-stats') {
     asr_require_same_origin();
     asr_require_admin();
-    asr_json(asr_performance_stats());
+    $performancePayload = asr_performance_stats();
+    if (!asrPerformancePayloadValid($performancePayload)) asr_error('Performance statistics are temporarily unavailable.', 503);
+    asr_json($performancePayload);
+}
+if ($action === 'settings-users') {
+    asr_require_settings_admin_request();
+    asr_json(asr_settings_users_payload());
+}
+if ($action === 'settings-user-save') {
+    asr_require_post(); asr_require_settings_admin_request();
+    asr_json(asr_settings_user_save());
+}
+if ($action === 'settings-user-delete') {
+    asr_require_post(); asr_require_settings_admin_request();
+    asr_json(asr_settings_user_delete());
+}
+if ($action === 'settings-config') {
+    asr_require_settings_admin_request();
+    asr_json(asr_settings_config_payload());
+}
+if ($action === 'settings-config-save') {
+    asr_require_post(); asr_require_settings_admin_request();
+    asr_json(asr_settings_config_save());
 }
 
 asr_error('Unknown action.', 404);

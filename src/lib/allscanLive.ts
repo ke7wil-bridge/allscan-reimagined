@@ -1038,8 +1038,6 @@ export type DropClientEntry = {
 }
 
 export type DiagnosticsReport = {
-  email: string
-  subject: string
   report: string
 }
 
@@ -1052,8 +1050,6 @@ export async function fetchDiagnosticsReport(): Promise<DiagnosticsReport> {
   const payload = (await response.json()) as DiagnosticsReport & { ok?: boolean; error?: string }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Diagnostics report could not be generated.')
   return {
-    email: payload.email || 'ke7wil@gmail.com',
-    subject: payload.subject || 'ASR Bug Report',
     report: payload.report || '',
   }
 }
