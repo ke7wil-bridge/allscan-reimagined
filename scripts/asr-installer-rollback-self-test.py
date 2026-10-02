@@ -165,6 +165,9 @@ def assert_installer_order(installer: Path) -> None:
     assert 'allscan-reimagined-asterisk-read --self-test' in text
     assert 'allscan-reimagined-asterisk-read echolink-nodes' in text
     assert 'scripts/asr-asterisk-read.sh:/usr/local/sbin/allscan-reimagined-asterisk-read' in text
+    assert 'install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback' in text
+    assert "allscan-reimagined-rollback@.service" in text
+    assert 'python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-m17-bridge-control.py" --self-test' in text

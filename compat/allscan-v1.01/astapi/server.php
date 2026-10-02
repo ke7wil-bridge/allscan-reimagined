@@ -457,13 +457,8 @@ function asrPollDelayUs($current = [], $node = '') {
 	}
 	$delay = $lowPower ? 1250000 : 1000000;
 	$load = sys_getloadavg();
-	$temp = 0;
-	foreach((array) glob('/sys/class/thermal/thermal_zone*') as $zone) {
-		$type = strtolower(trim((string) @file_get_contents($zone . '/type')));
-		if(!in_array($type, ['x86_pkg_temp', 'tcpu', 'cpu-thermal', 'cpu_thermal'], true)) continue;
-		$value = ((int) @file_get_contents($zone . '/temp')) / 1000;
-		if($value > $temp) $temp = $value;
-	}
+	$cpu = asr_cpu_temp_payload();
+	$temp = is_numeric($cpu['celsius'] ?? null) ? (float)$cpu['celsius'] : 0;
 	if((is_array($load) && ($load[0] ?? 0) >= 4.0) || $temp >= 75)
 		$delay = 2000000;
 	return $delay;

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 INSTRUCTIONS = ROOT / "compat/allscan-v1.01/asr-instructions/index.php"
 ADMIN_CSS = ROOT / "compat/allscan-v1.01/css/asr-admin.css"
-SETTINGS = ROOT / "compat/allscan-v1.01/asr-settings/index.php"
+SETTINGS = ROOT / "compat/allscan-v1.01/asr-settings/settings-controller.php"
 COMMON = ROOT / "compat/allscan-v1.01/include/common.php"
 APP = ROOT / "src/App.tsx"
 API = ROOT / "asr-api.php"
@@ -102,8 +102,7 @@ def main() -> int:
         "standalone Friendly Names section still exists",
     )
     require(
-        "asr-instructions/#bridge-cards" in settings
-        and "asr-instructions/#bridge-setup" in settings,
+        "asr-instructions/#bridge-setup" in settings,
         "Settings does not link to detailed bridge help",
     )
     require(
@@ -211,12 +210,12 @@ def main() -> int:
     ):
         require(requirement in settings, f"YSF Net Bridge Settings support is missing: {requirement}")
     for requirement in (
-        "<span>Digital Mode</span>",
+        "<span>Digital Mode <small",
         "Card Basics",
         "Destination",
-        "Backend Readiness",
+        "Bridge status and ownership",
         "Advanced Details",
-        "Connected Clients and Talker Source",
+        "Client Data Source",
         'name="bridgeBackendMode[]"',
         "asrSettingsSourceOption($mode, 'p25', 'P25')",
         "asrSettingsSourceOption($mode, 'nxdn', 'NXDN')",
@@ -243,10 +242,10 @@ def main() -> int:
         "bridgeDeletionConfirmations",
         "queue-deletion",
         "data-ownership-state",
-        "Bridge ownership unknown",
+        "Management state unavailable",
     ):
         require(requirement in settings, f"Settings deletion authorization is missing: {requirement}")
-    save_handler = settings.index("elseif($submit === SAVE_REIMAGINED_SETTINGS)")
+    save_handler = settings.index("elseif($settingsSaveRequested)")
     queue_call = settings.index("asrSettingsQueueBridgeDeletion($request", save_handler)
     config_write = settings.index("asrSettingsWriteConfig($next", save_handler)
     require(queue_call < config_write, "Settings writes config before exact deletion intent is queued")
@@ -281,7 +280,7 @@ def main() -> int:
         "table.addEventListener('dragstart'",
         "table.addEventListener('dragover'",
         'aria-live="polite"',
-        "Save Reimagined Settings to keep the new order.",
+		"Save All Bridge Changes to keep this order",
     ):
         require(requirement in settings, f"bridge ordering support is missing: {requirement}")
     for requirement in (

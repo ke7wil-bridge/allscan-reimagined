@@ -115,7 +115,7 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
         </> : null}
         {!job && connectionMessage ? <p role="status">{connectionMessage}</p> : null}
         {error ? <p className="asr-update-error" role="alert">{error}</p> : null}
-        <footer><a href={asrPath('asr-settings/')}>Backups &amp; Rollback</a><span>Safety checks and rollback protection run automatically.</span></footer>
+        <footer><a href={asrPath('asr-settings/?section=system')}>System &amp; Recovery</a><span>Safety checks and rollback protection run automatically.</span></footer>
       </section>
     </div>
   )

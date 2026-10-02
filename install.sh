@@ -985,7 +985,10 @@ validate_command "AMI circuit breaker PHP syntax" php -l "$ASR_WEB_DIR/astapi/as
 validate_command "ASTAPI server PHP syntax" php -l "$ASR_WEB_DIR/astapi/server.php" >/dev/null
 validate_command "EchoLink helper PHP syntax" php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php" >/dev/null
 validate_command "Bridge-status privacy helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php" >/dev/null
+validate_command "CPU temperature helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrCpuTemperature.php" >/dev/null
 validate_command "Bridge-status privacy self-test" php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"
+validate_command "CPU temperature sensor-selection self-test" php "$RELEASE_DIR/scripts/asr-cpu-temperature-self-test.php"
+validate_command "ASR-wide CPU temperature consumer self-test" node "$RELEASE_DIR/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 echo "  Checking release notification, rollback, bridge, Favorites, and access helpers..."
 validate_command "release-check helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-release-check.py" --self-test >/dev/null

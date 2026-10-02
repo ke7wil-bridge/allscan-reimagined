@@ -353,7 +353,7 @@ try {
     'permanent warning/error body row returned instead of header warning treatment',
   )
 
-  const settingsSource = readFileSync('compat/allscan-v1.01/asr-settings/index.php', 'utf8')
+  const settingsSource = readFileSync('compat/allscan-v1.01/asr-settings/index.php', 'utf8') + '\n' + readFileSync('compat/allscan-v1.01/asr-settings/settings-controller.php', 'utf8')
   assert(
     (settingsSource.match(/<option value="net_bridge">Net Bridge<\/option>/g) || []).length === 1
       && !settingsSource.includes('<option value="net">Net Bridge</option>'),

@@ -23,6 +23,8 @@ COPY . /opt/asr-source
 COPY --from=ui-builder /src/dist /opt/asr-ui-dist
 COPY docker/layered-entrypoint.sh /usr/local/bin/layered-entrypoint.sh
 RUN chmod +x /usr/local/bin/layered-entrypoint.sh
+RUN install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link \
+  && /usr/local/sbin/allscan-reimagined-node-db-link --self-test
 
 EXPOSE 80
 ENTRYPOINT ["/usr/local/bin/layered-entrypoint.sh"]

@@ -35,21 +35,25 @@ require_once dirname(__DIR__) . '/compat/allscan-v1.01/include/CfgModel.php';
 class AsrAccessPolicyFakeDb {
 	public array $writes = [];
 	public array $queries = [];
+	public ?int $publicValue = null;
 
 	function getRecords($table, $where=null, $orderBy=null): array {
 		$this->queries[] = (string)$where;
+		if($this->publicValue === null) return [];
 		return [(object)[
 			'cfg_id' => publicPermission,
-			'val' => PERMISSION_FULL,
+			'val' => $this->publicValue,
 			'updated' => time(),
 		]];
 	}
 	function insertRow($table, $columns, $values): bool {
 		$this->writes[] = ['insert', $values];
+		if((int)$values[0] === publicPermission) $this->publicValue = (int)$values[1];
 		return true;
 	}
 	function updateRow($table, $columns, $values, $where): bool {
 		$this->writes[] = ['update', $values, $where];
+		if((int)$values[0] === publicPermission) $this->publicValue = (int)$values[1];
 		return true;
 	}
 	function deleteRows($table, $where): bool {
@@ -101,7 +105,31 @@ try {
 		$gCfg[publicPermission] === PERMISSION_NONE,
 		'ASR save did not restore the effective in-memory policy.'
 	);
+	asrAccessAssert($model->stockRequireLogin() === false, 'Stock AllScan public permission was not read independently.');
+	asrAccessAssert($model->setStockRequireLogin(true), 'Stock AllScan login requirement could not be saved.');
+	$stockWrite = end($db->writes);
+	asrAccessAssert(
+		$stockWrite[0] === 'insert' && (int)$stockWrite[1][1] === PERMISSION_NONE,
+		'AllScan login control did not create stock publicPermission on a default installation.'
+	);
+	asrAccessAssert($model->stockRequireLogin() === true, 'AllScan login requirement did not survive a reload read.');
+	$asdir = 'allscan';
+	asrAccessResetGlobals();
+	new CfgModel($db);
+	unset($GLOBALS['user']);
+	asrAccessAssert(!readOk(), 'Stock AllScan still allowed anonymous viewing after login was required.');
+	$asdir = 'asr';
+	asrAccessResetGlobals();
+	$model = new CfgModel($db);
+	asrAccessAssert($model->setStockRequireLogin(false), 'Stock AllScan public viewing could not be restored.');
+	asrAccessAssert($model->stockRequireLogin() === false, 'AllScan public setting did not round-trip back to public viewing.');
+	asrAccessAssert($db->publicValue === PERMISSION_READ_ONLY, 'AllScan publicPermission did not return to Read Only.');
+	$asdir = 'allscan';
+	asrAccessResetGlobals();
+	new CfgModel($db);
+	asrAccessAssert(readOk(), 'Stock AllScan did not restore anonymous viewing after public access was enabled.');
 
+	$asdir = 'asr';
 	file_put_contents($policyFile, json_encode(['requireLogin' => false]));
 	asrAccessResetGlobals();
 	$db = new AsrAccessPolicyFakeDb();
@@ -114,6 +142,7 @@ try {
 	$asdir = 'allscan';
 	asrAccessResetGlobals();
 	$db = new AsrAccessPolicyFakeDb();
+	$db->publicValue = PERMISSION_FULL;
 	new CfgModel($db);
 	asrAccessAssert(
 		(int)$gCfg[publicPermission] === PERMISSION_FULL,
