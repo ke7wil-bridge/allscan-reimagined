@@ -65,6 +65,132 @@ $filterError = '';
 check(asrSettingsCleanFilteredStations('BAD*', $filterError) === [] && $filterError !== '', 'Invalid custom station filter was accepted.');
 check(asrSettingsDefaultConfig()['filterServiceStations'] === true, 'Built-in station filtering is not enabled by default.');
 
+$aggregateUrf = [
+	'bridges' => [[
+		'id' => 'urf', 'mode' => 'urf', 'node' => '1001', 'urfReflector' => true,
+		'title' => 'URFWIL', 'installerMetadata' => 'preserve-me',
+	]],
+];
+$urfConfig = asrSettingsExistingUrfConfig($aggregateUrf);
+check($urfConfig['enabled'] && $urfConfig['aggregate'] && $urfConfig['node'] === '1001', 'Aggregate URF bridge was not discovered.');
+check($urfConfig['modes'] === ['dmr','ysf','p25','nxdn','m17'], 'Aggregate URF defaults were not represented.');
+$savedAggregateUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
+	'enabled' => true, 'node' => '1002', 'modes' => ['dmr','ysf','p25','nxdn','m17'],
+]);
+check(count($savedAggregateUrf) === 1 && $savedAggregateUrf[0]['mode'] === 'urf', 'Aggregate URF bridge was converted into per-mode rows.');
+check($savedAggregateUrf[0]['node'] === '1002' && ($savedAggregateUrf[0]['installerMetadata'] ?? '') === 'preserve-me', 'Aggregate URF metadata did not survive a save.');
+check(!array_key_exists('modes', $savedAggregateUrf[0]), 'Default aggregate URF save introduced a format-only modes field.');
+$savedSubsetUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
+	'enabled' => true, 'node' => '1001', 'modes' => ['dmr','m17'],
+]);
+check(($savedSubsetUrf[0]['modes'] ?? []) === ['dmr','m17'], 'Aggregate URF mode selection did not round trip.');
+
+$configuredAggregate = ['bridges' => [[
+	'id'=>'urf','mode'=>'urf','node'=>'1001','title'=>'URFWIL','urfReflector'=>true,'urfGroupId'=>'urf',
+	'modeConfig'=>[
+		'dmr'=>['network'=>'TGIF','talkgroup'=>'86753','dmrId'=>'3224939','futureKey'=>'keep-dmr'],
+		'ysf'=>['reflector'=>'US-KE7WIL-YSF','reflectorId'=>'64189'],
+		'p25'=>['destination'=>'64189'], 'nxdn'=>['destination'=>'15846'],
+		'm17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>17000,'module'=>'A','callsign'=>'KE7WIL-M'],
+	],
+	'futureAggregateKey'=>['preserve'=>true],
+	]]];
+$originalConfiguredAggregate = $configuredAggregate['bridges'][0];
+$_POST = [
+	'urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','ysf','p25','nxdn','m17'],
+	'urfConfig'=>[
+		'dmr'=>['network'=>'TGIF','talkgroup'=>'86753','dmrId'=>'3224939'],
+		'ysf'=>['reflector'=>'US-KE7WIL-YSF','reflectorId'=>'64189'],
+		'p25'=>['destination'=>'64189'], 'nxdn'=>['destination'=>'15846'],
+		'm17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A','callsign'=>'KE7WIL-M'],
+	],
+];
+$urfError = '';
+$postedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
+check($urfError === '', 'Valid aggregate URF settings were rejected: ' . $urfError);
+$roundTrippedUrf = asrSettingsUrfBridgesForSave($configuredAggregate, $postedUrf);
+check($roundTrippedUrf === [$originalConfiguredAggregate], 'Unchanged aggregate URF save altered its structure or value types.');
+$loadedUrf = asrSettingsExistingUrfConfig($configuredAggregate);
+check($loadedUrf['modeConfig']['dmr']['talkgroup'] === '86753' && $loadedUrf['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF', 'URF mode-specific values did not load.');
+check($loadedUrf['modeConfig']['p25']['destination'] === '64189' && $loadedUrf['modeConfig']['nxdn']['destination'] === '15846', 'P25/NXDN destinations did not load.');
+check($loadedUrf['modeConfig']['m17']['reflector'] === 'M17-WIL' && $loadedUrf['modeConfig']['m17']['module'] === 'A', 'M17 configuration did not load.');
+
+$_POST['urfConfig']['dmr']['talkgroup'] = '86754';
+$_POST['urfConfig']['ysf']['reflector'] = 'US-KE7WIL-YSF2';
+$_POST['urfConfig']['p25']['destination'] = '64190';
+$_POST['urfConfig']['nxdn']['destination'] = '15847';
+$_POST['urfConfig']['m17']['module'] = 'B';
+$urfError = '';
+$editedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
+check($urfError === '', 'Edited aggregate URF settings were rejected: ' . $urfError);
+$editedRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $editedUrf)[0];
+check($editedRecord['modeConfig']['dmr']['talkgroup'] === '86754', 'DMR destination edit was not saved.');
+check($editedRecord['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF2', 'YSF reflector edit was not saved.');
+check($editedRecord['modeConfig']['p25']['destination'] === '64190' && $editedRecord['modeConfig']['nxdn']['destination'] === '15847', 'P25/NXDN edits were not saved.');
+check($editedRecord['modeConfig']['m17']['module'] === 'B' && $editedRecord['modeConfig']['dmr']['futureKey'] === 'keep-dmr', 'M17 edit or unknown mode metadata preservation failed.');
+
+$_POST['urfModes'] = ['dmr','ysf','p25','nxdn'];
+$urfError = '';
+$disabledM17 = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
+$disabledRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $disabledM17)[0];
+check($disabledRecord['modes'] === ['dmr','ysf','p25','nxdn'] && $disabledRecord['modeConfig']['m17']['reflector'] === 'M17-WIL', 'Disabling a URF mode erased its configuration.');
+$_POST['urfModes'][] = 'm17';
+$urfError = '';
+$reenabledM17 = asrSettingsUrfConfigFromPost($urfError, ['bridges'=>[$disabledRecord]]);
+$reenabledRecord = asrSettingsUrfBridgesForSave(['bridges'=>[$disabledRecord]], $reenabledM17)[0];
+check($reenabledRecord['modeConfig']['m17']['reflector'] === 'M17-WIL', 'Re-enabling a URF mode did not restore its configuration.');
+
+ob_start();
+asrSettingsRenderUrfMode('dmr', 'DMR', ['network'=>'TGIF','talkgroup'=>'86753'], true);
+asrSettingsRenderUrfMode('ysf', 'YSF', ['reflector'=>'US-KE7WIL-YSF'], true);
+asrSettingsRenderUrfMode('p25', 'P25', ['destination'=>'64189'], true);
+asrSettingsRenderUrfMode('nxdn', 'NXDN', ['destination'=>'15846'], true);
+asrSettingsRenderUrfMode('m17', 'M17', ['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A'], true);
+$urfMarkup = (string)ob_get_clean();
+foreach(['TGIF · TG 86753','US-KE7WIL-YSF','Destination 64189','Destination 15846','M17-WIL · Module A'] as $summary) check(strpos($urfMarkup, $summary) !== false, "URF summary missing: $summary");
+foreach(['urfConfig[dmr][talkgroup]','urfConfig[ysf][reflector]','urfConfig[p25][destination]','urfConfig[nxdn][destination]','urfConfig[m17][reflector]','urfConfig[m17][usrpTxPort]'] as $name) check(strpos($urfMarkup, 'name="' . $name . '"') !== false, "URF field missing: $name");
+check(strpos($urfMarkup, 'TGIF Account / Session Authentication') !== false && strpos($urfMarkup, 'Destination Talkgroup') !== false, 'TGIF account and DMR destination were conflated or omitted.');
+foreach([
+	'DMR carries reflector audio through a DMR network',
+	'exact reflector name published in your YSF host list',
+	'P25 routes reflector traffic to one numeric destination',
+	'NXDN routes reflector traffic to one numeric talkgroup',
+	'name such as M17-WIL identifies the reflector',
+] as $guidance) check(stripos($urfMarkup, $guidance) !== false, "URF beginner guidance missing: $guidance");
+ob_start();
+asrSettingsRenderUrfMode('p25', 'P25', ['destination'=>'64189'], true);
+asrSettingsRenderUrfMode('nxdn', 'NXDN', ['destination'=>'15846'], true);
+$simpleUrfMarkup = (string)ob_get_clean();
+check(strpos($simpleUrfMarkup, 'Advanced runtime fields') === false && strpos($simpleUrfMarkup, 'Advanced Runtime Fields') === false, 'P25/NXDN still expose a dead advanced-runtime disclosure.');
+
+ob_start();
+asrSettingsBridgePanel(['id'=>'zello','mode'=>'zello','cardType'=>'standard','node'=>'1003','title'=>'Zello'], [], [], ['available'=>true,'bridges'=>[]]);
+$zelloMarkup = (string)ob_get_clean();
+check(strpos($zelloMarkup, 'data-bridge-tab-label="Recent Talkers"') !== false, 'Zello talker tab was not named for its real data.');
+check(strpos($zelloMarkup, 'not a list of signed-in Zello users') !== false && strpos($zelloMarkup, 'does not kick or disconnect Zello accounts') !== false, 'Zello talker capability is misleading.');
+
+ob_start();
+asrSettingsBridgePanel(['id'=>'dmr','mode'=>'dmr','cardType'=>'standard','node'=>'1002','title'=>'DMR'], [], [], ['available'=>true,'bridges'=>[]]);
+$dmrMarkup = (string)ob_get_clean();
+check(strpos($dmrMarkup, 'data-bridge-tab-label="TGIF Sessions"') !== false, 'DMR does not expose the authoritative TGIF session workflow.');
+check((bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dmrMarkup), 'DMR still exposes the duplicate generic client-source path.');
+check(strpos($dmrMarkup, 'name="bridgeDetailTitle[]"') !== false, 'Advanced client/talker heading lost its round-trip field name.');
+
+ob_start();
+asrSettingsBridgePanel(['id'=>'dstar','mode'=>'dstar','cardType'=>'standard','node'=>'1004','title'=>'D-Star'], [], [], ['available'=>true,'bridges'=>[]]);
+$dstarMarkup = (string)ob_get_clean();
+check(strpos($dstarMarkup, 'data-bridge-tab-label="Status"') !== false && (bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dstarMarkup), 'D-Star still has a false generic Connected Clients tab.');
+
+$_POST = [
+	'urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','ysf','p25','nxdn','m17'],
+	'urfConfig'=>['dmr'=>['network'=>'TGIF','talkgroup'=>'86753'],'m17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A']],
+];
+$urfError = '';
+$newUrf = asrSettingsUrfConfigFromPost($urfError, ['bridges'=>[]]);
+$newUrfRows = asrSettingsUrfBridgesForSave(['bridges'=>[]], $newUrf);
+check($urfError === '' && count($newUrfRows) === 1 && $newUrfRows[0]['mode'] === 'urf', 'New URF configuration was split into independent bridge records.');
+check($newUrfRows[0]['tgifTalkgroup'] === '86753' && $newUrfRows[0]['m17Reflector'] === 'M17-WIL', 'New aggregate URF mode settings were not stored on the authoritative aggregate record.');
+
 $display = postedBridge(['bridgeMode' => ['p25'], 'bridgeBackendMode' => ['display_only']]);
 check($display['backendMode'] === 'display_only' && !isset($display['gatewayConfig']), 'P25 display-only card gained managed resources.');
 $displayM17 = postedBridge(['bridgeMode' => ['m17'], 'bridgeBackendMode' => ['display_only']]);

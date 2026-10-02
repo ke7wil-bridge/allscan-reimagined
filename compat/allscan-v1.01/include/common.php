@@ -13,6 +13,7 @@ require_once('DB.php');
 require_once('UserModel.php');
 require_once('CfgModel.php');
 require_once('hwUtils.php');
+require_once(__DIR__ . '/asrCpuTemperature.php');
 
 // API functions
 define('GET_CPU_TEMP', 'getCpuTemp');
@@ -148,8 +149,9 @@ function pageInit($onload='', $showHdrLinks=true, $showUpdateLink=false) {
 	$bodyClass = asrAdminBodyClass();
 	// Output header
 	$menuHtml = asrAdminHeaderMenu($showHdrLinks);
-	$cpuTemp = asrAdminCpuTemp();
-	$cpuBg = asrAdminCpuBg($cpuTemp);
+	$cpu = asr_cpu_temp_payload();
+	$cpuTemp = (string)($cpu['value'] ?? '--°F / --°C');
+	$cpuBg = (string)($cpu['bgColor'] ?? '#59461c');
 	$nodeTitle = asrAdminTitle($title);
 	$runtime = asrAdminRuntimeConfig();
 	$versionLabel = htmlspecial($runtime['versionLabel'] ?? ASR_REIMAGINED_VERSION_LABEL);
@@ -193,18 +195,12 @@ function asrAdminHeaderMenu($showHdrLinks=true) {
 	];
 	$loggedIn = isset($GLOBALS['user']->user_id) && validDbID($GLOBALS['user']->user_id);
 	$isAdmin = $loggedIn && adminUser();
-	$admin = [
-		$html->a("$urlbase/user/settings/", null, 'Settings'),
-		$html->a("$urlbase/asr-settings/", null, 'Reimagined Settings'),
-		$html->a("$urlbase/performance/", null, 'Performance Stats'),
-		$html->a("$urlbase/user/", null, 'Users'),
-		$html->a("$urlbase/cfg/", null, 'Configs'),
-	];
+	$admin = [];
+	if($loggedIn)
+		$admin[] = $html->a("$urlbase/asr-settings/?section=account", null, 'My Account');
 	if($isAdmin) {
-		array_splice($admin, 2, 0, [
-			$html->a("$urlbase/?updateAsr=1", null, 'Update ASR'),
-			$html->a("$urlbase/asr-instructions/", null, 'Help & Instructions'),
-		]);
+		$admin[] = $html->a("$urlbase/asr-settings/", null, 'Settings');
+		$admin[] = $html->a("$urlbase/asr-instructions/", null, 'Help & Instructions');
 	}
 	if($node !== '')
 		$admin[] = '<a role="menuitem" href="http://stats.allstarlink.org/stats/' . htmlattr($node) . '" target="_blank" rel="noreferrer">Node Status</a>';
@@ -302,6 +298,8 @@ function asrAdminBodyClass() {
 		$classes[] = 'asr-admin-page-settings';
 	} elseif($subdir === 'asr-settings') {
 		$classes[] = 'asr-admin-page-reimagined';
+		if(defined('ASR_SETTINGS_MODERN_UI') && ASR_SETTINGS_MODERN_UI)
+			$classes[] = 'asr-admin-page-settings-modern';
 	} elseif($subdir === 'asr-instructions') {
 		$classes[] = 'asr-admin-page-instructions';
 	} elseif($subdir === 'performance') {
@@ -313,25 +311,6 @@ function asrAdminBodyClass() {
 		$classes[] = 'asr-admin-page-echolink-lookup';
 	}
 	return implode(' ', $classes);
-}
-
-function asrAdminCpuTemp() {
-	$temp = cpuTemp();
-	if(preg_match('/([0-9]+&deg;F\\s*\\/\\s*[0-9]+&deg;C)/', $temp, $m))
-		return html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5);
-	return '--';
-}
-
-function asrAdminCpuBg($temp) {
-	if(preg_match('/([0-9]+)°F/', $temp, $m)) {
-		$ft = (int)$m[1];
-		if($ft < 130)
-			return 'darkgreen';
-		if($ft < 150)
-			return '#660';
-		return 'red';
-	}
-	return '#660';
 }
 
 function asrAdminMenuItem($item) {
@@ -367,28 +346,16 @@ function getHdrLinks() {
 	global $html, $urlbase, $user, $amicfg, $msg;
 	$lnk = [];
 	if(isset($user->user_id) && validDbID($user->user_id)) {
-		$url = "$urlbase/user/settings/";
-		$title = 'Settings';
+		$url = "$urlbase/asr-settings/?section=account";
+		$title = 'My Account';
 		$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-		// Keep the legacy admin links in the same order as the shared Admin menu.
+		// Keep normal navigation focused on the canonical Settings interface.
 		if(adminUser()) {
 			$url = "$urlbase/asr-settings/";
-			$title = 'Reimagined Settings';
+			$title = 'Settings';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$url = "$urlbase/?updateAsr=1";
-			$title = 'Update ASR';
-			$lnk[] = $html->a($url, null, $title);
 			$url = "$urlbase/asr-instructions/";
 			$title = 'Help & Instructions';
-			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$url = "$urlbase/performance/";
-			$title = 'Performance Stats';
-			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$url = "$urlbase/user/";
-			$title = 'Users';
-			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
-			$url = "$urlbase/cfg/";
-			$title = 'Configs';
 			$lnk[] = ($url === getScriptName()) ? $title : $html->a($url, null, $title);
 			if(!isset($amicfg->node))
 				getAmiCfg($msg);

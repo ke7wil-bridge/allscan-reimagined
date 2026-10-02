@@ -28,6 +28,7 @@ php -r '
 
 # Reassert the authoritative ASL node-database links in case an upstream
 # AllScan refresh or runtime helper replaced a web-tree link.
+install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-node-db-link.sh" /usr/local/sbin/allscan-reimagined-node-db-link
 /usr/local/sbin/allscan-reimagined-node-db-link
 
 install_helper() {

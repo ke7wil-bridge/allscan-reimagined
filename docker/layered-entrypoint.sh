@@ -63,6 +63,8 @@ EOF
 rsync -a /opt/asr-ui-dist/ "$ASR_DIR/"
 rsync -a /opt/asr-source/compat/allscan-v1.01/ "$ASR_DIR/"
 cp /opt/asr-source/asr-api.php "$ASR_DIR/asr-api.php"
+install -d -o root -g root -m 755 "$ASR_DIR/js"
+install -o root -g root -m 644 /opt/asr-source/public/js/asr-settings-modern.js "$ASR_DIR/js/asr-settings-modern.js"
 
 install -d -o www-data -g www-data -m 775 "$ASR_DIR/asr-user-content"
 if [ ! -f "$ASR_DIR/asr-user-content/header-logo.png" ] \
@@ -72,7 +74,6 @@ if [ ! -f "$ASR_DIR/asr-user-content/header-logo.png" ] \
     "$ASR_DIR/asr-user-content/header-logo.png"
 fi
 if [ -f "$STOCK_DIR/js/main.js" ]; then
-  mkdir -p "$ASR_DIR/js"
   cp "$STOCK_DIR/js/main.js" "$ASR_DIR/js/main.js"
 fi
 if [ -f "$STOCK_DIR/include/apiInit.php" ]; then
@@ -160,10 +161,20 @@ fi
 
 # Seed personalization only on a fresh persistent volume. Existing user edits win.
 if [ ! -f /etc/allscan/favorites.ini ]; then
-  install -o www-data -g www-data -m 664 /opt/asr-source/personalization/favorites.ini /etc/allscan/favorites.ini
+  if [ -f /opt/asr-source/personalization/favorites.ini ]; then
+    install -o www-data -g www-data -m 664 /opt/asr-source/personalization/favorites.ini /etc/allscan/favorites.ini
+  else
+    printf '[general]\n' > /etc/allscan/favorites.ini
+    chown www-data:www-data /etc/allscan/favorites.ini
+    chmod 664 /etc/allscan/favorites.ini
+  fi
 fi
 if [ ! -f /etc/allscan/asdb.txt ]; then
-  install -o www-data -g www-data -m 664 /opt/asr-source/personalization/asdb.txt /etc/allscan/asdb.txt
+  if [ -f /opt/asr-source/personalization/asdb.txt ]; then
+    install -o www-data -g www-data -m 664 /opt/asr-source/personalization/asdb.txt /etc/allscan/asdb.txt
+  else
+    install -o www-data -g www-data -m 664 /dev/null /etc/allscan/asdb.txt
+  fi
 fi
 if [ ! -s /etc/allscan-reimagined/config.json ]; then
   install -o www-data -g www-data -m 664 /opt/asr-source/personalization/config.seed.json /etc/allscan-reimagined/config.json
@@ -196,6 +207,7 @@ chmod 664 /etc/allscan/favorites.ini /etc/allscan/allscan.db /etc/allscan-reimag
 # All web entry points use the database maintained by the ASL3 updater. The
 # directory bind mount (not a single-file bind) follows the updater's atomic
 # file replacements without stale-inode problems.
+install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link
 /usr/local/sbin/allscan-reimagined-node-db-link
 
 # Install and validate the privileged helpers used by Settings and bridge

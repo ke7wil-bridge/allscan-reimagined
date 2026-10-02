@@ -50,7 +50,8 @@ check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', '
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
 check("request_urf_disconnect(rule, \"*\", \"ban\", False)" in URF, "global Ban does not remove active URFD sessions")
 check("request_urf_disconnect(callsign, runtime_protocol, \"kick\", True)" in URF, "session-specific URFD Kick verification missing")
-check("'restart'" not in API and "'recover'" not in API, "unsupported lifecycle capability exposed")
+CAPABILITIES = API[API.index("function asr_bridge_admin_capabilities"):API.index("function asr_protected_ban_identities")]
+check("'restart'" not in CAPABILITIES and "'recover'" not in CAPABILITIES, "unsupported lifecycle capability exposed")
 check("adminCapabilities?: BridgeAdminCapabilities" in LIVE, "frontend capability type missing")
 check("bridge.adminCapabilities?.bridgeControl.includes('changeDestination')" in APP, "destination loading is not capability-driven")
 check("const canConnect = bridgeCapabilities.includes('connect')" in APP, "connect rendering is not capability-driven")
@@ -58,7 +59,7 @@ check("const canDisconnect = bridgeCapabilities.includes('disconnect')" in APP, 
 check("clientAdmin.includes('listBans')" in APP, "Manage Clients is not capability-driven")
 check("Ban is global across ASR bridges" in APP, "global-ban scope warning missing")
 check("Enforcement is applied by each supported backend" in APP, "partial global-ban enforcement warning missing")
-check("URFWIL Multi-Mode Bridge" in APP, "URFWIL group title regressed")
+check("URFWIL Bridge" in APP, "URFWIL group title regressed")
 check("Kick affects only the selected current bridge session" in APP, "Kick scope semantics are not explained")
 check("allscan-bridge-inline-client-actions" in APP and "allscan-bridge-inline-client-actions" in CSS, "inline client actions are missing")
 check("kickBridgeConnectedClient" in APP and "kickUrfClient" in LIVE and "kickStandaloneClient" in LIVE, "bridge-aware Kick UI/API routing is missing")

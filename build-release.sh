@@ -19,6 +19,7 @@ allscan-v1.01/LICENSE
 allscan-v1.01/asr-instructions/index.php
 allscan-v1.01/asr-settings/index.php
 allscan-v1.01/asr-settings/rollback-status.php
+allscan-v1.01/asr-settings/settings-controller.php
 allscan-v1.01/astapi/AMI.php
 allscan-v1.01/astapi/asrAmiGuard.php
 allscan-v1.01/astapi/asrEchoLink.php
@@ -28,7 +29,10 @@ allscan-v1.01/echolink-lookup/index.php
 allscan-v1.01/include/CfgModel.php
 allscan-v1.01/include/UserModel.php
 allscan-v1.01/include/asrBridgeStatus.php
+allscan-v1.01/include/asrCpuTemperature.php
 allscan-v1.01/include/asrFavorites.php
+allscan-v1.01/include/asrLinkState.php
+allscan-v1.01/include/asrPerformanceContract.php
 allscan-v1.01/include/asrRuntime.php
 allscan-v1.01/include/common.php
 allscan-v1.01/include/dbUtils.php
@@ -92,10 +96,24 @@ python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
+python3 "$ROOT/scripts/asr-tgif-user-session.py" self-test
+python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
 bash -n "$ROOT/bootstrap.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
+sh "$ROOT/scripts/asr-node-db-link.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-settings-redesign-self-test.mjs"
+node "$ROOT/scripts/asr-settings-tabs-self-test.mjs"
+node "$ROOT/scripts/asr-cpu-temperature-consumers-self-test.mjs"
+if command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1; then
+  sh "$ROOT/scripts/asr-settings-tabs-browser-self-test.sh"
+fi
+if command -v php >/dev/null 2>&1; then
+  php "$ROOT/scripts/asr-link-state-self-test.php"
+  php "$ROOT/scripts/asr-performance-contract-self-test.php"
+  php "$ROOT/scripts/asr-cpu-temperature-self-test.php"
+fi
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
@@ -113,6 +131,7 @@ if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrAmiGuard.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/server.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.01/include/asrCpuTemperature.php" >/dev/null
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"
@@ -148,6 +167,7 @@ install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 install -m 755 scripts/asr-protected-config-metadata.py "$STAGE/payload/scripts/asr-protected-config-metadata.py"
 install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"
+install -m 755 scripts/asr-node-db-link.sh "$STAGE/payload/scripts/asr-node-db-link.sh"
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
@@ -188,12 +208,17 @@ install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr
 install -m 755 scripts/asr-stock-count-helper.py "$STAGE/payload/scripts/asr-stock-count-helper.py"
 install -m 755 scripts/asr-lookup-map-self-test.php "$STAGE/payload/scripts/asr-lookup-map-self-test.php"
 install -m 755 scripts/asr-lookup-map-browser-self-test.mjs "$STAGE/payload/scripts/asr-lookup-map-browser-self-test.mjs"
+install -m 755 scripts/asr-link-state-self-test.php "$STAGE/payload/scripts/asr-link-state-self-test.php"
+install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"
+install -m 755 scripts/asr-cpu-temperature-self-test.php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
+install -m 755 scripts/asr-cpu-temperature-consumers-self-test.mjs "$STAGE/payload/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 install -m 755 scripts/asr-access-policy-self-test.php "$STAGE/payload/scripts/asr-access-policy-self-test.php"
 install -m 755 scripts/asr-runtime-source-self-test.php "$STAGE/payload/scripts/asr-runtime-source-self-test.php"
 while IFS= read -r compat_file; do
   mkdir -p "$STAGE/payload/compat/$(dirname "$compat_file")"
   install -m 644 "compat/$compat_file" "$STAGE/payload/compat/$compat_file"
 done <<< "$COMPAT_MANIFEST"
+install -m 644 public/js/asr-settings-modern.js "$STAGE/payload/compat/allscan-v1.01/js/asr-settings-modern.js"
 install -m 755 install.sh "$STAGE/install.sh"
 install -m 755 bootstrap.sh "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
@@ -220,10 +245,13 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/server.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/include/asrBridgeStatus.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrCpuTemperature.php" >/dev/null
+  php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 fi
+node "$STAGE/payload/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test
 python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test

@@ -226,6 +226,27 @@ function saveCfgs() {
 	}
 }
 
+// Stock AllScan enforces anonymous access through cfg.publicPermission. ASR's
+// own access policy overlays $gCfg, so read and write the stock value directly.
+function stockRequireLogin() {
+	$cfg = $this->getCfg(publicPermission);
+	$value = $cfg ? (int)$cfg->val : PERMISSION_READ_ONLY;
+	return $value < PERMISSION_READ_ONLY;
+}
+
+function setStockRequireLogin($required) {
+	$cfg = $this->getCfg(publicPermission);
+	$current = $cfg ? (int)$cfg->val : PERMISSION_READ_ONLY;
+	$next = $required ? PERMISSION_NONE : max(PERMISSION_READ_ONLY, $current);
+	if($cfg && $next === $current)
+		return true;
+	if($next === PERMISSION_READ_ONLY && !$cfg)
+		return true;
+	$c = (object)['cfg_id'=>publicPermission, 'val'=>$next, 'updated'=>time()];
+	$result = $this->update($c, !$cfg);
+	return $result !== null && empty($this->error);
+}
+
 private function getCfgs($where=null, $orderBy=null) {
 	$cfgs = $this->db->getRecords(self::TABLENAME, $where, $orderBy);
 	$this->checkDbError(__METHOD__);

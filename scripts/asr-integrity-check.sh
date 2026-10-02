@@ -167,6 +167,7 @@ if [ "$needs_reapply" -eq 0 ]; then
     include/CfgModel.php \
     include/UserModel.php \
     include/asrBridgeStatus.php \
+    include/asrCpuTemperature.php \
     user/settings/index.php \
     asr-settings/index.php \
     asr-settings/rollback-status.php \

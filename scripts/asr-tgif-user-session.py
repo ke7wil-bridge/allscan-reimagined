@@ -356,7 +356,8 @@ def public_status(user_id: str) -> dict:
         try:
             payload = json.loads(snapshot_file.read_text(encoding='utf-8'))
             if isinstance(payload, dict):
-                payload.pop('token', None)
+                for secret_key in ('token', 'cookies', 'password', 'secret', 'csrf'):
+                    payload.pop(secret_key, None)
                 payload['configured'] = token_file.is_file()
                 updated = int(payload.get('updatedEpoch') or 0)
                 stale = updated <= 0 or updated > int(time.time()) + 300 or int(time.time()) - updated > 45
@@ -434,6 +435,43 @@ def self_test() -> None:
     before = dict(sessions)
     assert update_session_roster(sessions, {'uuid': '999', 'callsign': 'TALKER-ONLY', 'state': '1'}, test_tg, 105) == 'talker-only'
     assert sessions == before
+    original_paths = (STATE, RUNTIME, TOKENS, SNAPSHOTS, CHALLENGES)
+    original_login = login_to_tgif
+    original_collect = collect_user
+    with tempfile.TemporaryDirectory(prefix='asr-tgif-session-test-') as temp:
+        root = Path(temp)
+        globals()['STATE'] = root / 'state'
+        globals()['RUNTIME'] = root / 'runtime'
+        globals()['TOKENS'] = STATE / 'tokens'
+        globals()['SNAPSHOTS'] = RUNTIME / 'snapshots'
+        globals()['CHALLENGES'] = RUNTIME / 'challenges'
+        ensure_storage()
+        issued = iter(['first-cookie', 'replacement-cookie'])
+        globals()['login_to_tgif'] = lambda callsign, secret, talkgroup, captcha='', challenge=None: {
+            'cookies': [{'name': 'PHPSESSID', 'value': next(issued), 'domain': 'tgif.network', 'path': '/', 'secure': True, 'expires': 0}],
+            'controlUrl': TGIF_BASE + '/tgcontrol.php',
+        }
+        globals()['collect_user'] = lambda user_id: public_status(user_id)
+        first = login_user('12', 'KE7WIL', test_tg, 'first-password')
+        token_file = token_path('12')
+        token_text = token_file.read_text(encoding='utf-8')
+        assert first['configured'] and 'first-password' not in token_text
+        assert token_file.stat().st_mode & 0o777 == 0o600
+        second = login_user('12', 'KE7WIL', test_tg, 'replacement-password')
+        replacement_text = token_file.read_text(encoding='utf-8')
+        assert second['configured'] and 'replacement-password' not in replacement_text
+        assert 'first-cookie' not in replacement_text and 'replacement-cookie' in replacement_text
+        globals()['RUNTIME'] = root / 'runtime-after-reboot'
+        globals()['SNAPSHOTS'] = RUNTIME / 'snapshots'
+        globals()['CHALLENGES'] = RUNTIME / 'challenges'
+        ensure_storage()
+        atomic_json(snapshot_path('12'), {'ok': True, 'configured': True, 'updatedEpoch': int(time.time()), 'clients': [], 'cookies': ['must-not-leak'], 'token': 'must-not-leak', 'password': 'must-not-leak'})
+        public = public_status('12')
+        assert public['configured'] and not any(key in public for key in ('cookies', 'token', 'password', 'secret'))
+        assert not logout_user('12')['configured']
+    globals()['STATE'], globals()['RUNTIME'], globals()['TOKENS'], globals()['SNAPSHOTS'], globals()['CHALLENGES'] = original_paths
+    globals()['login_to_tgif'] = original_login
+    globals()['collect_user'] = original_collect
     print('per-user TGIF session helper self-test: ok')
 
 

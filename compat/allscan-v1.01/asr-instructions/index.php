@@ -14,7 +14,7 @@ pageInit();
 	<header class="asr-instructions-intro">
 		<p class="asr-instructions-eyebrow">AllScan Reimagined</p>
 		<h1>Help &amp; Instructions</h1>
-		<p>This is the complete guide to the ASR dashboard, Reimagined Settings, bridge cards, updates, and recovery tools.</p>
+		<p>This is the complete guide to the ASR dashboard, Settings, bridge cards, updates, and recovery tools.</p>
 	</header>
 
 	<nav class="asr-instructions-jump" aria-label="Instruction topics">
@@ -46,7 +46,7 @@ pageInit();
 			</article>
 		</div>
 		<p>Both interfaces use the same AllScan users, Favorites, database, and node settings, but their login sessions are separate. Signing in to one path does not automatically sign you in to the other.</p>
-		<p class="asr-instructions-callout"><strong>Saving changes:</strong> Reimagined Settings has Save buttons at the top and bottom. Either button saves the entire page to <strong>/etc/allscan-reimagined/config.json</strong>. Rollback uses its own button and is never started by Save.</p>
+		<p class="asr-instructions-callout"><strong>Saving changes:</strong> Each Settings category names the scope of its Save button. Rollback uses its own confirmation workflow and is never started by a Settings save.</p>
 	</section>
 
 	<section id="dashboard-controls" class="asr-instructions-section">
@@ -156,11 +156,11 @@ pageInit();
 		<h2>YSF Net Bridge</h2>
 		<p>A YSF Net Bridge is a separate selectable YSF path. It never replaces or retunes the fixed/home YSF Bridge.</p>
 		<ol class="asr-instructions-steps">
-			<li><strong>Install a reflector list.</strong> Open <a href="https://hostfiles.refcheck.radio/" target="_blank" rel="noopener noreferrer">RefCheck Hostfiles</a>, complete its access form, choose <strong>YSF Plain Text</strong>, and download YSFHosts.txt. In Reimagined Settings, open the saved YSF Net Bridge card and import that file. ASR validates the complete file before replacing an existing valid list.</li>
+			<li><strong>Install a reflector list.</strong> Open <a href="https://hostfiles.refcheck.radio/" target="_blank" rel="noopener noreferrer">RefCheck Hostfiles</a>, complete its access form, choose <strong>YSF Plain Text</strong>, and download YSFHosts.txt. In Settings, open the saved YSF Net Bridge card and import that file. ASR validates the complete file before replacing an existing valid list.</li>
 			<li><strong>Keep the list current.</strong> The list is a snapshot. If a newly registered reflector cannot be found, download a current YSF Plain Text file and import it again. Settings shows the current valid-reflector count and list date.</li>
 			<li><strong>No list means no destination controls.</strong> ASR keeps Connect unavailable until a valid reflector list exists. A rejected upload never erases the previous valid list.</li>
 			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-CUSTOM-TEST</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
-			<li><strong>Add an unlisted reflector once.</strong> In Reimagined Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the imported list in a separate root-owned catalog.</li>
+			<li><strong>Add an unlisted reflector once.</strong> In Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the imported list in a separate root-owned catalog.</li>
 			<li><strong>Select Connect.</strong> ASR sends the destination to the dedicated YSFGateway and waits for the Gateway log to confirm the exact link before linking the bridge’s private AllStar node.</li>
 			<li><strong>Confirm the result.</strong> The card shows the current reflector from the cached watcher after refresh. Source/TX, Relay, caller, warning, and error information appears only when the dedicated logs provide real evidence.</li>
 			<li><strong>Select Disconnect when finished.</strong> ASR attempts both the YSF unlink and local AllStar unlink and reports a partial failure rather than claiming success.</li>
@@ -194,7 +194,7 @@ pageInit();
 			<li><strong>Check root before preflight.</strong> Run <code>[ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." &gt;&amp;2; exit 1; }</code> before the package lint and self-tests.</li>
 			<li><strong>Use the complete release command.</strong> Copy the full install block from that release so the package URL, SHA-256 check, preflight tests, and interactive <code>bash ./install.sh</code> stay together.</li>
 			<li><strong>Fresh installation.</strong> If stock <code>/allscan/</code> is absent, ASR offers to run the official AllScan installer first. It verifies the installed stock version and an exact compatibility layer before creating <code>/asr/</code>. Declining or failing that step leaves <code>/asr/</code> uninstalled; review the official installer output before retrying.</li>
-			<li><strong>No bridge is required.</strong> ASR installs normally without a configured digital bridge; bridge-specific service checks run only for bridge types present in Reimagined Settings.</li>
+			<li><strong>No bridge is required.</strong> ASR installs normally without a configured digital bridge; bridge-specific service checks run only for bridge types present in Settings.</li>
 			<li>The node checks at a low frequency using a cached background service. Opening more browser tabs does not create more GitHub checks.</li>
 			<li><strong>Nothing installs automatically.</strong> The notice is informational and installation still requires deliberate manual approval.</li>
 			<li>If GitHub is offline, rate-limited, or the release is incomplete, ASR quietly keeps the previous valid result instead of displaying an unverified package.</li>
@@ -204,7 +204,7 @@ pageInit();
 
 	<section id="rollback" class="asr-instructions-section">
 		<h2>Rolling Back ASR</h2>
-		<p>Open <strong>Admin → Reimagined Settings → Roll Back ASR Version</strong>, the final expandable section above Save. It can offer up to the five newest valid previous ASR versions.</p>
+		<p>Open <strong>Admin → Settings → System &amp; Recovery</strong>. Rollback can offer up to the five newest valid previous ASR versions.</p>
 		<ol class="asr-instructions-steps">
 			<li>Select the previous version.</li>
 			<li>Select <strong>Roll Back to Selected Version</strong>.</li>

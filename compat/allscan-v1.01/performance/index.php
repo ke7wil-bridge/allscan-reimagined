@@ -86,4 +86,4 @@ pageInit();
 	document.addEventListener('visibilitychange', function () { if(!document.hidden) load(); });
 })();
 </script>
-<?php pageEnd(); ?>
+<?php asExit(); ?>

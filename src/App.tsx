@@ -2616,13 +2616,9 @@ function App({ config }: { config: RuntimeConfig }) {
                 </div>
 
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
-                  {authStatus.loggedIn ? <a role="menuitem" href={asrPath('user/settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Reimagined Settings</a> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
+                  {authStatus.loggedIn ? <a role="menuitem" href={asrPath('asr-settings/?section=account')} onClick={() => setMenuOpen(false)}>My Account</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('performance/')} onClick={() => setMenuOpen(false)}>Performance Stats</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('user/')} onClick={() => setMenuOpen(false)}>Users</a> : null}
-                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Configs</a> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {authStatus.loggedIn
@@ -2699,7 +2695,7 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
               <div className="allscan-update-actions">
                 {authStatus.isAdmin ? (
-                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update ASR</button>
+                  <a href={asrPath('asr-settings/?section=system')}>Review update</a>
                 ) : null}
                 {releaseStatus.releaseUrl ? (
                   <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release details</a>
