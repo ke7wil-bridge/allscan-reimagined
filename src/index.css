@@ -6950,6 +6950,7 @@ html[data-asr-theme="lcars-frame"] .allscan-favorites-legend {
 html[data-asr-theme="lcars-frame"] .allscan-favorites-table tbody tr {
   background: #09080b !important;
   border-color: #4a4037 !important;
+  border-inline-start-color: var(--asr-favorite-tab-color, #4a4037) !important;
 }
 html[data-asr-theme="lcars-frame"] .allscan-favorite-actions button,
 html[data-asr-theme="lcars-frame"] .allscan-favorite-drag {
