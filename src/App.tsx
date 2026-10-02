@@ -2262,7 +2262,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
                   setFavoriteDragNode(null)
                 }}
-                style={favorite.color ? { borderInlineStartColor: favorite.color } : undefined}
+                style={favorite.color ? { '--asr-favorite-tab-color': favorite.color, borderInlineStartColor: favorite.color } as React.CSSProperties : undefined}
               >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
                   <button type="button" className="allscan-favorite-drag" draggable={authStatus.canModify} aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"
