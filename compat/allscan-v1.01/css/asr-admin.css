@@ -4784,3 +4784,42 @@ body.asr-admin-page-settings-modern .asr-bridge-panel-actions{padding:8px}.asr-b
 .asr-account-flat-form{display:grid;gap:0;max-width:920px;margin:0 auto 22px;text-align:left;border-top:1px solid rgba(148,190,212,.22)}.asr-account-flat-form section{display:grid;grid-template-columns:minmax(170px,.7fr) minmax(0,1.7fr);gap:24px;padding:24px 0;border-bottom:1px solid rgba(148,190,212,.22)}.asr-account-flat-form header h3,.asr-account-flat-form header p{margin:0}.asr-account-flat-form header p{margin-top:5px;opacity:.72;line-height:1.4}.asr-account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.asr-account-flat-form label{display:grid;align-content:start;gap:5px}.asr-account-flat-form input,.asr-account-flat-form select{box-sizing:border-box;width:100%;min-width:0;min-height:42px}.asr-account-flat-form small{opacity:.7;line-height:1.35}.asr-account-actions{display:flex;justify-content:flex-end;padding-top:16px}.asr-account-actions button{min-height:42px;padding:8px 16px;background:#177ea6;color:#fff;border-color:#54b7da}@media(max-width:700px){.asr-account-flat-form section{grid-template-columns:1fr;gap:14px}.asr-account-grid{grid-template-columns:1fr}}
 
 body.asr-admin-page-settings-modern .asr-reimagined-settings-form .asr-settings-section-heading .asr-settings-toggle-icon { display:none !important; }
+	margin:0;
+	font-size:14px;
+}
+
+.asr-bridge-settings-table {
+	display:grid;
+	gap:14px;
+}
+
+.asr-unified-net-bridge-settings {
+	border: 1px solid var(--asr-border-color, #526170);
+	border-radius: 8px;
+	padding: 1rem;
+}
+.asr-unified-net-bridge-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	align-items: baseline;
+}
+.asr-unified-net-bridge-header strong { font-size: 1.15rem; }
+.asr-net-mode-settings { margin-top: .65rem; }
+.asr-net-mode-settings > summary { cursor: pointer; font-weight: 700; }
+.asr-net-mode-settings-row .asr-card-basics-section,
+.asr-net-mode-settings-row .asr-backend-choice-section,
+.asr-net-mode-settings-row .asr-backend-readiness-section,
+.asr-net-mode-settings-row .asr-connected-client-settings { display: none; }
+.asr-net-bridge-setup-fields {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	gap: .75rem;
+}
+.asr-net-bridge-setup-fields[hidden] { display: none; }
+.asr-net-bridge-setup-fields > p { grid-column: 1 / -1; margin: 0; }
+
+.asr-bridge-settings-row {
+	display:grid;
+	gap:12px;

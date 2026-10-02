@@ -405,9 +405,11 @@ function asr_runtime_config(): array {
     if (!is_array($stored)) $stored = [];
 
     $messages = [];
-    if (!isset($amicfg->node)) getAmiCfg($messages);
-    $node = preg_match('/^\d{3,10}$/', (string) ($stored['node'] ?? ''))
-        ? (string) $stored['node']
+    $storedNode = preg_match('/^\d{3,10}$/', (string) ($stored['node'] ?? '')) ? (string) $stored['node'] : '';
+    // A stored runtime node is authoritative and avoids a blocking AMI probe on every page load.
+    if ($storedNode === '' && !isset($amicfg->node)) getAmiCfg($messages);
+    $node = $storedNode !== ''
+        ? $storedNode
         : (preg_match('/^\d{3,10}$/', (string) ($amicfg->node ?? '')) ? (string) $amicfg->node : '');
     $callsign = strtoupper(trim((string) ($stored['callsign'] ?? '')));
     if ($callsign === '') $callsign = asr_detect_callsign($node);
@@ -472,6 +474,8 @@ function asr_runtime_config(): array {
                     ? (isset($bridge['bridgePermission']) ? 'managed' : 'display_only')
                     : 'managed'),
             'allowTune' => $cardType !== 'standard' && !empty($bridge['allowTune']),
+            'm17Module' => $mode === 'm17' && preg_match('/^[A-Z]$/D', strtoupper((string) ($bridge['m17Module'] ?? '')))
+                ? strtoupper((string) $bridge['m17Module']) : '',
             'adminCapabilities' => asr_bridge_admin_capabilities($bridge),
         ];
     }
@@ -483,6 +487,8 @@ function asr_runtime_config(): array {
         'ok' => true,
         'node' => $node,
         'callsign' => $callsign,
+        'netBridgeMode' => in_array(strtolower((string) ($stored['netBridgeMode'] ?? 'dmr')), ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
+            ? strtolower((string) ($stored['netBridgeMode'] ?? 'dmr')) : 'dmr',
         'headerTitle' => $headerTitle,
         'browserTitle' => $browserTitle,
         'brandByline' => 'by KE7WIL',
@@ -784,6 +790,7 @@ function asr_next_mode_statuses(): array {
             $linked = (string) ($status['linkState'] ?? '') === 'linked';
             $ready = !empty($status['audioReady']);
             $talker = $linked ? substr((string) ($status['talker'] ?? ''), 0, 9) : '';
+            $outboundActive = $linked && !empty($status['outboundActive']);
             $warning = substr((string) ($status['error'] ?? ''), 0, 160);
         } else {
             $destination = substr((string) ($status['confirmedTarget'] ?? ''), 0, 12);
@@ -797,12 +804,14 @@ function asr_next_mode_statuses(): array {
             $warningText = (string) ($status['talkerEvidenceReason'] ?? '');
             if ($warningText === '') $warningText = (string) ($status['message'] ?? '');
             $warning = substr($warningText, 0, 160);
+            $outboundActive = false;
         }
         $allstarLinked = isset($linkedNodes[(string) ($bridge['node'] ?? '')]);
+        $role = $talker !== '' ? 'source' : ($outboundActive ? 'relay' : 'idle');
         $live[$id] = [
-            'active' => $talker !== '',
-            'role' => $talker !== '' ? 'source' : 'idle',
-            'state' => $talker !== '' ? 'TX ACTIVE' : ($linked ? 'Idle' : 'Disconnected'),
+            'active' => $role !== 'idle',
+            'role' => $role,
+            'state' => $role === 'source' ? 'TX ACTIVE' : ($role === 'relay' ? 'RELAY' : ($linked ? 'Idle' : 'Disconnected')),
             'node' => substr((string) ($bridge['node'] ?? ''), 0, 10),
             'title' => substr((string) ($bridge['title'] ?? strtoupper($mode) . ' Net Bridge'), 0, 80),
             'channel' => $linked ? $destination : '-',
@@ -814,6 +823,8 @@ function asr_next_mode_statuses(): array {
             'ready' => $ready,
             'current_user' => $talker,
             'caller' => $talker,
+            'active_start_epoch' => $role === 'relay' ? max(0, (int) ($status['outboundStartEpoch'] ?? 0)) : 0,
+            'activity_epoch' => $role === 'relay' ? max(0, (int) ($status['outboundActivityEpoch'] ?? 0)) : 0,
             'last_user' => '-',
             'warning' => $warning,
             'recent_users' => [],
@@ -841,7 +852,7 @@ function asr_next_mode_connect(string $bridgeId, string $destination): array {
     $destination = strtoupper(trim($destination));
     if ($mode === 'm17') {
         if (!preg_match('/^(M17-[A-Z0-9]{3})[\s\/:]+([A-Z])$/D', $destination, $match)) {
-            asr_error('Enter an approved M17 destination as REFLECTOR MODULE, for example M17-M17 C.');
+            asr_error('Enter an M17 destination as REFLECTOR MODULE, for example M17-M17 C.');
         }
         $payload = asr_next_mode_helper($mode, $bridgeId, [
             'connect', '--reflector', $match[1], '--module', $match[2],
@@ -1674,12 +1685,29 @@ function asr_ysf_net_disconnect(string $bridgeId): array {
 }
 
 function asr_valid_dmr_net_paths(array $bridge): bool {
+    if (!empty($bridge['managedNetControl'])) {
+        $id = (string) ($bridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) return false;
+        return hash_equals('/opt/allscan-reimagined-bridges/urf/' . $id . '/tgif-run/net-target', (string) ($bridge['managedTargetFile'] ?? ''));
+    }
     return preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', (string) ($bridge['abinfoPath'] ?? '')) === 1
         && preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', (string) ($bridge['dvswitchScript'] ?? '')) === 1
         && preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', (string) ($bridge['analogConfig'] ?? '')) === 1;
 }
 
-function asr_dmr_net_current_tg(string $path, string $bridgeId = '', string $abinfoPath = ''): string {
+function asr_dmr_net_current_tg(string $path, string $bridgeId = '', string $abinfoPath = '', bool $managed = false): string {
+    if ($managed && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)
+        && is_executable('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control')) {
+        $lines = []; $status = 1;
+        exec('sudo -n ' . escapeshellarg('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control')
+            . ' --bridge ' . escapeshellarg($bridgeId) . ' --status 2>/dev/null', $lines, $status);
+        if ($status === 0) {
+            $payload = json_decode(implode("\n", $lines), true);
+            $tg = (int) ($payload['currentTg'] ?? 0);
+            if ($tg >= 1 && $tg <= 16777215 && $tg !== 4000) return (string) $tg;
+            if (is_array($payload) && !empty($payload['ok'])) return '';
+        }
+    }
     if (preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) {
         $statePath = '/run/allscan-reimagined-bridge-control/bridge-control-' . $bridgeId . '.json';
         if (is_readable($statePath)) {
@@ -1704,6 +1732,12 @@ function asr_dmr_net_current_tg(string $path, string $bridgeId = '', string $abi
     }
     if (!is_readable($path)) return '';
     $contents = (string) @file_get_contents($path);
+    if ($managed) {
+        $contents = trim($contents);
+        if (!preg_match('/^\d{1,8}$/D', $contents)) return '';
+        $tg = (int) $contents;
+        return $tg >= 1 && $tg <= 16777215 && $tg !== 4000 ? (string) $tg : '';
+    }
     if (!preg_match('/^\s*txTg\s*=\s*(\d+)\b/mi', $contents, $match)) return '';
     $tg = (int) $match[1];
     return $tg >= 1 && $tg <= 16777215 ? (string) $tg : '';
@@ -1725,8 +1759,9 @@ function asr_dmr_net_control_statuses(): array {
         $id = (string) ($bridge['id'] ?? '');
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
         $pathsValid = asr_valid_dmr_net_paths($bridge);
-        $script = (string) $bridge['dvswitchScript'];
-        $analogConfig = (string) $bridge['analogConfig'];
+        $managed = !empty($bridge['managedNetControl']);
+        $script = (string) ($bridge['dvswitchScript'] ?? '');
+        $analogConfig = $managed ? (string) ($bridge['managedTargetFile'] ?? '') : (string) ($bridge['analogConfig'] ?? '');
         $bridgeNode = (string) ($bridge['node'] ?? '');
         $linkAlias = (string) ($bridge['linkAlias'] ?? '');
         $linkAliasValid = $expectedLinkAlias !== ''
@@ -1742,16 +1777,21 @@ function asr_dmr_net_control_statuses(): array {
         if (!$pathsValid) $reasons[] = 'One or more configured DMR backend paths are invalid.';
         if (!asr_bridge_permission_is_confirmed($bridge)) $reasons[] = 'Bridge permission is not confirmed.';
         if (!$linkAliasValid) $reasons[] = 'The generated internal link alias is missing or invalid.';
-        if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) $reasons[] = 'The DMR control helper is not installed.';
-        if (!is_file($script) || !is_executable($script)) $reasons[] = 'The configured DVSwitch script is missing or not executable.';
-        if (!is_file($analogConfig)) $reasons[] = 'The configured Analog Bridge file is missing.';
+        if ($managed) {
+            if (!is_executable('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control')) $reasons[] = 'The managed DMR Net Bridge control helper is not installed.';
+        } else {
+            if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) $reasons[] = 'The DMR control helper is not installed.';
+            if (!is_file($script) || !is_executable($script)) $reasons[] = 'The configured DVSwitch script is missing or not executable.';
+            if (!is_file($analogConfig)) $reasons[] = 'The configured Analog Bridge file is missing.';
+        }
+        $currentTg = $pathsValid ? asr_dmr_net_current_tg($analogConfig, $id, (string) ($bridge['abinfoPath'] ?? ''), $managed) : '';
         $statuses[$id] = [
-            'currentTg' => $pathsValid ? asr_dmr_net_current_tg($analogConfig, $id, (string) $bridge['abinfoPath']) : '',
-            'linked' => $stateTg >= 1 && $stateTg <= 16777215,
+            'currentTg' => $currentTg,
+            'linked' => $currentTg !== '',
             'ready' => count($reasons) === 0,
             'reason' => count($reasons) === 0 ? 'DMR backend ready.' : 'DMR backend not ready: ' . implode(' ', $reasons),
             'missing' => $reasons,
-            'abinfoAvailable' => is_file((string) $bridge['abinfoPath']),
+            'abinfoAvailable' => !$managed && is_file((string) ($bridge['abinfoPath'] ?? '')),
         ];
     }
     return $statuses;
@@ -1767,14 +1807,13 @@ function asr_dmr_net_connect(string $bridgeId, string $talkgroup): array {
     $bridge = asr_bridge_config_by_id($bridgeId);
     if (!is_array($bridge) || (string) ($bridge['cardType'] ?? '') !== 'dmr_net') asr_error('Configured DMR Net Bridge was not found.', 404);
     if (!asr_bridge_permission_is_confirmed($bridge)) asr_error('DMR Net Bridge permission is not confirmed.', 403);
-    if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+    if (empty($bridge['managedNetControl']) && !is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+    if (!empty($bridge['managedNetControl']) && !is_executable('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control')) asr_error('Managed DMR Net Bridge control helper is not installed.', 503);
 
     $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
-    $command = 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER)
-        . ' --connect ' . escapeshellarg($bridgeId)
-        . ' ' . escapeshellarg($talkgroup)
-        . ' --user ' . escapeshellarg($username)
-        . ' 2>&1';
+    $command = !empty($bridge['managedNetControl'])
+        ? 'sudo -n ' . escapeshellarg('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control') . ' --bridge ' . escapeshellarg($bridgeId) . ' --connect ' . escapeshellarg($talkgroup) . ' 2>&1'
+        : 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER) . ' --connect ' . escapeshellarg($bridgeId) . ' ' . escapeshellarg($talkgroup) . ' --user ' . escapeshellarg($username) . ' 2>&1';
     $lines = [];
     $status = 1;
     exec($command, $lines, $status);
@@ -1794,13 +1833,16 @@ function asr_dmr_net_connect(string $bridgeId, string $talkgroup): array {
 function asr_dmr_net_disconnect(string $bridgeId): array {
     global $user;
     if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) asr_error('Invalid bridge ID.');
-    if (!is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+    $bridge = asr_bridge_config_by_id($bridgeId);
+    if (!is_array($bridge) || (string) ($bridge['cardType'] ?? '') !== 'dmr_net') asr_error('Configured DMR Net Bridge was not found.', 404);
+    if (!asr_bridge_permission_is_confirmed($bridge)) asr_error('DMR Net Bridge permission is not confirmed.', 403);
+    if (empty($bridge['managedNetControl']) && !is_executable(ASR_BRIDGE_CONTROL_HELPER)) asr_error('DMR Net Bridge control helper is not installed.', 503);
+    if (!empty($bridge['managedNetControl']) && !is_executable('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control')) asr_error('Managed DMR Net Bridge control helper is not installed.', 503);
 
     $username = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
-    $command = 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER)
-        . ' --disconnect ' . escapeshellarg($bridgeId)
-        . ' --user ' . escapeshellarg($username)
-        . ' 2>&1';
+    $command = !empty($bridge['managedNetControl'])
+        ? 'sudo -n ' . escapeshellarg('/usr/local/sbin/allscan-reimagined-managed-dmr-net-control') . ' --bridge ' . escapeshellarg($bridgeId) . ' --disconnect 2>&1'
+        : 'sudo -n ' . escapeshellarg(ASR_BRIDGE_CONTROL_HELPER) . ' --disconnect ' . escapeshellarg($bridgeId) . ' --user ' . escapeshellarg($username) . ' 2>&1';
     $lines = [];
     $status = 1;
     exec($command, $lines, $status);
@@ -1830,6 +1872,23 @@ function asr_bridge_config_by_id(string $bridgeId): ?array {
         if (is_array($bridge) && (string) ($bridge['id'] ?? '') === $bridgeId) return $bridge;
     }
     return null;
+}
+
+function asr_net_bridge_activate_mode(string $mode): array {
+    if (!in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)) asr_error('Invalid Net Bridge mode.');
+    $helper = '/usr/local/sbin/allscan-reimagined-net-bridge-mode-control';
+    if (!is_executable($helper)) asr_error('Unified Net Bridge mode control is not installed.', 503);
+    $lines = []; $status = 1;
+    exec('sudo -n ' . escapeshellarg($helper) . ' --mode ' . escapeshellarg($mode) . ' 2>&1', $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) { $payload = $decoded; break; }
+    }
+    if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) {
+        asr_error((string) ($payload['error'] ?? 'Net Bridge mode switch failed.'), 500);
+    }
+    return $payload;
 }
 
 function asr_bridge_permission_is_confirmed(array $bridge): bool {
@@ -2819,6 +2878,7 @@ function asr_drop_client(string $channel): array {
 }
 
 function asr_redact_diagnostics(string $text): string {
+    $text = preg_replace('/-----BEGIN [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----[\\s\\S]*?-----END [^-]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY)-----/i', '[REDACTED PRIVATE KEY]', $text) ?? $text;
     $text = preg_replace('/(Authorization\s*:\s*(?:Bearer|Basic)\s+)[^\s"\'<>]+/i', '$1[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(ami(pass|password)?|password|passwd|secret|token|cookie|session|hash)(["\'\s:=]+)[^\\s"\'&<>]+/i', '$1$3[REDACTED]', $text) ?? $text;
     $text = preg_replace('/(cpass|PHPSESSID)=([^;\\s]+)/i', '$1=[REDACTED]', $text) ?? $text;
@@ -2872,8 +2932,7 @@ function asr_diagnostics_report(): array {
     }
 
     $sections = [];
-    $sections[] = ['ASR Bug Report', [
-        'Send to: ke7wil@gmail.com',
+    $sections[] = ['ASR Support Diagnostics', [
         'Generated: ' . date('c'),
         'Generated by: ' . (string) ($user->name ?? 'unknown'),
     ]];
@@ -2940,8 +2999,6 @@ function asr_diagnostics_report(): array {
 
     return [
         'ok' => true,
-        'email' => 'ke7wil@gmail.com',
-        'subject' => 'ASR Bug Report - Node ' . ($node ?: 'unknown'),
         'report' => trim(implode(PHP_EOL, $lines)) . PHP_EOL,
     ];
 }
@@ -3661,6 +3718,15 @@ if ($action === 'bridge-destinations') {
     asr_require_read();
     asr_json(asr_bridge_destinations((string) ($_GET['bridgeId'] ?? '')));
 }
+if ($action === 'net-bridge-mode') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
+        asr_error('Invalid bridge-control request.', 403);
+    }
+    asr_json(asr_net_bridge_activate_mode(strtolower((string) ($_POST['mode'] ?? ''))));
+}
 if ($action === 'bridge-connect') {
     asr_require_post();
     asr_require_same_origin();
@@ -3669,6 +3735,12 @@ if ($action === 'bridge-connect') {
         asr_error('Invalid bridge-control request.', 403);
     }
     $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    $netBridge = asr_bridge_config_by_id($bridgeId);
+    if (is_array($netBridge) && in_array((string) ($netBridge['cardType'] ?? ''), ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true)) {
+        $requestedMode = strtolower((string) ($netBridge['mode'] ?? ''));
+        $activeMode = strtolower((string) (asr_raw_runtime_config()['netBridgeMode'] ?? ''));
+        if ($activeMode !== $requestedMode) asr_net_bridge_activate_mode($requestedMode);
+    }
     if (asr_next_mode_bridge_config($bridgeId) !== null) {
         asr_json(asr_next_mode_connect($bridgeId, (string) ($_POST['destination'] ?? '')));
     }

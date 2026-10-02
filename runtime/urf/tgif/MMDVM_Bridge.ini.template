@@ -1,0 +1,66 @@
+[General]
+Callsign=__CALLSIGN__
+Id=__DMR_NETWORK_ID__
+Timeout=180
+Duplex=0
+TXTGBeacon=2,__DMR_ID__,2,__CALLSIGN__
+
+[Info]
+RXFrequency=0
+TXFrequency=0
+Power=1
+Latitude=0
+Longitude=0
+Height=0
+Location=ASR
+Description=ASR TGIF to URF bridge
+URL=https://github.com/DVSwitch/MMDVM_Bridge
+
+[Log]
+DisplayLevel=1
+FileLevel=1
+FilePath=/run/tgif-dmr
+FileRoot=MMDVM_Bridge
+
+[DMR Id Lookup]
+File=/dev/null
+Time=24
+
+[Modem]
+Port=/dev/null
+RSSIMappingFile=/dev/null
+Trace=0
+Debug=0
+
+[D-Star]
+Enable=0
+[DMR]
+Enable=1
+ColorCode=1
+EmbeddedLCOnly=1
+DumpTAData=0
+[System Fusion]
+Enable=0
+[P25]
+Enable=0
+[NXDN]
+Enable=0
+
+[D-Star Network]
+Enable=0
+[DMR Network]
+Enable=1
+Address=127.0.0.1
+Port=__LOCAL_PORT__
+Jitter=720
+Local=__MMDVM_PORT__
+Password=__TGIF_PASSWORD__
+Slot1=0
+Slot2=1
+Debug=0
+[System Fusion Network]
+Enable=0
+[P25 Network]
+Enable=0
+[NXDN Network]
+Enable=0

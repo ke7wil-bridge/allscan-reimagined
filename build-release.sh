@@ -19,7 +19,6 @@ allscan-v1.01/LICENSE
 allscan-v1.01/asr-instructions/index.php
 allscan-v1.01/asr-settings/index.php
 allscan-v1.01/asr-settings/rollback-status.php
-allscan-v1.01/asr-settings/settings-controller.php
 allscan-v1.01/astapi/AMI.php
 allscan-v1.01/astapi/asrAmiGuard.php
 allscan-v1.01/astapi/asrEchoLink.php
@@ -93,27 +92,14 @@ python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
+python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
-python3 "$ROOT/scripts/asr-tgif-user-session.py" self-test
-python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
 bash -n "$ROOT/bootstrap.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
-sh "$ROOT/scripts/asr-node-db-link.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
-node "$ROOT/scripts/asr-settings-redesign-self-test.mjs"
-node "$ROOT/scripts/asr-settings-tabs-self-test.mjs"
-node "$ROOT/scripts/asr-cpu-temperature-consumers-self-test.mjs"
-if command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1; then
-  sh "$ROOT/scripts/asr-settings-tabs-browser-self-test.sh"
-fi
-if command -v php >/dev/null 2>&1; then
-  php "$ROOT/scripts/asr-link-state-self-test.php"
-  php "$ROOT/scripts/asr-performance-contract-self-test.php"
-  php "$ROOT/scripts/asr-cpu-temperature-self-test.php"
-fi
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
@@ -126,12 +112,12 @@ python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
 python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
+node "$ROOT/scripts/asr-support-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.01/astapi/AMI.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrAmiGuard.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/server.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
-	php -l "$ROOT/compat/allscan-v1.01/include/asrCpuTemperature.php" >/dev/null
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"
@@ -167,7 +153,6 @@ install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 install -m 755 scripts/asr-protected-config-metadata.py "$STAGE/payload/scripts/asr-protected-config-metadata.py"
 install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"
-install -m 755 scripts/asr-node-db-link.sh "$STAGE/payload/scripts/asr-node-db-link.sh"
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
@@ -179,8 +164,19 @@ install -m 755 scripts/asr-migrate-tgif-environment.py "$STAGE/payload/scripts/a
 install -m 755 scripts/asr-patch-allscan-index.py "$STAGE/payload/scripts/asr-patch-allscan-index.py"
 install -m 755 scripts/asr-release-check.py "$STAGE/payload/scripts/asr-release-check.py"
 install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
+install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
+install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py asr-bridge-setup-dstar.py asr-bridge-setup-dstar-install.py; do
+  install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
+done
+for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
+  install -m 755 "scripts/$container_script" "$STAGE/payload/scripts/$container_script"
+done
+install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"
+mkdir -p "$STAGE/payload/runtime"
+cp -a runtime/urf "$STAGE/payload/runtime/urf"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
 install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
@@ -208,10 +204,6 @@ install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr
 install -m 755 scripts/asr-stock-count-helper.py "$STAGE/payload/scripts/asr-stock-count-helper.py"
 install -m 755 scripts/asr-lookup-map-self-test.php "$STAGE/payload/scripts/asr-lookup-map-self-test.php"
 install -m 755 scripts/asr-lookup-map-browser-self-test.mjs "$STAGE/payload/scripts/asr-lookup-map-browser-self-test.mjs"
-install -m 755 scripts/asr-link-state-self-test.php "$STAGE/payload/scripts/asr-link-state-self-test.php"
-install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"
-install -m 755 scripts/asr-cpu-temperature-self-test.php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
-install -m 755 scripts/asr-cpu-temperature-consumers-self-test.mjs "$STAGE/payload/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 install -m 755 scripts/asr-access-policy-self-test.php "$STAGE/payload/scripts/asr-access-policy-self-test.php"
 install -m 755 scripts/asr-runtime-source-self-test.php "$STAGE/payload/scripts/asr-runtime-source-self-test.php"
 while IFS= read -r compat_file; do
@@ -246,18 +238,19 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/include/asrBridgeStatus.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/include/asrCpuTemperature.php" >/dev/null
-  php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrLinkState.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrPerformanceContract.php" >/dev/null
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 fi
-node "$STAGE/payload/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test
 python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
+find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi

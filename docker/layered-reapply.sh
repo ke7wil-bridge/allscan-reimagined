@@ -48,6 +48,7 @@ install_helper asr-bridge-lifecycle.py allscan-reimagined-bridge-lifecycle
 install_helper asr-favorites-update.py allscan-reimagined-favorites-update
 install_helper asr-favorites-manager.py allscan-reimagined-favorites-manager
 install_helper asr-bridge-control.py allscan-reimagined-bridge-control
+install_helper asr-managed-dmr-net-control.py allscan-reimagined-managed-dmr-net-control
 install_helper asr-ysf-bridge-control.py allscan-reimagined-ysf-bridge-control
 install_helper asr-p25-bridge-control.py allscan-reimagined-p25-bridge-control
 install_helper asr-nxdn-bridge-control.py allscan-reimagined-nxdn-bridge-control
@@ -60,6 +61,30 @@ install_helper asr-tgif-user-session.py allscan-reimagined-tgif-user-session
 install_helper asr_bridge_status.py allscan-reimagined-standard-bridge-status
 install -o root -g root -m 644 "$SOURCE_DIR/scripts/asr_bridge_status.py" /usr/local/sbin/asr_bridge_status.py
 /usr/local/sbin/allscan-reimagined-friendly-names --once
+
+# Containerized ASL3 provisioning is deliberately delegated to a narrow host
+# socket.  Never install the native root helper in the web container and never
+# expose the Docker socket to Apache.
+install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
+if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
+  install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-client.py" \
+    /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py
+  install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-provisioning-detect.py" \
+    /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py
+  for control_helper in \
+    allscan-reimagined-managed-dmr-net-control \
+    allscan-reimagined-ysf-bridge-control \
+    allscan-reimagined-p25-bridge-control \
+    allscan-reimagined-nxdn-bridge-control \
+    allscan-reimagined-m17-bridge-control \
+    allscan-reimagined-net-bridge-mode-control; do
+    install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-control-client.py" \
+      "/usr/local/sbin/$control_helper"
+  done
+else
+  rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py \
+    /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py
+fi
 
 install -d -o root -g "$WEB_GROUP" -m 1775 /run/allscan-reimagined
 install -d -o root -g root -m 700 \
@@ -110,6 +135,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-upd
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --connect [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --disconnect
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-p25-bridge-control connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
@@ -119,6 +147,11 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-c
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* connect --reflector M17-[A-Z0-9]* --module [A-Z]
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* disconnect
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode dmr
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode ysf
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode p25
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode nxdn
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode m17
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban list
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban sync
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
@@ -139,6 +172,16 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-ses
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py m17-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py m17-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py p25-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py p25-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py nxdn-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py nxdn-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py ysf-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py ysf-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-install
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined-docker
 visudo -cf /etc/sudoers.d/allscan-reimagined-docker >/dev/null

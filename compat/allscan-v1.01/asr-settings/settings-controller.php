@@ -506,6 +506,7 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 	$bridges = [];
 	$seen = [];
 	$seenNodes = [];
+	$seenUnifiedNetNodes = [];
 	$seenControlPaths = [];
 	$existingById = [];
 	$expectedLinkAlias = preg_match('/^[0-9]{3,6}$/D', (string)$localNode)
@@ -604,7 +605,9 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			$error = "Bridge \"$id\" needs a 3-10 digit node number.";
 			return [];
 		}
-		if(isset($seenNodes[$rawNode])) {
+		$isUnifiedNetNode = $rawNode === '1999' && $rawCardType !== 'standard'
+			&& in_array($rawMode, ['dmr','ysf','p25','nxdn','m17'], true);
+		if(isset($seenNodes[$rawNode]) && !($isUnifiedNetNode && !empty($seenUnifiedNetNodes[$rawNode]))) {
 			$error = "Node $rawNode is already assigned to bridge \"{$seenNodes[$rawNode]}\".";
 			return [];
 		}
@@ -771,6 +774,12 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			if($rawMode === 'm17') {
 				$approvedDestinations = asrSettingsParseM17Destinations($rawApprovedDestinations, $error, "M17 bridge \"$id\"");
 				if($error !== '') return [];
+				if($rawCardType === 'm17_net' && $rawM17Reflector !== '' && $rawM17Host !== '' && $rawM17Port !== '' && $rawM17Module !== '') {
+					$selectedM17 = asrSettingsParseM17Destinations("$rawM17Reflector | $rawM17Host | $rawM17Port | $rawM17Module", $error, "M17 bridge \"$id\"");
+					if($error !== '') return [];
+					foreach($selectedM17 as $selectedTarget)
+						if(!in_array($selectedTarget, $approvedDestinations, true)) $approvedDestinations[] = $selectedTarget;
+				}
 				foreach([$rawM17BindPort, $rawM17UsrpRxPort, $rawM17UsrpTxPort] as $port) {
 					if(!preg_match('/^[0-9]{1,5}$/D', $port) || (int)$port < 1 || (int)$port > 65535) {
 						$error = "M17 bridge \"$id\" needs valid, dedicated UDP ports.";
@@ -866,6 +875,8 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				}
 				$approvedDestinations = asrSettingsApprovedDesignators($rawApprovedDestinations, $error, strtoupper($rawMode) . " bridge \"$id\"", $rawMode);
 				if($error !== '') return [];
+				if($rawCardType !== 'standard' && asrSettingsDesignatorIsAllowed($rawFixedDestination, $rawMode))
+					$approvedDestinations = array_values(array_unique(array_merge($approvedDestinations, [$rawFixedDestination])));
 				if($rawCardType === 'standard' && !asrSettingsDesignatorIsAllowed($rawFixedDestination, $rawMode)) {
 					$error = strtoupper($rawMode) . " Standard Bridge \"$id\" needs an approved fixed destination.";
 					return [];
@@ -878,7 +889,8 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		}
 
 		$seen[$id] = true;
-		$seenNodes[$rawNode] = $id;
+		if(!isset($seenNodes[$rawNode])) $seenNodes[$rawNode] = $id;
+		if($isUnifiedNetNode) $seenUnifiedNetNodes[$rawNode] = true;
 		$bridge = [
 			'id' => $id,
 			'mode' => $rawMode,
@@ -911,6 +923,8 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		if($rawCardType === 'dmr_net' || $rawCardType === 'ysf_net') {
 			$bridge['bridgePermission'] = $rawPermission;
 			$bridge['approvedDestinations'] = $approvedDestinations;
+			$bridge['fixedDestination'] = $rawFixedDestination;
+			if($rawCardType === 'dmr_net') $bridge['tgifTalkgroup'] = $rawFixedDestination;
 		}
 		if($managedNewDigital && in_array($rawMode, ['p25', 'nxdn'], true)) {
 			$bridge = array_merge($bridge, [
@@ -927,7 +941,7 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				'mqttName' => $rawMqttName,
 				'mmdvmMqttName' => $rawMmdvmMqttName,
 				'bridgePermission' => $rawPermission,
-				'fixedDestination' => $rawCardType === 'standard' ? $rawFixedDestination : '',
+				'fixedDestination' => $rawFixedDestination,
 				'approvedDestinations' => $rawCardType === 'standard' ? [] : $approvedDestinations,
 				'allowTune' => $rawCardType !== 'standard',
 			]);
@@ -944,10 +958,10 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				'm17UsrpTxPort' => (int)$rawM17UsrpTxPort,
 				'm17AudioQualified' => false,
 				'm17QualificationState' => 'not_qualified',
-				'm17Reflector' => $rawCardType === 'standard' ? $rawM17Reflector : '',
-				'm17Host' => $rawCardType === 'standard' ? $rawM17Host : '',
-				'm17Port' => $rawCardType === 'standard' ? (int)$rawM17Port : 0,
-				'm17Module' => $rawCardType === 'standard' ? $rawM17Module : '',
+				'm17Reflector' => $rawM17Reflector,
+				'm17Host' => $rawM17Host,
+				'm17Port' => (int)$rawM17Port,
+				'm17Module' => $rawM17Module,
 				'm17Encrypted' => false,
 				'approvedDestinations' => $rawCardType === 'm17_net' ? $approvedDestinations : [],
 				'allowTune' => $rawCardType === 'm17_net',
@@ -960,6 +974,10 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			}
 			$bridge['linkAlias'] = $expectedLinkAlias;
 		}
+		// Preserve installer-owned/runtime metadata that Settings does not expose.
+		// Editable fields above remain authoritative.
+		if(isset($existingById[$id]) && is_array($existingById[$id]))
+			$bridge = array_replace($existingById[$id], $bridge);
 		$bridges[] = $bridge;
 	}
 	return $bridges;
@@ -1710,8 +1728,7 @@ function asrSettingsRenderUrfMode($mode, $label, $values, $enabled) {
 }
 
 function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalogStatuses = [], $lifecycle = []) {
-	$modernUi = defined('ASR_SETTINGS_MODERN_UI') && ASR_SETTINGS_MODERN_UI;
-	$id = (string)($bridge['id'] ?? '');
+	$modernUi = defined('ASR_SETTINGS_MODERN_UI') && ASR_SETTINGS_MODERN_UI;	$id = (string)($bridge['id'] ?? '');
 	$mode = asrSettingsBridgeMode($bridge);
 	$source = (string)($bridge['clientSource'] ?? 'auto');
 	if($source === 'disabled') $source = 'auto';
@@ -1752,7 +1769,8 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 	][$mode] ?? 'Connects a private AllStar bridge node to a digital network.';
 	$clientTabLabel = $mode === 'zello' ? 'Recent Talkers' : ($mode === 'dmr' ? 'TGIF Sessions' : 'Client Data');
 ?>
-	<div class="asr-bridge-settings-row is-collapsed" data-saved-bridge-id="<?php echo asrSettingsH($id); ?>" data-ownership-state="<?php echo asrSettingsH($ownershipState); ?>" data-delete-preview="<?php echo asrSettingsH($deletePreviewJson); ?>">
+	<div class="<?php echo $unifiedNetMode ? 'asr-net-mode-settings-row' : 'asr-bridge-settings-row is-collapsed'; ?>" data-saved-bridge-id="<?php echo asrSettingsH($id); ?>" data-ownership-state="<?php echo asrSettingsH($ownershipState); ?>" data-delete-preview="<?php echo asrSettingsH($deletePreviewJson); ?>">
+		<?php if(!$unifiedNetMode): ?>
 		<div class="asr-bridge-panel-header">
 			<button class="asr-bridge-toggle" type="button" aria-expanded="false">
 				<?php if($modernUi): ?><span class="asr-settings-toggle-icon" aria-hidden="true">&gt;</span><?php endif; ?>
@@ -1764,6 +1782,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			</button>
 			<?php asrSettingsBridgeOrderControls($ownershipState === 'unknown'); ?>
 		</div>
+		<?php endif; ?>
 
 		<div class="asr-bridge-panel-body">
 		<div class="asr-bridge-panel-section asr-card-basics-section" data-bridge-tab-label="Basics">
@@ -1817,13 +1836,12 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				</select><small>Enable only after the dedicated YSF Net gateway and its reflector list are installed and verified.</small></label>
 				<label class="asr-digital-fixed-field asr-numeric-fixed-field"><span>Fixed Destination <small class="asr-field-requirement">Required for managed Standard</small></span><input name="bridgeFixedDestination[]" inputmode="numeric" type="text" placeholder="10200" value="<?php echo asrSettingsH($bridge['fixedDestination'] ?? ''); ?>"><small>The P25 or NXDN talkgroup/reflector designator this Standard bridge stays connected to.</small></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Reflector <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Reflector[]" type="text" placeholder="M17-WIL" value="<?php echo asrSettingsH($bridge['m17Reflector'] ?? ''); ?>"><small>The published M17-XXX reflector name.</small></label>
-				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Host <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Host[]" type="text" placeholder="m17.example.net" value="<?php echo asrSettingsH($bridge['m17Host'] ?? ''); ?>"><small>Hostname or IP supplied by the reflector operator.</small></label>
+				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Host <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Host[]" type="text" placeholder="" value="<?php echo asrSettingsH($bridge['m17Host'] ?? ''); ?>"><small>Hostname or IP supplied by the reflector operator.</small></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Port <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Port[]" inputmode="numeric" type="text" placeholder="17000" value="<?php echo asrSettingsH($bridge['m17Port'] ?? ''); ?>"><small>UDP port published for the reflector.</small></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Module <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Module[]" type="text" maxlength="1" placeholder="A" value="<?php echo asrSettingsH($bridge['m17Module'] ?? ''); ?>"><small>One-letter room on the reflector.</small></label>
 				<label class="asr-m17-field"><span>M17 Callsign <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Callsign[]" type="text" placeholder="KE7WIL" maxlength="9" value="<?php echo asrSettingsH($bridge['m17Callsign'] ?? ''); ?>"><small>The callsign the M17 gateway sends to the reflector.</small></label>
-				<label class="asr-approved-destinations-field"<?php echo $cardRole === 'net' && !in_array($mode, ['dmr', 'ysf'], true) ? '' : ' hidden'; ?>><span>Approved Net Destinations <small class="asr-field-requirement">Required for Net Bridge</small></span><textarea name="bridgeApprovedDestinations[]" rows="4" placeholder="One approved destination per line"><?php echo asrSettingsH($approvedDestinationText); ?></textarea><small>Only these destinations will be offered to operators. P25/NXDN use numbers; M17 uses REFLECTOR | HOST | PORT | MODULE.</small></label>
-			</div>
-			<p class="asr-bridge-section-note asr-approved-destination-help">DMR talkgroups and YSF reflector names or IDs are entered manually on the dashboard. P25/NXDN use approved numeric designators. M17 uses REFLECTOR | HOST | PORT | MODULE. Catalog availability alone is not permission.</p>
+				<label class="asr-approved-destinations-field"<?php echo $cardRole === 'net' && !in_array($mode, ['dmr', 'ysf'], true) ? '' : ' hidden'; ?>><span>Approved Net Destinations <small class="asr-field-requirement">Required for Net Bridge</small></span><textarea name="bridgeApprovedDestinations[]" rows="4" placeholder="One approved destination per line"><?php echo asrSettingsH($approvedDestinationText); ?></textarea><small>Only these destinations will be offered to operators. P25/NXDN use numbers; M17 uses REFLECTOR | HOST | PORT | MODULE.</small></label>			</div>
+			<p class="asr-bridge-section-note asr-approved-destination-help">DMR talkgroups and YSF reflector names or IDs are entered manually on the dashboard. P25/NXDN use approved numeric designators. M17 reflector/module destinations are entered on the dashboard and resolved through the validated catalog; use REFLECTOR | HOST | PORT | MODULE here only for private or local endpoint overrides. Catalog availability alone is not permission.</p>
 		</div>
 
 		<div class="asr-bridge-panel-section asr-backend-readiness-section" data-bridge-tab-label="Status">
@@ -1981,6 +1999,23 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 <?php
 }
 
+function asrSettingsUnifiedNetBridgePanel($bridges, $activeMode, $bridgePasswords = [], $ysfCatalogStatuses = [], $lifecycle = []) {
+	$byMode = [];
+	foreach((array)$bridges as $bridge) {
+		if(is_array($bridge)) $byMode[asrSettingsBridgeMode($bridge)] = $bridge;
+	}
+?>
+	<div class="asr-unified-net-bridge-settings">
+		<div class="asr-unified-net-bridge-header"><strong>Net Bridge</strong><span>DMR · YSF · P25 · NXDN · M17<?php echo in_array($activeMode, ['dmr','ysf','p25','nxdn','m17'], true) ? ' · Active: ' . asrSettingsH(strtoupper($activeMode)) : ''; ?></span></div>
+		<p class="asr-settings-inline-note">One private transport is shared by all five modes. Only the selected dashboard mode runs; each mode keeps its own destination.</p>
+		<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $mode => $label): if(empty($byMode[$mode])) continue; ?>
+		<details class="asr-net-mode-settings"><summary><?php echo $label; ?> configuration</summary>
+			<?php asrSettingsBridgePanel($byMode[$mode], $bridgePasswords, $ysfCatalogStatuses, $lifecycle, true); ?>
+		</details>
+		<?php endforeach; ?>
+	</div>
+<?php
+}
 function asrSettingsM17SetupPayload(&$error) {
 	$error = '';
 	$payload = [
@@ -2132,10 +2167,49 @@ function asrSettingsDstarSetupPayload(&$error) {
 	return $payload;
 }
 
+function asrSettingsNetBridgeSetupPayload($requireSecret, &$error) {
+	$error = '';
+	$num = static fn($name) => trim((string)($_POST[$name] ?? ''));
+	$text = static fn($name, $limit = 253) => asrSettingsCleanText($_POST[$name] ?? '', $limit);
+	$payload = [
+		'callsign' => strtoupper($text('setupCallsign', 10)),
+		'digitalId' => (int)($_POST['setupDigitalId'] ?? 0),
+		'mainNode' => $num('setupMainNode'),
+		'modes' => [
+			'dmr' => ['destination' => $num('setupNetDmrDestination'), 'authMode' => $text('setupTgifAuthMode', 16), 'tgifPassword' => $requireSecret ? (string)($_POST['setupTgifPassword'] ?? '') : ''],
+			'ysf' => ['destination' => $num('setupNetYsfDestination'), 'name' => $text('setupNetYsfName', 80), 'host' => $text('setupNetYsfHost'), 'port' => $num('setupNetYsfPort')],
+			'p25' => ['destination' => $num('setupNetP25Destination'), 'host' => $text('setupNetP25Host'), 'port' => $num('setupNetP25Port')],
+			'nxdn' => ['destination' => $num('setupNetNxdnDestination'), 'host' => $text('setupNetNxdnHost'), 'port' => $num('setupNetNxdnPort')],
+			'm17' => ['reflector' => strtoupper($text('setupNetM17Reflector', 7)), 'host' => $text('setupNetM17Host'), 'port' => $num('setupNetM17Port'), 'module' => strtoupper($text('setupNetM17Module', 1))],
+		],
+	];
+	if(!preg_match('/^[A-Z0-9]{3,10}$/D', $payload['callsign'])) $error = 'Enter a valid station callsign.';
+	elseif($payload['digitalId'] < 1 || $payload['digitalId'] > 9999999) $error = 'Enter a valid DMR ID.';
+	elseif(!preg_match('/^[0-9]{3,10}$/D', $payload['mainNode'])) $error = 'The main AllStar node is invalid.';
+	elseif(!preg_match('/^[1-9][0-9]{0,7}$/D', $payload['modes']['dmr']['destination'])) $error = 'Enter a valid default DMR talkgroup.';
+	elseif(!preg_match('/^[0-9]{5}$/D', $payload['modes']['ysf']['destination'])) $error = 'Enter a five-digit YSF reflector ID.';
+	elseif(!preg_match('/^[1-9][0-9]{0,7}$/D', $payload['modes']['p25']['destination'])) $error = 'Enter a valid P25 destination.';
+	elseif(!preg_match('/^[1-9][0-9]{0,7}$/D', $payload['modes']['nxdn']['destination'])) $error = 'Enter a valid NXDN destination.';
+	elseif(!preg_match('/^M17-[A-Z0-9]{3}$/D', $payload['modes']['m17']['reflector'])) $error = 'Enter an M17 reflector such as M17-WIL.';
+	elseif(!in_array($payload['modes']['dmr']['authMode'], ['legacy','secured'], true)) $error = 'Select a valid TGIF connection method.';
+	elseif($requireSecret && $payload['modes']['dmr']['authMode'] === 'secured' && ($payload['modes']['dmr']['tgifPassword'] === '' || strlen($payload['modes']['dmr']['tgifPassword']) > 128 || preg_match('/[\x00-\x1F\x7F]/', $payload['modes']['dmr']['tgifPassword']))) $error = 'Enter a valid TGIF hotspot key.';
+	foreach(['ysf','p25','nxdn','m17'] as $mode) {
+		if($error !== '') break;
+		if($payload['modes'][$mode]['host'] === '' || !preg_match('/^[1-9][0-9]{0,4}$/D', $payload['modes'][$mode]['port']) || (int)$payload['modes'][$mode]['port'] > 65535)
+			$error = strtoupper($mode) . ' needs a valid host and port.';
+	}
+	if($error === '' && !preg_match('/^[A-Z]$/D', $payload['modes']['m17']['module'])) $error = 'Enter an M17 module A-Z.';
+	$planDigest = strtolower($text('setupPlanDigest', 64));
+	if($planDigest !== '') {
+		if(!preg_match('/^[a-f0-9]{64}$/D', $planDigest)) $error = 'The Net Bridge installation preview is invalid; preview again.';
+		else $payload['planDigest'] = $planDigest;
+	}
+	return $payload;
+}
+
 function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 	$error = '';
-	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install'];
-	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
+	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install', 'net-bridge-plan', 'net-bridge-install'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
 	if(!function_exists('proc_open') || !is_executable(ASR_BRIDGE_SETUP_HELPER)) { $error = 'Bridge setup helper is not installed.'; return null; }
 	$hostSocket = '/run/allscan-reimagined-host/bridge-setup.sock';
 	$command = @filetype($hostSocket) === 'socket'
@@ -2183,7 +2257,13 @@ $config = asrSettingsReadConfig();
 $secrets = asrSettingsReadSecrets();
 $setupCallsignDefault = strtoupper(asrSettingsCleanText($config['callsign'] ?? '', 10));
 $setupDmrIdDefault = (int)($config['dmrId'] ?? 0);
-if($setupDmrIdDefault < 1 || $setupDmrIdDefault > 9999999) {
+$setupMainNodeDefault = preg_match('/^[0-9]{3,10}$/D', (string)($config['node'] ?? '')) ? (string)$config['node'] : '';
+$setupNetDefaults = ['dmr'=>[], 'ysf'=>[], 'p25'=>[], 'nxdn'=>[], 'm17'=>[]];
+foreach((array)($config['bridges'] ?? []) as $configuredBridge) {
+	if(!is_array($configuredBridge) || !in_array(($configuredBridge['cardType'] ?? ''), ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'], true)) continue;
+	$mode = asrSettingsBridgeMode($configuredBridge);
+	$setupNetDefaults[$mode] = $configuredBridge;
+}if($setupDmrIdDefault < 1 || $setupDmrIdDefault > 9999999) {
 	foreach((array)($config['bridges'] ?? []) as $configuredBridge) {
 		$candidateDmrId = (int)($configuredBridge['dmrId'] ?? $configuredBridge['digitalId'] ?? 0);
 		if($candidateDmrId >= 1 && $candidateDmrId <= 9999999) { $setupDmrIdDefault = $candidateDmrId; break; }
@@ -2356,13 +2436,8 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	$enabled = !empty($_POST['urfEnabled']);
 	$node = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
 	$modes = is_array($_POST['urfModes'] ?? null) ? $_POST['urfModes'] : [];
-
-	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17'], array_map('strtolower', array_map('strval', $modes))));
-	$record = asrSettingsUrfAggregateRecord($config);
-	$existingUrf = asrSettingsExistingUrfConfig($config);
-	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => [], 'record' => $record];
-
-	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
+	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'dstar'], array_map('strtolower', array_map('strval', $modes))));
+	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => []];	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
 		$error = 'URF Reflector needs a 3-10 digit shared AllStar node number.';
 		return [];
 	}
@@ -2383,7 +2458,6 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	}
 	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record];
 }
-
 
 function asrSettingsUrfModeBridges($urf) {
 	if(empty($urf['enabled'])) return [];
@@ -2471,8 +2545,7 @@ $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
 $urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
 
-$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install'];
-if(in_array($asrAction, $bridgeSetupActions, true)) {
+$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install', 'net-bridge-plan', 'net-bridge-install'];if(in_array($asrAction, $bridgeSetupActions, true)) {
 	header('Content-Type: application/json; charset=utf-8');
 	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
 	$error = '';
@@ -2480,15 +2553,21 @@ if(in_array($asrAction, $bridgeSetupActions, true)) {
 		$error = 'Bridge setup request was not authorized.';
 		$result = null;
 	} else {
-		$mode = explode('-', (string)$asrAction, 2)[0];
-		if($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);
-		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
+		$mode = str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0];
+		if($mode === 'net_bridge') $payload = asrSettingsNetBridgeSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
+		elseif($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'zello') $payload = asrSettingsZelloSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'dstar') $payload = asrSettingsDstarSetupPayload($error);
 		else $payload = asrSettingsDigitalSetupPayload($mode, $error);
 		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error) : null;
-		if($result !== null && $mode === 'dmr' && str_ends_with((string)$asrAction, '-install')) {
-			$persistConfig = asrSettingsReadConfig();
+		// Guided provisioning writes the canonical bridge title directly into
+		// config.json, bypassing the normal Settings save path.  Reconcile the
+		// private-node database immediately so a recycled node number cannot keep
+		// the previous bridge's Connection Status identity until a later save.
+		if($result !== null && str_ends_with((string)$asrAction, '-install')
+			&& is_executable('/usr/local/sbin/allscan-reimagined-friendly-names'))
+			@shell_exec('/usr/local/sbin/allscan-reimagined-friendly-names --once 2>/dev/null');
+		if($result !== null && in_array($mode, ['dmr','net_bridge'], true) && str_ends_with((string)$asrAction, '-install')) {			$persistConfig = asrSettingsReadConfig();
 			$persistConfig['dmrId'] = (int)$payload['digitalId'];
 			$persistError = '';
 			if(!asrSettingsWriteConfig($persistConfig, $persistError)) { $error = 'Bridge installed, but ASR could not remember the DMR ID: ' . $persistError; $result = null; }
@@ -2625,7 +2704,6 @@ if($urfAdminAction !== '') {
 
 		$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError, $config) : [];
 		$urfBridges = $bridgeError === '' ? asrSettingsUrfBridgesForSave($config, $urf) : [];
-
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
@@ -2782,10 +2860,12 @@ $lowPowerMode = !empty($config['lowPowerMode']);
 $filterServiceStations = !array_key_exists('filterServiceStations', $config) || !empty($config['filterServiceStations']);
 $filteredStations = asrSettingsCleanFilteredStations(implode("\n", (array)($config['filteredStations'] ?? [])));
 $urfConfig = asrSettingsExistingUrfConfig($config);
-$bridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
+$bridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector']) || ($bridge['cardType'] ?? '') === 'dmr_net'));
+$netBridgeRows = array_values(array_filter($bridgeRows, static fn($bridge) => is_array($bridge) && in_array(($bridge['cardType'] ?? ''), ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'], true)));
+$bridgeRows = array_values(array_filter($bridgeRows, static fn($bridge) => !is_array($bridge) || !in_array(($bridge['cardType'] ?? ''), ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'], true)));
 $bridgePasswords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bridgeClientPasswords'] : [];
 $ysfCatalogStatuses = [];
-foreach($bridgeRows as $bridge) {
+foreach($netBridgeRows as $bridge) {
 	if(!is_array($bridge) || ($bridge['cardType'] ?? '') !== 'ysf_net')
 		continue;
 	$bridgeId = asrSettingsCleanBridgeId($bridge['id'] ?? '');
@@ -2876,12 +2956,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
 			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
 			<p class="asr-settings-inline-note">The shared node is transport health only; it never determines which URF mode is transmitting.</p>
-
 			<div class="asr-urf-mode-list">
 			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
 			<?php asrSettingsRenderUrfMode($urfMode, $urfLabel, (array)($urfConfig['modeConfig'][$urfMode] ?? []), in_array($urfMode,(array)($urfConfig['modes'] ?? []),true)); ?>
-
 			<?php endforeach; ?>
+			<label class="asr-settings-check"><input name="urfModes[]" type="checkbox" value="dstar"<?php echo in_array('dstar',(array)($urfConfig['modes'] ?? []),true) ? ' checked' : ''; ?>><span>D-Star Bridge</span></label>
 			</div>
 			<div class="asr-urf-destructive-actions"><span><strong>Remove reflector configuration</strong><small>This removes the aggregate URFWIL card when bridge changes are saved.</small></span><button type="button" class="asr-remove-urf-button">Remove URF Reflector</button></div>
 			<?php if(!$modernSettings): ?>
@@ -2916,8 +2995,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 
 		</div>
 		<?php if($bridgeLifecycleError !== ''): ?><p class="asr-settings-inline-note asr-settings-warning"><?php echo asrSettingsH($bridgeLifecycleError); ?></p><?php endif; ?>
-
 		<div class="asr-bridge-settings-table">
+			<?php if(!empty($netBridgeRows)): ?>
+				<?php asrSettingsUnifiedNetBridgePanel($netBridgeRows, strtolower((string)($config['netBridgeMode'] ?? '')), $bridgePasswords, $ysfCatalogStatuses, $bridgeLifecyclePreviews); ?>
+			<?php endif; ?>
 			<?php foreach($bridgeRows as $bridge): ?>
 				<?php asrSettingsBridgePanel($bridge, $bridgePasswords, $ysfCatalogStatuses, $bridgeLifecyclePreviews); ?>
 			<?php endforeach; ?>
@@ -2926,15 +3007,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		<p id="asr-bridge-order-status" class="asr-visually-hidden" aria-live="polite"></p>
 
 		<button class="asr-setup-bridge-button" type="button"<?php echo $bridgeSetupAvailable ? '' : ' hidden'; ?>>+ Add Bridge</button>
-		<button class="asr-add-urf-button" type="button"<?php echo !empty($urfConfig['enabled']) ? ' hidden' : ''; ?>>+ Add URF Reflector</button>
-		<button class="asr-add-bridge-button" type="button">Add Manually Configured Bridge</button>
+		<button class="asr-add-urf-button" type="button"<?php echo !empty($urfConfig['enabled']) ? ' hidden' : ''; ?>>+ Add URF Reflector</button>		<button class="asr-add-bridge-button" type="button">Add Manually Configured Bridge</button>
 		<div class="asr-bridge-setup-panel" data-bridge-setup-panel hidden>
 			<strong>Bridge Setup Wizard</strong>
 			<p class="asr-settings-inline-note">Guided ASL3 provisioning uses Detect → Plan → Validate → Backup → Apply → Verify → Commit. Existing Asterisk configuration is protected and failed changes are rolled back.</p>
 			<div class="asr-bridge-fields-grid">
-				<label class="asr-setup-field asr-setup-field-short"><span>Mode</span><select data-bridge-setup-mode><option value="m17">M17</option><option value="p25">P25</option><option value="nxdn">NXDN</option><option value="ysf">YSF</option><option value="dmr">DMR</option><option value="dstar">D-Star</option><option value="zello">Zello</option></select></label>
-				<label class="asr-setup-field asr-setup-field-medium"><span>Bridge Type</span><select data-bridge-setup-path><option value="standard">Standard Bridge</option><option value="net">Net Bridge</option><option value="urf">URF Reflector</option></select></label>
-				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-dmr hidden><span>DMR Network</span><select data-bridge-setup-dmr-network><option value="tgif">TGIF</option><option value="systemx">System X (FreeSTAR)</option><option value="amcomm">AmComm</option><option value="vkdmr">VKDMR</option><option value="freedmr">FreeDMR</option><option value="dmrplus">DMR+ / IPSC2</option><option value="custom">Custom DMR Network</option></select></label>
+				<label class="asr-setup-field asr-setup-field-short"><span>Bridge</span><select data-bridge-setup-mode><option value="net_bridge">Net Bridge</option><option value="m17">M17</option><option value="p25">P25</option><option value="nxdn">NXDN</option><option value="ysf">YSF</option><option value="dmr">DMR</option><option value="dstar">D-Star</option><option value="zello">Zello</option></select></label>
+				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-path-field><span>Bridge Type</span><select data-bridge-setup-path><option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option></select></label>				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-dmr hidden><span>DMR Network</span><select data-bridge-setup-dmr-network><option value="tgif">TGIF</option><option value="systemx">System X (FreeSTAR)</option><option value="amcomm">AmComm</option><option value="vkdmr">VKDMR</option><option value="freedmr">FreeDMR</option><option value="dmrplus">DMR+ / IPSC2</option><option value="custom">Custom DMR Network</option></select></label>
 				<label class="asr-setup-field asr-setup-field-wide"><span>Card Title <small>(optional)</small></span><input data-bridge-setup-title type="text" maxlength="80" placeholder="Generated automatically"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-node-field hidden><span>Private Bridge Node <small>(advanced override)</small></span><input data-bridge-setup-node type="text" inputmode="numeric" pattern="[0-9]+" maxlength="7" placeholder="Automatic"><small>Leave blank and ASR allocates an unused private node automatically.</small></label>
 				<input data-bridge-setup-id type="hidden" value="m17">
@@ -2955,12 +3034,30 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label data-bridge-setup-zello hidden><span>Developer Issuer</span><input data-bridge-setup-zello-issuer type="text" maxlength="160"></label>
 				<label data-bridge-setup-zello hidden><span>WebSocket Endpoint</span><input data-bridge-setup-zello-ws-endpoint type="url" maxlength="253" value="wss://zello.io/ws"></label>
 				<label data-bridge-setup-zello hidden><span>Developer Private Key (PEM)</span><textarea data-bridge-setup-zello-private-key rows="5" maxlength="16384" autocomplete="off"></textarea></label>
-				<label class="asr-setup-field asr-setup-field-wide" data-bridge-setup-network><span>Server / Host (Advanced)</span><input data-bridge-setup-host type="text" maxlength="253" placeholder="m17.example.net"></label>
+				<label class="asr-setup-field asr-setup-field-wide" data-bridge-setup-network><span>Server / Host (Advanced)</span><input data-bridge-setup-host type="text" maxlength="253" placeholder="127.0.0.1"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-network><span>Port (Advanced)</span><input data-bridge-setup-port type="number" min="1" max="65535" value="17000"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-module-field><span>Module</span><input data-bridge-setup-module type="text" maxlength="1" value="A"></label>
+				<input data-net-main-node type="hidden" value="<?php echo asrSettingsH($setupMainNodeDefault); ?>">
+				<div class="asr-net-bridge-setup-fields" data-net-bridge-setup hidden>
+					<p><strong>Unified Net Bridge</strong><br>Configure all five modes once. ASR reserves one private transport and starts only the selected mode.</p>
+					<label><span>Station callsign</span><input data-net-callsign maxlength="10" value="<?php echo asrSettingsH($setupCallsignDefault === 'SCRATCH' ? '' : $setupCallsignDefault); ?>"></label>
+					<label><span>DMR ID</span><input data-net-digital-id type="number" min="1" max="9999999" value="<?php echo $setupDmrIdDefault > 0 ? (int)$setupDmrIdDefault : ''; ?>"></label>
+					<label><span>DMR default TG</span><input data-net-dmr-destination inputmode="numeric" value="<?php echo asrSettingsH($setupNetDefaults['dmr']['fixedDestination'] ?? $setupNetDefaults['dmr']['tgifTalkgroup'] ?? ''); ?>"></label>
+					<label><span>TGIF connection</span><select data-net-tgif-auth-mode><option value="legacy">Legacy (no personal key)</option><option value="secured">Secured (hotspot key)</option></select></label>
+					<label><span>TGIF hotspot key</span><input data-net-tgif-password type="password" maxlength="128" autocomplete="new-password"></label>
+					<label><span>YSF reflector name</span><input data-net-ysf-name maxlength="80" value="<?php echo asrSettingsH($setupNetDefaults['ysf']['ysfReflectorName'] ?? ''); ?>"></label>
+					<label><span>YSF reflector ID</span><input data-net-ysf-destination inputmode="numeric" maxlength="5" value="<?php echo asrSettingsH($setupNetDefaults['ysf']['fixedDestination'] ?? ''); ?>"></label>
+					<label><span>YSF host</span><input data-net-ysf-host maxlength="253" value="<?php echo asrSettingsH($setupNetDefaults['ysf']['reflectorHost'] ?? ''); ?>"></label><label><span>YSF port</span><input data-net-ysf-port type="number" value="<?php echo asrSettingsH($setupNetDefaults['ysf']['reflectorPort'] ?? '42000'); ?>"></label>
+					<label><span>P25 destination</span><input data-net-p25-destination inputmode="numeric" value="<?php echo asrSettingsH($setupNetDefaults['p25']['fixedDestination'] ?? ''); ?>"></label>
+					<label><span>P25 host</span><input data-net-p25-host maxlength="253" value="<?php echo asrSettingsH($setupNetDefaults['p25']['reflectorHost'] ?? ''); ?>"></label><label><span>P25 port</span><input data-net-p25-port type="number" value="<?php echo asrSettingsH($setupNetDefaults['p25']['reflectorPort'] ?? '41000'); ?>"></label>
+					<label><span>NXDN destination</span><input data-net-nxdn-destination inputmode="numeric" value="<?php echo asrSettingsH($setupNetDefaults['nxdn']['fixedDestination'] ?? ''); ?>"></label>
+					<label><span>NXDN host</span><input data-net-nxdn-host maxlength="253" value="<?php echo asrSettingsH($setupNetDefaults['nxdn']['reflectorHost'] ?? ''); ?>"></label><label><span>NXDN port</span><input data-net-nxdn-port type="number" value="<?php echo asrSettingsH($setupNetDefaults['nxdn']['reflectorPort'] ?? '41400'); ?>"></label>
+					<label><span>M17 reflector</span><input data-net-m17-reflector maxlength="7" value="<?php echo asrSettingsH($setupNetDefaults['m17']['m17Reflector'] ?? ''); ?>"></label>
+					<label><span>M17 module</span><input data-net-m17-module maxlength="1" value="<?php echo asrSettingsH($setupNetDefaults['m17']['m17Module'] ?? 'A'); ?>"></label>
+					<label><span>M17 host</span><input data-net-m17-host maxlength="253" value="<?php echo asrSettingsH($setupNetDefaults['m17']['m17Host'] ?? ''); ?>"></label><label><span>M17 port</span><input data-net-m17-port type="number" value="<?php echo asrSettingsH($setupNetDefaults['m17']['m17Port'] ?? '17000'); ?>"></label>
+				</div>
 			</div>
-			<p class="asr-settings-inline-note" data-bridge-setup-note>Choose Standard for one fixed digital destination, or Net Bridge for an operator-selectable digital destination. ASR automatically allocates the private AllStar bridge node, ports, and service details. Create another Net Bridge only when you need simultaneous digital connections. Zello and D-Star are Standard only.</p>
-			<p class="asr-settings-inline-note">Installing a new bridge briefly interrupts active AllStar connections while the node is registered.</p>
+			<p class="asr-settings-inline-note" data-bridge-setup-note>Net Bridge provisions DMR, YSF, P25, NXDN, and M17 as one operator-selectable bridge. Standard and URF workflows remain available for their existing bridge types.</p>			<p class="asr-settings-inline-note">Installing a new bridge briefly interrupts active AllStar connections while the node is registered.</p>
 			<div class="asr-settings-actions"><button type="button" data-bridge-setup-preview>Check Setup</button><button type="button" data-bridge-setup-install disabled hidden>Install Bridge</button><button type="button" data-bridge-setup-cancel>Cancel</button></div>
 			<div data-bridge-setup-output aria-live="polite" hidden></div>
 		</div>
@@ -3099,7 +3196,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		</div>
 		<p class="asr-settings-inline-note">Normal update failures are handled automatically. Detailed recovery instructions appear only when needed.</p>
 		<p class="asr-rollback-warning"><strong>Important:</strong> After confirming a rollback, keep this page open. Do not reload it, close it, use the browser Back button, or navigate elsewhere. Wait for the <strong>Rollback Completed</strong> confirmation, then select <strong>OK</strong> to return to the main dashboard. Rollback has its own action, and unsaved Settings changes will not be saved.</p>
-
 	</section>
 
 	<p class="asr-reimagined-submit"<?php echo $modernCanSave ? '' : ' hidden'; ?>>
@@ -3189,8 +3285,19 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupZelloPrivateKey: document.querySelector('[data-bridge-setup-zello-private-key]'),
 		setupHost: document.querySelector('[data-bridge-setup-host]'),
 		setupPort: document.querySelector('[data-bridge-setup-port]'),
-		setupModule: document.querySelector('[data-bridge-setup-module]')
-	};
+		setupModule: document.querySelector('[data-bridge-setup-module]'),
+		setupMainNode: document.querySelector('[data-net-main-node]'),
+		setupNetCallsign: document.querySelector('[data-net-callsign]'),
+		setupNetDigitalId: document.querySelector('[data-net-digital-id]'),
+		setupNetDmrDestination: document.querySelector('[data-net-dmr-destination]'),
+		setupNetTgifAuthMode: document.querySelector('[data-net-tgif-auth-mode]'),
+		setupNetTgifPassword: document.querySelector('[data-net-tgif-password]'),
+		setupNetYsfName: document.querySelector('[data-net-ysf-name]'),
+		setupNetYsfDestination: document.querySelector('[data-net-ysf-destination]'),
+		setupNetYsfHost: document.querySelector('[data-net-ysf-host]'), setupNetYsfPort: document.querySelector('[data-net-ysf-port]'),
+		setupNetP25Destination: document.querySelector('[data-net-p25-destination]'), setupNetP25Host: document.querySelector('[data-net-p25-host]'), setupNetP25Port: document.querySelector('[data-net-p25-port]'),
+		setupNetNxdnDestination: document.querySelector('[data-net-nxdn-destination]'), setupNetNxdnHost: document.querySelector('[data-net-nxdn-host]'), setupNetNxdnPort: document.querySelector('[data-net-nxdn-port]'),
+		setupNetM17Reflector: document.querySelector('[data-net-m17-reflector]'), setupNetM17Host: document.querySelector('[data-net-m17-host]'), setupNetM17Port: document.querySelector('[data-net-m17-port]'), setupNetM17Module: document.querySelector('[data-net-m17-module]')	};
 	var setupCallsign = setupFields.setupCallsign;
 	var setupId = setupFields.setupBridgeId;
 	var setupTitle = setupFields.setupTitle;
@@ -3206,8 +3313,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var max = form ? parseInt(form.getAttribute('data-max-bridges') || '16', 10) : 16;
 	var diagnosticsLoaded = false;
 	var rollbackSelect = document.getElementById('asrRollbackSelect');
-	var updateRecoveryCheck = document.getElementById('asrUpdateRecoveryCheck');
-	var updateRecoveryStatus = document.getElementById('asrUpdateRecoveryStatus');
 	var rollbackReview = document.getElementById('asrRollbackReview');
 	var rollbackForm = document.getElementById('asrRollbackForm');
 	var rollbackId = document.getElementById('asrRollbackId');
@@ -3238,7 +3343,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			.catch(function(error) { if(updateRecoveryStatus) updateRecoveryStatus.textContent = error && error.message ? error.message : 'Recovery check failed.'; })
 			.finally(function() { updateRecoveryCheck.disabled = false; });
 	});
-
 	function tgifRequest(action, options) {
 		return fetch(asrBase + '/asr-api.php?action=' + encodeURIComponent(action), options || {credentials:'same-origin', cache:'no-store'})
 			.then(function(response) { return response.json().then(function(data) {
@@ -3905,10 +4009,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	function updateSetupMode() {
 		var mode = currentSetupMode();
 		var path = currentSetupPath();
+		var isUnifiedNet = mode === 'net_bridge';
+		if(!isUnifiedNet) document.querySelectorAll('.asr-bridge-fields-grid > label').forEach(function(field) { field.hidden = false; });
 		var dmrNetwork = setupDmrNetwork ? setupDmrNetwork.value : '';
-		if(setupId) setupId.value = mode === 'dmr' && dmrNetwork === 'tgif' && path === 'urf' ? 'tgif-dmr' : (mode + (mode === 'dmr' && dmrNetwork ? '_' + dmrNetwork : '') + (path === 'net' ? '_net' : '')).toLowerCase();
-		if(setupTitle && !setupTitle.dataset.userEdited) setupTitle.value = (mode === 'dmr' && setupDmrNetwork ? setupDmrNetwork.options[setupDmrNetwork.selectedIndex].text + ' DMR' : mode.toUpperCase()) + (path === 'net' ? ' Net Bridge' : ' Bridge');
-		if(setupPath) {
+		if(setupId) setupId.value = isUnifiedNet ? 'net_bridge' : (mode === 'dmr' && dmrNetwork === 'tgif' && path === 'urf' ? 'tgif-dmr' : (mode + (mode === 'dmr' && dmrNetwork ? '_' + dmrNetwork : '')).toLowerCase());
+		if(setupTitle && !setupTitle.dataset.userEdited) setupTitle.value = isUnifiedNet ? 'Net Bridge' : (mode === 'dmr' && setupDmrNetwork ? setupDmrNetwork.options[setupDmrNetwork.selectedIndex].text + ' DMR' : mode.toUpperCase()) + ' Bridge';		if(setupPath) {
 			var urfOption = setupPath.querySelector('option[value="urf"]');
 			var netOption = setupPath.querySelector('option[value="net"]');
 			if(urfOption) urfOption.disabled = mode === 'zello';
@@ -3922,11 +4027,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var isDstar = mode === 'dstar';
 		var isDigital = ['p25','nxdn','ysf','dmr'].indexOf(mode) !== -1;
 		var defaults = {
-			m17: {port: '17000', destination: '', host: 'm17.example.net'},
+			m17: {port: '17000', destination: '', host: ''},
 			p25: {port: '41000', destination: '64189', host: 'p25-reflector.example.net'},
 			nxdn: {port: '41400', destination: '64189', host: 'nxdn-reflector.example.net'},
-			ysf: {port: '42000', destination: '64189', host: 'ysf-reflector.example.net'},
-			dmr: {port: '', destination: '', host: ''},
+			ysf: {port: '42000', destination: '64189', host: 'ysf-reflector.example.net'},			dmr: {port: '', destination: '', host: ''},
 			zello: {port: '', destination: '', host: ''},
 			dstar: {port: '', destination: '', host: ''}
 		};
@@ -3960,7 +4064,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupPlanDigest = '';
 		if(setupInstall) setupInstall.disabled = true;
 		if(setupOutput) setupOutput.textContent = '';
-	}
+		var unifiedFields = document.querySelector('[data-net-bridge-setup]');
+		if(unifiedFields) unifiedFields.hidden = !isUnifiedNet;
+		var pathField = document.querySelector('[data-bridge-setup-path-field]');
+		if(pathField) pathField.hidden = isUnifiedNet;
+		if(isUnifiedNet) document.querySelectorAll('.asr-bridge-fields-grid > label').forEach(function(field) {
+			if(!field.querySelector('[data-bridge-setup-mode]')) field.hidden = true;
+		});	}
 	if(setupPanel) setupPanel.addEventListener('input', function(event) { if(event.target === setupTitle) setupTitle.dataset.userEdited = '1'; setupPlanDigest = ''; if(setupPreview) setupPreview.hidden = false; if(setupInstall) { setupInstall.hidden = true; setupInstall.disabled = true; } });
 	if(setupDmrNetwork) setupDmrNetwork.addEventListener('change', function(){ if(setupTitle) delete setupTitle.dataset.userEdited; updateSetupMode(); });
 	if(setupTgifAuthMode) setupTgifAuthMode.addEventListener('change', function(){ if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = ''; updateSetupMode(); });
@@ -3982,11 +4092,16 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		// Callsign belongs to the node, not the bridge form. Always send the server-derived node callsign.
 		if(setupCallsign && <?php echo $setupCallsignDefault === 'SCRATCH' ? 'false' : 'true'; ?>) setupCallsign.value = <?php echo json_encode($setupCallsignDefault, JSON_UNESCAPED_SLASHES); ?>;
 		Object.keys(setupFields).forEach(function(key) {
-			if(['setupTgifPassword','setupZelloPassword','setupZelloPrivateKey'].indexOf(key) !== -1 && !action.endsWith('-install')) return;
+			if(['setupTgifPassword','setupNetTgifPassword','setupZelloPassword','setupZelloPrivateKey'].indexOf(key) !== -1 && !action.endsWith('-install')) return;
 			var rawValue = setupFields[key] ? setupFields[key].value : '';
 			values.set(key, ['setupZelloPassword','setupZelloPrivateKey'].indexOf(key) !== -1 ? rawValue : rawValue.trim());
 		});
-		if(action.endsWith('-install')) values.set('setupPlanDigest', setupPlanDigest);
+		if(currentSetupMode() === 'net_bridge') {
+			values.set('setupCallsign', setupFields.setupNetCallsign ? setupFields.setupNetCallsign.value.trim() : '');
+			values.set('setupDigitalId', setupFields.setupNetDigitalId ? setupFields.setupNetDigitalId.value.trim() : '');
+			values.set('setupTgifAuthMode', setupFields.setupNetTgifAuthMode ? setupFields.setupNetTgifAuthMode.value : 'legacy');
+			if(action.endsWith('-install')) values.set('setupTgifPassword', setupFields.setupNetTgifPassword ? setupFields.setupNetTgifPassword.value : '');
+		}		if(action.endsWith('-install')) values.set('setupPlanDigest', setupPlanDigest);
 		setupPreview.disabled = true;
 		if(setupInstall) setupInstall.disabled = true;
 		if(setupOutput) setupOutput.hidden = false;
@@ -4011,8 +4126,9 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var ports = result.ports || {};
 		setupPlanDigest = typeof result.digest === 'string' ? result.digest : '';
 		var details;
-		if(mode === 'm17') {
-			var changed = Array.isArray(result.changed) && result.changed.length ? result.changed.join('\n  ') : 'None (installation is already current)';
+		if(mode === 'net_bridge') {
+			details = 'Modes: DMR, YSF, P25, NXDN, M17\nOnly one mode runtime will be active at a time.';
+		} else if(mode === 'm17') {			var changed = Array.isArray(result.changed) && result.changed.length ? result.changed.join('\n  ') : 'None (installation is already current)';
 			details = 'M17 UDP port: ' + ports.m17 + '\n' +
 				'USRP receive/transmit: ' + ports.usrpRx + ' / ' + ports.usrpTx + '\n' +
 				'Files to change:\n  ' + changed;
@@ -4057,16 +4173,16 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			urfPanel.scrollIntoView({behavior:'smooth', block:'start'});
 			return;
 		}
-		bridgeSetupRequest(mode + '-plan').then(renderBridgeSetupPlan)
-			.catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || mode.toUpperCase() + ' plan failed.'; });
+		var action = mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan';
+		bridgeSetupRequest(action).then(renderBridgeSetupPlan)			.catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || mode.toUpperCase() + ' plan failed.'; });
 	});
 	if(setupInstall && setupOutput) setupInstall.addEventListener('click', function () {
 		var mode = currentSetupMode();
 		if(currentSetupPath() === 'urf' && mode !== 'dmr') { setupOutput.textContent = 'URF modes are applied with Save Reimagined Settings above.'; return; }
 		var label = mode.toUpperCase();
 		if(!window.confirm('Install this ' + label + ' bridge using the validated plan?')) return;
-		bridgeSetupRequest(mode + '-install').then(function(result) {
-			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
+		var action = mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install';
+		bridgeSetupRequest(action).then(function(result) {			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
 			setupOutput.textContent = label + ' bridge installation committed successfully.\nBridge node: ' + result.bridgeNode +
 				'\n\n' + qualification + ' Reload Settings to view the new bridge card.';
 			if(mode === 'dmr' && setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = '';

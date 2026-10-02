@@ -6,11 +6,44 @@ $root = dirname(__DIR__);
 $settingsDir = $root . '/compat/allscan-v1.01/asr-settings';
 chdir($settingsDir);
 define('ASR_SETTINGS_FUNCTIONS_ONLY', true);
+// The isolated controller test omits common.php; its URL migration helper
+// is irrelevant to bridge setup but is called when a real config is present.
+function asrRebaseLegacyWebPath($path, $defaultPath = '') {
+    return (string) ($path ?: $defaultPath);
+}
 require $settingsDir . '/index.php';
+
+$settingsSource = file_get_contents($settingsDir . '/index.php');
+if(!is_string($settingsSource)
+	|| !str_contains($settingsSource, 'str_ends_with((string)$asrAction, \'-install\')')
+	|| !str_contains($settingsSource, "allscan-reimagined-friendly-names --once"))
+	throw new RuntimeException('Guided provisioning does not reconcile private-node friendly names.');
 
 function check(bool $condition, string $message): void {
 	if(!$condition) throw new RuntimeException($message);
 }
+
+check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
+	'Add Bridge does not expose exactly one unified Net Bridge choice.');
+check(!str_contains($settingsSource, '<option value="net">Net Bridge</option>'),
+	'Add Bridge still exposes per-mode Net Bridge installation.');
+foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
+	check(str_contains($settingsSource, "'{$mode}' =>") || str_contains($settingsSource, "'{$mode}'=>"), "Unified setup is missing $mode.");
+check(!str_contains($settingsSource, 'm17.example.net'), 'Fake M17 host default remains in Settings.');
+$helperSource = file_get_contents($root . '/scripts/asr-bridge-setup-helper.py');
+check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"')
+	&& str_contains($helperSource, 'allscan-reimagined-net-bridge-mode-control'),
+	'Unified setup can bypass the constrained lifecycle controller.');
+
+$unified = [];
+foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
+	$unified[] = ['id'=>$mode . '_net', 'mode'=>$mode, 'node'=>'1999', 'cardType'=>$mode . '_net', 'title'=>strtoupper($mode) . ' Net Bridge'];
+ob_start();
+asrSettingsUnifiedNetBridgePanel($unified, 'dmr');
+$unifiedHtml = (string)ob_get_clean();
+check(substr_count($unifiedHtml, 'asr-unified-net-bridge-settings') === 1
+	&& substr_count($unifiedHtml, 'asr-net-mode-settings-row') === 5,
+	'Existing unified configuration did not render as one Settings bridge with five modes.');
 
 function expectFailure(callable $operation, string $needle): void {
 	try {
@@ -255,14 +288,14 @@ check($ysf['approvedDestinations'] === [], 'YSF Net manual-entry card required a
 $m17 = postedBridge([
 	'bridgeMode' => ['m17'], 'bridgeBackendMode' => ['managed'], 'bridgePermission' => ['self_owned'],
 	'bridgeM17Callsign' => ['N0CALL'], 'bridgeM17Reflector' => ['M17-TST'],
-	'bridgeM17Host' => ['m17.example.net'], 'bridgeM17Port' => ['17000'], 'bridgeM17Module' => ['A'],
+	'bridgeM17Host' => ['127.0.0.1'], 'bridgeM17Port' => ['17000'], 'bridgeM17Module' => ['A'],
 ]);
 check($m17['m17AudioQualified'] === false && $m17['m17BindPort'] > 0, 'M17 qualification remained editable or ports were not assigned.');
 
 $m17Net = postedBridge([
 	'bridgeMode' => ['m17'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
 	'bridgeM17Callsign' => ['N0CALL'],
-	'bridgeApprovedDestinations' => ['M17-TST | m17.example.net | 17000 | A'],
+	'bridgeApprovedDestinations' => ['M17-TST | 127.0.0.1 | 17000 | A'],
 ]);
 check($m17Net['cardType'] === 'm17_net' && count($m17Net['approvedDestinations']) === 1, 'M17 Net approved target was not preserved.');
 
@@ -377,5 +410,92 @@ $_SERVER = [
 check(asrSettingsRollbackPostIsSameOrigin(true), 'Matching Settings origin was rejected.');
 $_SERVER['HTTP_ORIGIN'] = 'https://attacker.example';
 check(!asrSettingsRollbackPostIsSameOrigin(true), 'Forged Settings origin was accepted.');
+
+$_POST = [
+	'setupBridgeId' => 'm17_test', 'setupTitle' => 'Test M17',
+	'setupCallsign' => 'n0call', 'setupReflector' => 'm17-tst',
+	'setupHost' => '127.0.0.1', 'setupPort' => '17000', 'setupModule' => 'a',
+];
+$setupError = '';
+$setup = asrSettingsM17SetupPayload($setupError);
+check($setupError === '' && $setup['callsign'] === 'N0CALL' && $setup['module'] === 'A', 'Valid M17 setup request was not normalized.');
+$_POST['setupHost'] = 'bad host';
+asrSettingsM17SetupPayload($setupError);
+check(strpos($setupError, 'hostname') !== false, 'Invalid M17 setup host was accepted.');
+
+$_POST = [
+	'setupBridgeId' => 'p25_test', 'setupTitle' => 'Test P25',
+	'setupCallsign' => 'n0call', 'setupDigitalId' => '1234567',
+	'setupDestination' => '64189', 'setupHost' => '127.0.0.1', 'setupPort' => '41000',
+];
+$setup = asrSettingsDigitalSetupPayload('p25', $setupError);
+check($setupError === '' && $setup['callsign'] === 'N0CALL' && $setup['destination'] === 64189, 'Valid P25 setup request was not normalized.');
+
+$_POST = [
+	'setupBridgeId' => 'urf_dmr', 'setupTitle' => 'DMR Bridge',
+	'setupCallsign' => 'ke7wil', 'setupDigitalId' => '3224939',
+	'setupDestination' => '86753',
+];
+$dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
+check($setupError === '' && $dmrSetup['callsign'] === 'KE7WIL' && $dmrSetup['destination'] === 86753 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
+$dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
+check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
+$_POST['setupTgifAuthMode'] = 'secured';
+$_POST['setupTgifPassword'] = 'secret-123';
+$dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
+check($setupError === '' && $dmrInstall['tgifPassword'] === 'secret-123', 'Secured TGIF hotspot key was not accepted.');
+$_POST['setupTgifPassword'] = "bad\npassword";
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'hotspot key') !== false, 'Unsafe TGIF hotspot key was accepted.');
+
+$_POST = [
+	'setupBridgeId' => 'zello', 'setupTitle' => 'Zello Bridge',
+	'setupZelloUsername' => 'bridge-user', 'setupZelloChannel' => 'My Channel',
+	'setupZelloIssuer' => 'issuer-1', 'setupZelloWsEndpoint' => 'wss://zello.io/ws',
+];
+$zelloSetup = asrSettingsZelloSetupPayload(false, $setupError);
+check($setupError === '' && $zelloSetup['username'] === 'bridge-user' && !isset($zelloSetup['password']) && !isset($zelloSetup['privateKey']), 'Valid Zello preview was not normalized or leaked secrets.');
+$_POST['setupZelloPassword'] = 'secret';
+$_POST['setupZelloPrivateKey'] = "-----BEGIN PRIVATE KEY-----
+TEST
+-----END PRIVATE KEY-----";
+$zelloInstall = asrSettingsZelloSetupPayload(true, $setupError);
+check($setupError === '' && $zelloInstall['password'] === 'secret' && str_contains($zelloInstall['privateKey'], 'PRIVATE KEY-----'), 'Valid Zello install secrets were rejected.');
+$_POST['setupZelloWsEndpoint'] = 'http://unsafe.example';
+asrSettingsZelloSetupPayload(false, $setupError);
+check(strpos($setupError, 'wss://') !== false, 'Unsafe Zello WebSocket endpoint was accepted.');
+
+$managedUrf = [[
+	'id' => 'urf_dmr', 'mode' => 'dmr', 'node' => '1001', 'title' => 'DMR Bridge',
+	'backendMode' => 'managed', 'instance' => 'urf_dmr', 'urfReflector' => true,
+	'urfName' => 'URFWIL', 'tgifTalkgroup' => '86753', 'dmrId' => '3224939',
+]];
+$preservedUrf = asrSettingsUrfModeBridges(['enabled' => false, 'node' => '', 'modes' => []], $managedUrf);
+check(count($preservedUrf) === 1 && $preservedUrf[0] === $managedUrf[0], 'Managed URF/TGIF bridge was lost or rewritten by a generic Settings save.');
+
+$settingsSource = file_get_contents($settingsDir . '/index.php');
+check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan'") !== false, 'Bridge setup preview is not wired to the selected helper endpoint.');
+check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install'") !== false, 'Bridge setup install is not wired to the selected helper endpoint.');
+check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helper actions are unavailable.');
+check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN helper actions are unavailable.');
+check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');
+check(strpos($settingsSource, "'dmr-plan', 'dmr-install'") !== false, 'DMR helper actions are unavailable.');
+check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
+check(strpos($settingsSource, "'dstar-plan', 'dstar-install'") !== false, 'D-Star helper actions are unavailable.');
+check(strpos($settingsSource, '<option value="dstar">D-Star</option>') !== false, 'D-Star guided setup is not enabled.');
+check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');
+check(strpos($settingsSource, '<option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option>') !== false, 'Standard Bridge/URF choices are incomplete.');
+check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') !== false, 'Unified Net Bridge choice is missing.');
+check(strpos($settingsSource, "urfOption.disabled = mode === 'zello'") !== false, 'Zello URF selection is not blocked.');
+check(strpos($settingsSource, "var isUnifiedNet = mode === 'net_bridge'") !== false, 'Unified Net Bridge mode handling is missing.');
+check(strpos($settingsSource, "'dstar'=>'D-Star'") !== false, 'D-Star is missing from shared URF modes.');
+check(strpos($settingsSource, 'DMR / TGIF via URF') === false, 'DMR is still mislabeled as URF-only.');
+check(strpos($settingsSource, 'data-bridge-setup-zello-private-key') !== false, 'Zello private-key input is missing.');
+check(strpos($settingsSource, 'data-bridge-setup-tgif-password') !== false, 'TGIF password input is missing from the guided wizard.');
+check(strpos($settingsSource, "p25: {port: '41000'") !== false, 'P25 setup defaults are missing.');
+check(strpos($settingsSource, "nxdn: {port: '41400'") !== false, 'NXDN setup defaults are missing.');
+check(strpos($settingsSource, "ysf: {port: '42000'") !== false, 'YSF setup defaults are missing.');
+check(strpos($settingsSource, "setupPlanDigest") !== false, 'Bridge setup plan digest binding is missing.');
+check(strpos($settingsSource, 'data-bridge-setup-install disabled') !== false, 'Install control is not fail-closed before preview.');
 
 echo "ASR bridge Settings self-test passed\n";

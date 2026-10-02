@@ -34,6 +34,7 @@ export type RuntimeBridgeConfig = {
   urfReflector?: boolean
   urfGroupId?: string
   linkAlias?: string
+  m17Module?: string
   backendMode?: 'display_only' | 'managed'
   adminCapabilities?: BridgeAdminCapabilities
 }
@@ -41,6 +42,7 @@ export type RuntimeBridgeConfig = {
 export type RuntimeConfig = {
   node: string
   callsign: string
+  netBridgeMode: string
   headerTitle: string
   browserTitle: string
   brandByline: string
@@ -53,9 +55,18 @@ export type RuntimeConfig = {
   bridges: RuntimeBridgeConfig[]
 }
 
+const NET_BRIDGE_MODES = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'] as const
+
+export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<string> {
+  return new Set<string>(NET_BRIDGE_MODES.filter((mode) => bridges.some((bridge) =>
+    bridge.node === '1999' && bridge.cardType === `${mode}_net`,
+  )))
+}
+
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
   callsign: '',
+  netBridgeMode: 'dmr',
   headerTitle: 'AllScan Reimagined',
   browserTitle: 'AllScan Reimagined',
   brandByline: 'by KE7WIL',
@@ -766,17 +777,30 @@ function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSna
   }
 }
 
+export function bridgeConnectionIdentities(configuredBridges: RuntimeBridgeConfig[]) {
+  return new Map(
+    configuredBridges.flatMap((bridge) => {
+      const identities: Array<[string, RuntimeBridgeConfig]> = []
+      if (bridge.linkAlias && bridge.node) identities.push([String(bridge.linkAlias), bridge])
+      // Asterisk normally exposes the physical private node in rpt lstats even
+      // when a Net Bridge also has an internal link alias.  Bind that identity
+      // to the same configured bridge so its title and live state cannot fall
+      // back to stale asdb metadata from a node's previous installation.
+      if (bridge.node && bridge.cardType && bridge.cardType !== 'standard') {
+        identities.push([String(bridge.node), bridge])
+      }
+      return identities
+    }),
+  )
+}
+
 export function subscribeConnectionFeed(
   localNode: string,
   configuredBridges: RuntimeBridgeConfig[],
   onSnapshot: (snapshot: ConnectionSnapshot) => void,
   onMessage: (message: string) => void,
 ) {
-  const bridgeAliases = new Map(
-    configuredBridges
-      .filter((bridge) => bridge.linkAlias && bridge.node)
-      .map((bridge) => [String(bridge.linkAlias), bridge]),
-  )
+  const bridgeAliases = bridgeConnectionIdentities(configuredBridges)
   const bridgeNodes = new Set(
     configuredBridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || '']).filter(Boolean),
   )
@@ -1038,8 +1062,6 @@ export type DropClientEntry = {
 }
 
 export type DiagnosticsReport = {
-  email: string
-  subject: string
   report: string
 }
 
@@ -1052,8 +1074,6 @@ export async function fetchDiagnosticsReport(): Promise<DiagnosticsReport> {
   const payload = (await response.json()) as DiagnosticsReport & { ok?: boolean; error?: string }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Diagnostics report could not be generated.')
   return {
-    email: payload.email || 'ke7wil@gmail.com',
-    subject: payload.subject || 'ASR Bug Report',
     report: payload.report || '',
   }
 }
@@ -1479,6 +1499,20 @@ export async function fetchBridgeDestinations(bridgeId: string): Promise<BridgeD
     }))
     .filter((destination) => destination.id.length > 0 && destination.id.length <= 80
       && destination.name && destination.value && destination.label)
+}
+
+export async function activateNetBridgeMode(mode: string) {
+  const response = await fetch(`${ASR_API}?action=net-bridge-mode`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'bridge-control' },
+    body: new URLSearchParams({ mode }).toString(),
+    signal: AbortSignal.timeout(45_000),
+  })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; mode?: string; node?: number }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Net Bridge mode switch failed (${response.status}).`)
+  }
+  return payload
 }
 
 export async function connectBridge(bridgeId: string, destination: string) {

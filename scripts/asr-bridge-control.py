@@ -228,6 +228,13 @@ def atomic_json(path: Path, payload: dict, mode: int = 0o644) -> None:
 
 
 def mmdvm_log_stem(bridge: dict) -> str:
+    if bridge.get("managedNetControl") is True:
+        target = str(bridge.get("managedTargetFile", ""))
+        bridge_id = str(bridge.get("id", ""))
+        expected = f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target"
+        if target != expected:
+            raise ControlError("Configured managed DMR Net Bridge target path is invalid.")
+        return "MMDVM_Bridge"
     validate_paths(bridge)
     stem = Path(str(bridge["dvswitchScript"])).parent.name
     if not re.fullmatch(r"MMDVM_Bridge[A-Za-z0-9_-]+", stem):
@@ -413,7 +420,6 @@ def configured_dmr_net_bridges(path: Path = CONFIG_PATH) -> list[dict]:
         if not BRIDGE_ID_RE.fullmatch(bridge_id):
             continue
         try:
-            validate_paths(bridge)
             node_numbers(bridge, path)
             mmdvm_log_stem(bridge)
         except ControlError:
@@ -449,11 +455,10 @@ def dmr_net_live_payload(
             now,
             log_dir,
         )
-        reconcile_keyed_source(
-            state,
-            keyed_states.get(str(bridge.get("linkAlias") or bridge.get("node", ""))),
-            now,
-        )
+        # MMDVM network voice header/end events are authoritative for Net Bridge
+        # inbound direction.  The Asterisk transport can stop reporting keyed
+        # before a network transmission ends, so do not clear SOURCE from its
+        # short keyed sample here.
         states[bridge_id] = state
         talkgroup = cached_tg(bridge_id)
         linked = talkgroup is not None

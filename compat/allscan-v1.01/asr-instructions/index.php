@@ -222,7 +222,7 @@ pageInit();
 			<li><strong>Hard refresh:</strong> Use Ctrl+Shift+R on Windows/Linux or Command+Shift+R on Mac. On a phone, close the ASR tab and reopen it.</li>
 			<li><strong>Bridge Diagnostics:</strong> Check card configuration, services, paths, and client sources without revealing credentials.</li>
 			<li><strong>Performance Stats:</strong> Review browser-feed and server-cache performance when status is slow.</li>
-			<li><strong>Report a Bug:</strong> Create a redacted support bundle from the Admin menu. Review it before sending; protected secret values are excluded.</li>
+			<li><strong>Support &amp; Feedback:</strong> Report a bug, ask a question, or suggest a feature from the Admin menu. Review the public issue text and any screenshots before submitting.</li>
 			<li>If DMR audio is distorted, confirm the net bridge has its own vocoder and that its gains match the known-good DMR bridge.</li>
 			<li>If TX Active never appears, confirm the dedicated bridge log is current and readable.</li>
 		</ul>

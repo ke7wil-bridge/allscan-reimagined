@@ -1,0 +1,30 @@
+--- a/reflector/NXDNProtocol.cpp
++++ b/reflector/NXDNProtocol.cpp
+@@ -97,6 +97,19 @@
+ 	if ( Receive4(Buffer, Ip, 20) )
+ #endif
+ 	{
++		// An administrative Kick suppresses this endpoint until its genuine
++		// NXDN disconnect arrives. Ban suppression is cleared only by Unban.
++		const bool isDisconnect = IsValidDisconnectPacket(Buffer);
++		bool dropSuppressedPacket = false;
++		CClients *adminClients = g_Reflector.GetClients();
++		if (isDisconnect)
++			adminClients->ClearNxdnAdminSuppression(Ip);
++		else
++			dropSuppressedPacket = adminClients->IsNxdnAdminSuppressed(Ip);
++		g_Reflector.ReleaseClients();
++
++		if (!dropSuppressedPacket)
++		{
+ 		// crack the packet
+ 		if ( IsValidDvFramePacket(Ip, Buffer, Header, Frames) )
+ 		{
+@@ -172,6 +185,7 @@
+ 			Buffer.Dump(title);
+ #endif
+ 		}
++		}
+ 	}
+
+ 	// handle end of streaming timeout

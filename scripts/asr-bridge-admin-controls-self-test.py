@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,8 +51,10 @@ check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', '
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
 check("request_urf_disconnect(rule, \"*\", \"ban\", False)" in URF, "global Ban does not remove active URFD sessions")
 check("request_urf_disconnect(callsign, runtime_protocol, \"kick\", True)" in URF, "session-specific URFD Kick verification missing")
-CAPABILITIES = API[API.index("function asr_bridge_admin_capabilities"):API.index("function asr_protected_ban_identities")]
-check("'restart'" not in CAPABILITIES and "'recover'" not in CAPABILITIES, "unsupported lifecycle capability exposed")
+capability = re.search(r"\$bridgeControl\s*=.*?;", API, re.DOTALL)
+check(capability is not None and "'restart'" not in capability.group(0)
+      and "'recover'" not in capability.group(0),
+      "unsupported bridge lifecycle capability exposed")
 check("adminCapabilities?: BridgeAdminCapabilities" in LIVE, "frontend capability type missing")
 check("bridge.adminCapabilities?.bridgeControl.includes('changeDestination')" in APP, "destination loading is not capability-driven")
 check("const canConnect = bridgeCapabilities.includes('connect')" in APP, "connect rendering is not capability-driven")
