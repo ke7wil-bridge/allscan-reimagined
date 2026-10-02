@@ -1,0 +1,30 @@
+--- a/reflector/P25Protocol.cpp
++++ b/reflector/P25Protocol.cpp
+@@ -91,6 +91,19 @@
+ 	if ( Receive4(Buffer, Ip, 20) )
+ #endif
+ 	{
++		// An administrative Kick suppresses this endpoint until its genuine
++		// P25 disconnect arrives. Ban suppression is cleared only by Unban.
++		const bool isDisconnect = IsValidDisconnectPacket(Buffer, &Callsign);
++		bool dropSuppressedPacket = false;
++		CClients *adminClients = g_Reflector.GetClients();
++		if (isDisconnect)
++			adminClients->ClearP25AdminSuppression(Ip);
++		else
++			dropSuppressedPacket = adminClients->IsP25AdminSuppressed(Ip);
++		g_Reflector.ReleaseClients();
++
++		if (!dropSuppressedPacket)
++		{
+ 		// crack the packet
+ 		if ( IsValidDvPacket(Ip, Buffer, Frame) )
+ 		{
+@@ -160,6 +173,7 @@
+ 			title += Ip.GetAddress();
+ 			Buffer.Dump(title);
+ 		}
++		}
+ 	}
+
+ 	// handle end of streaming timeout

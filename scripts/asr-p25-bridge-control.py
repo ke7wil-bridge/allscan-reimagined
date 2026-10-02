@@ -13,9 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
 import grp
+import importlib.util
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import signal
 import socket
@@ -28,9 +30,23 @@ import time
 from typing import Callable
 
 
-CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
-MQTT_SECRETS_PATH = Path("/etc/allscan-reimagined/bridge-mqtt-secrets.json")
-ASTERISK_BIN = "/usr/sbin/asterisk"
+def provisioned_path(logical: str) -> Path:
+    if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        return Path(logical)
+    source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
+    if not source.is_file():
+        source = Path("/usr/local/libexec/allscan-reimagined/asr-provisioning-backend.py")
+    spec = importlib.util.spec_from_file_location("asr_backend_p25_control", source)
+    if not spec or not spec.loader:
+        raise SystemExit("container provisioning backend unavailable")
+    module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    return module.map_path(Path("/"), logical)
+
+WATCH_CONFIG = os.environ.get("ASR_CONTAINER_WATCH_CONFIG", "")
+WATCH_SECRETS = os.environ.get("ASR_CONTAINER_WATCH_SECRETS", "")
+CONFIG_PATH = Path(WATCH_CONFIG) if WATCH_CONFIG else provisioned_path("/etc/allscan-reimagined/config.json")
+MQTT_SECRETS_PATH = Path(WATCH_SECRETS) if WATCH_SECRETS else provisioned_path("/etc/allscan-reimagined/bridge-mqtt-secrets.json")
+ASTERISK_BIN = "/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk" if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else "/usr/sbin/asterisk"
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
 INSTANCE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -189,6 +205,7 @@ def load_production_config() -> dict:
 
 
 def load_mqtt_credentials(bridge: dict) -> dict[str, str]:
+    watcher = bool(WATCH_SECRETS)
     expected_web_gid = production_web_gid()
     directory_flags = os.O_RDONLY | os.O_CLOEXEC
     if hasattr(os, "O_DIRECTORY"):
@@ -204,8 +221,8 @@ def load_mqtt_credentials(bridge: dict) -> dict[str, str]:
         if (
             not stat.S_ISDIR(parent.st_mode)
             or parent.st_uid != 0
-            or parent.st_gid != expected_web_gid
-            or stat.S_IMODE(parent.st_mode) != PRODUCTION_CONFIG_DIR_MODE
+            or parent.st_gid != (0 if watcher else expected_web_gid)
+            or stat.S_IMODE(parent.st_mode) != (0o755 if watcher else PRODUCTION_CONFIG_DIR_MODE)
             or stat.S_IMODE(parent.st_mode) & 0o002
         ):
             raise ControlError("Root-only MQTT credential directory metadata is unsafe.")
@@ -222,8 +239,8 @@ def load_mqtt_credentials(bridge: dict) -> dict[str, str]:
                 not stat.S_ISREG(info.st_mode)
                 or info.st_nlink != 1
                 or info.st_uid != 0
-                or info.st_gid != 0
-                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_gid != (grp.getgrnam("asr-bridge").gr_gid if watcher else 0)
+                or stat.S_IMODE(info.st_mode) != (0o640 if watcher else 0o600)
             ):
                 raise ControlError("Root-only MQTT credential file metadata is unsafe.")
             with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
@@ -272,11 +289,13 @@ def secure_directory(path: Path, expected_uid: int = 0) -> None:
 
 def ensure_runtime(paths: ModeSpec, expected_uid: int = 0) -> None:
     paths.run_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
-    secure_directory(paths.run_dir, expected_uid)
+    owner_uid = (pwd.getpwnam("asr-bridge").pw_uid
+                 if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else expected_uid)
+    secure_directory(paths.run_dir, owner_uid)
 
 
 def load_config(path: Path, expected_uid: int = 0) -> dict:
-    if path == CONFIG_PATH and expected_uid == 0:
+    if path == CONFIG_PATH and expected_uid == 0 and not WATCH_CONFIG:
         return load_production_config()
     secure_regular_file(path, "ASR bridge configuration", expected_uid)
     try:
@@ -367,6 +386,9 @@ def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
         raise ControlError("MQTT credentials are not accepted by this local-only controller.")
     if raw.get("bridgePermission") not in SAFE_PERMISSIONS:
         raise ControlError("Bridge control is blocked until reflector permission is self-owned or approved.")
+    if (role == "net" and "netBridgeMode" in config
+            and str(config.get("netBridgeMode", "")).lower() != spec.mode):
+        raise ControlError(f"{spec.label} is not the active Net Bridge mode.")
     local_node = str(config.get("node", ""))
     bridge_node = str(raw.get("node", ""))
     if (
@@ -392,7 +414,9 @@ def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
             continue
         collisions = [
             str(other.get("id", "")) == bridge_id,
-            str(other.get("node", "")) == bridge_node,
+            (str(other.get("node", "")) == bridge_node
+             and not (role == "net" and bridge_node == "1999"
+                      and other.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"})),
             str(other.get("instance", "")) in used["instance"],
             str(other.get("gatewayConfig", "")) in used["gatewayConfig"],
             str(other.get("mqttName", "")) in used["mqttName"],
@@ -1093,7 +1117,9 @@ def wait_event(
 
 def audit(spec: ModeSpec, bridge: dict, user: str, action: str, target: int | None, result: str, expected_uid: int = 0) -> None:
     parent = spec.audit_log.parent
-    secure_directory(parent, expected_uid)
+    service_uid = (pwd.getpwnam("asr-bridge").pw_uid
+                   if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else expected_uid)
+    secure_directory(parent, service_uid)
     record = {
         "epoch": int(time.time()), "user": USER_RE.sub("_", user)[:80] or "unknown",
         "bridge": bridge["id"], "mode": spec.mode, "role": bridge["role"],
@@ -1105,7 +1131,7 @@ def audit(spec: ModeSpec, bridge: dict, user: str, action: str, target: int | No
     fd = os.open(spec.audit_log, flags, 0o640)
     try:
         info = os.fstat(fd)
-        if info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o022:
+        if info.st_uid not in {expected_uid, service_uid} or stat.S_IMODE(info.st_mode) & 0o022:
             raise OSError("unsafe audit file")
         os.write(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
         os.fsync(fd)
@@ -1312,7 +1338,8 @@ def watch(
 ) -> dict | None:
     if not WATCH_INTERVAL_MIN <= interval <= WATCH_INTERVAL_MAX:
         raise ControlError("Watch interval must be between 1 and 60 seconds.")
-    ensure_runtime(spec, expected_uid)
+    runtime_uid = os.geteuid() if WATCH_CONFIG else expected_uid
+    ensure_runtime(spec, runtime_uid)
     stop = stop_event or threading.Event()
     last: dict | None = None
     talkers = TalkerManager(spec) if path == CONFIG_PATH and expected_uid == 0 else None
@@ -1330,7 +1357,7 @@ def watch(
                 break
             if talkers is not None:
                 snapshot = talkers.augment(snapshot)
-            write_aggregate(spec, snapshot, expected_uid)
+            write_aggregate(spec, snapshot, runtime_uid)
             last = snapshot
             if once or stop.wait(interval):
                 break
@@ -1916,7 +1943,7 @@ def main(spec: ModeSpec = P25_SPEC) -> int:
             raise ControlError(
                 "Disconnect syntax is exactly: disconnect BRIDGE_ID --user USER."
             )
-        if os.geteuid() != 0:
+        if os.geteuid() != 0 and not (args.action == "watch" and WATCH_CONFIG):
             raise ControlError("Bridge control must run as root.")
         if args.action == "watch":
             stop_event = threading.Event()

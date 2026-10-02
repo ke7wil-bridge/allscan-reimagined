@@ -3431,7 +3431,7 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
   overflow: visible;
   white-space: normal;
   overflow-wrap: anywhere;
-  text-overflow: clip;
+  text-overflow: ellipsis;
 }
 
 /* Mobile favorites should stay inside the Node Controls box without horizontal scrolling. */
@@ -7125,5 +7125,189 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:hover,
   html[data-asr-theme="lcars-frame"] .allscan-custom-commands-button:focus-visible {
     box-shadow: none !important;
+  }
+}
+
+/* ST:ASL module-band geometry: bottom bands are literal vertical mirrors of
+   their title bands. Horizontal gradients retain their independent colors. */
+@media (min-width: 1200px) {
+  html[data-asr-theme="lcars-frame"] {
+    --lcars-module-band-radius: 18px;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section > .allscan-section-title,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title {
+    border-radius: var(--lcars-module-band-radius) var(--lcars-module-band-radius) 0 0 !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section .allscan-status-shell {
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  html[data-asr-theme="lcars-frame"] .allscan-talkers-section .allscan-talker-cards::after,
+  html[data-asr-theme="lcars-frame"] .allscan-favorites-panel .allscan-favorites-inner::after,
+  html[data-asr-theme="lcars-frame"] .allscan-connection-section .allscan-status-shell::after,
+  html[data-asr-theme="lcars-frame"] .allscan-bridge-section .allscan-bridge-grid::after,
+  html[data-asr-theme="lcars-frame"] .allscan-controls-section .allscan-controls-shell::after {
+    border-radius: var(--lcars-module-band-radius) var(--lcars-module-band-radius) 0 0 !important;
+    transform: scaleY(-1);
+    transform-origin: center;
+  }
+}
+
+/* Unified Net Bridge controls. Keep the lower bridge card at its established
+   height: one compact data row and one action row. */
+.allscan-bridge-grid .allscan-net-bridge-controls {
+  display: grid;
+  grid-template-columns: auto minmax(52px, .72fr) auto minmax(62px, 1.28fr) auto 30px;
+  grid-template-rows: 38px 38px;
+  column-gap: 4px;
+  row-gap: 0;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-mode-row,
+.allscan-bridge-grid .allscan-net-bridge-destination-row {
+  display: contents;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-controls label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-controls select,
+.allscan-bridge-grid .allscan-net-bridge-controls input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-mode-row > label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-mode-row > select {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-destination-row > label:first-child {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-destination-row > input:first-of-type,
+.allscan-bridge-grid .allscan-net-bridge-destination-row > select:first-of-type {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+
+/* Mode-specific sizing: each protocol gets the space its actual values need. */
+.allscan-bridge-grid .allscan-net-bridge-dmr {
+  grid-template-columns: 42px 78px 24px 96px;
+  justify-content: center;
+  column-gap: 8px;
+}
+.allscan-bridge-grid .allscan-net-bridge-dmr .allscan-net-bridge-destination-row > input:first-of-type {
+  grid-column: 4;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-ysf {
+  grid-template-columns: 42px 76px 58px minmax(0, 1fr);
+  column-gap: 6px;
+}
+.allscan-bridge-grid .allscan-net-bridge-p25,
+.allscan-bridge-grid .allscan-net-bridge-nxdn {
+  grid-template-columns: 42px 82px 42px minmax(0, 1fr);
+  column-gap: 6px;
+}
+.allscan-bridge-grid .allscan-net-bridge-p25 .allscan-net-bridge-destination-row > input:first-of-type,
+.allscan-bridge-grid .allscan-net-bridge-nxdn .allscan-net-bridge-destination-row > input:first-of-type {
+  grid-column: 4;
+}
+.allscan-bridge-grid .allscan-net-bridge-m17 {
+  grid-template-columns: 42px 76px 22px minmax(0, 1fr) 26px 34px;
+  column-gap: 5px;
+}
+
+/* M17 uses the same fixed-height two-row card. Ref + Mod are deliberately
+   abbreviated so all three fields fit without overlap or hidden labels. */
+.allscan-bridge-grid .allscan-m17-net-tune > input:first-of-type {
+  grid-column: 4;
+}
+
+.allscan-bridge-grid .allscan-m17-net-tune > label:nth-of-type(2) {
+  grid-column: 5;
+  grid-row: 1;
+}
+
+.allscan-bridge-grid .allscan-m17-net-tune > input:nth-of-type(2) {
+  grid-column: 6;
+  grid-row: 1;
+  width: 100%;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-mode-row .allscan-bridge-link-buttons {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  box-sizing: border-box;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-mode-row .allscan-action-button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: 28px;
+  min-height: 28px;
+  padding: 2px 6px;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-controls label {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.allscan-bridge-grid .allscan-net-bridge-controls input,
+.allscan-bridge-grid .allscan-net-bridge-controls select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 2px 3px;
+  font-size: 11px;
+}
+
+.allscan-bridge-grid .allscan-m17-module-input {
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .allscan-bridge-grid .allscan-net-bridge-controls {
+    grid-template-columns: auto minmax(48px, .7fr) auto minmax(56px, 1.3fr) auto 28px;
+    column-gap: 3px;
+    padding-inline: 5px;
+  }
+
+  .allscan-bridge-grid .allscan-net-bridge-controls label {
+    font-size: 11px;
   }
 }

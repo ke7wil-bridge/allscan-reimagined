@@ -1,0 +1,16 @@
+FROM debian:bookworm-slim
+ARG MMDVM_URL
+ARG MMDVM_SHA256
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl python3 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+RUN test -n "$MMDVM_URL" && test -n "$MMDVM_SHA256" && \
+    curl -fsSL "$MMDVM_URL" -o /opt/MMDVM_Bridge && \
+    echo "$MMDVM_SHA256  /opt/MMDVM_Bridge" | sha256sum -c - && \
+    chmod 755 /opt/MMDVM_Bridge
+COPY tgif/run.sh /opt/tgif/run.sh
+COPY tgif/MMDVM_Bridge.ini.template /opt/tgif/MMDVM_Bridge.ini.template
+COPY tgif/DVSwitch.ini /opt/tgif/DVSwitch.ini
+COPY tgif/asr-tgif-urf-dmr-bridge.py /opt/tgif/asr-tgif-urf-dmr-bridge.py
+RUN chmod 755 /opt/tgif/run.sh /opt/tgif/asr-tgif-urf-dmr-bridge.py
+ENTRYPOINT ["/opt/tgif/run.sh"]

@@ -21,13 +21,47 @@ const server = await createServer({
 
 try {
   const {
+    bridgeConnectionIdentities,
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
     normalizedBridgeMode,
+    provisionedNetBridgeModes,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
     summarizeConnectionTotal,
   } = await server.ssrLoadModule('/src/lib/allscanLive.ts')
+
+  const netBridgeTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net']
+  const netBridges = netBridgeTypes.map((cardType, index) => ({
+    id: `qa_${cardType}`,
+    node: String(1101 + index),
+    linkAlias: String(999100001 + index),
+    title: `${cardType} bridge`,
+    detailTitle: 'Connected Clients',
+    cardType,
+  }))
+  const identities = bridgeConnectionIdentities(netBridges)
+  for (const bridge of netBridges) {
+    assert(identities.get(bridge.node)?.id === bridge.id, `${bridge.cardType} physical node identity was not mapped`)
+    assert(identities.get(bridge.linkAlias)?.id === bridge.id, `${bridge.cardType} link alias identity was not mapped`)
+  }
+
+  const unifiedModes = provisionedNetBridgeModes(netBridgeTypes.map((cardType) => ({
+    id: `qa_${cardType}`,
+    mode: 'display metadata is not the provisioning authority',
+    node: '1999',
+    title: cardType,
+    detailTitle: 'Connected Clients',
+    cardType,
+  })))
+  assert(
+    ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].every((mode) => unifiedModes.has(mode)),
+    'the unified mode inventory did not expose all five provisioned Net Bridge card types',
+  )
+  assert(
+    provisionedNetBridgeModes([{ ...netBridges[0], node: '1004' }]).size === 0,
+    'a bridge outside the unified node 1999 transport was treated as a unified mode',
+  )
 
   const modeFixtures = {
     dmr_home: 'dmr',
@@ -159,17 +193,42 @@ try {
   assert(dmrControls.includes('<input'), 'DMR Net talkgroup is not a typeable input')
   assert(dmrControls.includes('inputMode="numeric"'), 'DMR Net talkgroup lost its numeric keyboard hint')
   assert(dmrControls.includes('placeholder=""'), 'empty DMR Net input shows placeholder text')
-  assert(!dmrControls.includes('<select'), 'DMR Net talkgroup regressed to a dropdown')
+  assert(dmrControls.includes('id={`net-mode-${card.id}`}'), 'unified Net Bridge mode selector is missing')
+  assert(
+    appSource.includes("['dmr','ysf','p25','nxdn','m17'].map")
+      && appSource.includes('disabled={!availableNetBridgeModes.has(mode)}')
+      && appSource.includes("card.mode.toLowerCase() === (selectedModeAvailable ? netBridgeMode : fallbackMode)"),
+    'the dashboard does not constrain the five modes to one visible Net Bridge card',
+  )
+  assert(
+    appSource.includes('void selectNetBridgeMode(event.target.value)')
+      && appSource.includes('await activateNetBridgeMode(targetMode)')
+      && appSource.includes('netBridgeQueuedModeRef.current = mode')
+      && !appSource.includes('on private node 1999'),
+    'mode selection does not use the unified lifecycle or exposes its private node',
+  )
+  assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')
   assert(!dmrControls.includes('approvedDestinations.length'), 'DMR Net input still depends on an approved list')
   assert(
     dmrControls.includes("event.target.value.replace(/\\D/g, '').slice(0, 8)"),
     'DMR Net talkgroup input is not restricted to eight digits',
   )
   assert(
-    appSource.includes("card.cardType === 'ysf_net' ? (")
-      && appSource.match(/card\.cardType === 'ysf_net' \? \([\s\S]+?placeholder=""/)
+    appSource.includes("card.cardType === 'ysf_net' || card.cardType === 'm17_net' ? (")
+      && appSource.match(/card\.cardType === 'ysf_net' \|\| card\.cardType === 'm17_net' \? \([\s\S]+?placeholder=""/)
       && appSource.includes('event.target.value.slice(0, 80)'),
-    'YSF Net reflector is not a typeable bounded input',
+    'YSF/M17 Net reflector is not a typeable bounded input',
+  )
+  assert(
+    appSource.includes('id={`m17-net-module-${card.id}`}')
+      && appSource.includes("Enter an M17 reflector in M17-XXX format and a module A-Z.")
+      && appSource.includes("/^M17-[A-Z0-9]{3}$/.test(reflector)")
+      && appSource.includes("event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)"),
+    'M17 Net reflector/module controls are missing or insufficiently validated',
+  )
+  assert(
+    !appSource.match(/card\.cardType === 'm17_net'[\s\S]{0,300}approvedDestinations\.map/),
+    'M17 Net destination is still restricted to the provisioned dropdown',
   )
   assert(
     appSource.includes("? 'Current Reflector' : 'Current Destination'")
@@ -203,21 +262,31 @@ try {
     'desktop Net Bridge controls do not use equal fields and the compact standard type scale',
   )
   assert(
+  (appSource.match(/allscan-bridge-controls allscan-net-bridge-controls/g) || []).length === 2
+      && (appSource.match(/allscan-bridge-tune allscan-net-bridge-mode-row/g) || []).length === 2
+      && (appSource.match(/allscan-net-bridge-destination-row/g) || []).length === 2
+      && indexCssSource.includes('grid-template-columns: auto minmax(52px, .72fr) auto minmax(62px, 1.28fr) auto 30px;')
+      && indexCssSource.includes('grid-column: 1 / -1;')
+      && indexCssSource.includes('grid-row: 2;')
+      && indexCssSource.includes('flex: 1 1 0;'),
+    'unified Net Bridge controls do not keep mode/destination on top and actions on the bottom row',
+  )
+  assert(
     appSource.includes('allscan-controls-lower-row')
       && appSource.includes('Manage Kicks & Bans')
       && indexCssSource.includes('.allscan-controls-lower-row'),
     'current Node Controls management layout regressed',
   )
   assert(
-    appSource.includes("bridge.adminCapabilities?.bridgeControl.includes('changeDestination')")
-      && appSource.includes("bridge.cardType !== 'dmr_net'")
-      && appSource.includes("bridge.cardType !== 'ysf_net'"),
-    'manual DMR/YSF controls still poll approved destination lists or destination loading is not capability-driven',
+    !appSource.includes('fetchBridgeDestinations')
+      && !appSource.includes('approvedDestinations')
+      && !appSource.includes('approvedDestinationInput'),
+    'Net Bridge controls still depend on approved destination lists',
   )
   assert(
-    appSource.includes('<option value=""></option>')
+    appSource.includes('inputMode="numeric"')
       && !appSource.includes('Choose approved destination'),
-    'a Net Bridge dropdown still shows placeholder text',
+    'P25/NXDN Net Bridge destinations are not free numeric entry fields',
   )
   assert(
     appSource.includes("const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] || ''")
@@ -240,7 +309,7 @@ try {
   )
   assert(
     (appSource.match(/onClick=\{\(\) => void logoutAllScan\(\)\}/g) || []).length === 1,
-    'Logout must have exactly one theme-independent render site',
+    'Logout must have exactly one shared render site',
   )
   assert(
     appSource.includes('bridgeLastTalker(card)')
@@ -282,6 +351,23 @@ try {
     !appSource.includes('allscan-bridge-warning-row')
       && !appSource.includes('<span>Warning / Error</span>'),
     'permanent warning/error body row returned instead of header warning treatment',
+  )
+
+  const settingsSource = readFileSync('compat/allscan-v1.01/asr-settings/index.php', 'utf8')
+  assert(
+    (settingsSource.match(/<option value="net_bridge">Net Bridge<\/option>/g) || []).length === 1
+      && !settingsSource.includes('<option value="net">Net Bridge</option>'),
+    'Settings does not expose exactly one unified Net Bridge setup choice',
+  )
+  for (const mode of ['DMR', 'YSF', 'P25', 'NXDN', 'M17']) {
+    assert(settingsSource.includes(`>${mode}`) || settingsSource.includes(`'${mode.toLowerCase()}'`), `Settings unified setup is missing ${mode}`)
+  }
+  assert(
+    settingsSource.includes('asrSettingsUnifiedNetBridgePanel')
+      && settingsSource.includes("'net-bridge-plan'")
+      && settingsSource.includes("'net-bridge-install'")
+      && !settingsSource.includes('m17.example.net'),
+    'Settings unified rendering/provisioning wiring is incomplete or retains the fake M17 host',
   )
 
   console.log('bridge dashboard self-test: ok')

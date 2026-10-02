@@ -8,20 +8,36 @@ queued.  Only the connector may publish ``linked`` after receiving MREFD ACKN.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import stat
+import sys
 import tempfile
 import time
 from typing import Any
 
 
-CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
+def provisioned_config_path() -> Path:
+    if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        return Path("/etc/allscan-reimagined/config.json")
+    source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
+    if not source.is_file():
+        source = Path("/usr/local/libexec/allscan-reimagined/asr-provisioning-backend.py")
+    spec = importlib.util.spec_from_file_location("asr_backend_m17_control", source)
+    if not spec or not spec.loader:
+        raise SystemExit("container provisioning backend unavailable")
+    module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    return module.map_path(Path("/"), "/etc/allscan-reimagined/config.json")
+
+CONFIG_PATH = provisioned_config_path()
 RUN_DIR = Path("/run/allscan-reimagined-m17")
-AUDIT_LOG = Path("/var/log/allscan-reimagined/m17-bridge-control.log")
+DATA_DIR = Path("/var/lib/allscan-reimagined/m17")
+HOST_CATALOG = DATA_DIR / "M17Hosts.json"
+AUDIT_LOG = Path("/var/log/allscan-reimagined/m17/m17-bridge-control.log")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
 REFLECTOR_RE = re.compile(r"^M17-[A-Z0-9]{3}$")
@@ -165,6 +181,10 @@ def _runtime_path(bridge_id: str, suffix: str, value: object) -> Path:
     return path
 
 
+def _selection_path(bridge_id: str) -> Path:
+    return DATA_DIR / f"{bridge_id}.destination.json"
+
+
 def _fixed_target(bridge: dict[str, Any]) -> dict[str, Any]:
     return validate_target(
         {
@@ -189,6 +209,9 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
     card_type = str(bridge.get("cardType", "standard"))
     if card_type not in {"standard", "m17_net"}:
         raise ControlError("Selected bridge is not an M17 Standard or Net Bridge.")
+    if (card_type == "m17_net" and "netBridgeMode" in config
+            and str(config.get("netBridgeMode", "")).lower() != "m17"):
+        raise ControlError("M17 is not the active Net Bridge mode.")
     local_node = str(config.get("node", "")).strip()
     bridge_node = str(bridge.get("node", "")).strip()
     if not NODE_RE.fullmatch(local_node) or not NODE_RE.fullmatch(bridge_node):
@@ -233,7 +256,9 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         other_id = str(other.get("id", ""))
         if other_id == bridge_id:
             raise ControlError("M17 bridge ID overlaps another bridge.")
-        if str(other.get("node", "")).strip() == bridge_node:
+        shared_unified_node = (card_type == "m17_net" and bridge_node == "1999"
+                               and other.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"})
+        if str(other.get("node", "")).strip() == bridge_node and not shared_unified_node:
             raise ControlError("M17 bridge node overlaps another configured bridge.")
         local_receive_ports = {m17_bind_port, usrp_rx_port}
         for field in ("m17BindPort", "m17UsrpRxPort"):
@@ -263,6 +288,7 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         "audioQualified": bridge.get("m17AudioQualified") is True,
         "statePath": _runtime_path(bridge_id, "state", bridge.get("m17StatePath")),
         "commandPath": _runtime_path(bridge_id, "command", bridge.get("m17CommandPath")),
+        "selectionPath": _selection_path(bridge_id),
         "fixedTarget": fixed_target,
         "approvedDestinations": approved,
     }
@@ -286,7 +312,53 @@ def bridge_config(
     return validate_bridge(matches[0], config)
 
 
-def approved_destination(bridge: dict[str, Any], reflector: object, module: object) -> dict[str, Any]:
+def catalog_destination(
+    reflector: str, module: str, path: Path = HOST_CATALOG, *, expected_uid: int = 0
+) -> dict[str, Any]:
+    try:
+        info = path.lstat()
+        if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o022
+                or info.st_size > 4 * 1024 * 1024):
+            raise ControlError("M17 reflector catalog is unsafe.")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except ControlError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ControlError("M17 reflector catalog is unavailable or invalid.") from exc
+    entries = payload.get("reflectors", []) if isinstance(payload, dict) else []
+    if not isinstance(entries, list) or len(entries) > 4096:
+        raise ControlError("M17 reflector catalog is invalid.")
+    matches = [entry for entry in entries if isinstance(entry, dict)
+               and str(entry.get("designator", "")).strip().upper() == reflector]
+    if len(matches) != 1:
+        raise ControlError("M17 reflector was not found in the installed catalog.")
+    entry = matches[0]
+    modules = entry.get("modules", [])
+    encrypted = entry.get("encrypted", [])
+    if (not isinstance(modules, list) or module not in {
+            validate_module(value) for value in modules}):
+        raise ControlError("M17 reflector does not advertise the requested module.")
+    if isinstance(encrypted, list) and module in {
+            validate_module(value) for value in encrypted}:
+        raise ControlError("Encrypted M17 modules are not supported.")
+    # The connector deliberately has an IPv4-only socket boundary.  Prefer the
+    # catalog's validated IPv4 address so operation does not depend on DNS being
+    # configured inside the Asterisk network namespace.
+    host = entry.get("ipv4") or entry.get("dns")
+    return {
+        "reflector": reflector,
+        "host": validate_host(host, "M17 catalog host"),
+        "port": validate_port(entry.get("port"), "M17 catalog port"),
+        "module": module,
+        "encrypted": False,
+    }
+
+
+def approved_destination(
+    bridge: dict[str, Any], reflector: object, module: object,
+    catalog_path: Path = HOST_CATALOG, *, expected_uid: int = 0,
+) -> dict[str, Any]:
     requested_key = (validate_reflector(reflector), validate_module(module))
     if bridge.get("cardType") != "m17_net":
         fixed = bridge.get("fixedTarget")
@@ -296,7 +368,46 @@ def approved_destination(bridge: dict[str, Any], reflector: object, module: obje
     for target in bridge.get("approvedDestinations", []):
         if target_key(target) == requested_key:
             return dict(target)
-    raise ControlError("M17 destination is not in this bridge's approved destination list.")
+    # Configured targets are local endpoint overrides (for example a private
+    # reflector on loopback), not an allowlist.  A different module on the same
+    # reflector uses that endpoint and is still confirmed or rejected by MREFD.
+    for target in bridge.get("approvedDestinations", []):
+        if target["reflector"] == requested_key[0]:
+            return {**target, "module": requested_key[1]}
+    return catalog_destination(
+        requested_key[0], requested_key[1], catalog_path, expected_uid=expected_uid
+    )
+
+
+def persist_destination(bridge: dict[str, Any], target: dict[str, Any]) -> None:
+    atomic_json(bridge["selectionPath"], {
+        "schema": 1,
+        "bridgeId": bridge["id"],
+        "target": validate_target(target),
+    }, 0o600)
+
+
+def saved_destination(
+    bridge: dict[str, Any], *, expected_uid: int = 0
+) -> dict[str, Any] | None:
+    path = bridge["selectionPath"]
+    if path.exists():
+        try:
+            info = path.lstat()
+            if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o077):
+                raise ControlError("Saved M17 destination is unsafe.")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except ControlError:
+            raise
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ControlError("Saved M17 destination is invalid.") from exc
+        if (not isinstance(payload, dict) or payload.get("schema") != 1
+                or payload.get("bridgeId") != bridge["id"]):
+            raise ControlError("Saved M17 destination is invalid.")
+        return validate_target(payload.get("target"), "Saved M17 destination")
+    targets = bridge.get("approvedDestinations", [])
+    return dict(targets[0]) if bridge.get("cardType") == "m17_net" and targets else None
 
 
 def encode_callsign(value: str) -> bytes:
@@ -376,8 +487,10 @@ def initial_link_state() -> dict[str, Any]:
         "requestEpoch": 0.0,
         "disconnectRequestEpoch": 0.0,
         "lastKeepaliveEpoch": 0.0,
+        "reflectorCallsign": "",
         "talker": "",
         "talkerAuthenticated": False,
+        "outboundActive": False,
         "talkerEpoch": 0.0,
         "streamId": 0,
         "lastError": "",
@@ -402,8 +515,10 @@ class M17LinkState:
             "requestEpoch": float(time.time() if now is None else now),
             "disconnectRequestEpoch": 0.0,
             "lastKeepaliveEpoch": 0.0,
+            "reflectorCallsign": "",
             "talker": "",
             "talkerAuthenticated": False,
+            "outboundActive": False,
             "streamId": 0,
             "lastError": "",
         })
@@ -419,6 +534,7 @@ class M17LinkState:
             "requestEpoch": 0.0,
             "disconnectRequestEpoch": 0.0,
             "lastKeepaliveEpoch": 0.0,
+            "reflectorCallsign": "",
             "talker": "",
             "talkerAuthenticated": False,
             "talkerEpoch": 0.0,
@@ -523,6 +639,8 @@ class M17LinkState:
         elif magic in {"PING", "PONG"}:
             if self.state["linkState"] == "linked":
                 self.state["lastKeepaliveEpoch"] = epoch
+                if magic == "PING" and event.get("callsign"):
+                    self.state["reflectorCallsign"] = str(event["callsign"])[:9]
             return "PONG" if magic == "PING" else None
         elif magic == "DISC":
             self.confirm_digital_disconnect("Reflector confirmed the digital disconnect.")
@@ -736,6 +854,9 @@ def read_public_status(bridge: dict[str, Any], now: float | None = None) -> dict
         "confirmedTarget": payload.get("confirmedTarget"),
         "talker": str(payload.get("talker", ""))[:9],
         "talkerAuthenticated": False,
+        "outboundActive": payload.get("outboundActive") is True,
+        "outboundActivityEpoch": payload.get("outboundActivityEpoch", 0),
+        "outboundStartEpoch": payload.get("outboundStartEpoch", 0),
         "lastKeepaliveEpoch": payload.get("lastKeepaliveEpoch", 0),
         "updatedEpoch": updated,
         "error": str(payload.get("lastError", ""))[:160],
@@ -775,6 +896,7 @@ def self_test() -> None:
         bridge = validate_bridge(raw_bridge, test_config)
         bridge["statePath"] = state_path
         bridge["commandPath"] = command_path
+        bridge["selectionPath"] = root / "selected.json"
         assert approved_destination(bridge, "m17-m17", "c") == target
         try:
             validate_ip("::1", "test bind address")
@@ -790,12 +912,29 @@ def self_test() -> None:
                 pass
             else:
                 raise AssertionError("unapproved permission was accepted")
-        try:
-            approved_destination(bridge, "M17-M17", "D")
-        except ControlError:
-            pass
-        else:
-            raise AssertionError("unapproved Net destination was accepted")
+        assert approved_destination(bridge, "M17-M17", "D")["module"] == "D"
+        catalog_path = root / "M17Hosts.json"
+        catalog_path.write_text(json.dumps({"reflectors": [{
+            "designator": "M17-TST", "dns": "test.m17.example", "ipv4": None,
+            "modules": ["A", "B"], "encrypted": [], "port": 17000,
+        }]}), encoding="utf-8")
+        catalog_path.chmod(0o644)
+        catalog_target = approved_destination(
+            bridge, "M17-TST", "B", catalog_path, expected_uid=os.geteuid()
+        )
+        assert catalog_target["host"] == "test.m17.example" and catalog_target["module"] == "B"
+        persist_destination(bridge, catalog_target)
+        assert saved_destination(bridge, expected_uid=os.geteuid()) == catalog_target
+        for bad_reflector, bad_module in (("M17-TOOLONG", "A"), ("M17-TST", "AA"), ("M17-TST", "C")):
+            try:
+                approved_destination(
+                    bridge, bad_reflector, bad_module, catalog_path,
+                    expected_uid=os.geteuid(),
+                )
+            except ControlError:
+                pass
+            else:
+                raise AssertionError("invalid or unavailable M17 destination was accepted")
         encrypted = dict(target, module="E", encrypted=True)
         candidate = dict(raw_bridge, approvedDestinations=[encrypted])
         try:
@@ -843,6 +982,7 @@ def self_test() -> None:
         assert machine.state["allstarLinked"] is True
         assert machine.state["confirmedTarget"] == target
         assert machine.handle_control(b"PING" + encoded, now=102.0) == "PONG"
+        assert machine.state["reflectorCallsign"] == "N0CALL"
         machine.note_stream("N0CALL", 42, False, now=103.0)
         assert machine.state["talker"] == "N0CALL"
         machine.note_stream("N0CALL", 42, True, now=104.0)
@@ -928,6 +1068,7 @@ def main() -> int:
             print(json.dumps(read_public_status(bridge), separators=(",", ":")))
         elif args.action == "connect":
             target = approved_destination(bridge, args.reflector, args.module)
+            persist_destination(bridge, target)
             queue_command(bridge, "connect", target, args.user)
             audit(bridge["id"], args.user, "connect", target, "queued", AUDIT_LOG)
             print(json.dumps({

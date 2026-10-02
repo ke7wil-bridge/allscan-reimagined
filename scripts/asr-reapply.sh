@@ -170,13 +170,6 @@ stage_asr_web() {
         cp -a "$ASR_WEB_DIR/$relative" "$stage/$relative"
       fi
     done
-    # Preserve administrator-supplied root-level image assets across reapplies.
-    # Release-owned files are allowed to replace same-named assets below.
-    while IFS= read -r -d '' custom_asset; do
-      cp -a -- "$custom_asset" "$stage/"
-    done < <(find "$ASR_WEB_DIR" -mindepth 1 -maxdepth 1 -type f \
-      \( -iname '*.png' -o -iname '*.gif' -o -iname '*.jpg' -o -iname '*.jpeg' \
-         -o -iname '*.webp' -o -iname '*.svg' \) -print0)
   fi
 
   cp -a "$MASTER_DIR/web/." "$stage/"
@@ -238,14 +231,14 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/l
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
 [ -f "$MASTER_DIR/scripts/asr-favorites-update.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-update.py" /usr/local/sbin/allscan-reimagined-favorites-update
-[ -f "$MASTER_DIR/scripts/asr-favorites-manager.py" ] && \
-  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-manager.py" /usr/local/sbin/allscan-reimagined-favorites-manager
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /usr/local/sbin/allscan-reimagined-tgif-user-session
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
+[ -f "$MASTER_DIR/scripts/asr-managed-dmr-net-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-managed-dmr-net-control.py" /usr/local/sbin/allscan-reimagined-managed-dmr-net-control
 [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ] && \
   install -o root -g root -m 644 "$MASTER_DIR/scripts/asr_bridge_status.py" /usr/local/sbin/asr_bridge_status.py
 [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ] && \
@@ -261,6 +254,35 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-bridge-control.py" /usr/local/sbin/allscan-reimagined-m17-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
+install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py asr-bridge-setup-dstar.py asr-bridge-setup-dstar-install.py; do
+  [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
+    install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
+done
+if [ -d "$MASTER_DIR/runtime/urf" ]; then
+  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
+  rm -rf /usr/local/share/allscan-reimagined/runtime/urf.new
+  cp -a "$MASTER_DIR/runtime/urf" /usr/local/share/allscan-reimagined/runtime/urf.new
+  chown -R root:root /usr/local/share/allscan-reimagined/runtime/urf.new
+  rm -rf /usr/local/share/allscan-reimagined/runtime/urf
+  mv /usr/local/share/allscan-reimagined/runtime/urf.new /usr/local/share/allscan-reimagined/runtime/urf
+fi
+if [ -d "$MASTER_DIR/runtime/zello" ]; then
+  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
+  rm -rf /usr/local/share/allscan-reimagined/runtime/zello.new
+  cp -a "$MASTER_DIR/runtime/zello" /usr/local/share/allscan-reimagined/runtime/zello.new
+  chown -R root:root /usr/local/share/allscan-reimagined/runtime/zello.new
+  rm -rf /usr/local/share/allscan-reimagined/runtime/zello
+  mv /usr/local/share/allscan-reimagined/runtime/zello.new /usr/local/share/allscan-reimagined/runtime/zello
+fi
+if [ -d "$MASTER_DIR/runtime/dstar" ]; then
+  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
+  rm -rf /usr/local/share/allscan-reimagined/runtime/dstar.new
+  cp -a "$MASTER_DIR/runtime/dstar" /usr/local/share/allscan-reimagined/runtime/dstar.new
+  chown -R root:root /usr/local/share/allscan-reimagined/runtime/dstar.new
+  rm -rf /usr/local/share/allscan-reimagined/runtime/dstar
+  mv /usr/local/share/allscan-reimagined/runtime/dstar.new /usr/local/share/allscan-reimagined/runtime/dstar
+fi
 [ -f "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
 [ -f "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" ] && \
@@ -277,8 +299,6 @@ install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-deletion-qu
 install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-creation-intents
 [ -f "$MASTER_DIR/scripts/asr-release-check.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-release-check.py" /usr/local/sbin/allscan-reimagined-release-check
-[ -f "$MASTER_DIR/scripts/asr-updater.py" ] && \
-  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-updater.py" /usr/local/sbin/allscan-reimagined-updater
 [ -f "$MASTER_DIR/scripts/asr-rollback.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback
 mkdir -p "$CONFIG_DIR"
@@ -298,7 +318,6 @@ cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
-d /run/allscan-reimagined/update-jobs 0750 root $WEB_GROUP -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
 d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
 d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
@@ -309,8 +328,6 @@ systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
 install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
-install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/update-jobs
-install -d -o root -g root -m 700 /var/lib/allscan-reimagined/update-jobs
 if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
   && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ]; then
   if ! /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile; then
@@ -550,7 +567,7 @@ if [ -x /usr/local/sbin/allscan-reimagined-m17-bridge-control ] \
       && /usr/local/sbin/allscan-reimagined-m17-usrp-connector --bridge "$bridge_id" --check >/dev/null; then
       systemctl enable --now "allscan-reimagined-m17-bridge@${bridge_id}.service" >/dev/null
     else
-      echo "M17 bridge $bridge_id is not qualified; its connector remains stopped." >&2
+      echo "M17 bridge $bridge_id failed managed connector validation; it remains stopped." >&2
     fi
   done < <(python3 - "$CONFIG_DIR/config.json" <<'PY'
 import json
@@ -567,7 +584,6 @@ for bridge in payload.get("bridges", []):
     if (
         bridge.get("mode") == "m17"
         and bridge.get("cardType") in {"standard", "m17_net"}
-        and bridge.get("m17AudioQualified") is True
         and re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id)
     ):
         print(bridge_id)
@@ -743,20 +759,6 @@ else
   rm -f /etc/systemd/system/allscan-reimagined-release-check.timer
   systemctl daemon-reload
 fi
-cat > /etc/systemd/system/allscan-reimagined-update@.service <<'EOF'
-[Unit]
-Description=Run queued AllScan Reimagined update
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-Group=root
-UMask=0077
-TimeoutStartSec=45min
-ExecStart=/usr/local/sbin/allscan-reimagined-updater run-job %i
-EOF
 cat > /etc/systemd/system/allscan-reimagined-rollback@.service <<'EOF'
 [Unit]
 Description=Run a queued AllScan Reimagined rollback
@@ -827,18 +829,6 @@ Unit=allscan-reimagined-bridge-clients.service
 [Install]
 WantedBy=timers.target
 EOF
-install -d -o root -g root -m 700 /var/lib/allscan-reimagined/tgif-users
-install -d -o root -g root -m 700 /var/lib/allscan-reimagined/tgif-users/tokens
-if [ -d /run/allscan-reimagined/tgif-users/tokens ]; then
-  for legacy_token in /run/allscan-reimagined/tgif-users/tokens/*.json; do
-    [ -f "$legacy_token" ] || continue
-    persistent_token="/var/lib/allscan-reimagined/tgif-users/tokens/$(basename "$legacy_token")"
-    if [ ! -e "$persistent_token" ]; then
-      install -o root -g root -m 600 "$legacy_token" "$persistent_token"
-    fi
-    rm -f -- "$legacy_token"
-  done
-fi
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service <<'EOF'
 [Unit]
 Description=Refresh per-user TGIF connected-client sessions
@@ -852,7 +842,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/run/allscan-reimagined /var/lib/allscan-reimagined/tgif-users
+ReadWritePaths=/run/allscan-reimagined
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'
@@ -978,9 +968,11 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-ses
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --connect [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --disconnect
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --connect [a-zA-Z0-9_-]* [0-9][0-9][0-9][0-9][0-9] --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-ysf-bridge-control --import-hosts [a-zA-Z0-9_-]*
@@ -992,15 +984,29 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-c
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* connect --reflector M17-[A-Z0-9]* --module [A-Z]
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* disconnect
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode dmr
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode ysf
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode p25
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode nxdn
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode m17
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py m17-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py m17-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py p25-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py p25-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py nxdn-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py nxdn-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py ysf-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py ysf-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dstar-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dstar-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --check-json
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --status-json [0-9]*
