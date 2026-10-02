@@ -83,9 +83,8 @@ export default function SupportAsrDialog({ onClose }: SupportAsrDialogProps) {
           </button>
         </header>
         <p id="asr-support-description">
-          AllScan Reimagined is developed and maintained as a community project. If you’ve found ASR useful
-          and would like to help support continued development, you can make an optional contribution through
-          PayPal.
+          AllScan Reimagined is independently developed and maintained. If you’ve found ASR useful and would
+          like to help support continued development, you can make an optional contribution through PayPal.
         </p>
         <p id="asr-support-optional">
           Contributions are completely optional and aren’t required to use any ASR features.

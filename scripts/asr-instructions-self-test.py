@@ -54,44 +54,21 @@ def main() -> int:
         "appearance-access",
         "bridge-cards",
         "bridge-setup",
-        "dmr-net-bridge",
-        "ysf-net-bridge",
-        "next-digital-bridges",
+        "net-bridge",
+        "standard-bridges",
         "lookup-map",
         "updates",
         "rollback",
         "diagnostics",
     }
     require(required_topics.issubset(section_ids), "one or more required help topics are missing")
-    require(
-        instructions.index("Green — Idle")
-        < instructions.index("Amber — Relay")
-        < instructions.index("Red — TX Active"),
-        "instructions status legend does not use the Green, Amber, Red order",
-    )
-    expected_status_colors = {
-        "is-idle": "#3a8c4a",
-        "is-relay": "#b38b24",
-        "is-source": "#d16a6a",
-    }
-    for status_class, color in expected_status_colors.items():
-        require(
-            re.search(
-                rf"\.asr-instructions-status-grid \.{status_class}\s*\{{[^}}]*"
-                rf"border-top-color:{re.escape(color)};",
-                admin_css,
-                re.DOTALL,
-            )
-            is not None,
-            f"instructions {status_class} color does not match the ASR legend",
-        )
 
     require(
         settings.count('name="maintainFriendlyNames"') == 1,
         "Friendly Names checkbox must appear exactly once",
     )
     bridge_start = settings.index('data-settings-section="bridges"')
-    bridge_end = settings.index("</fieldset>", bridge_start)
+    bridge_end = settings.index("</section>", bridge_start)
     friendly_position = settings.index('name="maintainFriendlyNames"')
     require(
         bridge_start < friendly_position < bridge_end,
@@ -155,14 +132,6 @@ def main() -> int:
         "bridge-specific service checks run only for bridge types present",
     ):
         require(requirement in instructions, f"root-first or no-bridge install help is missing: {requirement}")
-    for requirement in (
-        "Keep below Connection Status on this browser",
-        "remembers that choice in the current browser",
-        "anchored MMDVM network-watchdog event",
-        "verified unkeyed sample can clear a missing end event after a short grace period",
-        "does not hide a legitimate long transmission with a blind timeout",
-    ):
-        require(requirement in instructions, f"Beta 7.4 behavior help is missing: {requirement}")
     for requirement in (
         'name="announceStartupBridgeSummary"',
         'name="announceNoConnectedBridges"',
@@ -292,22 +261,16 @@ def main() -> int:
         ".asr-ysf-custom-reflectors",
     ):
         require(requirement in admin_css, f"bridge ordering styling is missing: {requirement}")
-    app_requirements = [
-        "Reflector name or ID",
-    ]
+    app_requirements = []
     if app_is_source:
         app_requirements.extend([
-            "approvedDestinations.map",
-            "approvedDestinationValues.has",
-            'placeholder=""',
-            '<option value=""></option>',
             "card.cardType === 'ysf_net'",
-            "card.cardType !== 'standard' && card.cardType !== 'dmr_net'",
-            "[card.id]: event.target.value",
+            "card.cardType === 'm17_net'",
+            'placeholder=""',
             "result.currentDestination",
         ])
     for requirement in app_requirements:
-        require(requirement in app, f"name-or-ID YSF reflector UI is missing: {requirement}")
+        require(requirement in app, f"digital Net Bridge destination UI is missing: {requirement}")
     for requirement in (
         "function asr_ysf_net_resolve_destination",
         "More than one reflector uses that name",
@@ -340,10 +303,9 @@ def main() -> int:
         "obsolete automatic YSF hostfile refresh wiring is still present",
     )
     for requirement in (
-        "Install a reflector list.",
-        "The list is a snapshot.",
-        "A rejected upload never erases the previous valid list.",
-        "YSF Plain Text",
+        "YSF Plain Text host list",
+        "The list is a snapshot",
+        "A rejected upload never erases the previous valid list",
     ):
         require(requirement in instructions, f"YSF reflector import help is missing: {requirement}")
     require(

@@ -19,13 +19,12 @@ pageInit();
 
 	<nav class="asr-instructions-jump" aria-label="Instruction topics">
 		<a href="#getting-started">Getting Started</a>
-		<a href="#dashboard-controls">Dashboard &amp; Favorites</a>
-		<a href="#appearance-access">Appearance &amp; Access</a>
-		<a href="#bridge-cards">Bridge Cards</a>
-		<a href="#bridge-setup">Bridge Setup</a>
-		<a href="#dmr-net-bridge">DMR Net Bridge</a>
-		<a href="#ysf-net-bridge">YSF Net Bridge</a>
-		<a href="#next-digital-bridges">P25, NXDN, and M17</a>
+		<a href="#dashboard-controls">Dashboard &amp; Controls</a>
+		<a href="#appearance-access">Settings &amp; Appearance</a>
+		<a href="#bridge-cards">Digital Bridge Status</a>
+		<a href="#bridge-setup">Bridge Setup Wizard</a>
+		<a href="#net-bridge">Unified Net Bridge</a>
+		<a href="#standard-bridges">Standard Digital Bridges</a>
 		<a href="#lookup-map">Lookup &amp; Map</a>
 		<a href="#updates">Update Notices</a>
 		<a href="#rollback">Rollback</a>
@@ -50,134 +49,80 @@ pageInit();
 	</section>
 
 	<section id="dashboard-controls" class="asr-instructions-section">
-		<h2>Dashboard, Node Controls &amp; Favorites</h2>
+		<h2>Dashboard, Talkers, Node Controls &amp; Favorites</h2>
 		<div class="asr-instructions-topic-grid">
-			<article>
-				<h3>Node Controls</h3>
-				<p>Enter an AllStar node number, then use Connect or Disconnect. Disconnect-before-Connect is remembered by that browser and device in both its checked and unchecked states.</p>
-			</article>
-			<article>
-				<h3>Connection Status</h3>
-				<p>Selecting a public connected node copies its number into Node Controls. Private bridge numbers from 1000 through 1999 stay protected from public-node lookup behavior.</p>
-			</article>
-			<article>
-				<h3>Favorites</h3>
-				<p>One click selects a Favorite and closes the menu. It does not connect automatically. Add and Delete Favorite remain separate actions, and double-click does not send a Connect command. When Favorites is expanded, <strong>Keep below Connection Status on this browser</strong> moves the panel below the full status table and remembers that choice in the current browser. Clear it to restore the normal position above Connection Status.</p>
-			</article>
-			<article>
-				<h3>Timers and Counts</h3>
-				<p>TX timers come from authoritative SawStat data. Connection totals combine direct and propagated links without double-counting visible direct nodes.</p>
-			</article>
+			<article><h3>Talker Cards</h3><p>The Talkers module shows Current Talker plus Last Talker 1–4. History headings include the local last-heard time in 24-hour HH:MM format. Duration stays at the bottom of each card. The Talkers checkbox shows or hides this module and that choice is remembered by the current browser.</p></article>
+			<article><h3>Node Controls</h3><p>Enter an AllStar node number and use Connect or Disconnect. <strong>Disc. before Connect</strong> is remembered by that browser. <strong>Permanent</strong> applies only to the current action and is not remembered. <strong>Commands</strong> opens configured custom DTMF commands; administrators can manage the command list there.</p></article>
+			<article><h3>Favorites</h3><p>The Favs checkbox opens the Favorites module and is remembered by the browser. One click selects a Favorite and copies its node into Node Controls; <strong>double-click connects once</strong>. Drag Favorites to reorder them, edit descriptions, and use the color control to set each Favorite's tab color. Status indicators show networking, recent TX, Rx Busy, and scanning state.</p></article>
+			<article><h3>Dashboard Layout</h3><p>Talkers, Node Controls, Favorites, Connection Status, and Digital Bridge Status can be reordered with their six-dot handles. Module order and open/closed UI preferences are browser-local, so changing browsers or devices can have a different layout.</p></article>
 		</div>
 	</section>
 
 	<section id="appearance-access" class="asr-instructions-section">
-		<h2>Appearance, Access &amp; Power Use</h2>
+		<h2>Settings, Appearance &amp; Access</h2>
+		<p>The current Settings interface is organized into <strong>My Account</strong>, <strong>Settings Home</strong>, <strong>Appearance &amp; Display</strong>, <strong>Bridges</strong>, <strong>Lookup &amp; Map</strong>, <strong>Access &amp; Administration</strong>, and <strong>System &amp; Recovery</strong>.</p>
 		<div class="asr-instructions-topic-grid">
-			<article>
-				<h3>Header</h3>
-				<p>The title can use <strong>{CALLSIGN}</strong> and <strong>{NODE}</strong>. The logo can use a local ASR path, an http/https URL, or an uploaded PNG, JPEG, or WebP image under 1 MB.</p>
-			</article>
-			<article>
-				<h3>Require Login</h3>
-				<p>When enabled, viewers must sign in before opening the ASR dashboard. Existing users and permissions are retained. Stock <strong>/allscan/</strong> has its own access setting.</p>
-			</article>
-			<article>
-				<h3>Low-Power Node Mode</h3>
-				<p>Use this on smaller nodes to reduce background work and disable animated themes. It does not change Asterisk or bridge audio settings.</p>
-			</article>
-			<article>
-				<h3>Themes and Logout</h3>
-				<p>In the desktop ST:ASL theme, open <strong>Admin</strong> and select <strong>Logout</strong>. Other themes and smaller screens keep Logout in the main Menu.</p>
-			</article>
+			<article><h3>Appearance &amp; Display</h3><p>Header title and logo, station display filters, and Display Performance live here. The title can use <strong>{CALLSIGN}</strong> and <strong>{NODE}</strong>. Low-Power Node Mode reduces background work and disables animated themes without changing Asterisk or bridge audio.</p></article>
+			<article><h3>Access &amp; Administration</h3><p>ASR and stock AllScan login requirements are controlled here. Administrator Tools links to Users, Advanced Configuration, and Performance Stats. Existing users and permissions are retained when access policy changes.</p></article>
+			<article><h3>Themes</h3><p>Theme selection is a browser preference rather than a node-level Settings value. Available Beta 8 themes include Dark Side, Bright Side, Deep Ocean, Matrix, and ST:ASL.</p></article>
+			<article><h3>Shared Menu</h3><p>The main menu provides Admin, Theme, Resources, Lookup, Support &amp; Feedback, and <strong>Donate to ASR</strong>. Donate to ASR is optional and opens the configured PayPal contribution link; it is separate from Support &amp; Feedback.</p></article>
 		</div>
 	</section>
 
 	<section id="bridge-cards" class="asr-instructions-section">
-		<h2>Bridge Cards</h2>
-		<p>Bridge Cards tell ASR which already-working bridges to display. A card does not install or configure the underlying digital bridge.</p>
+		<h2>Digital Bridge Status &amp; Bridge Cards</h2>
+		<p>Digital Bridge Status contains the configured bridge cards. Standard cards represent fixed or externally managed digital paths; the unified Net Bridge is the selectable outbound bridge. Cards use evidence-backed state and do not fabricate talkers, clients, or activity.</p>
 		<dl class="asr-instructions-definitions">
-			<div><dt>Digital Mode</dt><dd>Choose DMR, YSF, D-Star, Zello, P25, NXDN, or M17. The Card Title remains freely editable.</dd></div>
-			<div><dt>Card Type</dt><dd>Use Standard Bridge for a fixed path. Use Net Bridge only for a separately installed, isolated path whose destination may be changed.</dd></div>
-			<div><dt>Fixed Bridge Recovery</dt><dd>For a Standard Bridge that should always remain linked, enable automatic recovery. ASR checks that the configured bridge node is local, restores only a missing link, and stays out of the way when Asterisk already has a native permanent link. Net Bridges are excluded.</dd></div>
-			<div><dt>Node</dt><dd>The AllStar bridge node ASR matches against live connection status. This is not a DMR talkgroup.</dd></div>
-			<div><dt>Card Title</dt><dd>The heading displayed on the main ASR bridge card.</dd></div>
-			<div><dt>Detail Title</dt><dd>The label above the card’s client or activity details, usually Connected Clients.</dd></div>
-			<div><dt>Connection Status Name</dt><dd>The friendly label shown for the bridge node in Connection Status.</dd></div>
+			<div><dt>Talking</dt><dd>Shows the current inbound digital source when the bridge supplies fresh evidence. Relay means local AllStar audio is being sent outward through the bridge.</dd></div>
+			<div><dt>Last Talker</dt><dd>The most recent verified inbound talker for that bridge. Stale or fallback local identity is not treated as a remote talker.</dd></div>
+			<div><dt>Connected Clients</dt><dd>Shows real remote clients only when that bridge provides a supported roster. Local loopback plumbing is not counted as a public client.</dd></div>
+			<div><dt>Recent Activity</dt><dd>Recent evidence-backed bridge activity. Missing data remains empty rather than being invented.</dd></div>
+			<div><dt>Fixed Bridge Recovery</dt><dd>A Standard Bridge can optionally restore a missing local fixed link. If Asterisk already maintains a native permanent link, ASR stays out of the way. Net Bridges are excluded.</dd></div>
 		</dl>
-		<p><strong>Maintain bridge friendly names</strong> keeps the configured Connection Status names in place across updates, restarts, and reboots.</p>
-		<p><strong>Startup bridge summary</strong> is optional. At startup it waits for Asterisk and fixed-link recovery, then announces only configured Standard bridges that are actually established. It never announces Net Bridges, display-only cards, destinations, ports, credentials, or arbitrary remote nodes.</p>
-		<p><strong>Connected Client Source</strong> should stay Disabled unless the bridge supplies a real client list. Local JSON / file accepts a readable local JSON source. HTTP API accepts a JSON status endpoint. ASR caches the result so every browser does not repeatedly contact the bridge.</p>
-		<p><strong>DMR and YSF Talking status</strong> follows real bridge evidence. A matching end-of-transmission or anchored MMDVM network-watchdog event ends the source. When fresh Asterisk keyed telemetry is explicitly available, a verified unkeyed sample can clear a missing end event after a short grace period. Keyed, unknown, or unavailable telemetry is preserved, and ASR does not hide a legitimate long transmission with a blind timeout.</p>
-		<p><strong>D-Star is Standard-only.</strong> Its card reads the managed runtime heartbeat, gateway link log, MMDVM activity, and fresh local reflector snapshot. It uses that evidence for health while keeping the card compact with Talking, Last Talker, Connected Clients, and Recent Activity; missing or stale evidence is never fabricated as current state. The D-Star card has no destination controls.</p>
-		<p><strong>Deleting a card:</strong> ASR shows both what it will remove and what it will not touch. Only a managed bridge created by ASR with an intact bridge-specific ownership manifest can have its dedicated resources retired. Without that proof, deleting the card removes ASR metadata only and leaves manual or pre-existing services, Asterisk configuration, files, firewall rules, ports, packages, and shared components untouched.</p>
+		<p><strong>Maintain bridge friendly names</strong> preserves configured Connection Status labels across updates and restarts. Startup bridge summary is optional and announces only configured Standard bridges that are actually established.</p>
+		<p><strong>D-Star is Standard-only.</strong> Its card uses managed heartbeat, gateway/link, MMDVM activity, and local reflector evidence. The fallback local INI callsign is not a remote talker and does not create talker history.</p>
+		<p><strong>Deleting a card:</strong> ASR removes managed bridge resources only when bridge-specific ownership is proven. Otherwise it removes ASR metadata and leaves pre-existing services, Asterisk configuration, files, ports, packages, and shared components untouched.</p>
 	</section>
 
 	<section id="bridge-setup" class="asr-instructions-section">
-		<h2>Bridge Setup and Safety</h2>
+		<h2>Bridge Setup Wizard &amp; Safety</h2>
+		<p>Open <strong>Settings → Bridges → + Add Bridge</strong>. The wizard supports Net Bridge, M17, P25, NXDN, YSF, DMR, D-Star, and Zello. It detects the ASL3 system, validates the plan, previews what will change, installs/configures supported managed resources, and performs health checks before the bridge is treated as ready.</p>
 		<ul class="asr-instructions-list">
-			<li>Install and test the bridge software, private AllStar node, services, ports, IDs, credentials, and network forwarding before adding its ASR card.</li>
-			<li>Do not share USRP, TLV, DMR-network, or vocoder ports between active bridge instances.</li>
-			<li>ASR shows real bridge-client identities only when the bridge provides real data. It does not invent Zello or other client names from local metadata.</li>
-			<li>Local loopback bridge plumbing is not a public connected client.</li>
-			<li>Use Bridge Diagnostics after saving to confirm paths, services, and optional client sources without displaying passwords or tokens.</li>
-			<li>ASR never adopts a pre-existing bridge resource merely because its path, unit name, node, or port matches. Bridge ownership is recorded only when ASR creates a new dedicated resource.</li>
+			<li>Use the unified <strong>Net Bridge</strong> choice for the Beta 8 outbound multi-mode bridge. Its private AllStar transport node is managed internally rather than chosen during normal operation.</li>
+			<li>Standard bridges normally stay on one destination. Display-only cards monitor externally installed services without operating them.</li>
+			<li>Do not share USRP, TLV, DMR-network, MQTT, emulator, or vocoder ports between active bridge instances.</li>
+			<li>ASR never adopts a pre-existing bridge resource merely because a path, unit name, node, or port matches. Ownership is recorded only when ASR creates a dedicated managed resource.</li>
+			<li>Use Bridge Diagnostics after saving to verify configuration, services, paths, and optional client sources without displaying credentials.</li>
 		</ul>
 	</section>
 
-	<section id="dmr-net-bridge" class="asr-instructions-section">
-		<h2>DMR Net Bridge</h2>
-		<p>A DMR Net Bridge is a second, selectable DMR path for scheduled or outside nets. It does not replace the fixed DMR Home Bridge.</p>
+	<section id="net-bridge" class="asr-instructions-section">
+		<h2>Unified Net Bridge</h2>
+		<p>Beta 8 uses one general-purpose Net Bridge on the private AllStar transport node <strong>1999</strong>. It is separate from fixed/home reflector infrastructure. Only one Net Bridge mode is active at a time, and each mode keeps its own last-used destination so switching modes does not overwrite another mode's destination.</p>
 		<div class="asr-instructions-compare">
-			<article>
-				<h3>DMR Home Bridge</h3>
-				<p>Stays on the network’s normal home talkgroup so regular DMR users remain connected throughout the day.</p>
-			</article>
-			<article>
-				<h3>DMR Net Bridge</h3>
-				<p>Temporarily connects the AllStar network to another talkgroup for a net, then disconnects when the net is finished.</p>
-			</article>
+			<article><h3>Supported Modes</h3><p><strong>DMR</strong> uses a talkgroup. <strong>YSF</strong> uses a reflector. <strong>P25</strong> and <strong>NXDN</strong> use numeric destinations. <strong>M17</strong> uses a reflector and module.</p></article>
+			<article><h3>Mode Switching</h3><p>Selecting a mode safely stops the previous backend, reconfigures node 1999 for the selected mode, starts the selected backend, restores that mode's destination, and verifies readiness. If a switch fails, ASR rolls back or leaves the Net Bridge safely disconnected.</p></article>
 		</div>
 		<ol class="asr-instructions-steps">
-			<li><strong>Enter the talkgroup.</strong> Use digits only.</li>
-			<li><strong>Select Connect.</strong> ASR selects that talkgroup on the dedicated DMR bridge and links its private AllStar bridge node to the main node.</li>
-			<li><strong>Confirm the result.</strong> Current TG shows the talkgroup and the DMR Net Bridge appears in Connection Status.</li>
-			<li><strong>Select Disconnect when finished.</strong> ASR disconnects the DMR network path, unlinks the private bridge node, clears the talkgroup box, and removes the bridge from Connection Status.</li>
+			<li>Select DMR, YSF, P25, NXDN, or M17 on the Net Bridge card.</li>
+			<li>Enter the destination required by that mode. DMR accepts a valid talkgroup; YSF accepts a valid reflector; P25/NXDN accept their destination; M17 uses reflector plus module.</li>
+			<li>Select Connect and wait for bridge-side and AllStar-side evidence. Command acceptance alone is not proof of a completed connection.</li>
+			<li>Use Disconnect when finished. Changing digital destination and linking ordinary AllStar nodes are separate operations.</li>
 		</ol>
-		<div class="asr-instructions-status-grid">
-			<article class="is-idle"><h3>Green — Idle</h3><p>No audio is passing. Talking displays <strong>-</strong>.</p></article>
-			<article class="is-relay"><h3>Amber — Relay</h3><p>AllStar audio is going out through the DMR bridge. Talking displays <strong>-</strong> because the card is relaying another source.</p></article>
-			<article class="is-source"><h3>Red — TX Active</h3><p>A DMR user is transmitting into AllStar. Talking shows the callsign when the bridge provides it.</p></article>
-		</div>
-		<p class="asr-instructions-callout"><strong>Important:</strong> Talkgroup changes affect everyone using the DMR Net Bridge. AllStar node linking and DMR talkgroup selection are separate controls.</p>
+		<p class="asr-instructions-callout"><strong>Loop safety:</strong> Do not point the Net Bridge at the same destination already carried by a fixed bridge on the node. That can create an audio feedback loop.</p>
 	</section>
 
-	<section id="ysf-net-bridge" class="asr-instructions-section">
-		<h2>YSF Net Bridge</h2>
-		<p>A YSF Net Bridge is a separate selectable YSF path. It never replaces or retunes the fixed/home YSF Bridge.</p>
-		<ol class="asr-instructions-steps">
-			<li><strong>Install a reflector list.</strong> Open <a href="https://hostfiles.refcheck.radio/" target="_blank" rel="noopener noreferrer">RefCheck Hostfiles</a>, complete its access form, choose <strong>YSF Plain Text</strong>, and download YSFHosts.txt. In Settings, open the saved YSF Net Bridge card and import that file. ASR validates the complete file before replacing an existing valid list.</li>
-			<li><strong>Keep the list current.</strong> The list is a snapshot. If a newly registered reflector cannot be found, download a current YSF Plain Text file and import it again. Settings shows the current valid-reflector count and list date.</li>
-			<li><strong>No list means no destination controls.</strong> ASR keeps Connect unavailable until a valid reflector list exists. A rejected upload never erases the previous valid list.</li>
-			<li><strong>Enter a reflector.</strong> Type its exact name, such as <code>US-CUSTOM-TEST</code>, or its five-digit ID. The dashboard does not show or search a dropdown list.</li>
-			<li><strong>Add an unlisted reflector once.</strong> In Settings, enter its name, five-digit ID, hostname or IP, and UDP port. ASR combines it with the imported list in a separate root-owned catalog.</li>
-			<li><strong>Select Connect.</strong> ASR sends the destination to the dedicated YSFGateway and waits for the Gateway log to confirm the exact link before linking the bridge’s private AllStar node.</li>
-			<li><strong>Confirm the result.</strong> The card shows the current reflector from the cached watcher after refresh. Source/TX, Relay, caller, warning, and error information appears only when the dedicated logs provide real evidence.</li>
-			<li><strong>Select Disconnect when finished.</strong> ASR attempts both the YSF unlink and local AllStar unlink and reports a partial failure rather than claiming success.</li>
-		</ol>
-		<p class="asr-instructions-callout"><strong>Isolation required:</strong> The YSF Net Bridge needs its own AllStar node, YSFGateway, MMDVM Bridge, Analog Bridge, emulator, configuration files, ports, logs, and RemoteCommand path. ASR does not install or remove that external bridge stack. When custom reflectors are configured, ASR points only the dedicated YSFGateway at its separate merged catalog and safely reloads that Gateway when the imported or custom catalog changes.</p>
-	</section>
-
-	<section id="next-digital-bridges" class="asr-instructions-section">
-		<h2>P25, NXDN, and M17 Bridges</h2>
-		<p>Each supported mode can use a Standard Bridge card or an isolated Net Bridge card. P25 and NXDN use numeric destination designators. M17 uses an unencrypted reflector and module through a qualified Codec2/USRP audio path.</p>
-		<ol class="asr-instructions-steps">
-			<li><strong>Install and isolate the bridge first.</strong> Every card needs its own local node, configuration, services, ports, and runtime identity. P25/NXDN also require authenticated local MQTT, per-instance topic permissions, and root-only ASR controller credentials. ASR does not create the external gateway stack or display those credentials.</li>
-			<li><strong>Confirm permission.</strong> Choose Self-owned target or Target owner approved. Being listed in a public directory is not permission to cross-mode bridge a destination.</li>
-			<li><strong>Use only permitted destinations.</strong> DMR talkgroups and YSF reflector names or IDs are entered manually; the selected permission confirms that every destination entered is authorized. P25, NXDN, and M17 remain limited to saved approved destinations. ASR still blocks invalid, reserved, encrypted, duplicate, or conflicting destinations.</li>
-			<li><strong>Verify real state.</strong> Gateway command acceptance is not proof that a remote reflector is reachable. A card must not report fully linked until both digital-side evidence and the AllStar link agree.</li>
-		</ol>
-		<p class="asr-instructions-callout"><strong>Compatibility:</strong> P25, NXDN, and M17 are not categorically incompatible with the other ASR modes. The deciding factors are target-owner policy, isolated resources, and loop-free topology. If a target forbids cross-mode or external bridges, ASR must not connect it.</p>
+	<section id="standard-bridges" class="asr-instructions-section">
+		<h2>Standard Digital Bridges</h2>
+		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, D-Star, Zello, and the shared URF reflector can be represented when their backend is installed and provides the required evidence.</p>
+		<ul class="asr-instructions-list">
+			<li><strong>URF:</strong> one shared reflector transport can expose separate DMR, YSF, P25, NXDN, and M17 mode cards. Configure only the modes actually used.</li>
+			<li><strong>DMR/TGIF:</strong> TGIF website session authentication and the DMR network connection are separate. Secured DMR uses the configured hotspot key; legacy operation can use the DMR identity without a personal key.</li>
+			<li><strong>YSF:</strong> tunable YSF paths can import a YSF Plain Text host list. The list is a snapshot; re-import it when a newly registered reflector is missing. A rejected upload never erases the previous valid list.</li>
+			<li><strong>P25/NXDN/M17:</strong> use isolated resources and valid destinations. M17 requires its reflector/module and a qualified Codec2/USRP audio path.</li>
+			<li><strong>D-Star:</strong> reflector configuration remains in the installed D-Star gateway; ASR displays evidence-backed status and has no D-Star destination control.</li>
+			<li><strong>Zello:</strong> account/sign-in management remains outside ASR. ASR displays current/recent talker information only when the external bridge exposes it.</li>
+		</ul>
 	</section>
 
 	<section id="lookup-map" class="asr-instructions-section">
@@ -204,7 +149,7 @@ pageInit();
 
 	<section id="rollback" class="asr-instructions-section">
 		<h2>Rolling Back ASR</h2>
-		<p>Open <strong>Admin → Settings → System &amp; Recovery</strong>. Rollback can offer up to the five newest valid previous ASR versions.</p>
+		<p>Open <strong>Admin → Settings</strong>, then choose <strong>System &amp; Recovery</strong>. Rollback can offer up to the five newest valid previous ASR versions.</p>
 		<ol class="asr-instructions-steps">
 			<li>Select the previous version.</li>
 			<li>Select <strong>Roll Back to Selected Version</strong>.</li>
@@ -222,10 +167,10 @@ pageInit();
 			<li><strong>Hard refresh:</strong> Use Ctrl+Shift+R on Windows/Linux or Command+Shift+R on Mac. On a phone, close the ASR tab and reopen it.</li>
 			<li><strong>Bridge Diagnostics:</strong> Check card configuration, services, paths, and client sources without revealing credentials.</li>
 			<li><strong>Performance Stats:</strong> Review browser-feed and server-cache performance when status is slow.</li>
-			<li><strong>Support &amp; Feedback:</strong> Report a bug, ask a question, or suggest a feature from the Admin menu. Review the public issue text and any screenshots before submitting.</li>
+			<li><strong>Support &amp; Feedback:</strong> Report a bug, ask a question, or suggest a feature from the main menu. Review the public issue text and any screenshots before submitting.</li>
 			<li>If DMR audio is distorted, confirm the net bridge has its own vocoder and that its gains match the known-good DMR bridge.</li>
 			<li>If TX Active never appears, confirm the dedicated bridge log is current and readable.</li>
 		</ul>
 	</section>
 </main>
-<?php pageEnd(); ?>
+<?php asExit(); ?>
