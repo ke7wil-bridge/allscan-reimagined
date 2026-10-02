@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, Rot
 import { headerStats } from './mockData'
 import UpdateAsrDialog from './components/UpdateAsrDialog'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
+import SupportAsrDialog from './components/SupportAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
@@ -591,6 +592,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const [supportFeedbackOpen, setSupportFeedbackOpen] = useState(false)
+  const [donateAsrOpen, setDonateAsrOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const nodeInputRef = useRef<HTMLInputElement>(null)
@@ -2597,6 +2599,14 @@ function App({ config }: { config: RuntimeConfig }) {
                   >
                     <span>Support &amp; Feedback</span>
                   </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="allscan-menu-proxy-row allscan-menu-support-row"
+                    onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setDonateAsrOpen(true) }}
+                  >
+                    <span>Donate to ASR</span>
+                  </button>
                   {authStatus.loggedIn ? (
                     <button
                       type="button"
@@ -3590,6 +3600,7 @@ function App({ config }: { config: RuntimeConfig }) {
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
       {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
+      {donateAsrOpen ? <SupportAsrDialog onClose={() => setDonateAsrOpen(false)} /> : null}
     </div>
   )
 }
