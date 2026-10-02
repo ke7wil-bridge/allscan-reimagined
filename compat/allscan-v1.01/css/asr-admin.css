@@ -816,6 +816,33 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	gap:14px;
 }
 
+.asr-unified-net-bridge-settings {
+	border: 1px solid var(--asr-border-color, #526170);
+	border-radius: 8px;
+	padding: 1rem;
+}
+.asr-unified-net-bridge-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	align-items: baseline;
+}
+.asr-unified-net-bridge-header strong { font-size: 1.15rem; }
+.asr-net-mode-settings { margin-top: .65rem; }
+.asr-net-mode-settings > summary { cursor: pointer; font-weight: 700; }
+.asr-net-mode-settings-row .asr-card-basics-section,
+.asr-net-mode-settings-row .asr-backend-choice-section,
+.asr-net-mode-settings-row .asr-backend-readiness-section,
+.asr-net-mode-settings-row .asr-connected-client-settings { display: none; }
+.asr-net-bridge-setup-fields {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	gap: .75rem;
+}
+.asr-net-bridge-setup-fields[hidden] { display: none; }
+.asr-net-bridge-setup-fields > p { grid-column: 1 / -1; margin: 0; }
+
 .asr-bridge-settings-row {
 	display:grid;
 	gap:12px;
@@ -829,13 +856,15 @@ body.asr-admin-page-users h3 + ul.left.w600 li + li {
 	gap:0;
 }
 
-.asr-bridge-settings-row label {
+.asr-bridge-settings-row label,
+.asr-net-mode-settings-row label {
 	display:grid;
 	gap:4px;
 	margin:0;
 }
 
-.asr-bridge-settings-row label span {
+.asr-bridge-settings-row label span,
+.asr-net-mode-settings-row label span {
 	display:block;
 	color:#55c7ff;
 	font-size:13px;
@@ -1755,7 +1784,8 @@ body.asr-admin-page-performance .asr-admin-header {
 }
 
 .asr-bridge-panel-actions button,
-.asr-add-bridge-button {
+.asr-add-bridge-button,
+.asr-setup-bridge-button {
 	min-height:32px;
 	border:1px solid rgba(255,255,255,0.24);
 	border-radius:6px;
@@ -1794,12 +1824,35 @@ body.asr-admin-page-performance .asr-admin-header {
 	transition:transform 120ms ease;
 }
 
-.asr-add-bridge-button {
+.asr-add-bridge-button,
+.asr-setup-bridge-button {
 	margin-top:10px;
 	padding:7px 12px;
 }
 
-.asr-add-bridge-button:disabled {
+.asr-bridge-setup-panel {
+	margin-top:12px;
+	padding:12px;
+	border:1px solid rgba(255,255,255,0.18);
+	border-radius:8px;
+	background:#17191e;
+	color:#eaf4f8;
+}
+
+.asr-bridge-setup-panel pre {
+	max-height:260px;
+	overflow:auto;
+	margin:10px 0 0;
+	padding:10px;
+	border-radius:6px;
+	background:#0f1115;
+	color:#eaf4f8;
+	white-space:pre-wrap;
+	word-break:break-word;
+}
+
+.asr-add-bridge-button:disabled,
+.asr-setup-bridge-button:disabled {
 	cursor:not-allowed;
 	opacity:0.55;
 }
@@ -1961,34 +2014,6 @@ h5 {
 	font-weight:900;
 	line-height:1.2;
 	cursor:pointer;
-}
-
-.asr-update-recovery-tools {
-	display:flex;
-	align-items:center;
-	gap:10px;
-	flex-wrap:wrap;
-	margin-top:10px;
-}
-
-.asr-update-recovery-button {
-	min-height:34px;
-	padding:6px 10px;
-	border:1px solid rgba(255,255,255,0.22);
-	border-radius:6px;
-	background:#292b2e;
-	color:#e6e9ec;
-	font-size:12px;
-	font-weight:700;
-	cursor:pointer;
-}
-
-.asr-update-recovery-button:hover,
-.asr-update-recovery-button:focus-visible {
-	border-color:rgba(255,255,255,0.42);
-	background:#34373b;
-	outline:2px solid rgba(255,255,255,0.18);
-	outline-offset:2px;
 }
 
 .asr-rollback-button:hover,
@@ -4051,85 +4076,41 @@ body.asr-rollback-dialog-open {
 .asr-tgif-card-status{margin:10px 0;padding:10px 12px;border:1px solid currentColor;border-radius:8px;font-weight:600}.asr-tgif-card-status.is-error{font-weight:700}.asr-tgif-card-fields{margin-top:10px}.asr-tgif-card-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}.asr-tgif-card-actions button{min-height:40px;padding:8px 14px}
 .asr-tgif-captcha{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-top:10px}.asr-tgif-captcha[hidden]{display:none}.asr-tgif-captcha img{max-width:260px;height:auto;border-radius:6px}.asr-tgif-captcha label{min-width:180px;flex:1}
 
-/* Structured editor for legacy Custom Cmd Buttons configuration. */
-.asr-cmd-config-editor {
-	display:grid;
-	gap:10px;
-	width:min(680px, 100%);
-	margin:4px auto;
-	text-align:left;
+/* Bridge Setup Wizard: content-sized fields on roomy screens. */
+.asr-bridge-setup-panel .asr-bridge-fields-grid {
+	grid-template-columns:repeat(12, minmax(0, 1fr));
+	align-items:start;
 }
-.asr-cmd-config-help {
-	margin:0;
-	color:rgba(234,244,248,.76);
-	font-size:13px;
-}
-.asr-cmd-config-rows {
-	display:grid;
-	gap:7px;
-}
-.asr-cmd-config-row {
-	display:grid;
-	grid-template-columns:minmax(150px,1fr) minmax(100px,.55fr) auto;
-	gap:7px;
-	align-items:center;
-}
-.asr-cmd-config-row input {
-	box-sizing:border-box;
-	width:100%;
-}
-.asr-cmd-config-row-actions {
-	display:flex;
-	gap:4px;
-}
-.asr-cmd-config-row-actions button,
-.asr-cmd-config-add {
-	min-height:32px;
-	padding:4px 8px;
-}
-.asr-cmd-config-delete {
-	color:#ff8a8a;
-}
-.asr-cmd-config-toggle {
-	display:inline-flex;
-	align-items:center;
-	gap:7px;
-	min-height:34px;
-}
-@media (max-width: 640px) {
-	.asr-cmd-config-row {
-		grid-template-columns:1fr;
-	}
-	.asr-cmd-config-row-actions {
-		justify-content:flex-end;
-	}
+.asr-bridge-setup-panel .asr-setup-field { grid-column:span 4; min-width:0; }
+.asr-bridge-setup-panel .asr-setup-field-short { grid-column:span 3; }
+.asr-bridge-setup-panel .asr-setup-field-medium { grid-column:span 4; }
+.asr-bridge-setup-panel .asr-setup-field-wide { grid-column:span 6; }
+.asr-bridge-setup-panel .asr-setup-field-credential { grid-column:span 6; }
+.asr-bridge-setup-panel textarea { width:100%; }
+@media (max-width:700px) {
+	.asr-bridge-setup-panel .asr-bridge-fields-grid { grid-template-columns:1fr; }
+	.asr-bridge-setup-panel .asr-setup-field,
+	.asr-bridge-setup-panel .asr-setup-field-short,
+	.asr-bridge-setup-panel .asr-setup-field-medium,
+	.asr-bridge-setup-panel .asr-setup-field-wide,
+	.asr-bridge-setup-panel .asr-setup-field-credential { grid-column:1; }
 }
 
-/* Safe Supermon merge inside Manage Favorites. */
-.asr-supermon-import {
-	display:grid;
-	gap:8px;
-	margin:8px auto 20px;
-	padding:12px;
-	border:1px solid rgba(148,190,212,.28);
-	border-radius:8px;
-	background:rgba(255,255,255,.035);
-	text-align:left;
+.asr-install-warning { color:#ff5c5c; font-weight:800; }
+[data-bridge-setup-output] { white-space:pre-wrap; font-family:monospace; }
+
+/* Keep Bridge Setup progress/results visually separate from the form. */
+.asr-bridge-setup-panel [data-bridge-setup-output] {
+	display:block;
+	box-sizing:border-box;
+	width:100%;
+	margin-top:12px;
+	padding:12px 14px;
+	border:1px solid rgba(255,255,255,.18);
+	border-radius:7px;
+	background:rgba(0,0,0,.18);
+	white-space:pre-wrap;
+	font-family:monospace;
+	line-height:1.4;
 }
-.asr-supermon-import h2,
-.asr-supermon-import p { margin:0; }
-.asr-supermon-import-controls {
-	display:flex;
-	align-items:end;
-	gap:8px;
-	flex-wrap:wrap;
-}
-.asr-supermon-import-controls label {
-	display:grid;
-	gap:4px;
-	min-width:210px;
-	flex:1;
-}
-.asr-supermon-import-controls select,
-.asr-supermon-import-controls button { min-height:36px; }
-.asr-supermon-import-status { min-height:18px; }
+.asr-bridge-setup-panel [data-bridge-setup-output][hidden] { display:none; }

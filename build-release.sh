@@ -28,7 +28,10 @@ allscan-v1.01/echolink-lookup/index.php
 allscan-v1.01/include/CfgModel.php
 allscan-v1.01/include/UserModel.php
 allscan-v1.01/include/asrBridgeStatus.php
+allscan-v1.01/include/asrCpuTemperature.php
 allscan-v1.01/include/asrFavorites.php
+allscan-v1.01/include/asrLinkState.php
+allscan-v1.01/include/asrPerformanceContract.php
 allscan-v1.01/include/asrRuntime.php
 allscan-v1.01/include/common.php
 allscan-v1.01/include/dbUtils.php
@@ -89,6 +92,7 @@ python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
+python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
@@ -162,6 +166,16 @@ install -m 755 scripts/asr-release-check.py "$STAGE/payload/scripts/asr-release-
 install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
+install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py asr-bridge-setup-dstar.py asr-bridge-setup-dstar-install.py; do
+  install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
+done
+for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
+  install -m 755 "scripts/$container_script" "$STAGE/payload/scripts/$container_script"
+done
+install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"
+mkdir -p "$STAGE/payload/runtime"
+cp -a runtime/urf "$STAGE/payload/runtime/urf"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
 install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
@@ -221,6 +235,9 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/server.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/astapi/asrEchoLink.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.01/include/asrBridgeStatus.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrCpuTemperature.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrLinkState.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.01/include/asrPerformanceContract.php" >/dev/null
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
@@ -231,6 +248,7 @@ python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
+find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$STAGE" 2>/dev/null || true
 fi

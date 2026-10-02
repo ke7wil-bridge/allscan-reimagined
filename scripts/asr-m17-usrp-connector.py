@@ -9,6 +9,7 @@ all pass.  Link state is confirmed only by a reflector ACKN and keepalives.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import ctypes
 import ctypes.util
 import importlib.util
@@ -42,6 +43,7 @@ USRP_TYPE_VOICE = 0
 M17_MAGIC = b"M17 "
 M17_STREAM_SIZE = 54
 M17_PAYLOAD_SIZE = 16
+M17_BROADCAST_ADDRESS = bytes([0xFF]) * 6
 M17_VOICE_TYPE = 0x0005  # legacy Stream + Codec2 3200 + no encryption
 M17_CRC_POLY = 0x5935
 M17_CRC_INITIAL = 0xFFFF
@@ -49,7 +51,11 @@ STATE_WRITE_INTERVAL = 1.0
 COMMAND_MAX_AGE = 300
 STANDARD_RECONNECT_DELAY = 5.0
 INBOUND_STREAM_TIMEOUT = 2.0
-ASTERISK_BIN = Path("/usr/sbin/asterisk")
+ASTERISK_BIN = Path(
+    "/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk"
+    if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")
+    else "/usr/sbin/asterisk"
+)
 ASTERISK_TIMEOUT = 8.0
 ALLSTAR_CONFIRM_ATTEMPTS = 40
 ALLSTAR_CONFIRM_INTERVAL = 0.25
@@ -68,6 +74,12 @@ Runner = Callable[[list[str], float], subprocess.CompletedProcess[str]]
 
 def default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
     try:
+        profile_path = os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE", "")
+        if profile_path and argv and Path(argv[0]).name == "asterisk":
+            if profile_path != "/etc/allscan-reimagined/container-provisioning.json":
+                raise ConnectorError("container provisioning profile is invalid")
+            argv = ["/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk",
+                    *argv[1:]]
         return subprocess.run(
             argv, capture_output=True, text=True, timeout=timeout, check=False
         )
@@ -234,7 +246,15 @@ def parse_m17_stream(control: ModuleType, packet: bytes) -> dict[str, Any]:
     frame_number = struct.unpack(">H", packet[34:36])[0]
     return {
         "streamId": struct.unpack(">H", packet[4:6])[0],
-        "destination": control.decode_callsign(packet[6:12]),
+        # @ALL is the protocol's reserved broadcast destination and is
+        # represented by six 0xff octets rather than a base-40 callsign.
+        # Keep source decoding strict; only this destination sentinel is
+        # permitted outside the normal encoded-callsign range.
+        "destination": (
+            "@ALL"
+            if packet[6:12] == M17_BROADCAST_ADDRESS
+            else control.decode_callsign(packet[6:12])
+        ),
         "source": control.decode_callsign(packet[12:18]),
         "frameType": frame_type,
         "metadata": packet[20:34],
@@ -402,7 +422,10 @@ class AudioBridgeCore:
         packet = build_m17_stream(
             self.control,
             self.outbound_stream_id,
-            reflector_destination(target["reflector"], target["module"]),
+            reflector_destination(
+                str(self.link.state.get("reflectorCallsign") or target["reflector"]),
+                target["module"],
+            ),
             self.bridge["callsign"],
             self.outbound_frame_number,
             payload,
@@ -507,6 +530,45 @@ class ConnectorRuntime:
         self.next_reconnect_epoch = 0.0
         self.disconnect_context = ""
         self.failed_connect_error = ""
+        self.pending_connect_target: dict[str, Any] | None = None
+        self.packet_counters = {
+            "usrpPacketsReceived": 0,
+            "usrpPacketsRejectedSource": 0,
+            "usrpVoicePacketsReceived": 0,
+            "m17PacketsSent": 0,
+            "m17PacketsReceived": 0,
+            "usrpPacketsSent": 0,
+        }
+        self.last_usrp_source = ""
+        self.outbound_active = False
+        self.outbound_activity_epoch = 0.0
+        self.outbound_start_epoch = 0.0
+        self.usrp_tx_queue: deque[tuple[float, bytes]] = deque()
+        self.usrp_next_send_monotonic = 0.0
+        self.last_inbound_talker = ""
+        self.inbound_audio_peak = 0
+
+    def _enqueue_usrp_packets(self, packets: list[bytes]) -> None:
+        due = max(time.monotonic(), self.usrp_next_send_monotonic)
+        for packet in packets:
+            if len(packet) == USRP_VOICE_SIZE:
+                samples = struct.unpack("<160h", packet[USRP_HEADER_SIZE:])
+                self.inbound_audio_peak = max(abs(sample) for sample in samples)
+            self.usrp_tx_queue.append((due, packet))
+            due += 0.020
+        self.usrp_next_send_monotonic = due
+
+    def _drain_usrp_packets(self) -> None:
+        now = time.monotonic()
+        while self.usrp_tx_queue and self.usrp_tx_queue[0][0] <= now:
+            _due, packet = self.usrp_tx_queue.popleft()
+            self.usrp_socket.sendto(
+                packet,
+                (self.bridge["usrpRemoteAddress"], self.bridge["usrpTxPort"]),
+            )
+            self.packet_counters["usrpPacketsSent"] += 1
+        if not self.usrp_tx_queue:
+            self.usrp_next_send_monotonic = 0.0
 
     def open(self) -> None:
         self.m17_socket.bind((self.bridge["m17BindAddress"], self.bridge["m17BindPort"]))
@@ -517,6 +579,10 @@ class ConnectorRuntime:
         self.selector.register(self.usrp_socket, selectors.EVENT_READ, "usrp")
         if self.bridge["cardType"] == "standard":
             self.connect(self.bridge["fixedTarget"])
+        else:
+            target = self.control.saved_destination(self.bridge)
+            if target is not None:
+                self.connect(target)
 
     def close(self) -> None:
         try:
@@ -545,7 +611,34 @@ class ConnectorRuntime:
     def connect(self, target: dict[str, Any]) -> None:
         target = self.control.validate_target(target)
         self.control.validate_permission(self.bridge.get("permission"))
-        if self.remote and self.link.state.get("linkState") in {"connecting", "linked"}:
+        state = str(self.link.state.get("linkState", ""))
+        confirmed = self.link.state.get("confirmedTarget")
+        requested = self.link.state.get("requestedTarget")
+        # Dashboard retries and repeated clicks must be idempotent.  Sending a
+        # DISC immediately followed by CONN to the same UDP endpoint races on
+        # real reflectors and can leave the client disconnected.
+        if self.remote and state == "linked" and confirmed == target:
+            return
+        if self.remote and state == "connecting" and requested == target:
+            return
+        if self.remote and state in {
+            "connecting", "digital_linked", "linked", "failed",
+            "disconnecting", "disconnect_failed",
+        }:
+            self.pending_connect_target = dict(target)
+            self.disconnect_context = "reconnect"
+            if state not in {"disconnecting", "disconnect_failed"}:
+                self.link.begin_disconnect()
+                self.m17_socket.sendto(
+                    self.control.disc_packet(self.bridge["callsign"]), self.remote
+                )
+            return
+        self._start_connect(target)
+
+    def _start_connect(self, target: dict[str, Any]) -> None:
+        target = self.control.validate_target(target)
+        self.control.validate_permission(self.bridge.get("permission"))
+        if self.remote:
             self.m17_socket.sendto(self.control.disc_packet(self.bridge["callsign"]), self.remote)
         self.remote = self._resolve(target)
         self.link.request(target)
@@ -566,6 +659,8 @@ class ConnectorRuntime:
 
     def _finish_digital_disconnect(self) -> None:
         context = self.disconnect_context or "remote"
+        pending = self.pending_connect_target
+        self.pending_connect_target = None
         try:
             set_direct_link(
                 self.bridge["localNode"], self.bridge["node"], False, self.runner
@@ -585,6 +680,9 @@ class ConnectorRuntime:
             )
         self.disconnect_context = ""
         self.failed_connect_error = ""
+        if context == "reconnect" and pending is not None:
+            self._start_connect(pending)
+            return
         if self.bridge["cardType"] == "standard":
             self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
 
@@ -598,6 +696,7 @@ class ConnectorRuntime:
             self.link.fail_disconnect(str(exc), self._observed_allstar_link())
 
     def disconnect(self, reason: str = "User requested disconnect.") -> None:
+        self.pending_connect_target = None
         self.disconnect_context = "user"
         state = str(self.link.state.get("linkState", ""))
         if self.remote and (
@@ -672,16 +771,16 @@ class ConnectorRuntime:
         if self.remote is None or address[0] != self.remote[0] or address[1] != self.remote[1]:
             return
         if packet[:4] == M17_MAGIC:
+            self.packet_counters["m17PacketsReceived"] += 1
             try:
+                self.last_inbound_talker = str(
+                    parse_m17_stream(self.control, packet)["source"]
+                )[:9]
                 usrp_packets = self.core.handle_m17(packet)
             except EncryptedM17Error:
                 self.disconnect("Encrypted M17 stream was rejected.")
                 return
-            for usrp_packet in usrp_packets:
-                self.usrp_socket.sendto(
-                    usrp_packet,
-                    (self.bridge["usrpRemoteAddress"], self.bridge["usrpTxPort"]),
-                )
+            self._enqueue_usrp_packets(usrp_packets)
             return
         prior_state = str(self.link.state.get("linkState", ""))
         response = self.link.handle_control(packet)
@@ -741,6 +840,13 @@ class ConnectorRuntime:
             "updatedEpoch": now,
             "audioReady": True,
             "dependencyError": "",
+            **self.packet_counters,
+            "lastUsrpSource": self.last_usrp_source,
+            "outboundActive": self.outbound_active,
+            "outboundActivityEpoch": self.outbound_activity_epoch,
+            "outboundStartEpoch": self.outbound_start_epoch,
+            "lastInboundTalker": self.last_inbound_talker,
+            "inboundAudioPeak": self.inbound_audio_peak,
         })
         self.control.atomic_json(self.bridge["statePath"], payload)
         self.last_state_write = now
@@ -750,24 +856,43 @@ class ConnectorRuntime:
             self._read_command()
         except (ConnectorError, self.control.ControlError) as exc:
             self.link.state["lastError"] = str(exc)[:160]
+        self._drain_usrp_packets()
+        if self.usrp_tx_queue:
+            timeout = min(
+                timeout,
+                max(0.0, self.usrp_tx_queue[0][0] - time.monotonic()),
+            )
         for key, _events in self.selector.select(timeout):
             try:
                 packet, address = key.fileobj.recvfrom(2048)
                 if key.data == "m17":
                     self._handle_m17_datagram(packet, address)
                 else:
+                    self.packet_counters["usrpPacketsReceived"] += 1
+                    self.last_usrp_source = f"{address[0]}:{address[1]}"
                     if address != (self.bridge["usrpRemoteAddress"], self.bridge["usrpTxPort"]):
+                        self.packet_counters["usrpPacketsRejectedSource"] += 1
                         continue
+                    if len(packet) == USRP_VOICE_SIZE:
+                        self.packet_counters["usrpVoicePacketsReceived"] += 1
+                    usrp_frame = parse_usrp_packet(packet)
+                    activity_epoch = time.time()
+                    if usrp_frame["ptt"]:
+                        if not self.outbound_active:
+                            self.outbound_start_epoch = activity_epoch
+                        self.outbound_active = True
+                        self.outbound_activity_epoch = activity_epoch
+                    else:
+                        self.outbound_active = False
+                        self.outbound_activity_epoch = activity_epoch
                     for m17_packet in self.core.handle_usrp(packet):
                         if self.remote:
                             self.m17_socket.sendto(m17_packet, self.remote)
+                            self.packet_counters["m17PacketsSent"] += 1
             except (ConnectorError, self.control.ControlError, OSError) as exc:
                 self.link.state["lastError"] = str(exc)[:160]
-        for usrp_packet in self.core.tick_audio():
-            self.usrp_socket.sendto(
-                usrp_packet,
-                (self.bridge["usrpRemoteAddress"], self.bridge["usrpTxPort"]),
-            )
+        self._enqueue_usrp_packets(self.core.tick_audio())
+        self._drain_usrp_packets()
         if self.link.tick():
             self.remote = None
             self._unlink_after_digital_loss()
@@ -885,16 +1010,29 @@ def self_test() -> None:
     assert parsed_outbound["destination"] == "M17-M17 C"
     eot = core.handle_usrp(build_usrp_packet(3, False))
     assert len(eot) == 1 and parse_m17_stream(control, eot[0])["eot"] is True
+    assert link.handle_control(
+        b"PING" + control.encode_callsign("URF921"), now=11.5
+    ) == "PONG"
+    assert core.handle_usrp(build_usrp_packet(4, True, bytes(320))) == []
+    urf_outbound = core.handle_usrp(build_usrp_packet(5, True, bytes(320)))
+    assert parse_m17_stream(control, urf_outbound[0])["destination"] == "URF921 C"
+    core.handle_usrp(build_usrp_packet(6, False))
 
     inbound = build_m17_stream(
         control, 0x4321, "M17-M17 C", "N0CALL", 7, bytes(range(16)), eot=False
     )
-    usrp_output = core.handle_m17(inbound, now=12.0)
+    broadcast_inbound = bytearray(inbound)
+    broadcast_inbound[6:12] = M17_BROADCAST_ADDRESS
+    broadcast_inbound[-2:] = struct.pack(">H", m17_crc(broadcast_inbound[:-2]))
+    parsed_broadcast = parse_m17_stream(control, bytes(broadcast_inbound))
+    assert parsed_broadcast["destination"] == "@ALL"
+    assert parsed_broadcast["source"] == "N0CALL"
+    usrp_output = core.handle_m17(bytes(broadcast_inbound), now=12.0)
     assert len(usrp_output) == 2
     assert all(parse_usrp_packet(packet)["ptt"] for packet in usrp_output)
     assert link.state["talker"] == "N0CALL"
     assert link.state["talkerAuthenticated"] is False
-    assert core.handle_usrp(build_usrp_packet(4, True, bytes(320))) == []
+    assert core.handle_usrp(build_usrp_packet(7, True, bytes(320))) == []
     assert not core.outbound_pcm
     competing = build_m17_stream(
         control, 0x9999, "M17-M17 C", "AB1CD", 1, bytes(range(16))
@@ -951,6 +1089,28 @@ def self_test() -> None:
     codec, error = codec_readiness(bridge, "/definitely/not/libcodec2.so")
     assert codec is None and error
 
+    # A mode round-trip starts a new connector process.  The Net Bridge must
+    # reconnect its independently saved M17 target rather than its provisioned
+    # default or another mode's destination.
+    restore_bridge = dict(
+        bridge,
+        m17BindAddress="0.0.0.0", m17BindPort=0,
+        usrpBindAddress="127.0.0.1", usrpRxPort=0,
+        usrpRemoteAddress="127.0.0.1", usrpTxPort=32102,
+    )
+    restored = dict(target, reflector="M17-TST", module="B", host="m17.example")
+    original_saved_destination = control.saved_destination
+    control.saved_destination = lambda _bridge: restored
+    try:
+        restore_runtime = ConnectorRuntime(control, restore_bridge, _FakeCodec(), _FakeAsteriskRunner())
+        observed: list[dict[str, Any]] = []
+        restore_runtime.connect = lambda selected: observed.append(selected)
+        restore_runtime.open()
+        assert observed == [restored]
+        restore_runtime.close()
+    finally:
+        control.saved_destination = original_saved_destination
+
     with tempfile.TemporaryDirectory(prefix="asr-m17-connector-") as directory:
         state_path = Path(directory) / "state.json"
         payload = dict(link.state, schema=1, bridgeId=bridge["id"], updatedEpoch=time.time(), audioReady=False)
@@ -977,6 +1137,25 @@ def self_test() -> None:
     assert runtime.link.state["linkState"] == "linked"
     assert runtime.link.state["digitalLinked"] is True
     assert runtime.link.state["allstarLinked"] is True
+    paced_voice = build_usrp_packet(1, True, struct.pack("<160h", *([1234] * 160)))
+    runtime._enqueue_usrp_packets([paced_voice, paced_voice])
+    assert len(runtime.usrp_tx_queue) == 2
+    assert 0.019 <= runtime.usrp_tx_queue[1][0] - runtime.usrp_tx_queue[0][0] <= 0.021
+    assert runtime.inbound_audio_peak == 1234
+    runtime.usrp_tx_queue.clear()
+    runtime.usrp_next_send_monotonic = 0.0
+    runtime.connect(target)
+    assert runtime.link.state["linkState"] == "linked"
+    assert runtime.pending_connect_target is None
+    switched_target = dict(target, reflector="M17-TST", module="B")
+    runtime.connect(switched_target)
+    assert runtime.link.state["linkState"] == "disconnecting"
+    assert runtime.pending_connect_target == switched_target
+    runtime._handle_m17_datagram(b"DISC", runtime.remote)
+    assert runtime.link.state["linkState"] == "connecting"
+    assert runtime.link.state["requestedTarget"] == switched_target
+    runtime._handle_m17_datagram(b"ACKN", runtime.remote)
+    assert runtime.link.state["linkState"] == "linked"
     runtime.disconnect()
     assert runtime.link.state["linkState"] == "disconnecting"
     runtime._handle_m17_datagram(b"DISC", runtime.remote)

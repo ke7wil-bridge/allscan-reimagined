@@ -14,6 +14,11 @@ services:
       - layered-web:/var/www/html
       - layered-allscan-data:/etc/allscan
       - layered-asr-config:/etc/allscan-reimagined
+      # Narrow Unix socket only; the web tier never receives Docker's socket.
+      - ${ASR_HOST_PROVISIONING_DIR:-/run/allscan-reimagined-host}:/run/allscan-reimagined-host:ro
+      - /run/allscan-reimagined-ysf-bridge-control:/run/allscan-reimagined-ysf-bridge-control:ro
+      - /run/allscan-reimagined-p25-bridge-control:/run/allscan-reimagined-p25-bridge-control:ro
+      - /run/allscan-reimagined-nxdn-bridge-control:/run/allscan-reimagined-nxdn-bridge-control:ro
 
 volumes:
   layered-web:

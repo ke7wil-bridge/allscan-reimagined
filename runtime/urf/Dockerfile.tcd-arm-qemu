@@ -1,0 +1,32 @@
+FROM --platform=$BUILDPLATFORM debian:bookworm AS build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git wget ca-certificates qemu-user-static \
+    gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone https://github.com/nostar/urfd.git && cd urfd && git checkout bd0c114e43adc3df4c17823bc5693328425d0450
+RUN git clone https://github.com/nostar/tcd.git && cd tcd && git checkout ff104384b3d1c51bf8f7f9f83d7940dffda0b076
+RUN git clone https://github.com/nostar/imbe_vocoder.git && \
+    cd imbe_vocoder && git checkout 03423cb00b8e9ba1be164493e8b98b5bd7c1508c && make -j2 CXX=arm-linux-gnueabihf-g++ AR=arm-linux-gnueabihf-ar && make install
+RUN git clone https://github.com/nostar/md380_vocoder.git && \
+    cd md380_vocoder && git checkout 0ebd2761d441db354f859280873d4286856f3e73 && \
+    wget -q -O md380fw.img https://www.dudetronics.com/radio/md380fw.img && \
+    wget -q -O md380ram.img https://www.dudetronics.com/radio/md380ram.img && \
+    echo 'c0351f250a834660641bca3b06be931c80cc1ed0ef808356c550b99cd0f4c632  md380fw.img' | sha256sum -c - && \
+    echo 'd40398183e9aa8db6288a62d9a0e0c233cb143ef5633680abd829cc03c719f66  md380ram.img' | sha256sum -c - && \
+    sed -i '/wget -N http:\/\/www.dudetronics.com\/radio\/md380/d' Makefile && \
+    sed -i 's/^\tobjcopy/\tarm-linux-gnueabihf-objcopy/' Makefile && \
+    make -j2 CC=arm-linux-gnueabihf-gcc AR=arm-linux-gnueabihf-ar && make install
+COPY patches/tcd/Controller.cpp /src/tcd/Controller.cpp
+RUN cp tcd/config/tcd.mk tcd/tcd.mk && \
+    sed -i 's/^swambe2 = false/swambe2 = true/' tcd/tcd.mk && \
+    sed -i 's/^swmodes = false/swmodes = true/' tcd/tcd.mk && \
+    sed -i 's/^GCC = g++/GCC = arm-linux-gnueabihf-g++/' tcd/Makefile && \
+    sed -i 's|-Icodec2|-Icodec2 -I/usr/local/include|' tcd/Makefile && \
+    sed -i 's/^LDFLAGS = /LDFLAGS = -no-pie -L\/usr\/local\/lib /' tcd/Makefile && \
+    make -C tcd -j2
+
+FROM --platform=linux/arm/v7 debian:bookworm
+COPY --from=build /usr/bin/qemu-arm-static /usr/local/bin/qemu-arm-static
+COPY --from=build /src/tcd/tcd /usr/local/bin/tcd
+ENTRYPOINT ["/usr/local/bin/qemu-arm-static", "/usr/local/bin/tcd"]

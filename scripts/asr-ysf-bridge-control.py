@@ -8,9 +8,11 @@ import calendar
 import configparser
 import fcntl
 import hashlib
+import importlib.util
 import ipaddress
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import stat
@@ -22,12 +24,25 @@ import time
 from asr_bridge_status import astapi_key_states, reconcile_keyed_source, watchdog_event
 
 
-CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
+def provisioned_path(logical: str) -> Path:
+    if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        return Path(logical)
+    source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
+    if not source.is_file():
+        source = Path("/usr/local/libexec/allscan-reimagined/asr-provisioning-backend.py")
+    spec = importlib.util.spec_from_file_location("asr_backend_ysf_control", source)
+    if not spec or not spec.loader:
+        raise SystemExit("container provisioning backend unavailable")
+    module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    return module.map_path(Path("/"), logical)
+
+WATCH_CONFIG = os.environ.get("ASR_CONTAINER_WATCH_CONFIG", "")
+CONFIG_PATH = Path(WATCH_CONFIG) if WATCH_CONFIG else provisioned_path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-ysf-bridge-control")
 STATUS_PATH = RUN_DIR / "ysf-live.json"
 AUDIT_LOG = Path("/var/log/allscan-reimagined/ysf-bridge-control.log")
 CUSTOM_HOSTS_DIR = Path("/var/lib/allscan-reimagined/ysf-hosts")
-ASTERISK_BIN = Path("/usr/sbin/asterisk")
+ASTERISK_BIN = Path("/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk" if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else "/usr/sbin/asterisk")
 SYSTEMCTL_BIN = Path("/usr/bin/systemctl")
 MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
@@ -158,6 +173,8 @@ def validate_bridge(bridge: dict, config: dict) -> dict:
         raise ControlError("Invalid bridge ID.")
     if bridge.get("cardType") != "ysf_net":
         raise ControlError("Selected bridge is not a YSF Net Bridge.")
+    if "netBridgeMode" in config and str(config.get("netBridgeMode", "")).lower() != "ysf":
+        raise ControlError("YSF is not the active Net Bridge mode.")
     if bridge.get("bridgePermission") not in {"self_owned", "approved"}:
         raise ControlError("YSF Net Bridge permission is not confirmed.")
     approved = bridge.get("approvedDestinations", [])
@@ -191,7 +208,9 @@ def validate_bridge(bridge: dict, config: dict) -> dict:
     for other in config.get("bridges", []):
         if not isinstance(other, dict) or other is bridge:
             continue
-        if str(other.get("node", "")) == bridge_node:
+        shared_unified_node = (bridge_node == "1999"
+                               and other.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"})
+        if str(other.get("node", "")) == bridge_node and not shared_unified_node:
             raise ControlError("YSF Net Bridge node overlaps another configured bridge.")
         if gateway_text and str(other.get("ysfGatewayConfig", "")) == gateway_text:
             raise ControlError("YSF Gateway instance overlaps another configured bridge.")
@@ -246,7 +265,8 @@ def configured_bridges(path: Path = CONFIG_PATH) -> list[dict]:
     return found
 
 
-def require_secure_root_file(path: Path, label: str, executable: bool = False) -> None:
+def require_secure_root_file(path: Path, label: str, executable: bool = False,
+                             service_owned: bool = False) -> None:
     try:
         if path.is_symlink() or path.parent.is_symlink():
             raise ControlError(f"{label} must not be a symbolic link.")
@@ -256,8 +276,11 @@ def require_secure_root_file(path: Path, label: str, executable: bool = False) -
         raise ControlError(f"{label} does not exist.") from exc
     if not stat.S_ISREG(file_info.st_mode):
         raise ControlError(f"{label} is not a regular file.")
+    owners = {0}
+    if service_owned and os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        owners.add(pwd.getpwnam("asr-bridge").pw_uid)
     for candidate, info in ((path, file_info), (path.parent, parent_info)):
-        if info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+        if info.st_uid not in owners or stat.S_IMODE(info.st_mode) & 0o022:
             raise ControlError(f"{candidate} must be root-owned and not group/world-writable.")
     if executable and not os.access(path, os.X_OK):
         raise ControlError(f"{label} is not executable.")
@@ -283,7 +306,9 @@ def require_secure_config_file(path: Path) -> None:
 def secure_run_dir() -> None:
     RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
     info = RUN_DIR.stat()
-    if info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+    expected_uid = (pwd.getpwnam("asr-bridge").pw_uid
+                    if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else 0)
+    if info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o022:
         raise ControlError(f"{RUN_DIR} must be root-owned and not group/world-writable.")
 
 
@@ -934,7 +959,10 @@ def audit(
         f"new={new_destination or '-'} result={safe_result}\n"
     )
     parent_info = AUDIT_LOG.parent.stat()
-    if parent_info.st_uid != 0 or stat.S_IMODE(parent_info.st_mode) & 0o022:
+    owners = {0}
+    if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        owners.add(pwd.getpwnam("asr-bridge").pw_uid)
+    if parent_info.st_uid not in owners or stat.S_IMODE(parent_info.st_mode) & 0o022:
         raise OSError("audit directory is not secure")
     flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
     if hasattr(os, "O_NOFOLLOW"):
@@ -942,7 +970,7 @@ def audit(
     descriptor = os.open(AUDIT_LOG, flags, 0o640)
     try:
         info = os.fstat(descriptor)
-        if info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+        if info.st_uid not in owners or stat.S_IMODE(info.st_mode) & 0o022:
             raise OSError("audit file is not secure")
         os.write(descriptor, line.encode("utf-8"))
         os.fsync(descriptor)
@@ -961,10 +989,10 @@ def prepare_control(bridge: dict) -> dict:
     gateway_log = latest_log(settings["logDir"], settings["logRoot"])
     if gateway_log is None:
         raise ControlError("YSF Gateway log does not exist.")
-    require_secure_root_file(gateway_log, "YSF Gateway log")
+    require_secure_root_file(gateway_log, "YSF Gateway log", service_owned=True)
     mmdvm_log = latest_log(mmdvm["logDir"], mmdvm["logRoot"])
     if mmdvm_log is not None:
-        require_secure_root_file(mmdvm_log, "MMDVM Bridge log")
+        require_secure_root_file(mmdvm_log, "MMDVM Bridge log", service_owned=True)
     secure_run_dir()
     return settings
 
@@ -1355,7 +1383,7 @@ def cached_watcher_states() -> dict[str, dict]:
     if not STATUS_PATH.exists():
         return {}
     try:
-        require_secure_root_file(STATUS_PATH, "YSF watcher status cache")
+        require_secure_root_file(STATUS_PATH, "YSF watcher status cache", service_owned=True)
         payload = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
     except (ControlError, OSError, json.JSONDecodeError):
         return {}

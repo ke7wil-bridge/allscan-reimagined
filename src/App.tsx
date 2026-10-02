@@ -8,13 +8,13 @@ import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
+  activateNetBridgeMode,
   asrPath,
   bridgeCardShowsClientDetails,
   relativeBridgeTime,
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
-  fetchBridgeDestinations,
   fetchAuthStatus,
   fetchCpuTemp,
   fetchCustomCommands,
@@ -23,10 +23,12 @@ import {
   fetchFavoriteStats,
   manageFavorite,
   fetchReleaseStatus,
+  normalizedBridgeMode,
   fetchUrfBlacklist,
   updateUrfBlacklist,
   kickUrfClient,
   kickStandaloneClient,
+  provisionedNetBridgeModes,
   restartAsteriskCommand,
   saveCustomCommands,
   summarizeConnectionTotal,
@@ -36,7 +38,6 @@ import {
   sendNodeCommand,
   subscribeConnectionFeed,
   type BridgeCardView,
-  type BridgeDestination,
   type AuthStatus,
   type DropClientEntry,
   type CustomCommand,
@@ -469,14 +470,48 @@ function App({ config }: { config: RuntimeConfig }) {
   const [linkedNodeCounts, setLinkedNodeCounts] = useState<Record<string, number>>({})
   const [cpuValue, setCpuValue] = useState('131°F / 55°C')
   const [cpuBgColor, setCpuBgColor] = useState('#660')
-  const [bridgeState, setBridgeState] = useState<{ updatedLabel: string; cards: BridgeCardView[] }>({
+  const [bridgeState, setBridgeState] = useState<{ updatedLabel: string; cards: BridgeCardView[] }>(() => ({
     updatedLabel: '--:--:--',
-    cards: [],
-  })
+    cards: config.bridges.map((bridge): BridgeCardView => ({
+      id: bridge.id,
+      mode: normalizedBridgeMode(bridge.mode, bridge.id),
+      node: bridge.node,
+      title: bridge.title,
+      cardType: bridge.cardType || 'standard',
+      status: 'Idle',
+      lastCaller: '-',
+      warning: '-',
+      healthSeverity: null,
+      healthIssues: [],
+      currentTg: '',
+      currentDestination: '',
+      currentDestinationLabel: '',
+      controlLinked: false,
+      controlReady: false,
+      digitalLinked: false,
+      allstarLinked: false,
+      detailTitle: bridge.detailTitle,
+      detailRows: [],
+      detailCount: 0,
+      detailAvailable: true,
+      connectedClientCount: 0,
+      runtimeOnline: null,
+      reflector: '',
+      module: bridge.m17Module || '',
+      linkProtocol: '',
+      lastTransmitter: '-',
+      lastTxEpoch: 0,
+      recentRows: [],
+    })),
+  }))
   const [dmrTalkgroupInputs, setDmrTalkgroupInputs] = useState<Record<string, string>>({})
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
-  const [bridgeDestinations, setBridgeDestinations] = useState<Record<string, BridgeDestination[]>>({})
+  const [m17ModuleInputs, setM17ModuleInputs] = useState<Record<string, string>>({})
+  const [netBridgeMode, setNetBridgeMode] = useState(() => config.netBridgeMode || 'dmr')
+  const netBridgeSwitchingRef = useRef(false)
+  const netBridgeQueuedModeRef = useRef('')
   const [bridgeControlBusy, setBridgeControlBusy] = useState('')
+  const availableNetBridgeModes = useMemo(() => provisionedNetBridgeModes(config.bridges), [config.bridges])
   const [bridgeControlAction, setBridgeControlAction] = useState<'connect' | 'disconnect' | ''>('')
   const [bridgeClientsOpen, setBridgeClientsOpen] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('asr.bridge.clientsOpen') || '[]')) } catch { return new Set() } })
   const [bridgeHistoryOpen, setBridgeHistoryOpen] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('asr.bridge.historyOpen') || '[]')) } catch { return new Set() } })
@@ -620,6 +655,10 @@ function App({ config }: { config: RuntimeConfig }) {
     const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
     return [currentTalker, ...history, null, null, null, null].slice(0, 5)
   }, [currentTalker, recentTalkers])
+  const talkerLastHeard = (talker: TalkerFeedEntry | null, index: number) => {
+    if (!talker || index === 0 || talker.eventEpoch <= 0) return ''
+    return new Date(talker.eventEpoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  }
   const talkerDuration = (talker: TalkerFeedEntry | null, index: number) => {
     if (!talker) return '—'
     if (index === 0 && talker.startedEpoch > 0) {
@@ -691,12 +730,21 @@ function App({ config }: { config: RuntimeConfig }) {
         const isTunableDigitalBridge = card.cardType !== 'standard'
         const row = isUrfModeCard
           ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
+            || rowsByNode.get(bridgeConfig?.node || card.node)
           : isTunableDigitalBridge
             ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
+              || rowsByNode.get(bridgeConfig?.node || card.node)
             : rowsByNode.get(card.node)
-        // A bridge-specific Source/TX or Relay role is more authoritative than
-        // its Asterisk transport row. The row remains a safe fallback only when
-        // the bridge collector reports idle or has not produced data yet.
+        // For tunable Net Bridges the physical Asterisk bridge node is the
+        // authoritative direction signal.  If that node is keyed, network audio
+        // is entering AllStar and the card must remain Source/TX for the full
+        // transmission.  A shared/lagging URF collector must not downgrade it
+        // to Relay mid-stream.
+        if (isTunableDigitalBridge && row?.state === 'talking') {
+          return withStatus(card, 'Source/TX')
+        }
+        // Otherwise a bridge-specific Source/TX or Relay role is more
+        // authoritative than its Asterisk transport row.
         if (card.status !== 'Idle') {
           return card
         }
@@ -1219,31 +1267,6 @@ function App({ config }: { config: RuntimeConfig }) {
     // must not restart bridge polling when connection rows change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config])
-
-  useEffect(() => {
-    let cancelled = false
-    const netCards = config.bridges.filter((bridge) =>
-      bridge.adminCapabilities?.bridgeControl.includes('changeDestination')
-      && bridge.cardType !== 'dmr_net'
-      && bridge.cardType !== 'ysf_net')
-    const load = () => {
-      void Promise.all(netCards.map(async (bridge) => {
-        try {
-          return [bridge.id, await fetchBridgeDestinations(bridge.id)] as const
-        } catch {
-          return [bridge.id, []] as const
-        }
-      })).then((entries) => {
-        if (!cancelled) setBridgeDestinations(Object.fromEntries(entries))
-      })
-    }
-    load()
-    const timer = window.setInterval(load, 10_000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [config.bridges])
 
   useEffect(() => {
     let cancelled = false
@@ -1899,6 +1922,51 @@ function App({ config }: { config: RuntimeConfig }) {
     throw new Error('The bridge command completed, but canonical status did not confirm it in time.')
   }
 
+  async function selectNetBridgeMode(mode: string) {
+    if (!authStatus.canModify || mode === netBridgeMode) return
+    setNetBridgeMode(mode)
+    if (netBridgeSwitchingRef.current) {
+      netBridgeQueuedModeRef.current = mode
+      return
+    }
+
+    netBridgeSwitchingRef.current = true
+    setBridgeControlBusy('net-bridge-mode')
+    let confirmedMode = netBridgeMode
+    let targetMode = mode
+    try {
+      while (targetMode) {
+        const result = await activateNetBridgeMode(targetMode)
+        const selected = String(result.mode || '').toLowerCase()
+        if (selected !== targetMode || result.node !== 1999) throw new Error('Net Bridge mode control returned an invalid result.')
+        confirmedMode = selected
+        const queuedMode = netBridgeQueuedModeRef.current
+        netBridgeQueuedModeRef.current = ''
+        if (queuedMode && queuedMode !== confirmedMode) {
+          targetMode = queuedMode
+          continue
+        }
+        setNetBridgeMode(confirmedMode)
+        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
+        const lateQueuedMode = netBridgeQueuedModeRef.current
+        netBridgeQueuedModeRef.current = ''
+        if (lateQueuedMode && lateQueuedMode !== confirmedMode) {
+          targetMode = lateQueuedMode
+          continue
+        }
+        appendNodeMessage(`Net Bridge switched to ${confirmedMode.toUpperCase()}.`)
+        break
+      }
+    } catch (error) {
+      setNetBridgeMode(confirmedMode)
+      appendNodeMessage(error instanceof Error ? error.message : 'Net Bridge mode switch failed.')
+    } finally {
+      netBridgeSwitchingRef.current = false
+      netBridgeQueuedModeRef.current = ''
+      setBridgeControlBusy('')
+    }
+  }
+
   async function connectDmrNetCard(card: BridgeCardView) {
     if (!authStatus.canModify || bridgeControlBusy) return
     const talkgroup = String(dmrTalkgroupInputs[card.id] || '').trim()
@@ -1945,11 +2013,21 @@ function App({ config }: { config: RuntimeConfig }) {
 
   async function connectReflectorNetCard(card: BridgeCardView) {
     if (!authStatus.canModify || bridgeControlBusy) return
-    const destination = String(bridgeDestinationInputs[card.id] || '').trim()
+    const reflector = String(bridgeDestinationInputs[card.id] || '').trim().toUpperCase()
+    const module = String(m17ModuleInputs[card.id] || config.bridges.find((bridge) => bridge.id === card.id)?.m17Module || 'A').trim().toUpperCase()
+    const destination = card.cardType === 'm17_net' ? `${reflector} ${module}` : reflector
     if (!destination) {
       appendNodeMessage(card.cardType === 'ysf_net'
-        ? 'Enter an exact YSF reflector name or five-digit ID.'
-        : `Enter an approved ${card.mode.toUpperCase()} destination.`)
+        ? 'Enter an exact YSF reflector name or ID.'
+        : `Enter a valid ${card.mode.toUpperCase()} destination.`)
+      return
+    }
+    if ((card.cardType === 'p25_net' || card.cardType === 'nxdn_net') && !/^\d{1,8}$/.test(reflector)) {
+      appendNodeMessage(`Enter a numeric ${card.mode.toUpperCase()} destination.`)
+      return
+    }
+    if (card.cardType === 'm17_net' && (!/^M17-[A-Z0-9]{3}$/.test(reflector) || !/^[A-Z]$/.test(module))) {
+      appendNodeMessage('Enter an M17 reflector in M17-XXX format and a module A-Z.')
       return
     }
 
@@ -2656,7 +2734,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   className={`allscan-talker-card${index === 0 && talker ? ' is-current' : ''}${!talker ? ' is-empty' : ''}`}
                   key={`${index}-${talker?.node || 'empty'}`}
                 >
-                  <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index}`}</div>
+                  <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index} · ${talker ? talkerLastHeard(talker, index) : '--:--'}`}</div>
                   <div className="allscan-talker-callsign">{talker ? (talker.info || talker.node) : '\u00a0'}</div>
                   <div className="allscan-talker-source">{talker ? `${talker.source}${talker.node ? ` · ${talker.node}` : ''}` : (index === 0 ? 'No one talking' : 'No recent talker')}</div>
                   <div className="allscan-talker-description">{talker?.description || '\u00a0'}</div>
@@ -3070,7 +3148,7 @@ function App({ config }: { config: RuntimeConfig }) {
             </p>
 
             {(() => {
-              const urfCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.urfReflector)
+              const urfCards = bridgeState.cards.filter((card) => { const bridge = config.bridges.find((candidate) => candidate.id === card.id); return bridge?.urfReflector === true && bridge.cardType === 'standard' })
               const managedCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listBans'))
               const managedConnectedCards = managedCards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listClients'))
               const zelloTalkers = managedCards
@@ -3165,7 +3243,16 @@ function App({ config }: { config: RuntimeConfig }) {
             })()}
 
             <div className="allscan-bridge-grid">
-              {bridgeState.cards.filter((card) => !config.bridges.find((bridge) => bridge.id === card.id)?.urfReflector).map((card) => {
+              {bridgeState.cards.filter((card) => {
+                const bridge = config.bridges.find((candidate) => candidate.id === card.id)
+                if (bridge?.urfReflector === true && bridge.cardType === 'standard') return false
+                if (card.cardType !== 'standard') {
+                  const selectedModeAvailable = availableNetBridgeModes.has(netBridgeMode)
+                  const fallbackMode = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].find((mode) => availableNetBridgeModes.has(mode)) || ''
+                  return card.mode.toLowerCase() === (selectedModeAvailable ? netBridgeMode : fallbackMode)
+                }
+                return true
+              }).map((card) => {
                 const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
                 const bridgeCapabilities = bridgeConfig?.adminCapabilities?.bridgeControl || []
                 const canConnect = bridgeCapabilities.includes('connect')
@@ -3180,29 +3267,20 @@ function App({ config }: { config: RuntimeConfig }) {
                 )
                 const cardBusy = bridgeControlBusy === card.id
                 const destinationInput = bridgeDestinationInputs[card.id] || ''
-                const approvedDestinations = bridgeDestinations[card.id] || []
-                const approvedDestinationValues = new Set(approvedDestinations.map((destination) => destination.value))
                 const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] || ''
                 const validDmrTalkgroup = /^\d{1,8}$/.test(dmrTalkgroupCandidate)
                   && Number(dmrTalkgroupCandidate) >= 1
                   && Number(dmrTalkgroupCandidate) <= 16777215
                   && Number(dmrTalkgroupCandidate) !== 4000
-                const approvedDestinationInput = approvedDestinationValues.has(destinationInput) ? destinationInput : ''
-                const connectDestination = card.cardType === 'ysf_net'
-                  ? destinationInput.trim()
-                  : approvedDestinationInput
-                const destinationLabel = card.cardType === 'ysf_net'
-                  ? 'Reflector name or ID'
-                  : card.cardType === 'm17_net'
-                    ? 'Approved reflector and module'
-                    : `Approved ${card.mode.toUpperCase()} designator`
+                const m17ModuleInput = m17ModuleInputs[card.id] ?? String(bridgeConfig?.m17Module || 'A')
+                const connectDestination = destinationInput.trim()
                 return (
                 <article
                   key={card.id}
-                  className={`allscan-bridge-card ${bridgeRoleClasses[card.status]}`}
+                  className={`allscan-bridge-card${card.cardType !== 'standard' ? ' allscan-net-bridge-card' : ''} ${bridgeRoleClasses[card.status]}`}
                 >
                   <div className="allscan-bridge-head">
-                    <span className="allscan-bridge-head-title">{card.title}</span>
+                    <span className="allscan-bridge-head-title">{card.cardType !== 'standard' ? 'Net Bridge' : card.title}</span>
                     <span className="allscan-urf-mini-head-actions">
                       <button
                         type="button"
@@ -3225,13 +3303,13 @@ function App({ config }: { config: RuntimeConfig }) {
                     {card.cardType === 'dmr_net' ? (
                       <div className="allscan-bridge-row allscan-bridge-status-row allscan-bridge-current-row">
                         <span>Current TG</span>
-                        <b>{bridgeLinked ? (card.currentDestinationLabel || card.currentTg || '–') : '–'}</b>
+                        <b title={bridgeLinked ? (card.currentDestinationLabel || card.currentTg || undefined) : undefined}>{bridgeLinked ? (card.currentDestinationLabel || card.currentTg || '–') : '–'}</b>
                       </div>
                     ) : null}
                     {card.cardType !== 'standard' && card.cardType !== 'dmr_net' ? (
                       <div className="allscan-bridge-row allscan-bridge-status-row allscan-bridge-current-row">
                         <span>{card.cardType === 'ysf_net' || card.cardType === 'm17_net' ? 'Current Reflector' : 'Current Destination'}</span>
-                        <b>{bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || '–') : '–'}</b>
+                        <b title={bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || undefined) : undefined}>{bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || '–') : '–'}</b>
                       </div>
                     ) : null}
                     <div className="allscan-bridge-row allscan-bridge-status-row">
@@ -3249,9 +3327,33 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
 
                   {card.cardType === 'dmr_net' && authStatus.canModify && (canConnect || canDisconnect || canChangeDestination) ? (
-                    <div className="allscan-bridge-controls">
-                      <div className="allscan-bridge-tune">
-                        <label htmlFor={`dmr-net-tg-${card.id}`}>Talkgroup</label>
+                    <div className="allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-dmr">
+                      <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
+                        <label htmlFor={`net-mode-${card.id}`}>Mode</label>
+                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
+                          {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
+                        </select>
+                        <div className="allscan-bridge-link-buttons">
+                          <button
+                            type="button"
+                            className="allscan-action-button allscan-connect-button"
+                            disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || !validDmrTalkgroup}
+                            onClick={() => void connectDmrNetCard(card)}
+                          >
+                            {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
+                          </button>
+                          <button
+                            type="button"
+                            className="allscan-action-button allscan-disconnect-button"
+                            disabled={busy || cardBusy || !canDisconnect || !card.controlReady}
+                            onClick={() => void disconnectDmrNetCard(card)}
+                          >
+                            {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="allscan-bridge-tune allscan-net-bridge-destination-row">
+                        <label htmlFor={`dmr-net-tg-${card.id}`}>TG</label>
                         <input
                           id={`dmr-net-tg-${card.id}`}
                           type="text"
@@ -3268,89 +3370,100 @@ function App({ config }: { config: RuntimeConfig }) {
                           }}
                         />
                       </div>
-                      <div className="allscan-bridge-link-buttons">
-                        <button
-                          type="button"
-                          className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || !validDmrTalkgroup}
-                          onClick={() => void connectDmrNetCard(card)}
-                        >
-                          {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
-                        </button>
-                        <button
-                          type="button"
-                          className="allscan-action-button allscan-disconnect-button"
-                          disabled={busy || cardBusy || !canDisconnect || !card.controlReady}
-                          onClick={() => void disconnectDmrNetCard(card)}
-                        >
-                          {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
-                        </button>
-                      </div>
                     </div>
                   ) : null}
 
                   {card.cardType !== 'standard' && card.cardType !== 'dmr_net' && authStatus.canModify && (canConnect || canDisconnect || canChangeDestination) ? (
-                    <div className="allscan-bridge-controls">
-                      <div className="allscan-bridge-tune">
-                        <label htmlFor={`digital-net-destination-${card.id}`}>{destinationLabel}</label>
-                        {card.cardType === 'ysf_net' ? (
+                    <div className={`allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-${card.mode.toLowerCase()}`}>
+                      <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
+                        <label htmlFor={`net-mode-${card.id}`}>Mode</label>
+                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
+                          {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
+                        </select>
+                        <div className="allscan-bridge-link-buttons">
+                          <button
+                            type="button"
+                            className="allscan-action-button allscan-connect-button"
+                            disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || connectDestination === ''}
+                            onClick={() => void connectReflectorNetCard(card)}
+                          >
+                            {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
+                          </button>
+                          <button
+                            type="button"
+                            className="allscan-action-button allscan-disconnect-button"
+                            disabled={busy || cardBusy || !canDisconnect || (
+                              !card.controlReady
+                              && !card.controlLinked
+                              && !card.digitalLinked
+                              && !card.allstarLinked
+                            )}
+                            onClick={() => void disconnectReflectorNetCard(card)}
+                          >
+                            {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className={`allscan-bridge-tune allscan-net-bridge-destination-row${card.cardType === 'm17_net' ? ' allscan-m17-net-tune' : ''}`}>
+                        <label htmlFor={`digital-net-destination-${card.id}`}>{card.cardType === 'm17_net' ? 'Ref' : card.cardType === 'ysf_net' ? 'Reflector' : 'Target'}</label>
+                        {card.cardType === 'ysf_net' || card.cardType === 'm17_net' ? (
+                          <>
                           <input
                             id={`digital-net-destination-${card.id}`}
                             type="text"
                             autoComplete="off"
                             spellCheck={false}
-                            maxLength={80}
+                            maxLength={card.cardType === 'm17_net' ? 7 : 80}
                             value={destinationInput}
                             placeholder=""
                             disabled={busy || cardBusy}
                             onChange={(event) => {
                               setBridgeDestinationInputs((current) => ({
                                 ...current,
-                                [card.id]: event.target.value.slice(0, 80),
+                                [card.id]: (card.cardType === 'm17_net'
+                                  ? event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 7)
+                                  : event.target.value.slice(0, 80)),
                               }))
                             }}
                           />
+                          {card.cardType === 'm17_net' ? <>
+                            <label htmlFor={`m17-net-module-${card.id}`}>Mod</label>
+                            <input
+                              id={`m17-net-module-${card.id}`}
+                              className="allscan-m17-module-input"
+                              type="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={1}
+                              value={m17ModuleInput}
+                              disabled={busy || cardBusy}
+                              onChange={(event) => setM17ModuleInputs((current) => ({
+                                ...current,
+                                [card.id]: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1),
+                              }))}
+                            />
+                          </> : null}
+                          </>
                         ) : (
-                          <select
+                          <input
                             id={`digital-net-destination-${card.id}`}
-                            value={approvedDestinationInput}
-                            disabled={busy || cardBusy || approvedDestinations.length === 0}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            spellCheck={false}
+                            maxLength={8}
+                            value={destinationInput}
+                            placeholder=""
+                            disabled={busy || cardBusy}
                             onChange={(event) => {
+                              const destination = event.target.value.replace(/\D/g, '').slice(0, 8)
                               setBridgeDestinationInputs((current) => ({
                                 ...current,
-                                [card.id]: event.target.value,
+                                [card.id]: destination,
                               }))
                             }}
-                          >
-                            <option value=""></option>
-                            {approvedDestinations.map((destination) => (
-                              <option key={destination.value} value={destination.value}>{destination.label}</option>
-                            ))}
-                          </select>
+                          />
                         )}
-                      </div>
-                      <div className="allscan-bridge-link-buttons">
-                        <button
-                          type="button"
-                          className="allscan-action-button allscan-connect-button"
-                          disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || connectDestination === ''}
-                          onClick={() => void connectReflectorNetCard(card)}
-                        >
-                          {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
-                        </button>
-                        <button
-                          type="button"
-                          className="allscan-action-button allscan-disconnect-button"
-                          disabled={busy || cardBusy || !canDisconnect || (
-                            !card.controlReady
-                            && !card.controlLinked
-                            && !card.digitalLinked
-                            && !card.allstarLinked
-                          )}
-                          onClick={() => void disconnectReflectorNetCard(card)}
-                        >
-                          {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
-                        </button>
                       </div>
                     </div>
                   ) : null}

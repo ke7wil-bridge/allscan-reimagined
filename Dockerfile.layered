@@ -11,7 +11,7 @@ RUN pnpm run build
 FROM php:8.3-apache
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git rsync sqlite3 libsqlite3-dev pkg-config ca-certificates \
+  && apt-get install -y --no-install-recommends git rsync sqlite3 libsqlite3-dev pkg-config ca-certificates python3 \
   && docker-php-source extract \
   && cp /usr/src/php/ext/sqlite3/config0.m4 /usr/src/php/ext/sqlite3/config.m4 \
   && docker-php-ext-install pdo_sqlite sqlite3 \
