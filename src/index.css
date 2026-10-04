@@ -418,6 +418,10 @@ body {
   display: none;
 }
 
+.allscan-menu-panel .allscan-menu-touchgui-row {
+  display: flex;
+}
+
 .allscan-menu-proxy-row:hover,
 .allscan-menu-proxy-row.is-active {
   background: rgba(75, 158, 196, 0.18);
