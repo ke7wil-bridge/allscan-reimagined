@@ -404,7 +404,7 @@ def test_net_helpers() -> None:
 
 
 def test_wiring_contracts() -> None:
-    astapi = (PAYLOAD_ROOT / "compat/allscan-v1.01/astapi/server.php").read_text(encoding="utf-8")
+    astapi = (PAYLOAD_ROOT / "compat/allscan-v1.02/astapi/server.php").read_text(encoding="utf-8")
     assert "@chmod($tmp, 0644);" in astapi
     reapply = (SCRIPTS / "asr-reapply.sh").read_text(encoding="utf-8")
     assert "allscan-reimagined-standard-bridge-status.service" in reapply

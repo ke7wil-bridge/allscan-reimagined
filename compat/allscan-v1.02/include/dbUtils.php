@@ -1,5 +1,5 @@
 <?php
-// AllScan v1.01 database helpers with the ASR side-by-side database override.
+// AllScan v1.02 database helpers with the ASR side-by-side database override.
 // Stock /allscan keeps its original file. The isolated /asr copy deliberately
 // shares the existing users and configuration database.
 

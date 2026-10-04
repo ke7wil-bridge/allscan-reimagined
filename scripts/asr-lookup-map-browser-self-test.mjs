@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 
-const lookupSource = fs.readFileSync(new URL('../compat/allscan-v1.01/lookup/index.php', import.meta.url), 'utf8')
+const lookupSource = fs.readFileSync(new URL('../compat/allscan-v1.02/lookup/index.php', import.meta.url), 'utf8')
 const scriptMatch = lookupSource.match(/<script>\s*([\s\S]*?)\s*<\/script>/)
 if (!scriptMatch) throw new Error('Lookup page script was not found')
 const lookupScript = scriptMatch[1].replace(

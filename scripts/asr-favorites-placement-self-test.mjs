@@ -9,8 +9,8 @@ function assert(condition, message) {
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
 const api = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
-const adminFavorites = readFileSync(new URL('../compat/allscan-v1.01/js/asr-favorites-config.js', import.meta.url), 'utf8')
-const common = readFileSync(new URL('../compat/allscan-v1.01/include/common.php', import.meta.url), 'utf8')
+const adminFavorites = readFileSync(new URL('../compat/allscan-v1.02/js/asr-favorites-config.js', import.meta.url), 'utf8')
+const common = readFileSync(new URL('../compat/allscan-v1.02/include/common.php', import.meta.url), 'utf8')
 
 assert(
   app.includes("const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'")

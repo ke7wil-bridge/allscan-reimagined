@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 declare(strict_types=1);
-require_once __DIR__ . '/../compat/allscan-v1.01/include/asrPerformanceContract.php';
+require_once __DIR__ . '/../compat/allscan-v1.02/include/asrPerformanceContract.php';
 set_error_handler(static function(int $severity, string $message): never { throw new ErrorException($message, 0, $severity); });
 $payload = [
     'ok'=>true,'updated'=>'2026-09-26T18:24:25+00:00','mode'=>'Standard','cpuTemp'=>'144°F / 62°C',

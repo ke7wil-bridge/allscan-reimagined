@@ -131,11 +131,11 @@ def self_test():
         up.WEB_ROOT = root / "web"
         stock = up.WEB_ROOT / "allscan/include/common.php"
         stock.parent.mkdir(parents=True)
-        stock.write_text('$AllScanVersion = "v1.01";\n')
+        stock.write_text('$AllScanVersion = "v1.02";\n')
         (up.WEB_ROOT / "asr").mkdir()
         (up.WEB_ROOT / "asr/asr-api.php").write_text("test")
         up.RELEASE_ROOT = root / "current"
-        (up.RELEASE_ROOT / "compat/allscan-v1.01").mkdir(parents=True)
+        (up.RELEASE_ROOT / "compat/allscan-v1.02").mkdir(parents=True)
         config_dir = root / "config"
         config_dir.mkdir()
         (config_dir / "config.json").write_text('{"node":"12345"}')
@@ -146,7 +146,7 @@ def self_test():
             return real_read_text(path, *args, **kwargs)
         with mock.patch.object(up, "current_version", return_value="1.0.0-beta.7.5"), mock.patch.object(
                 up, "release_for_update", return_value={"version": version}), mock.patch.object(
-                up, "fetch", return_value=b'$AllScanVersion = "v1.01";'), mock.patch.object(
+                up, "fetch", return_value=b'$AllScanVersion = "v1.02";'), mock.patch.object(
                 up.shutil, "which", return_value="/usr/bin/test"), mock.patch.object(
                 up.subprocess, "run", return_value=SimpleNamespace(returncode=0)), mock.patch.object(
                 up.shutil, "disk_usage", return_value=SimpleNamespace(total=10 * 1024 ** 3, used=1024 ** 3, free=9 * 1024 ** 3)), mock.patch.object(
@@ -154,7 +154,7 @@ def self_test():
             assert up.preflight()["rebootRequired"] is False
             stock.write_text('$AllScanVersion = "v1.00";\n')
             fails(up.preflight)
-            stock.write_text('$AllScanVersion = "v1.01";\n')
+            stock.write_text('$AllScanVersion = "v1.02";\n')
 
         # Installer output stays in a private log, not the browser status.
         local_installer = root / "local-installer"
@@ -207,7 +207,7 @@ def self_test():
         up.status(job, "queued")
         checks["release"]["sha256"] = hashlib.sha256(package()).hexdigest()
         staged_for_failure = root / "staged-for-failure"
-        (staged_for_failure / "payload/compat/allscan-v1.01").mkdir(parents=True)
+        (staged_for_failure / "payload/compat/allscan-v1.02").mkdir(parents=True)
         (staged_for_failure / "install.sh").write_text("exit 1")
         with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
                 up, "preflight", return_value=checks), mock.patch.object(

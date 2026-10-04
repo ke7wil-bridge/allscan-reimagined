@@ -11,8 +11,8 @@ function getScriptName() { return 'asr-ami-guard-self-test'; }
 function _count($value) { return is_countable($value) ? count($value) : 0; }
 if(!defined('NL')) define('NL', "\n");
 
-require_once dirname(__DIR__) . '/compat/allscan-v1.01/astapi/AMI.php';
-require_once dirname(__DIR__) . '/compat/allscan-v1.01/astapi/asrAmiGuard.php';
+require_once dirname(__DIR__) . '/compat/allscan-v1.02/astapi/AMI.php';
+require_once dirname(__DIR__) . '/compat/allscan-v1.02/astapi/asrAmiGuard.php';
 
 $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 asrAmiGuardTest(is_array($pair) && count($pair) === 2, 'Unable to create socket pair.');

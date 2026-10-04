@@ -20,11 +20,11 @@ mkdir -p \
   "$MASTER_DIR/web/assets" \
   "$MASTER_DIR/server" \
   "$MASTER_DIR/scripts" \
-  "$MASTER_DIR/compat/allscan-v1.01/include" \
-  "$MASTER_DIR/compat/allscan-v1.01/astapi"
+  "$MASTER_DIR/compat/allscan-v1.02/include" \
+  "$MASTER_DIR/compat/allscan-v1.02/astapi"
 
 printf '%s\n' 'stock sentinel' > "$STOCK_ALLSCAN_DIR/stock-sentinel.txt"
-printf '%s\n' '$AllScanVersion = "v1.01";' > "$STOCK_ALLSCAN_DIR/include/common.php"
+printf '%s\n' '$AllScanVersion = "v1.02";' > "$STOCK_ALLSCAN_DIR/include/common.php"
 printf '%s\n' '<?php echo "stock";' > "$STOCK_ALLSCAN_DIR/index.php"
 printf '%s\n' '<html>stock</html>' > "$STOCK_ALLSCAN_DIR/index.html"
 printf '%s\n' '{"guarded":true}' > "$STOCK_ALLSCAN_DIR/include/public-status.json"
@@ -39,10 +39,10 @@ printf '%s\n' '<?php const ASR_VERSION = "1.0.0-beta.6.0";' > "$MASTER_DIR/serve
 cat > "$MASTER_DIR/scripts/asr-protected-config-metadata.py" <<PY
 raise SystemExit("web-only reapply invoked protected-config metadata repair")
 PY
-printf '%s\n' '$AllScanVersion = "v1.01"; // ASR compatibility' \
-  > "$MASTER_DIR/compat/allscan-v1.01/include/common.php"
+printf '%s\n' '$AllScanVersion = "v1.02"; // ASR compatibility' \
+  > "$MASTER_DIR/compat/allscan-v1.02/include/common.php"
 printf '%s\n' '<?php // EchoLink compatibility sentinel' \
-  > "$MASTER_DIR/compat/allscan-v1.01/astapi/asrEchoLink.php"
+  > "$MASTER_DIR/compat/allscan-v1.02/astapi/asrEchoLink.php"
 
 tree_digest() {
   (
@@ -185,7 +185,7 @@ printf '%s\n' '{"guarded":true}' > "$STOCK_ALLSCAN_DIR/include/public-status.jso
 stock_before=$(tree_digest "$STOCK_ALLSCAN_DIR")
 
 # An unsupported stock backend must leave the last working /asr untouched.
-mv "$MASTER_DIR/compat/allscan-v1.01" "$MASTER_DIR/compat/allscan-v1.01.saved"
+mv "$MASTER_DIR/compat/allscan-v1.02" "$MASTER_DIR/compat/allscan-v1.02.saved"
 printf '%s\n' '<html>unsupported replacement</html>' > "$MASTER_DIR/web/index.html"
 unsupported_status=0
 ASR_MASTER_DIR="$MASTER_DIR" \
@@ -199,7 +199,7 @@ ASR_REAPPLY_WEB_ONLY=1 \
 grep -q '/asr/assets/index-test.js' "$ASR_WEB_DIR/index.html"
 [ "$(cat "$ASR_WEB_DIR/favorites.ini")" = "1000=Shared favorite" ]
 [ "$stock_before" = "$(tree_digest "$STOCK_ALLSCAN_DIR")" ]
-mv "$MASTER_DIR/compat/allscan-v1.01.saved" "$MASTER_DIR/compat/allscan-v1.01"
+mv "$MASTER_DIR/compat/allscan-v1.02.saved" "$MASTER_DIR/compat/allscan-v1.02"
 printf '%s\n' '<script src="/asr/assets/index-test.js"></script>' > "$MASTER_DIR/web/index.html"
 
 rm "$ASR_WEB_DIR/astapi/asrEchoLink.php"
