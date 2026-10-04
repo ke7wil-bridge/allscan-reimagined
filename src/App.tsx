@@ -2591,17 +2591,6 @@ function App({ config }: { config: RuntimeConfig }) {
                   >
                     <span>Lookup</span>
                   </a>
-                  <a
-                    role="menuitem"
-                    className="allscan-menu-proxy-row allscan-menu-direct-row"
-                    href={asrPath('simple/')}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      setOpenSubmenu(null)
-                    }}
-                  >
-                    <span>TouchGUI</span>
-                  </a>
                   <button
                     type="button"
                     role="menuitem"
