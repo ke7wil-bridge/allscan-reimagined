@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $api = (string) file_get_contents($root . '/server/asr-api.php');
-$selectorPath = $root . '/compat/allscan-v1.01/include/asrCpuTemperature.php';
+$selectorPath = $root . '/compat/allscan-v1.02/include/asrCpuTemperature.php';
 $clientPath = dirname(__DIR__) . '/src/lib/allscanLive.ts';
 $appPath = dirname(__DIR__) . '/src/App.tsx';
 if(!is_file($selectorPath)) throw new RuntimeException('Shared CPU temperature implementation could not be loaded.');

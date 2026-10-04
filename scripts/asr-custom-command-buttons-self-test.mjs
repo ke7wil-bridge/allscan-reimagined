@@ -10,9 +10,9 @@ const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const live = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
 const api = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
 const serverApi = readFileSync(new URL('../server/asr-api.php', import.meta.url), 'utf8')
-const cfg = readFileSync(new URL('../compat/allscan-v1.01/include/CfgModel.php', import.meta.url), 'utf8')
-const adminJs = readFileSync(new URL('../compat/allscan-v1.01/js/asr-cmd-buttons-config.js', import.meta.url), 'utf8')
-const common = readFileSync(new URL('../compat/allscan-v1.01/include/common.php', import.meta.url), 'utf8')
+const cfg = readFileSync(new URL('../compat/allscan-v1.02/include/CfgModel.php', import.meta.url), 'utf8')
+const adminJs = readFileSync(new URL('../compat/allscan-v1.02/js/asr-cmd-buttons-config.js', import.meta.url), 'utf8')
+const common = readFileSync(new URL('../compat/allscan-v1.02/include/common.php', import.meta.url), 'utf8')
 
 assert(api === serverApi, 'Duplicated ASR API files differ')
 assert(

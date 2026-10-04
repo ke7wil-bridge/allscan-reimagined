@@ -1,10 +1,10 @@
 #!/usr/bin/env php
 <?php
 
-require_once dirname(__DIR__) . '/compat/allscan-v1.01/astapi/asrEchoLink.php';
+require_once dirname(__DIR__) . '/compat/allscan-v1.02/astapi/asrEchoLink.php';
 if(!defined('NL'))
 	define('NL', "\n");
-require_once dirname(__DIR__) . '/compat/allscan-v1.01/astapi/AMI.php';
+require_once dirname(__DIR__) . '/compat/allscan-v1.02/astapi/AMI.php';
 
 function asrEchoLinkCheck($condition, $message) {
 	if(!$condition)

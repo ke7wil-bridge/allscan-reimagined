@@ -61,7 +61,7 @@ EOF
 
 # Place built frontend assets without deleting backend runtime files.
 rsync -a /opt/asr-ui-dist/ "$ASR_DIR/"
-rsync -a /opt/asr-source/compat/allscan-v1.01/ "$ASR_DIR/"
+rsync -a /opt/asr-source/compat/allscan-v1.02/ "$ASR_DIR/"
 cp /opt/asr-source/asr-api.php "$ASR_DIR/asr-api.php"
 install -d -o root -g root -m 755 "$ASR_DIR/js"
 install -o root -g root -m 644 /opt/asr-source/public/js/asr-settings-modern.js "$ASR_DIR/js/asr-settings-modern.js"
@@ -95,7 +95,7 @@ for USER_INDEX in "$STOCK_DIR/user/index.php" "$ASR_DIR/user/index.php"; do
   fi
 done
 
-# Stock AllScan v1.01 makes $parms optional before two required by-reference
+# Stock AllScan v1.02 makes $parms optional before two required by-reference
 # arguments. PHP 8.3 reports that declaration as deprecated on every stats
 # request. All callers already pass the argument, so making it explicitly
 # required preserves behavior and keeps both installations warning-free.
@@ -105,7 +105,7 @@ for STATS_FILE in "$STOCK_DIR/stats/stats.php" "$ASR_DIR/stats/stats.php"; do
   fi
 done
 
-# AllScan v1.01 passes the optional defaults (null) into these helpers. PHP
+# AllScan v1.02 passes the optional defaults (null) into these helpers. PHP
 # 8.1+ deprecates strlen(null), so guard the two nullable values explicitly.
 for HTML_FILE in "$STOCK_DIR/include/Html.php" "$ASR_DIR/include/Html.php"; do
   if [ -f "$HTML_FILE" ]; then

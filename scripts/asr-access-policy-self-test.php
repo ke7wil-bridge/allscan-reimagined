@@ -30,7 +30,7 @@ function asExit($message=null): void {
 }
 function msg($message): void {}
 
-require_once dirname(__DIR__) . '/compat/allscan-v1.01/include/CfgModel.php';
+require_once dirname(__DIR__) . '/compat/allscan-v1.02/include/CfgModel.php';
 
 class AsrAccessPolicyFakeDb {
 	public array $writes = [];

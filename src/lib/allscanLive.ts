@@ -537,8 +537,9 @@ function talkerInfoParts(html: string, node: string) {
   const chunks = raw.split(/\s{2,}/).map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const identity = chunks.shift() || ''
   const callsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || node
-  const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim()
-  return { callsign, description, location: chunks.join(' ').trim() }
+  const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim().replace(/^\/\s*/, '')
+  const location = chunks.join(' ').trim().replace(/^\/\s*/, '')
+  return { callsign, description, location }
 }
 
 function htmlToMessageText(html: string) {

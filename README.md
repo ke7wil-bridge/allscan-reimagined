@@ -156,7 +156,7 @@ release/
 
 The installer keeps stock AllScan at `/allscan/` and ASR at `/asr/`. If the stock backend needs installation or upgrading, the first installer invokes the upstream AllScan installer interactively. Later browser updates stop at preflight when a stock backend upgrade is required.
 
-The repository itself does not vendor the full upstream AllScan source tree. The compat snapshot under `compat/allscan-v1.01/` contains the files needed for the overlay layer.
+The repository itself does not vendor the full upstream AllScan source tree. The compat snapshot under `compat/allscan-v1.02/` contains the files needed for the overlay layer.
 
 ## Docker Layered Stack
 

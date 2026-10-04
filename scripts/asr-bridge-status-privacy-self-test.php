@@ -2,7 +2,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../compat/allscan-v1.01/include/asrBridgeStatus.php';
+require_once __DIR__ . '/../compat/allscan-v1.02/include/asrBridgeStatus.php';
 
 function assertPrivacy(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);

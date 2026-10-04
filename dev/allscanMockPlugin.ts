@@ -537,7 +537,7 @@ function reimaginedSettingsPage() {
 
 function instructionsPage(projectRoot: string) {
   const source = fs.readFileSync(
-    path.join(projectRoot, 'compat/allscan-v1.01/asr-instructions/index.php'),
+    path.join(projectRoot, 'compat/allscan-v1.02/asr-instructions/index.php'),
     'utf8',
   )
   const main = source.match(/<main\b[\s\S]*?<\/main>/i)?.[0]
@@ -818,7 +818,7 @@ export function allscanMockPlugin(): Plugin {
         }
 
         if (requestPath === `${ASR_BASE}/css/asr-admin.css`) {
-          const css = fs.readFileSync(path.join(projectRoot, 'compat/allscan-v1.01/css/asr-admin.css'), 'utf8')
+          const css = fs.readFileSync(path.join(projectRoot, 'compat/allscan-v1.02/css/asr-admin.css'), 'utf8')
           return serveText(res, css, 'text/css; charset=utf-8')
         }
 

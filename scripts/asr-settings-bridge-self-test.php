@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
-$settingsDir = $root . '/compat/allscan-v1.01/asr-settings';
+$settingsDir = $root . '/compat/allscan-v1.02/asr-settings';
 chdir($settingsDir);
 define('ASR_SETTINGS_FUNCTIONS_ONLY', true);
 // The isolated controller test omits common.php; its URL migration helper
