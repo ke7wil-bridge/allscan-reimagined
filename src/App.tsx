@@ -2593,7 +2593,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   </a>
                   <a
                     role="menuitem"
-                    className="allscan-menu-proxy-row allscan-menu-direct-row allscan-menu-touchgui-row"
+                    className="allscan-menu-proxy-row allscan-menu-direct-row"
                     href={asrPath('simple/')}
                     onClick={() => {
                       setMenuOpen(false)
