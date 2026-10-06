@@ -7487,3 +7487,33 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     margin-top: 12px;
   }
 }
+
+/* Beta 8 responsive qualification: preserve compact desktop geometry while
+   giving touch-only devices practical hit areas for interactive dashboard UI. */
+@media (pointer: coarse) {
+  .allscan-module-drag-handle,
+  .allscan-dashboard-module .allscan-module-title-wrap > .allscan-module-drag-handle {
+    width: 32px;
+    height: 32px;
+    padding: 10px;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 28px;
+  }
+
+  .allscan-connection-more {
+    width: 32px;
+    height: 32px;
+  }
+
+  .allscan-bridge-detail-title.allscan-bridge-detail-toggle,
+  .allscan-bridge-status-control {
+    min-height: 30px;
+  }
+
+  .allscan-checkbox {
+    width: 18px;
+    height: 18px;
+  }
+}
