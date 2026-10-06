@@ -13,7 +13,7 @@ function asrRebaseLegacyWebPath($path, $defaultPath = '') {
 }
 require $settingsDir . '/index.php';
 
-$settingsSource = file_get_contents($settingsDir . '/index.php');
+$settingsSource = file_get_contents($settingsDir . '/settings-controller.php');
 if(!is_string($settingsSource)
 	|| !str_contains($settingsSource, 'str_ends_with((string)$asrAction, \'-install\')')
 	|| !str_contains($settingsSource, "allscan-reimagined-friendly-names --once"))
@@ -42,7 +42,7 @@ ob_start();
 asrSettingsUnifiedNetBridgePanel($unified, 'dmr');
 $unifiedHtml = (string)ob_get_clean();
 check(substr_count($unifiedHtml, 'asr-unified-net-bridge-settings') === 1
-	&& substr_count($unifiedHtml, 'asr-net-mode-settings-row') === 5,
+	&& substr_count($unifiedHtml, 'class="asr-net-mode-settings"') === 5,
 	'Existing unified configuration did not render as one Settings bridge with five modes.');
 
 function expectFailure(callable $operation, string $needle): void {
@@ -467,7 +467,7 @@ $managedUrf = [[
 $preservedUrf = asrSettingsUrfModeBridges(['enabled' => false, 'node' => '', 'modes' => []], $managedUrf);
 check(count($preservedUrf) === 1 && $preservedUrf[0] === $managedUrf[0], 'Managed URF/TGIF bridge was lost or rewritten by a generic Settings save.');
 
-$settingsSource = file_get_contents($settingsDir . '/index.php');
+$settingsSource = file_get_contents($settingsDir . '/settings-controller.php');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan'") !== false, 'Bridge setup preview is not wired to the selected helper endpoint.');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install'") !== false, 'Bridge setup install is not wired to the selected helper endpoint.');
 check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helper actions are unavailable.');

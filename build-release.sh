@@ -167,6 +167,7 @@ install -m 755 scripts/asr-patch-allscan-index.py "$STAGE/payload/scripts/asr-pa
 install -m 755 scripts/asr-release-check.py "$STAGE/payload/scripts/asr-release-check.py"
 install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"
+install -m 755 scripts/asr-cpu-temperature-self-test.php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"

@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8 installs the current official AllScan backend at
+Gleason's AllScan. Beta 8 is built on the current official AllScan v1.02 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
@@ -104,7 +104,7 @@ checksum, creates a rollback backup, runs the existing installer, checks the
 served application, and restores the previous version on failure. No update
 starts automatically. The latest ten rollback backups are retained by default.
 
-For manual recovery, open **Admin → Reimagined Settings → Backups & Rollback**.
+For rollback or interrupted-update recovery, open **Settings → System & Recovery**.
 A stopped, interrupted update can also be checked from the Update ASR dialog.
 See the [full browser workflow](docs/browser-install-update.md).
 
@@ -122,7 +122,7 @@ Uploaded logos are stored in:
 /var/lib/allscan-reimagined/
 ```
 
-For routine ASR configuration, use **Admin → Reimagined Settings** in
+For routine ASR configuration, use **Admin → Settings** in
 the browser. Browser-only dashboard preferences remain in the browser profile.
 
 ### Smaller-node performance

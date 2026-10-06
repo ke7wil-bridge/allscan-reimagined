@@ -54,7 +54,7 @@ check(capability is not None and "'restart'" not in capability.group(0)
       and "'recover'" not in capability.group(0),
       "unsupported bridge lifecycle capability exposed")
 check("adminCapabilities?: BridgeAdminCapabilities" in LIVE, "frontend capability type missing")
-check("bridge.adminCapabilities?.bridgeControl.includes('changeDestination')" in APP, "destination loading is not capability-driven")
+check("const canChangeDestination = bridgeCapabilities.includes('changeDestination')" in APP, "destination loading is not capability-driven")
 check("const canConnect = bridgeCapabilities.includes('connect')" in APP, "connect rendering is not capability-driven")
 check("const canDisconnect = bridgeCapabilities.includes('disconnect')" in APP, "disconnect rendering is not capability-driven")
 check("clientAdmin.includes('listBans')" in APP, "Manage Clients is not capability-driven")
