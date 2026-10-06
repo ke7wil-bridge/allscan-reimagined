@@ -1,6 +1,6 @@
 #!/usr/bin/env php
 <?php
-require_once __DIR__ . '/../compat/allscan-v1.01/include/asrLinkState.php';
+require_once __DIR__ . '/../compat/allscan-v1.02/include/asrLinkState.php';
 
 $dir = sys_get_temp_dir() . '/asr-link-state-' . getmypid();
 if (!mkdir($dir, 0700) && !is_dir($dir)) throw new RuntimeException('Could not create test directory.');

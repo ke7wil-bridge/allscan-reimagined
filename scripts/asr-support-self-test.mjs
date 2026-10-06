@@ -10,5 +10,6 @@ assert(app.includes('<span>Support &amp; Feedback</span>'),'Support & Feedback m
 assert(app.includes('setSupportFeedbackOpen(true)'),'Support & Feedback menu does not open the shared dialog')
 assert(app.includes('SupportFeedbackDialog config={config}'),'Support & Feedback dialog render site missing')
 assert(dialog.includes('onClick={onClose}>Cancel</button>'),'Support & Feedback Cancel action missing')
-assert(!app.includes('allscan-menu-support-row') && !app.includes('Support ASR</button>'),'obsolete standalone Support ASR menu action returned')
+assert(app.includes('allscan-menu-support-row') && app.includes('<span>Donate to ASR</span>'),'approved Donate to ASR shared-menu action missing')
+assert(!app.includes('Support ASR</button>'),'obsolete standalone Support ASR menu label returned')
 console.log('support/menu lock self-test: ok')

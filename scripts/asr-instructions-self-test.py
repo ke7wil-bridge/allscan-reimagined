@@ -8,10 +8,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTRUCTIONS = ROOT / "compat/allscan-v1.01/asr-instructions/index.php"
-ADMIN_CSS = ROOT / "compat/allscan-v1.01/css/asr-admin.css"
-SETTINGS = ROOT / "compat/allscan-v1.01/asr-settings/settings-controller.php"
-COMMON = ROOT / "compat/allscan-v1.01/include/common.php"
+INSTRUCTIONS = ROOT / "compat/allscan-v1.02/asr-instructions/index.php"
+ADMIN_CSS = ROOT / "compat/allscan-v1.02/css/asr-admin.css"
+SETTINGS = ROOT / "compat/allscan-v1.02/asr-settings/settings-controller.php"
+COMMON = ROOT / "compat/allscan-v1.02/include/common.php"
 APP = ROOT / "src/App.tsx"
 API = ROOT / "asr-api.php"
 if not API.is_file():

@@ -316,7 +316,7 @@ def exercise_fresh_install_path(root: Path, outcome: str) -> None:
     shared.mkdir(parents=True)
     capture_shared_state(shared, shared_backup)
     manifest.write_text("initial rollback manifest\n", encoding="utf-8")
-    latest_version = "v1.01" if outcome != "incompatible" else "v1.02"
+    latest_version = "v1.02" if outcome != "incompatible" else "v1.03"
     reported_version = "v1.00" if outcome == "wrong-version" else latest_version
     events: list[str] = []
     error = ""
@@ -375,7 +375,7 @@ def exercise_fresh_install_path(root: Path, outcome: str) -> None:
             raise InjectedFailure(
                 f"Official AllScan is still {installed_version}; expected {latest_version}."
             )
-        compatible_versions = {"v1.01"}
+        compatible_versions = {"v1.02"}
         if installed_version not in compatible_versions:
             raise InjectedFailure(
                 f"This ASR release has no exact compatibility layer for stock AllScan {installed_version}; /asr was not changed."
