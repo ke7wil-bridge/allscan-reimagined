@@ -94,11 +94,13 @@ install -d -o root -g root -m 700 \
   /run/allscan-reimagined/tgif-users/challenges
 install -d -o root -g root -m 755 \
   /run/allscan-reimagined-bridge-control \
-  /run/allscan-reimagined-standard-bridge-status \
-  /run/allscan-reimagined-ysf-bridge-control
-install -d -o root -g "$WEB_GROUP" -m 2750 \
-  /run/allscan-reimagined-p25-bridge-control \
-  /run/allscan-reimagined-nxdn-bridge-control
+  /run/allscan-reimagined-standard-bridge-status
+if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
+  install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
+  install -d -o root -g "$WEB_GROUP" -m 2750 \
+    /run/allscan-reimagined-p25-bridge-control \
+    /run/allscan-reimagined-nxdn-bridge-control
+fi
 install -d -o root -g root -m 755 /run/allscan-reimagined-m17
 install -d -o root -g root -m 755 /run/asr-standalone-admin
 install -d -o root -g root -m 750 /var/log/allscan-reimagined

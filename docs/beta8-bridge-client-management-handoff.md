@@ -9,7 +9,7 @@ Status: implemented and deployed for live acceptance; uncommitted by design.
 - Branch: `feature/bridge-client-disconnect`
 - Base HEAD: `7a5e302`
 - Do not commit, push, merge, reset, clean, stash, or discard without Josh's approval.
-- Do not disturb bridge nodes 1002 (D-STAR) or 1003 (Zello).
+- Do not disturb bridge node 1003 (Zello).
 
 ## Implemented behavior
 

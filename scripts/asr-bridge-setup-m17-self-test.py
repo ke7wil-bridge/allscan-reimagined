@@ -61,6 +61,11 @@ def expect_error(callable_value, phrase: str) -> None:
 
 
 def main() -> None:
+    migrated_states = m17.ensure_bridge_control_states(
+        "[asr-bridge-controlstates]\n"
+        "0 = rptena,lnkena,apdis,totena,ufdis,noice\n"
+    )
+    assert "ufdis,noicd" in migrated_states and "ufdis,noice" not in migrated_states
     reapply = (HERE / "asr-reapply.sh").read_text(encoding="utf-8")
     assert "asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py" in reapply
     assert reapply.count("asr-bridge-setup-helper.py m17-plan") == 1
@@ -84,6 +89,14 @@ def main() -> None:
         assert net_entry["allowTune"] is True
         assert net_entry["m17BindAddress"] == "0.0.0.0"
         assert net_entry["m17UsrpBindAddress"] == "127.0.0.1"
+        assert (net_entry["m17UsrpRxPort"], net_entry["m17UsrpTxPort"]) == (52000, 52001)
+        assert (
+            f"rxchannel = USRP/127.0.0.1:{net_entry['m17UsrpRxPort']}:{net_entry['m17UsrpTxPort']}"
+            in net_plan["files"][m17.RPT_PATH]
+        )
+        assert "controlstates = asr-bridge-controlstates" in net_plan["files"][m17.RPT_PATH]
+        assert "0 = rptena,lnkena,apdis,totena,ufdis,noicd" in net_plan["files"][m17.RPT_PATH]
+        assert "[1999] ; Unified Net Bridge (m17_net_test)" in net_plan["files"][m17.RPT_PATH]
         assert net_entry["approvedDestinations"] == [{
             "reflector": "M17-TST", "host": "127.0.0.1", "port": 17000,
             "module": "A", "encrypted": False,

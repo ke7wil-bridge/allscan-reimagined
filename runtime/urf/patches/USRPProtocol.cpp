@@ -23,6 +23,7 @@
 #include "USRPProtocol.h"
 
 #include "Global.h"
+#include "AsrPttState.h"
 
 const uint8_t USRP_TYPE_VOICE = 0;
 const uint8_t USRP_TYPE_TEXT  = 2;
@@ -156,12 +157,8 @@ void CUSRPProtocol::Task(void)
 		}
 		else if ( IsValidDvLastPacket(Buffer) )
 		{
-			// Propagate the explicit USRP unkey. Waiting for the stream timeout
-			// closes reflector state but does not put a protocol terminator into
-			// downstream DMR/YSF/P25/NXDN/M17 queues.
-			int16_t pcm[160] = { 0 };
-			Frame = std::unique_ptr<CDvFramePacket>(new CDvFramePacket(pcm, m_uiStreamId, true));
-			OnDvFramePacketIn(Frame, &Ip);
+			AsrPttState(false, "USRP");
+			// do nothing
 		}
 		else
 		{

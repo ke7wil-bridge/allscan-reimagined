@@ -19,6 +19,7 @@ services:
       - /run/allscan-reimagined-ysf-bridge-control:/run/allscan-reimagined-ysf-bridge-control:ro
       - /run/allscan-reimagined-p25-bridge-control:/run/allscan-reimagined-p25-bridge-control:ro
       - /run/allscan-reimagined-nxdn-bridge-control:/run/allscan-reimagined-nxdn-bridge-control:ro
+      - ${ASR_DMR_STATUS_DIR:-/run/tgif-dmr}:/run/dmr-bridge:ro
 
 volumes:
   layered-web:

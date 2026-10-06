@@ -10,6 +10,7 @@ function asrRuntimeFilePath(
 		'bridge-live.json',
 		'connected-clients.json',
 		'zello-talkers.json',
+		'zello-relay.json',
 	];
 	if(!in_array($filename, $allowed, true))
 		throw new InvalidArgumentException('Unsupported ASR runtime filename.');

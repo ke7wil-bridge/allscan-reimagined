@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "Global.h"
+#include "AsrPttState.h"
 #include "DMRMMDVMClient.h"
 #include "DMRMMDVMProtocol.h"
 #include "BPTC19696.h"
@@ -113,6 +114,7 @@ void CDmrmmdvmProtocol::Task(void)
 		}
 		else if ( IsValidDvLastFramePacket(Buffer, LastFrame) )
 		{
+			AsrPttState(false, "DMR");
 			OnDvFramePacketIn(LastFrame, &Ip);
 		}
 		else if ( IsValidConnectPacket(Buffer, &Callsign, Ip) )

@@ -36,6 +36,22 @@ def provisioned_path(logical: str) -> Path:
     module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
     return module.map_path(Path("/"), logical)
 
+
+def remote_command_prefix() -> list[str]:
+    if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+        return []
+    source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
+    if not source.is_file():
+        source = Path("/usr/local/libexec/allscan-reimagined/asr-provisioning-backend.py")
+    spec = importlib.util.spec_from_file_location("asr_backend_ysf_remote", source)
+    if not spec or not spec.loader:
+        raise ControlError("Container network helper is unavailable.")
+    module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    try:
+        return module.network_prefix("asr-bridge")
+    except (OSError, RuntimeError) as exc:
+        raise ControlError("Container network helper is unavailable.") from exc
+
 WATCH_CONFIG = os.environ.get("ASR_CONTAINER_WATCH_CONFIG", "")
 CONFIG_PATH = Path(WATCH_CONFIG) if WATCH_CONFIG else provisioned_path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-ysf-bridge-control")
@@ -69,7 +85,7 @@ LOG_ROOT_RE = re.compile(r"^YSFGateway_[A-Za-z0-9_-]+$")
 MMDVM_LOG_ROOT_RE = re.compile(r"^MMDVM_Bridge_[A-Za-z0-9_-]+$")
 YSF_CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,10}$")
 YSF_SUFFIX_RE = re.compile(r"^[A-Z0-9]{1,5}$")
-WATCH_INTERVAL = 1.0
+WATCH_INTERVAL = 0.1
 SOURCE_RETENTION_SECONDS = 300
 VERIFY_TIMEOUT = 10.0
 STATE_TRANSITION_GRACE_SECONDS = 15
@@ -309,7 +325,8 @@ def secure_run_dir() -> None:
     expected_uid = (pwd.getpwnam("asr-bridge").pw_uid
                     if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else 0)
     if info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o022:
-        raise ControlError(f"{RUN_DIR} must be root-owned and not group/world-writable.")
+        expected_owner = "asr-bridge" if expected_uid else "root"
+        raise ControlError(f"{RUN_DIR} must be owned by {expected_owner} and not group/world-writable.")
 
 
 def atomic_json(path: Path, payload: object) -> None:
@@ -628,9 +645,25 @@ def merged_hosts_content(source: Path, custom_reflectors: list[dict]) -> str:
         if official_id is not None:
             if official_id["name"].casefold() == item["name"].casefold():
                 continue
-            raise ControlError(
-                f"Custom YSF reflector {item['name']} conflicts with installed reflector ID {item['id']}."
-            )
+            # ASR-local reflectors may intentionally reuse the configured YSF ID.
+            # The managed custom entry must override the public catalog row so the
+            # local startup target survives a full YSFHosts import.
+            if item["host"] in {"127.0.0.1", "localhost", "::1"}:
+                base_lines = []
+                for line in base.splitlines():
+                    fields = line.split(";")
+                    if fields and fields[0].strip() == item["id"]:
+                        continue
+                    base_lines.append(line)
+                base = "\n".join(base_lines)
+                official = [entry for entry in official if entry["id"] != item["id"]]
+                by_id.pop(item["id"], None)
+                names = by_name.get(official_id["name"].casefold(), [])
+                by_name[official_id["name"].casefold()] = [entry for entry in names if entry["id"] != item["id"]]
+            else:
+                raise ControlError(
+                    f"Custom YSF reflector {item['name']} conflicts with installed reflector ID {item['id']}."
+                )
         if official_names:
             choices = ", ".join(sorted(entry["id"] for entry in official_names))
             raise ControlError(
@@ -876,7 +909,7 @@ def wait_gateway_disconnect(settings: dict, marker: tuple[str, int, int]) -> boo
 def remote_command(bridge: dict, port: int, command: str) -> None:
     try:
         completed = subprocess.run(
-            [str(bridge["remoteCommand"]), str(port), command],
+            [*remote_command_prefix(), str(bridge["remoteCommand"]), str(port), command],
             capture_output=True,
             text=True,
             timeout=5,
@@ -884,7 +917,7 @@ def remote_command(bridge: dict, port: int, command: str) -> None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ControlError("YSF remote command could not be sent.") from exc
-    if completed.returncode != 0 or "Command sent:" not in completed.stdout:
+    if completed.returncode != 0:
         raise ControlError("YSF remote command returned an error.")
 
 
@@ -1020,17 +1053,23 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
             audit(user, bridge_id, "connect", old_destination, destination, "attempt")
         except OSError as exc:
             raise ControlError("YSF audit log is unavailable; no command was sent.") from exc
-        marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
-        try:
-            remote_command(bridge, settings["port"], f"LinkYSF{destination}")
-            if not wait_gateway_connect(settings, marker, item):
-                raise ControlError("YSF Gateway did not confirm the requested reflector link.")
-        except ControlError:
+        if old_destination != destination:
             try:
-                audit(user, bridge_id, "connect", old_destination, destination, "digital link failed")
-            except OSError:
-                pass
-            raise
+                if old_destination:
+                    marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
+                    remote_command(bridge, settings["port"], "UnLink")
+                    if not wait_gateway_disconnect(settings, marker):
+                        raise ControlError("YSF Gateway did not confirm the previous reflector disconnect.")
+                marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
+                remote_command(bridge, settings["port"], f"LinkYSF {destination}")
+                if not wait_gateway_connect(settings, marker, item):
+                    raise ControlError("YSF Gateway did not confirm the requested reflector link.")
+            except ControlError:
+                try:
+                    audit(user, bridge_id, "connect", old_destination, destination, "digital link failed")
+                except OSError:
+                    pass
+                raise
         try:
             set_direct_link(bridge["localNode"], bridge["node"], True)
         except ControlError as link_error:
@@ -1039,7 +1078,11 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
                 rollback_marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
                 if old_destination and old_destination != destination:
                     previous_item = destination_by_id(settings, old_destination)
-                    remote_command(bridge, settings["port"], f"LinkYSF{old_destination}")
+                    remote_command(bridge, settings["port"], "UnLink")
+                    if not wait_gateway_disconnect(settings, rollback_marker):
+                        raise ControlError("YSF rollback disconnect was not confirmed.")
+                    rollback_marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
+                    remote_command(bridge, settings["port"], f"LinkYSF {old_destination}")
                     rollback = (
                         f"restored {old_destination}"
                         if wait_gateway_connect(settings, rollback_marker, previous_item)
@@ -1165,6 +1208,19 @@ def apply_activity_line(
     local_identities: frozenset[str] = frozenset(),
 ) -> None:
     epoch = line_epoch(line) or now
+    if re.fullmatch(
+        r"[MIWEF]:\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+"
+        r"MMDVM_Bridge[^\s]*\s+is starting\s*",
+        line.rstrip("\r\n"),
+        re.IGNORECASE,
+    ):
+        if epoch >= int(state.get("last_event_epoch", 0) or 0):
+            state.update({
+                "role": "idle", "current_user": "", "active_start_epoch": 0,
+                "network_relay": False, "activity_epoch": epoch,
+                "last_event_epoch": epoch,
+            })
+        return
     source = re.search(
         r"YSF,\s+received network (?:data|voice) from\s+([A-Za-z0-9/ -]{1,20}?)\s+to\s+",
         line, re.IGNORECASE,
@@ -1173,14 +1229,9 @@ def apply_activity_line(
         if epoch < int(state.get("last_event_epoch", 0) or 0):
             return
         caller = clean_name(source.group(1), 20).upper()
-        if caller in local_identities:
-            state.update({
-                "role": "relay", "current_user": "", "network_relay": True,
-                "active_start_epoch": int(state.get("active_start_epoch", 0) or 0) or epoch,
-                "source_observed_at": float(now),
-                "activity_epoch": epoch, "last_event_epoch": epoch,
-            })
-            return
+        # A network receive record is authoritative inbound-source evidence.
+        # Callsigns are not direction identifiers: the operator can legitimately
+        # enter from YSF using the same callsign configured on this node.
         state.update({
             "role": "source", "current_user": caller,
             "last_user": caller or state.get("last_user", "-"),
@@ -1564,9 +1615,9 @@ def self_test() -> None:
             1,
             local_identities,
         )
-        assert local_activity["role"] == "relay"
-        assert local_activity["current_user"] == ""
-        assert local_activity["last_source_user"] == ""
+        assert local_activity["role"] == "source"
+        assert local_activity["current_user"] == "N0CALL-RPT"
+        assert local_activity["last_source_user"] == "N0CALL-RPT"
         apply_activity_line(
             local_activity,
             "M: 2026-01-01 12:01:01.000 YSF, received network end of transmission",
@@ -1591,6 +1642,12 @@ def self_test() -> None:
         apply_activity_line(activity, "M: 2026-08-03 15:27:00.000 YSF, TX state = ON", 3)
         assert activity["role"] == "relay" and activity["current_user"] == ""
         assert activity["last_source_user"] == "REMOTE1"
+        apply_activity_line(
+            activity,
+            "M: 2026-08-03 15:27:01.000 MMDVM_Bridge-20210520_V1.6.8 is starting",
+            4,
+        )
+        assert activity["role"] == "idle" and activity["active_start_epoch"] == 0
         connected_activity = dict(activity)
         clear_disconnected_activity(connected_activity, True)
         assert connected_activity["last_source_user"] == "REMOTE1"

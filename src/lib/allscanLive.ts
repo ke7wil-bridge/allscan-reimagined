@@ -92,6 +92,7 @@ export type LiveConnectionRow = {
   bridgeId?: string
   sourceIndex?: number
   linkedNodes?: string[]
+  configuredTransport?: boolean
 }
 
 export type TalkerFeedEntry = {
@@ -172,7 +173,6 @@ export type BridgeCardView = {
   currentDestination: string
   currentDestinationLabel: string
   controlLinked: boolean
-  controlReady: boolean
   digitalLinked: boolean
   allstarLinked: boolean
   detailTitle: string
@@ -186,6 +186,8 @@ export type BridgeCardView = {
   linkProtocol: string
   lastTransmitter: string
   lastTxEpoch: number
+  activeStartEpoch: number
+  recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
   recentRows: BridgeDetailItem[]
 }
 
@@ -655,8 +657,14 @@ function buildSnapshot(
     })
   }
 
-  const detailRows = remoteRows.length
-    ? remoteRows
+  const configuredTransport = bridgeAliases.get('1999')
+  const presentationRows = configuredTransport
+    && configuredTransport.node === '1999'
+    && !remoteRows.some((row) => row.node === '1999')
+    ? [...remoteRows, configuredUnifiedNetBridgeRow(configuredTransport)]
+    : remoteRows
+  const detailRows = presentationRows.length
+    ? presentationRows
     : hasNoConnectionRow
       ? [{ node: '', info: 'No Connections', received: '', direction: '', connected: '', mode: '', state: 'message' as const }]
       : remoteRows
@@ -777,10 +785,32 @@ function preserveSnapshotTimes(previous: ConnectionSnapshot, next: ConnectionSna
   }
 }
 
-export function bridgeConnectionIdentities(configuredBridges: RuntimeBridgeConfig[]) {
+export function configuredUnifiedNetBridgeRow(bridge: RuntimeBridgeConfig): LiveConnectionRow {
+  return {
+    node: '1999',
+    info: bridge.friendlyName?.trim() || bridge.title || 'Unified Net Bridge',
+    received: 'Never',
+    direction: '',
+    connected: '',
+    mode: 'Transceive',
+    state: 'normal',
+    bridgeId: bridge.id,
+    configuredTransport: true,
+  }
+}
+
+export function bridgeConnectionIdentities(
+  configuredBridges: RuntimeBridgeConfig[],
+  activeNetBridgeMode = '',
+) {
+  const activeMode = String(activeNetBridgeMode || '').toLowerCase()
   return new Map(
     configuredBridges.flatMap((bridge) => {
       const identities: Array<[string, RuntimeBridgeConfig]> = []
+      if (bridge.node === '1999' && activeMode
+          && normalizedBridgeMode(bridge.mode, bridge.id) !== activeMode) {
+        return identities
+      }
       if (bridge.linkAlias && bridge.node) identities.push([String(bridge.linkAlias), bridge])
       // Asterisk normally exposes the physical private node in rpt lstats even
       // when a Net Bridge also has an internal link alias.  Bind that identity
@@ -797,10 +827,11 @@ export function bridgeConnectionIdentities(configuredBridges: RuntimeBridgeConfi
 export function subscribeConnectionFeed(
   localNode: string,
   configuredBridges: RuntimeBridgeConfig[],
+  activeNetBridgeMode: string,
   onSnapshot: (snapshot: ConnectionSnapshot) => void,
   onMessage: (message: string) => void,
 ) {
-  const bridgeAliases = bridgeConnectionIdentities(configuredBridges)
+  const bridgeAliases = bridgeConnectionIdentities(configuredBridges, activeNetBridgeMode)
   const bridgeNodes = new Set(
     configuredBridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || '']).filter(Boolean),
   )
@@ -1174,7 +1205,6 @@ export function bridgeModeLabel(mode: string) {
   const labels: Record<string, string> = {
     dmr: 'DMR',
     ysf: 'YSF',
-    dstar: 'D-Star',
     zello: 'Zello',
     p25: 'P25',
     nxdn: 'NXDN',
@@ -1187,7 +1217,7 @@ export function bridgeModeLabel(mode: string) {
 export function normalizedBridgeMode(mode: string | undefined, id: string) {
   const candidate = String(mode || id || 'unknown').toLowerCase()
   const compact = candidate.replace(/[^a-z0-9]/g, '')
-  const known = ['dmr', 'ysf', 'dstar', 'zello', 'p25', 'm17', 'nxdn']
+  const known = ['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn']
     .find((value) => compact.startsWith(value))
   return known || candidate.match(/^([a-z][a-z0-9]*)(?:[_-]|$)/)?.[1] || 'unknown'
 }
@@ -1267,6 +1297,18 @@ export function bridgeCardShowsClientDetails(cardType: BridgeCardView['cardType'
   return cardType === 'standard'
 }
 
+export function netBridgeTalkerDestinationLabel(
+  cardType: BridgeCardView['cardType'],
+  destination: string,
+) {
+  const value = String(destination || '').trim()
+  if (!value || value === '-') return ''
+  if (cardType === 'p25_net') {
+    return /^talkgroup\s+/i.test(value) ? value : `Talkgroup ${value}`
+  }
+  return value
+}
+
 export function bridgeCardWarningText(
   warning: string,
 ) {
@@ -1323,8 +1365,8 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
       const age = relativeBridgeTime(bridgeClientEpoch(record))
       return {
         key: `${mode}-${label}-${index}`,
-        label: (mode === 'dstar' || mode === 'dmr') ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
-        meta: mode === 'dstar' ? '' : (age ? `Last TX ${age}` : 'No recent TX'),
+        label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
+        meta: age ? `Last TX ${age}` : 'No recent TX',
       }
     })
 
@@ -1360,10 +1402,6 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
     .filter((item) => Boolean(zelloRecentTalkerName(item)))
 }
 
-function dstarDisplayCallsign(record: Record<string, unknown>): string {
-  return bridgeClientName(record).replace(/\s+[A-Z]$/i, '').trim()
-}
-
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
   const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record, index) => {
     const epoch = Number(record.epoch || 0)
@@ -1371,13 +1409,13 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
     const duration = Number(record.duration_seconds || 0)
     const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
     const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
-    return { key: `${mode}-tx-${bridgeClientName(record)}-${epoch}-${index}`, label: mode === 'dstar' ? dstarDisplayCallsign(record) : bridgeClientName(record), meta: ['TRANSMITTED', time, durationLabel].filter(Boolean).join(' · '), epoch }
+    return { key: `${mode}-tx-${bridgeClientName(record)}-${epoch}-${index}`, label: bridgeClientName(record), meta: ['TRANSMITTED', time, durationLabel].filter(Boolean).join(' · '), epoch }
   })
   const events = (Array.isArray(entry?.client_events) ? entry.client_events : []).map((record, index) => {
     const epoch = Number(record.epoch || 0)
     const event = String(record.event || '').toLowerCase()
     const time = epoch > 0 ? new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
-    return { key: `${mode}-client-${bridgeClientName(record)}-${event}-${epoch}-${index}`, label: mode === 'dstar' ? dstarDisplayCallsign(record) : bridgeClientName(record), meta: [event === 'connect' ? 'CONNECTED' : event === 'disconnect' ? 'DISCONNECTED' : event.toUpperCase(), time].filter(Boolean).join(' · '), epoch }
+    return { key: `${mode}-client-${bridgeClientName(record)}-${event}-${epoch}-${index}`, label: bridgeClientName(record), meta: [event === 'connect' ? 'CONNECTED' : event === 'disconnect' ? 'DISCONNECTED' : event.toUpperCase(), time].filter(Boolean).join(' · '), epoch }
   })
   const now = Date.now() / 1000
   const rows = [...talkers, ...events]
@@ -1433,24 +1471,20 @@ export async function fetchBridgeCards(
       status,
       lastCaller: resolveBridgeLastCaller(entry, status, config),
       warning: entry?.warning || '-',
-      healthSeverity: entry?.health_severity
-        || (mode === 'dstar'
-          ? (entry?.online === false ? 'offline' : entry?.linked === false ? 'unhealthy' : entry?.linked === null ? 'warning' : null)
-          : null),
+      healthSeverity: entry?.health_severity || null,
       healthIssues: Array.isArray(entry?.health_issues)
         ? entry.health_issues.map(String)
         : (entry?.warning && entry.warning !== '-' ? [String(entry.warning)] : []),
       currentTg: String(control.currentTg || control.currentDestination || ''),
       currentDestination,
       currentDestinationLabel: String(control.currentDestinationLabel || currentDestination),
-      controlLinked: mode === 'dstar' ? entry?.linked === true : control.linked === true,
-      controlReady: control.ready === true,
-      digitalLinked: mode === 'dstar' ? entry?.linked === true : control.digitalLinked === true,
+      controlLinked: control.linked === true,
+      digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,
-        !detailAvailable ? 'Unavailable' : mode === 'dstar' ? 'No other connected clients' : 'None',
+        !detailAvailable ? 'Unavailable' : 'None',
         mode,
       ),
       detailCount: detailRows.length,
@@ -1458,12 +1492,19 @@ export async function fetchBridgeCards(
       connectedClientCount: Number.isFinite(Number(clientCounts[bridgeConfig.id]))
         ? Math.max(0, Math.floor(Number(clientCounts[bridgeConfig.id])))
         : 0,
-      runtimeOnline: mode === 'dstar' && typeof entry?.online === 'boolean' ? entry.online : null,
+      runtimeOnline: null,
       reflector: String(entry?.reflector || '').trim(),
       module: String(entry?.module || '').trim(),
       linkProtocol: String(entry?.link_protocol || '').trim(),
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
+      activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
+        callsign: String(record.callsign || '').slice(0, 20),
+        startEpoch: Math.max(0, Number(record.start_epoch) || 0),
+        eventEpoch: Math.max(0, Number(record.epoch) || 0),
+        duration: Math.max(0, Number(record.duration_seconds) || 0),
+      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
       recentRows: formatBridgeRecentRows(entry, mode),
     }
   })
@@ -1473,6 +1514,91 @@ export async function fetchBridgeCards(
     : '--:--:--'
 
   return { updatedLabel, cards }
+}
+
+export async function fetchFastStandardActivity(signal?: AbortSignal): Promise<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>> {
+  const response = await fetch(`${ASR_API}?action=fast-standard-activity`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error('Fast standard bridge activity unavailable')
+  const payload = await response.json() as { cards?: Record<string, { role?: string; callsign?: string }> }
+  const cards: Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }> = {}
+  for (const [id, raw] of Object.entries(payload.cards || {})) {
+    const role = raw?.role === 'source' || raw?.role === 'relay' ? raw.role : 'idle'
+    cards[id] = { role, callsign: String(raw?.callsign || '') }
+  }
+  return cards
+}
+
+export async function fetchFastYsfNetActivity(signal?: AbortSignal): Promise<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>> {
+  const response = await fetch(`${ASR_API}?action=fast-ysf-net-activity`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error('Fast YSF Net Bridge activity unavailable')
+  const payload = await response.json() as { cards?: Record<string, { role?: string; callsign?: string }> }
+  const cards: Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }> = {}
+  for (const [id, raw] of Object.entries(payload.cards || {})) {
+    const role = raw?.role === 'source' || raw?.role === 'relay' ? raw.role : 'idle'
+    cards[id] = { role, callsign: String(raw?.callsign || '') }
+  }
+  return cards
+}
+
+export type FastNextModeTalker = {
+  callsign: string
+  sourceId: number
+  startEpoch: number
+  eventEpoch: number
+  duration: number
+}
+
+export type FastNextModeActivity = {
+  ready: boolean
+  role: 'idle' | 'source' | 'relay'
+  callsign: string
+  eventEpoch: number
+  updatedEpochMs: number
+  recentTalkers: FastNextModeTalker[]
+}
+
+export async function fetchFastNextModeActivity(signal?: AbortSignal): Promise<Record<string, FastNextModeActivity>> {
+  const response = await fetch(`${ASR_API}?action=fast-next-mode-activity`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error('Fast P25/NXDN activity unavailable')
+  const payload = await response.json() as { cards?: Record<string, { ready?: boolean; role?: string; callsign?: string; eventEpoch?: number; updatedEpochMs?: number; recentTalkers?: Array<Partial<FastNextModeTalker>> }> }
+  const cards: Record<string, FastNextModeActivity> = {}
+  for (const [id, raw] of Object.entries(payload.cards || {})) {
+    const role = raw?.role === 'source' || raw?.role === 'relay' ? raw.role : 'idle'
+    cards[id] = {
+      ready: raw?.ready === true,
+      role,
+      callsign: String(raw?.callsign || ''),
+      eventEpoch: Math.max(0, Number(raw?.eventEpoch) || 0),
+      updatedEpochMs: Number.isSafeInteger(raw?.updatedEpochMs) ? Math.max(0, Number(raw.updatedEpochMs)) : 0,
+      recentTalkers: Array.isArray(raw?.recentTalkers) ? raw.recentTalkers.slice(0, 4).map((talker) => ({
+        callsign: String(talker.callsign || '').slice(0, 20),
+        sourceId: Math.max(0, Number(talker.sourceId) || 0),
+        startEpoch: Math.max(0, Number(talker.startEpoch) || 0),
+        eventEpoch: Math.max(0, Number(talker.eventEpoch) || 0),
+        duration: Math.max(0, Number(talker.duration) || 0),
+      })).filter((talker) => talker.sourceId > 0 && talker.eventEpoch > 0) : [],
+    }
+  }
+  return cards
+}
+
+export async function fetchDmrFastSource(signal?: AbortSignal): Promise<{ active: boolean; callsign: string }> {
+  const response = await fetch(`${ASR_API}?action=dmr-fast-source`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error('DMR fast source unavailable')
+  const payload = await response.json() as { active?: boolean; callsign?: string }
+  return { active: payload.active === true, callsign: String(payload.callsign || '') }
+}
+
+export async function fetchZelloFastRelay(signal?: AbortSignal): Promise<{ active: boolean; updatedEpochMs: number }> {
+  const response = await fetch(`${ASR_API}?action=zello-fast-relay`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error('Zello fast relay unavailable')
+  const payload = await response.json() as { active?: boolean; updatedEpochMs?: number }
+  return {
+    active: payload.active === true,
+    updatedEpochMs: Number.isSafeInteger(payload.updatedEpochMs) && Number(payload.updatedEpochMs) > 0
+      ? Number(payload.updatedEpochMs)
+      : 0,
+  }
 }
 
 export async function fetchBridgeDestinations(bridgeId: string): Promise<BridgeDestination[]> {
@@ -1525,6 +1651,7 @@ export async function connectBridge(bridgeId: string, destination: string) {
       'X-ASR-Requested-With': 'bridge-control',
     },
     body: new URLSearchParams({ bridgeId, destination }).toString(),
+    signal: AbortSignal.timeout(45_000),
   })
   const payload = (await response.json()) as {
     ok?: boolean
@@ -1549,6 +1676,7 @@ export async function disconnectBridge(bridgeId: string) {
       'X-ASR-Requested-With': 'bridge-control',
     },
     body: new URLSearchParams({ bridgeId }).toString(),
+    signal: AbortSignal.timeout(45_000),
   })
   const payload = (await response.json()) as {
     ok?: boolean

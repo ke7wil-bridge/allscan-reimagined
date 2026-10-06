@@ -78,6 +78,18 @@ def main() -> None:
     dmr_value = helper.dmr_settings(dmr, dmr_request)
     assert dmr_value.reflector == "URFWIL" and dmr_value.tgif_tg == 86753
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
+    dmr_ports = dmr.port_block("dmr_tgif_net")
+    rendered_urf = dmr.urfd_ini({
+        "settings": {"reflector": "URFWIL", "callsign": "KE7WIL", "dmr_id": 3224939},
+        "mainNode": 641890,
+        "ports": dmr_ports,
+    })
+    assert f"RxPort = {dmr_ports['usrp_rx']}" in rendered_urf
+    assert f"TxPort = {dmr_ports['usrp_tx']}" in rendered_urf
+    rendered_tcd = dmr.tcd_ini({"ports": dmr_ports})
+    for gain in ("DStarGainIn", "DStarGainOut", "DmrYsfGainIn",
+                 "DmrYsfGainOut", "UsrpTxGain", "UsrpRxGain"):
+        assert f"{gain} = 0" in rendered_tcd
     for invalid_dmr in ({**dmr_request, "authMode": "website"},
                         {**dmr_request, "network": "custom"}):
         try:
@@ -121,19 +133,6 @@ def main() -> None:
     try:
         helper.zello_settings(zello, {**zello_request, "unexpected": True})
         raise AssertionError("unsupported Zello request field accepted")
-    except helper.HelperError:
-        pass
-
-    dstar = helper.load_module("setup_dstar_test", helper.DSTAR_PLAN_PATH)
-    dstar_request = {
-        "bridgeId": "dstar", "callsign": "KE7WIL", "dmrId": 3224939,
-        "reflector": "XRF641", "module": "A",
-    }
-    dstar_value = helper.dstar_settings(dstar, dstar_request)
-    assert dstar_value.reflector == "XRF641" and dstar_value.module == "A"
-    try:
-        helper.dstar_settings(dstar, {**dstar_request, "unexpected": True})
-        raise AssertionError("unsupported D-Star request field accepted")
     except helper.HelperError:
         pass
 

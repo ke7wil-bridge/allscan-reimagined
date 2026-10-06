@@ -136,7 +136,8 @@ def validate_control(program: str, args: list[str]) -> None:
                      and args[2] == "--user" and user(args[3]))
                  or (len(args) == 2 and args[0] == "status" and bid(args[1])))
     elif program == "m17":
-        valid = ((len(args) == 3 and args[0] == "--bridge" and bid(args[1]) and args[2] == "status")
+        valid = ((args == ["catalog"])
+                 or (len(args) == 3 and args[0] == "--bridge" and bid(args[1]) and args[2] == "status")
                  or (len(args) == 5 and args[0] == "--bridge" and bid(args[1])
                      and args[2] == "--user" and user(args[3]) and args[4] == "disconnect")
                  or (len(args) == 9 and args[0] == "--bridge" and bid(args[1])
@@ -168,6 +169,20 @@ def execute(request: dict, profile_path: Path = PROFILE) -> dict:
     environment = child_environment(profile_path, profile)
     argv = ([str(executable), request["command"]] if request["kind"] == "setup"
             else [str(executable), *request["args"]])
+    # P25/NXDN keep their authenticated MQTT brokers on loopback in the
+    # Asterisk container network namespace.  Run their short-lived root control
+    # commands in that namespace as well; the long-running status watchers use
+    # the same launcher and drop to the dedicated service account after entry.
+    if request["kind"] == "control" and request["program"] in {"p25", "nxdn"}:
+        environment["ASR_CONTAINER_WATCH_CONFIG"] = "/run/allscan-reimagined-bridge-rpc/config.json"
+        environment["ASR_CONTAINER_WATCH_SECRETS"] = "/run/allscan-reimagined-bridge-rpc/bridge-mqtt-secrets.json"
+        netns = HERE / "asr-container-netns-exec.py"
+        netns_info = netns.stat()
+        if (not netns.is_file() or netns.is_symlink() or netns_info.st_uid != 0
+                or netns_info.st_nlink != 1 or netns_info.st_mode & 0o022):
+            raise BrokerError("network namespace launcher is unsafe")
+        argv = [str(netns), "--container", profile.asterisk_container,
+                "--proc-root", str(profile.host_proc), "--", *argv]
     input_data = (json.dumps(request["payload"], separators=(",", ":"))
                   if request["kind"] == "setup" else None)
     result = subprocess.run(

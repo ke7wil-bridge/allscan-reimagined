@@ -101,8 +101,6 @@ def configured_targets(config: dict) -> tuple[str, list[dict]]:
         if not isinstance(bridge, dict):
             continue
         bridge_id = str(bridge.get("id", "")).strip().lower()
-        if re.match(r"^d[-_]?star(?:[_-]|$)", bridge_id):
-            continue
         if bridge.get("cardType", "standard") != "standard":
             continue
         if bridge.get("fixedBridgeRecovery") is not True:
@@ -211,7 +209,6 @@ def self_test() -> None:
             {"id": "ysf", "node": "1202", "cardType": "standard", "fixedBridgeRecovery": True},
             {"id": "zello", "node": "1203", "cardType": "standard", "fixedBridgeRecovery": False},
             {"id": "ysf_net", "node": "1204", "cardType": "ysf_net", "fixedBridgeRecovery": True},
-            {"id": "dstar", "node": "1205", "cardType": "standard", "fixedBridgeRecovery": True},
         ],
     }
     rpt_text = """

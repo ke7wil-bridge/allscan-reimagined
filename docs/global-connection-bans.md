@@ -55,5 +55,5 @@ test identity before declaring live enforcement verified.
 - PHP syntax can be checked with `docker exec -i
   allscan-reimagined-layered-allscan-1 php -l < server/asr-api.php`.
 - `python3 scripts/asr-bridge-admin-controls-self-test.py` and
-  `python3 scripts/asr-dstar-zello-client-management-self-test.py`
+  `python3 scripts/asr-zello-client-management-self-test.py`
   cover existing bridge administration.

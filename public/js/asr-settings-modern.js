@@ -5,7 +5,7 @@
     if (section.matches('.asr-card-basics-section,.asr-backend-choice-section')) return 'basics'
     if (section.matches('.asr-destination-permission-section,.asr-standard-bridge-settings')) return 'controls'
     if (section.matches('.asr-standard-dmr-tgif,.asr-connected-client-settings')) return 'clients'
-    if (section.matches('.asr-backend-readiness-section,.asr-dstar-status-settings')) return 'diagnostics'
+    if (section.matches('.asr-backend-readiness-section')) return 'diagnostics'
     return 'advanced'
   }
   function activate(scope, selected, focus) {

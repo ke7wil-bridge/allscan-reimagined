@@ -61,7 +61,9 @@ with tempfile.TemporaryDirectory() as directory:
     net_p25 = module.DigitalSettings("p25", "p25_net", "KE7WIL", 3224939,
                                      64189, "127.0.0.1", 41000,
                                      bridge_role="net")
-    assert module.plan(root, net_p25)["bridgeNode"] == 1999
+    net_plan = module.plan(root, net_p25)
+    assert net_plan["bridgeNode"] == 1999
+    assert (net_plan["ports"]["usrp_rx"], net_plan["ports"]["usrp_tx"]) == (52000, 52001)
     config.write_text(json.dumps({"node": "641890", "bridges": [{
         "id": "ysf_net", "mode": "ysf", "node": "1999", "cardType": "ysf_net",
     }]}) + "\n")

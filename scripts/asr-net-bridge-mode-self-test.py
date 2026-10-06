@@ -26,7 +26,7 @@ assert "def switch_mode(" in source
 assert 'PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")' in source
 assert "backend.load_profile(PROFILE)" in source
 assert "os.environ[backend.PROFILE_ENV] = str(PROFILE)" in source
-assert "for attempt in range(2):" in source
+assert "for attempt in range(20):" in source
 assert 'updated["netBridgeMode"] = mode' in source
 assert 'updated["netBridgeMode"] = old_mode' not in source
 assert 'subprocess.run(argv' in source and 'shell=True' not in source

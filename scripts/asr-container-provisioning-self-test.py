@@ -282,11 +282,20 @@ def test_broker(broker) -> None:
         ("p25", ["connect", "qa_p25", "10200", "--user", "N0CALL"]),
         ("nxdn", ["status", "qa_nxdn"]),
         ("m17", ["--bridge", "qa_m17", "--user", "N0CALL", "connect", "--reflector", "M17-M17", "--module", "C"]),
+        ("m17", ["catalog"]),
         ("net-mode", ["--mode", "dmr"]),
     )
     for program, args in valid_controls:
         result = request(broker, {"schema": 1, "program": program, "args": args})
         assert result["kind"] == "control"
+
+    installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
+    assert "--proc-root {profile.host_proc} --user {SERVICE_USER}" in installer_source
+    assert "It immediately setuid/setgid drops to" in installer_source
+    broker_source = (HERE / "asr-container-host-broker.py").read_text(encoding="utf-8")
+    assert 'request["program"] in {"p25", "nxdn"}' in broker_source
+    assert '"--proc-root", str(profile.host_proc)' in broker_source
+    assert 'environment["ASR_CONTAINER_WATCH_CONFIG"]' in broker_source
 
     malformed = [
         None, [], {"schema": 1},
@@ -340,6 +349,7 @@ def test_asterisk_adapter(adapter) -> None:
     for args in (
         ["-rx", "rpt stats 1001"],
         ["-rx", "rpt lstats 123456"],
+        ["-rx", "rpt show channels 1999"],
         ["-rx", "rpt cmd 123456 ilink 3 1001"],
         ["-rx", "rpt cmd 123456 ilink 11 1001"],
         ["-rx", "module show like chan_usrp.so"],
@@ -351,6 +361,7 @@ def test_asterisk_adapter(adapter) -> None:
         ["-rx", "rpt cmd 123456 ilink 3 1001;id"],
         ["-rx", "rpt lstats 1001\ncore stop now"],
         ["-rx", "rpt cmd 123456 ilink 4 1001"],
+        ["-rx", "channel request hangup usrp/127.0.0.1:31001:31002"],
         ["-rx", "rpt stats 1001", "extra"],
     ):
         rejected(adapter.validate_command, args)
@@ -363,6 +374,7 @@ def test_asterisk_adapter(adapter) -> None:
                         {"id": "unowned", "node": "1002"},
                         {"id": "qa_dmr", "node": "1003", "cardType": "dmr_net",
                          "backendMode": "managed", "managedNetControl": True,
+                         "setupPorts": {"usrp_rx": 31001, "usrp_tx": 31002},
                          "managedTargetFile": "/opt/allscan-reimagined-bridges/urf/qa_dmr/tgif-run/net-target"}],
         },
         records / "qa_m17.json": {"bridgeId": "qa_m17", "bridgeNode": 1001},
@@ -378,6 +390,8 @@ def test_asterisk_adapter(adapter) -> None:
                     "rpt cmd 123456 ilink 3 9999"):
         rejected(adapter.authorize_command, command, profile, loader, records)
     adapter.authorize_command("rpt stats 1003", profile, loader, records,
+                              allow_pending=True)
+    adapter.authorize_command("rpt show channels 1003", profile, loader, records,
                               allow_pending=True)
     rejected(adapter.authorize_command, "rpt stats 1003", profile, loader, records)
     values[Path("/state/asr/config.json")]["bridges"][-1]["managedTargetFile"] = "/tmp/net-target"

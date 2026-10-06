@@ -30,8 +30,6 @@ URF_PLAN_PATH = HERE / "asr-bridge-setup-urf.py"
 URF_INSTALL_PATH = HERE / "asr-bridge-setup-urf-install.py"
 ZELLO_PLAN_PATH = HERE / "asr-bridge-setup-zello.py"
 ZELLO_INSTALL_PATH = HERE / "asr-bridge-setup-zello-install.py"
-DSTAR_PLAN_PATH = HERE / "asr-bridge-setup-dstar.py"
-DSTAR_INSTALL_PATH = HERE / "asr-bridge-setup-dstar-install.py"
 def provisioning_config_path(logical: str) -> Path:
     profile = os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE", "")
     if not profile:
@@ -500,39 +498,6 @@ def zello_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
 
 
 
-def dstar_settings(module, payload: dict[str, Any]):
-    allowed = {"bridgeId", "callsign", "dmrId", "reflector", "module", "title", "bridgeNode", "planDigest"}
-    if set(payload) - allowed:
-        raise HelperError("D-Star request contains unsupported fields")
-    required = {"bridgeId", "callsign", "dmrId", "reflector", "module"}
-    if not required.issubset(payload):
-        raise HelperError("D-Star request is incomplete")
-    return module.DStarSettings(
-        bridge_id=str(payload["bridgeId"]), callsign=str(payload["callsign"]),
-        dmr_id=int(payload["dmrId"]), reflector=str(payload["reflector"]),
-        module=str(payload["module"]), title=str(payload.get("title") or "D-Star Bridge"),
-        bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
-    )
-
-
-def dstar_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
-    planner = load_module("asr_setup_dstar_plan", DSTAR_PLAN_PATH)
-    settings = dstar_settings(planner, payload)
-    if not apply:
-        result = planner.plan(Path("/"), settings)
-    else:
-        require_root()
-        expected = str(payload.get("planDigest", ""))
-        if not re.fullmatch(r"[a-f0-9]{64}", expected):
-            raise HelperError("D-Star installation requires a current preview digest")
-        if planner.plan(Path("/"), settings)["digest"] != expected:
-            raise HelperError("preview is stale; preview again")
-        installer = load_module("asr_setup_dstar_install", DSTAR_INSTALL_PATH)
-        result = installer.install(Path("/"), settings, expected_digest=expected, manage_services=True)
-    append_audit({"action": "dstar-install" if apply else "dstar-plan", "bridgeId": settings.bridge_id, "result": "ok"})
-    return result
-
-
 NET_MODE_IDS = {
     "dmr": "dmr_tgif_net", "ysf": "ysf_net", "p25": "p25_net",
     "nxdn": "nxdn_net", "m17": "m17_net",
@@ -651,7 +616,7 @@ def parser() -> argparse.ArgumentParser:
         "validate", "backup", "m17-plan", "m17-install",
         "p25-plan", "p25-install", "nxdn-plan", "nxdn-install",
         "ysf-plan", "ysf-install", "dmr-plan", "dmr-install",
-        "zello-plan", "zello-install", "dstar-plan", "dstar-install",
+        "zello-plan", "zello-install",
         "net-bridge-plan", "net-bridge-install",
     ))
     return result
@@ -680,8 +645,6 @@ def main() -> int:
                     result = dmr_command(payload, args.command == "dmr-install")
                 elif args.command in ("zello-plan", "zello-install"):
                     result = zello_command(payload, args.command == "zello-install")
-                elif args.command in ("dstar-plan", "dstar-install"):
-                    result = dstar_command(payload, args.command == "dstar-install")
                 else:
                     mode, operation = args.command.split("-", 1)
                     result = digital_command(payload, mode, operation == "install")

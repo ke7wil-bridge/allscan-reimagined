@@ -144,7 +144,7 @@ function asrManagedBridges(array $bridges): array {
 		if(!is_array($bridge))
 			return false;
 		$mode = asrBridgeMode($bridge);
-		if($mode === 'dstar' || (string) ($bridge['cardType'] ?? 'standard') !== 'standard')
+		if((string) ($bridge['cardType'] ?? 'standard') !== 'standard')
 			return false;
 		$source = (string) ($bridge['clientSource'] ?? 'auto');
 		$url = trim((string) ($bridge['clientUrl'] ?? ''));
@@ -259,7 +259,6 @@ function asrSelfTest(): void {
 		['id' => 'dmr', 'clientSource' => 'disabled', 'clientUrl' => ''],
 		['id' => 'ysf', 'clientSource' => 'local_json', 'clientUrl' => ''],
 		['id' => 'zello', 'clientSource' => 'local_json', 'clientUrl' => '/var/www/html/allscan/zello-talkers.json'],
-		['id' => 'dstar', 'clientSource' => 'http_api', 'clientUrl' => 'https://example.invalid/clients'],
 		['id' => 'p25', 'mode' => 'p25', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
 		['id' => 'nxdn_net', 'mode' => 'nxdn', 'cardType' => 'nxdn_net', 'clientSource' => 'local_json', 'clientUrl' => '/asr/nxdn.json'],
 		['id' => 'm17', 'mode' => 'm17', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
@@ -1291,7 +1290,7 @@ function asrYsfLogEpoch(string $timestamp): int {
 function asrBridgeMode(array $bridge): string {
 	foreach([$bridge['mode'] ?? '', $bridge['type'] ?? '', $bridge['id'] ?? ''] as $value) {
 		$compact = preg_replace('/[^a-z0-9]/', '', strtolower(trim((string) $value)));
-		foreach(['dstar', 'dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn'] as $knownMode) {
+		foreach(['dmr', 'ysf', 'zello', 'p25', 'm17', 'nxdn'] as $knownMode) {
 			if(str_starts_with((string) $compact, $knownMode))
 				return $knownMode;
 		}

@@ -48,29 +48,28 @@ if (!controller) throw new Error('Bridge tab controller was not exported for the
 function bridgeScope(mode) {
   const scope = new Element(['asr-bridge-panel-body'])
   const classNames = ['asr-card-basics-section', 'asr-standard-bridge-settings', 'asr-backend-readiness-section', 'asr-bridge-advanced-section']
-  if (mode === 'dstar') classNames.push('asr-dstar-status-settings')
-  else if (mode !== 'dmr') classNames.push('asr-connected-client-settings')
+  if (mode !== 'dmr') classNames.push('asr-connected-client-settings')
   if (mode === 'dmr') classNames.push('asr-standard-dmr-tgif')
   for (const name of classNames) {
     const section = new Element(['asr-bridge-panel-section', name])
     section.dataset.bridgeTabLabel = name === 'asr-standard-bridge-settings' ? 'Link Recovery'
       : name === 'asr-standard-dmr-tgif' ? 'TGIF Sessions'
       : name === 'asr-connected-client-settings' ? (mode === 'zello' ? 'Recent Talkers' : 'Client Data')
-      : name === 'asr-backend-readiness-section' || name === 'asr-dstar-status-settings' ? 'Status'
+      : name === 'asr-backend-readiness-section' ? 'Status'
       : name === 'asr-bridge-advanced-section' ? 'Advanced' : 'Basics'
     scope.appendChild(section)
   }
   return scope
 }
 
-for (const mode of ['zello', 'dstar', 'dmr', 'ysf', 'p25', 'nxdn', 'm17']) {
+for (const mode of ['zello', 'dmr', 'ysf', 'p25', 'nxdn', 'm17']) {
   const scope = bridgeScope(mode)
   controller.install(scope, documentStub)
   const buttons = scope.querySelectorAll('.asr-bridge-editor-tab')
   const names = buttons.map((button) => button.dataset.bridgeTab)
-  const expected = mode === 'dstar' ? ['basics', 'controls', 'diagnostics', 'advanced'] : ['basics', 'controls', 'clients', 'diagnostics', 'advanced']
+  const expected = ['basics', 'controls', 'clients', 'diagnostics', 'advanced']
   if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error(`${mode}: wrong live tabs: ${names.join(',')}`)
-  const expectedClientLabel = mode === 'dmr' ? 'TGIF Sessions' : mode === 'zello' ? 'Recent Talkers' : mode === 'dstar' ? '' : 'Client Data'
+  const expectedClientLabel = mode === 'dmr' ? 'TGIF Sessions' : mode === 'zello' ? 'Recent Talkers' : 'Client Data'
   const clientButton = buttons.find((button) => button.dataset.bridgeTab === 'clients')
   if (expectedClientLabel && (!clientButton || clientButton.textContent !== expectedClientLabel)) throw new Error(`${mode}: wrong client tab label`)
   for (const button of buttons) {

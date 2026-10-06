@@ -1,0 +1,5 @@
+46ae1a843f58468cc4c87b3879762e9704e92a5ddb3ba4d43524bdfe05bca14c  scripts/asr-ysf-bridge-control.py
+46ae1a843f58468cc4c87b3879762e9704e92a5ddb3ba4d43524bdfe05bca14c  /usr/local/sbin/allscan-reimagined-ysf-bridge-control
+Zello source/deployed:
+4fae84a8458d89b12a46b43c5bb75d6f20e685c268bb2496df083cff5508b3fc  /home/josh/worktrees/virtual-node-main-clean/asl3/zello-bridge/asl_zello_bridge/usrp.py
+4fae84a8458d89b12a46b43c5bb75d6f20e685c268bb2496df083cff5508b3fc  /opt/asl-zello-bridge/venv/lib/python3.12/site-packages/asl_zello_bridge/usrp.py

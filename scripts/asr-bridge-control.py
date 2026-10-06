@@ -28,7 +28,6 @@ HOST_ROOT = Path("/proc/1/root")
 ASTERISK_BIN = Path("/usr/sbin/asterisk")
 MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
-LINK_ALIAS_RE = re.compile(r"^999[0-9]{6}$")
 ABINFO_RE = re.compile(r"^/tmp/ABInfo_[0-9]{2,5}\.json$")
 DVSWITCH_RE = re.compile(r"^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$")
 ANALOG_CONFIG_RE = re.compile(r"^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$")
@@ -443,7 +442,7 @@ def dmr_net_live_payload(
         local_node = ""
     keyed_states = astapi_key_states(
         local_node,
-        {str(bridge.get("linkAlias") or bridge.get("node", "")) for bridge in bridges},
+        {str(bridge.get("node", "")) for bridge in bridges},
         now,
     )
     for bridge in bridges:
@@ -561,17 +560,14 @@ def node_numbers(bridge: dict, path: Path = CONFIG_PATH) -> tuple[str, str, str]
     config = load_config(path)
     local_node = str(config.get("node", ""))
     bridge_node = str(bridge.get("node", ""))
-    link_alias = str(bridge.get("linkAlias", ""))
     if not local_node.isdigit() or not bridge_node.isdigit():
         raise ControlError("DMR Net Bridge AllStar node configuration is invalid.")
     if not re.fullmatch(r"[0-9]{3,6}", local_node):
         raise ControlError("DMR Net Bridge local AllStar node configuration is invalid.")
-    expected_alias = f"999{int(local_node):06d}"
-    if LINK_ALIAS_RE.fullmatch(link_alias) is None or link_alias != expected_alias:
-        raise ControlError("DMR Net Bridge AllStar link alias configuration is invalid.")
-    if link_alias in (local_node, bridge_node):
-        raise ControlError("DMR Net Bridge AllStar link alias must be unique.")
-    return local_node, bridge_node, link_alias
+    # Link the configured local transport node itself.  Older configuration
+    # carries a synthetic linkAlias, but rpt.conf never maps that alias, so an
+    # ilink command to it cannot deliver audio to the USRP channel.
+    return local_node, bridge_node, bridge_node
 
 
 def parse_lstats_links(output: str) -> set[tuple[str, str]]:
@@ -944,9 +940,6 @@ def self_test() -> None:
     assert ABINFO_RE.fullmatch("/tmp/ABInfo_12345.json")
     assert DVSWITCH_RE.fullmatch("/opt/MMDVM_Bridge_TestNet/dvswitch.sh")
     assert ANALOG_CONFIG_RE.fullmatch("/opt/Analog_Bridge_TestNet/Analog_Bridge.ini")
-    assert LINK_ALIAS_RE.fullmatch("999123456")
-    assert not LINK_ALIAS_RE.fullmatch("4321")
-    assert not LINK_ALIAS_RE.fullmatch("999123456;reload")
     assert not DVSWITCH_RE.fullmatch("/opt/MMDVM_Bridge/dvswitch.sh")
     assert not ANALOG_CONFIG_RE.fullmatch("/opt/Analog_Bridge/Analog_Bridge.ini")
     assert DISCONNECT_TG == 4000
@@ -958,8 +951,6 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
 4321      127.0.0.1           0           OUT        00:01:00:000        ESTABLISHED
 """
     assert parse_lstats_links(lstats) == {("4321", "OUT")}
-    alias_lstats = lstats.replace("4321      ", "999123456 ")
-    assert parse_lstats_links(alias_lstats) == {("999123456", "OUT")}
     inbound = lstats.replace(
         "127.0.0.1           0           OUT",
         "peer.example        0           IN",
@@ -1139,15 +1130,10 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         assert node_numbers(bridge, runtime_config) == (
             "123456",
             "4321",
-            "999123456",
+            "4321",
         )
         bridge["linkAlias"] = "999654321"
-        try:
-            node_numbers(bridge, runtime_config)
-        except ControlError:
-            pass
-        else:
-            raise AssertionError("A link alias for another local node was accepted.")
+        assert node_numbers(bridge, runtime_config) == ("123456", "4321", "4321")
         log_dir = Path(directory) / "mmdvm"
         log_dir.mkdir()
         log_path = log_dir / "MMDVM_Bridge_TestNet-2026-07-23.log"

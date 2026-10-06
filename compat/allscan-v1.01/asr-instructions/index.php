@@ -80,13 +80,12 @@ pageInit();
 			<div><dt>Fixed Bridge Recovery</dt><dd>A Standard Bridge can optionally restore a missing local fixed link. If Asterisk already maintains a native permanent link, ASR stays out of the way. Net Bridges are excluded.</dd></div>
 		</dl>
 		<p><strong>Maintain bridge friendly names</strong> preserves configured Connection Status labels across updates and restarts. Startup bridge summary is optional and announces only configured Standard bridges that are actually established.</p>
-		<p><strong>D-Star is Standard-only.</strong> Its card uses managed heartbeat, gateway/link, MMDVM activity, and local reflector evidence. The fallback local INI callsign is not a remote talker and does not create talker history.</p>
 		<p><strong>Deleting a card:</strong> ASR removes managed bridge resources only when bridge-specific ownership is proven. Otherwise it removes ASR metadata and leaves pre-existing services, Asterisk configuration, files, ports, packages, and shared components untouched.</p>
 	</section>
 
 	<section id="bridge-setup" class="asr-instructions-section">
 		<h2>Bridge Setup Wizard &amp; Safety</h2>
-		<p>Open <strong>Settings → Bridges → + Add Bridge</strong>. The wizard supports Net Bridge, M17, P25, NXDN, YSF, DMR, D-Star, and Zello. It detects the ASL3 system, validates the plan, previews what will change, installs/configures supported managed resources, and performs health checks before the bridge is treated as ready.</p>
+		<p>Open <strong>Settings → Bridges → + Add Bridge</strong>. The wizard supports Net Bridge, M17, P25, NXDN, YSF, DMR, and Zello. It detects the ASL3 system, validates the plan, previews what will change, installs/configures supported managed resources, and performs health checks before the bridge is treated as ready.</p>
 		<ul class="asr-instructions-list">
 			<li>Use the unified <strong>Net Bridge</strong> choice for the Beta 8 outbound multi-mode bridge. Its private AllStar transport node is managed internally rather than chosen during normal operation.</li>
 			<li>Standard bridges normally stay on one destination. Display-only cards monitor externally installed services without operating them.</li>
@@ -114,13 +113,12 @@ pageInit();
 
 	<section id="standard-bridges" class="asr-instructions-section">
 		<h2>Standard Digital Bridges</h2>
-		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, D-Star, Zello, and the shared URF reflector can be represented when their backend is installed and provides the required evidence.</p>
+		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, Zello, and the shared URF reflector can be represented when their backend is installed and provides the required evidence.</p>
 		<ul class="asr-instructions-list">
 			<li><strong>URF:</strong> one shared reflector transport can expose separate DMR, YSF, P25, NXDN, and M17 mode cards. Configure only the modes actually used.</li>
 			<li><strong>DMR/TGIF:</strong> TGIF website session authentication and the DMR network connection are separate. Secured DMR uses the configured hotspot key; legacy operation can use the DMR identity without a personal key.</li>
 			<li><strong>YSF:</strong> tunable YSF paths can import a YSF Plain Text host list. The list is a snapshot; re-import it when a newly registered reflector is missing. A rejected upload never erases the previous valid list.</li>
 			<li><strong>P25/NXDN/M17:</strong> use isolated resources and valid destinations. M17 requires its reflector/module and a qualified Codec2/USRP audio path.</li>
-			<li><strong>D-Star:</strong> reflector configuration remains in the installed D-Star gateway; ASR displays evidence-backed status and has no D-Star destination control.</li>
 			<li><strong>Zello:</strong> account/sign-in management remains outside ASR. ASR displays current/recent talker information only when the external bridge exposes it.</li>
 		</ul>
 	</section>

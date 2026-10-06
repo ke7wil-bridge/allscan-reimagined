@@ -22,6 +22,7 @@
 #include "M17Protocol.h"
 #include "M17Packet.h"
 #include "Global.h"
+#include "AsrPttState.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // operation
@@ -86,7 +87,9 @@ void CM17Protocol::Task(void)
 				OnDvHeaderPacketIn(Header, Ip);
 
 				// xrf needs a voice frame every 20 ms and an M17 frame is 40 ms, so we need a duplicate
+				const bool asrLastFrame = Frame->IsLastPacket();
 				auto secondFrame = std::unique_ptr<CDvFramePacket>(new CDvFramePacket(*Frame.get()));
+				if (asrLastFrame) AsrPttState(false, "M17");
 
 				// This is not a second packet, so clear the last packet status, since the real last packet it the secondFrame
 				if (Frame->IsLastPacket())

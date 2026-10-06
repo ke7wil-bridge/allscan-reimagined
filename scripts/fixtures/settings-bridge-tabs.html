@@ -11,7 +11,7 @@
 <script>
 (function(){
   var table=document.querySelector('.asr-bridge-settings-table');
-  var editors=['zello','dstar','dmr','ysf','p25','nxdn','m17','dmr-net','ysf-net','p25-net','nxdn-net','m17-net'];
+  var editors=['zello','dmr','ysf','p25','nxdn','m17','dmr-net','ysf-net','p25-net','nxdn-net','m17-net'];
   function section(classes,label,copy){return '<section class="asr-bridge-panel-section '+classes+'" data-bridge-tab-label="'+label+'"><details><summary>'+label+' options</summary><p>'+copy+'</p><label>Choice <select><option>Automatic</option><option>Manual</option></select></label></details></section>'}
   editors.forEach(function(kind){
     var mode=kind.replace('-net',''),net=kind.indexOf('-net')>0,row=document.createElement('div');
@@ -20,9 +20,8 @@
     if(net)body+=section('asr-destination-permission-section','Controls &amp; Permissions','Approved destinations');
     else body+=section('asr-standard-bridge-settings','Link Recovery','Optional fixed-link recovery');
     if(mode==='dmr'&&!net)body+=section('asr-standard-dmr-tgif','TGIF Sessions','Authenticated TGIF session');
-    else if(mode!=='dstar'&&!net)body+=section('asr-connected-client-settings',mode==='zello'?'Recent Talkers':'Client Data','Current runtime data');
+    else if(!net)body+=section('asr-connected-client-settings',mode==='zello'?'Recent Talkers':'Client Data','Current runtime data');
     body+=section('asr-backend-readiness-section','Status','Actionable bridge state');
-    if(mode==='dstar')body+=section('asr-dstar-status-settings','Status','D-Star gateway evidence');
     body+=section('asr-bridge-advanced-section','Advanced','Installer details');
     row.innerHTML='<div class="asr-bridge-panel-header"><button class="asr-bridge-toggle" type="button"><span class="asr-settings-toggle-icon">&gt;</span><strong class="asr-bridge-panel-name">'+kind+'</strong></button><button class="asr-bridge-delete" type="button">Remove</button></div><div class="asr-bridge-panel-body">'+body+'</div>';table.appendChild(row)
   })
@@ -35,7 +34,7 @@
   form.addEventListener('submit',function(event){event.preventDefault();saved=true});document.querySelector('[data-save]').click();if(!saved)failures.push('save');
   Array.from(document.querySelectorAll('[data-test-mode]')).forEach(function(row){
     var mode=row.dataset.testMode;row.querySelector('.asr-bridge-delete').addEventListener('click',function(){row.dataset.deleted='true'});row.querySelector('.asr-bridge-toggle').click();
-    if(modal.hidden)failures.push(mode+'-open');var buttons=Array.from(modal.querySelectorAll('.asr-bridge-editor-tab'));var expected=mode==='dstar'?['basics','controls','diagnostics','advanced']:mode.indexOf('-net')>0?['basics','controls','diagnostics','advanced']:['basics','controls','clients','diagnostics','advanced'];
+    if(modal.hidden)failures.push(mode+'-open');var buttons=Array.from(modal.querySelectorAll('.asr-bridge-editor-tab'));var expected=mode.indexOf('-net')>0?['basics','controls','diagnostics','advanced']:['basics','controls','clients','diagnostics','advanced'];
     if(buttons.some(function(button){var box=button.getBoundingClientRect();return box.width<40||box.height<40}))failures.push(mode+'-untappable-tabs');
     if(buttons.map(function(button){return button.dataset.bridgeTab}).join(',')!==expected.join(','))failures.push(mode+'-tabs');
     buttons.forEach(function(button){button.click();var visible=Array.from(modal.querySelectorAll('.asr-bridge-panel-section')).filter(function(section){return getComputedStyle(section).display!=='none'});if(!button.classList.contains('is-active')||button.getAttribute('aria-selected')!=='true'||!visible.length||visible.some(function(section){return window.AsrSettingsBridgeTabs.sectionTab(section)!==button.dataset.bridgeTab}))failures.push(mode+'-'+button.dataset.bridgeTab);visible.forEach(function(section){var details=section.querySelector('details'),summary=details&&details.querySelector('summary');if(!details||!summary||!summary.textContent.trim()||!details.querySelector('p').textContent.trim())failures.push(mode+'-'+button.dataset.bridgeTab+'-empty');else{summary.click();if(!details.open)failures.push(mode+'-'+button.dataset.bridgeTab+'-open-disclosure');summary.click();if(details.open)failures.push(mode+'-'+button.dataset.bridgeTab+'-close-disclosure')}var select=section.querySelector('select');if(select){select.selectedIndex=1;select.dispatchEvent(new Event('change',{bubbles:true}));if(select.value!=='Manual')failures.push(mode+'-'+button.dataset.bridgeTab+'-dropdown')}})});

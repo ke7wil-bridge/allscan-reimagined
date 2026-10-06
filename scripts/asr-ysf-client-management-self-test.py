@@ -45,7 +45,6 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     urf.AUDIT_LOG = str(tmp / "asr-admin-audit.jsonl")
     urf.DMR_ROSTER = str(tmp / "dmr-clients.json")
     urf.DMR_CONTROL = str(tmp / "dmr-admin.json")
-    urf.DSTAR_BLACKLIST = str(tmp / "xlxd.blacklist")
     urf.CONFIG = str(tmp / "config.json")
     Path(urf.CONFIG).write_text(json.dumps({"bridges": [], "filteredStations": ["FEEDALIAS"]}), encoding="utf-8")
     Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": [], "events": []}), encoding="utf-8")
@@ -114,21 +113,15 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
         "GHOST": {"createdAt": now, "expiresAt": now + 7200},
     })
     disconnects = []
-    dstar_events = []
     original_disconnect, original_sync = urf.request_urf_disconnect, urf.sync_dmr_ban
-    original_dstar = urf.request_dstar_event
     urf.request_urf_disconnect = lambda rule, protocol, event, required: disconnects.append((rule, protocol, event)) or 0
     urf.sync_dmr_ban = lambda rule, state: None
-    urf.request_dstar_event = lambda rule, event, required=False: dstar_events.append((rule, event)) or 0
     remaining, timed, expired = urf.expire_timed_bans(urf.read_rules(), urf.read_timed_bans())
     urf.request_urf_disconnect, urf.sync_dmr_ban = original_disconnect, original_sync
-    urf.request_dstar_event = original_dstar
     check(expired == ["KE7WIL"] and remaining == ["AD7TG", "N0CALL*"],
           "one expired Ban incorrectly changed another active/Permanent Ban")
     check(set(timed) == {"AD7TG"}, "expired or orphaned timer metadata was retained")
     check(disconnects == [("KE7WIL", "*", "unban")], "expiry cleared the wrong live URFD enforcement")
-    check(dstar_events == [("KE7WIL", "unban")], "expiry cleared the wrong D-Star enforcement")
-    check(Path(urf.DSTAR_BLACKLIST).read_text(encoding="utf-8").splitlines()[-2:] == ["AD7TG", "N0CALL*"], "D-Star blacklist did not retain unrelated bans")
     check(urf.read_rules() == ["AD7TG", "N0CALL*"], "expired Ban was not removed from saved rules")
 
     urf.sync_dmr_ban("KE7WIL", False)

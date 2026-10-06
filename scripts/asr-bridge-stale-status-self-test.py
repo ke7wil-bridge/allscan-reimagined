@@ -416,7 +416,7 @@ def test_wiring_contracts() -> None:
         assert installer.count("allscan-reimagined-standard-bridge-status.service") >= 4
         assert "/usr/local/sbin/asr_bridge_status.py" in installer
         standard_check = installer.index(
-            'validate_command "configured Standard DMR/YSF/D-Star status service is active"'
+            'validate_command "configured Standard DMR/YSF status service is active"'
         )
         net_check = installer.index(
             'validate_command "configured DMR Net live service is active"'
@@ -430,7 +430,7 @@ def test_wiring_contracts() -> None:
         assert standard_condition >= 0
         condition = installer[standard_condition:standard_check]
         assert 'item.get("cardType", "standard") == "standard"' in condition
-        assert '.startswith(("dmr", "ysf", "dstar"))' in condition
+        assert '.startswith(("dmr", "ysf"))' in condition
 
 
 def main() -> None:
