@@ -2391,6 +2391,8 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		$error = 'URF Reflector needs at least one enabled digital mode.';
 		return [];
 	}
+	$existingUrf = asrSettingsExistingUrfConfig($config);
+	$record = is_array($existingUrf['record'] ?? null) ? $existingUrf['record'] : [];
 	if(!$record && empty($existingUrf['enabled'])) $record = [
 		'id'=>'urf', 'mode'=>'urf', 'node'=>$node, 'title'=>'URFWIL Reflector',
 		'detailTitle'=>'URF Clients & Activity', 'friendlyName'=>'URFWIL Multi-Mode Bridge',
@@ -2405,8 +2407,8 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record];
 }
 
-function asrSettingsUrfModeBridges($urf) {
-	if(empty($urf['enabled'])) return [];
+function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
+	if(empty($urf['enabled'])) return array_values((array)$managedBridges);
 	if(is_array($urf['record'] ?? null) && !empty($urf['record'])) {
 		$record = $urf['record'];
 		$record['node'] = (string)$urf['node'];
@@ -2416,11 +2418,7 @@ function asrSettingsUrfModeBridges($urf) {
 	}
 
 	$result = [];
-	foreach($modes as $mode) {
-		if(isset($managedByMode[$mode])) {
-			$result[] = $managedByMode[$mode];
-			continue;
-		}
+	foreach((array)($urf['modes'] ?? []) as $mode) {
 		$label = $mode === 'm17' ? 'M17' : strtoupper($mode);
 		$result[] = [
 			'id' => 'urf_' . $mode,

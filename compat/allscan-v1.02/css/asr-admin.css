@@ -4187,7 +4187,7 @@ body.asr-rollback-dialog-open {
 }
 
 /* Keep the Configs and Users pages usable on phones in both
-   orientations. These selectors intentionally follow the stock v1.01 markup. */
+   orientations. These selectors intentionally follow the compatible stock AllScan markup. */
 
 @media (max-width:900px) {
 	body.asr-admin-page-cfg,
