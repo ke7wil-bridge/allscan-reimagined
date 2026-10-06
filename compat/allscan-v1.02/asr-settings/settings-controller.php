@@ -1038,7 +1038,7 @@ function asrSettingsModernNav($activeSection) {
 	$items = [
 		'home' => ['Settings Home', 'Overview and common tasks'],
 		'appearance' => ['Appearance & Display', 'Branding, filters, and node display'],
-		'bridges' => ['Bridges', 'Digital bridges, clients, and diagnostics'],
+		'bridges' => ['Bridges', 'Digital bridges, Unified Net Bridge, clients, and diagnostics'],
 		'lookup' => ['Lookup & Map', 'QRZ lookup and map settings'],
 		'access' => ['Access & Administration', 'Login policy and administrator tools'],
 		'system' => ['System & Recovery', 'Updates, backups, and rollback'],
@@ -1783,9 +1783,9 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label><span>Bridge Role <small class="asr-field-requirement">Required</small></span><select name="bridgeCardType[]"<?php echo $lockLifecycleShape ? ' disabled title="Delete and save this managed bridge before changing its role."' : ''; ?>>
 					<?php echo asrSettingsSourceOption($cardRole, 'standard', 'Standard Bridge'); ?>
 					<?php if($mode !== 'zello'): ?><?php echo asrSettingsSourceOption($cardRole, 'net', 'Net Bridge'); ?><?php endif; ?>
-				</select><small>Standard represents one installed bridge. Net Bridge adds supported destination controls for authorized operators.</small></label>
+				</select><small>Standard represents one fixed or externally managed bridge. Net Bridge is the selectable digital bridge role; the Unified Net Bridge shares private transport node 1999 across DMR, YSF, P25, NXDN, and M17.</small></label>
 				<input name="bridgeId[]" type="hidden" value="<?php echo asrSettingsH($id); ?>">
-				<label><span>Bridge AllStar Node <small class="asr-field-requirement">Required</small></span><input name="bridgeNode[]" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($bridge['node'] ?? ''); ?>"><small>The private local AllStar node assigned to this bridge—not your main node and not a talkgroup.</small></label>
+				<label><span>Bridge AllStar Node <small class="asr-field-requirement">Required</small></span><input name="bridgeNode[]" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($bridge['node'] ?? ''); ?>"><small>The private local AllStar transport assigned to this bridge—not your main node, talkgroup, reflector, or displayed talker identity.</small></label>
 				<label><span>Dashboard Name <small class="asr-field-requirement">Optional</small></span><input name="bridgeTitle[]" type="text" placeholder="New Digital Bridge" value="<?php echo asrSettingsH($bridge['title'] ?? ''); ?>"><small>The name operators see on the Bridges dashboard. Leave blank while adding a card to keep the draft label until you choose its mode.</small></label>
 				<label><span>Connection Status Name <small class="asr-field-requirement">Optional</small></span><input name="bridgeFriendlyName[]" type="text" placeholder="Same as Dashboard Name" value="<?php echo asrSettingsH($bridge['friendlyName'] ?? ''); ?>"><small>Used in connection summaries and announcements. Leave blank to reuse the dashboard name.</small></label>
 			</div>
@@ -1976,7 +1976,7 @@ function asrSettingsUnifiedNetBridgePanel($bridges, $activeMode, $bridgePassword
 	}
 ?>
 	<div class="asr-unified-net-bridge-settings">
-		<div class="asr-unified-net-bridge-header"><strong>Net Bridge</strong><span>DMR · YSF · P25 · NXDN · M17<?php echo in_array($activeMode, ['dmr','ysf','p25','nxdn','m17'], true) ? ' · Active: ' . asrSettingsH(strtoupper($activeMode)) : ''; ?></span></div>
+		<div class="asr-unified-net-bridge-header"><strong>Net Bridge</strong><span>Shared node 1999 · DMR · YSF · P25 · NXDN · M17<?php echo in_array($activeMode, ['dmr','ysf','p25','nxdn','m17'], true) ? ' · Active: ' . asrSettingsH(strtoupper($activeMode)) : ''; ?></span></div>
 		<p class="asr-settings-inline-note">One private transport is shared by all five modes. Only the selected dashboard mode runs; each mode keeps its own destination.</p>
 		<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $mode => $label): if(empty($byMode[$mode])) continue; ?>
 		<details class="asr-net-mode-settings"><summary><?php echo $label; ?> configuration</summary>
@@ -2773,7 +2773,7 @@ $settingsSaveLabel = $modernSettings ? ($modernSaveLabels[$modernSettingsSection
 pageInit();
 h1($modernSettings ? 'Settings' : 'Reimagined Settings');
 if(!$modernSettings)
-	echo '<div class="asr-settings-legacy-banner"><strong>Legacy Settings</strong><span>This is the previous Settings interface retained for evaluation and recovery.</span><a href="?view=modern">Return to redesigned Settings</a></div>';
+	echo '<div class="asr-settings-legacy-banner"><strong>Legacy Settings</strong><span>This compatibility view is retained for recovery only; use redesigned Settings for normal configuration.</span><a href="?view=modern">Return to redesigned Settings</a></div>';
 
 if(!empty($saveOk)) {
 	$savedSection = $modernSettings ? $modernSettingsSection : '';
@@ -2983,7 +2983,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-module-field><span>Module</span><input data-bridge-setup-module type="text" maxlength="1" value="A"></label>
 				<input data-net-main-node type="hidden" value="<?php echo asrSettingsH($setupMainNodeDefault); ?>">
 				<div class="asr-net-bridge-setup-fields" data-net-bridge-setup hidden>
-					<p><strong>Unified Net Bridge</strong><br>Configure all five modes once. ASR reserves one private transport and starts only the selected mode.</p>
+					<p><strong>Unified Net Bridge</strong><br>Configure all five modes once. ASR reserves shared private transport node 1999, starts only the selected mode, and keeps each mode’s destination separate.</p>
 					<label><span>Station callsign</span><input data-net-callsign maxlength="10" value="<?php echo asrSettingsH($setupCallsignDefault === 'SCRATCH' ? '' : $setupCallsignDefault); ?>"></label>
 					<label><span>DMR ID</span><input data-net-digital-id type="number" min="1" max="9999999" value="<?php echo $setupDmrIdDefault > 0 ? (int)$setupDmrIdDefault : ''; ?>"></label>
 					<label><span>DMR default TG</span><input data-net-dmr-destination inputmode="numeric" value="<?php echo asrSettingsH($setupNetDefaults['dmr']['fixedDestination'] ?? $setupNetDefaults['dmr']['tgifTalkgroup'] ?? ''); ?>"></label>

@@ -20,11 +20,12 @@ pageInit();
 	<nav class="asr-instructions-jump" aria-label="Instruction topics">
 		<a href="#getting-started">Getting Started</a>
 		<a href="#dashboard-controls">Dashboard &amp; Controls</a>
-		<a href="#appearance-access">Settings &amp; Appearance</a>
+		<a href="#appearance-access">Settings, Menus &amp; Themes</a>
 		<a href="#bridge-cards">Digital Bridge Status</a>
 		<a href="#bridge-setup">Bridge Setup Wizard</a>
 		<a href="#net-bridge">Unified Net Bridge</a>
 		<a href="#standard-bridges">Standard Digital Bridges</a>
+		<a href="#client-management">Clients, Kicks &amp; Bans</a>
 		<a href="#lookup-map">Lookup &amp; Map</a>
 		<a href="#updates">Update Notices</a>
 		<a href="#rollback">Rollback</a>
@@ -52,20 +53,20 @@ pageInit();
 		<h2>Dashboard, Talkers, Node Controls &amp; Favorites</h2>
 		<div class="asr-instructions-topic-grid">
 			<article><h3>Talker Cards</h3><p>The Talkers module shows Current Talker plus Last Talker 1–4. History headings include the local last-heard time in 24-hour HH:MM format. Duration stays at the bottom of each card. The Talkers checkbox shows or hides this module and that choice is remembered by the current browser.</p></article>
-			<article><h3>Node Controls</h3><p>Enter an AllStar node number and use Connect or Disconnect. <strong>Disc. before Connect</strong> is remembered by that browser. <strong>Permanent</strong> applies only to the current action and is not remembered. <strong>Commands</strong> opens configured custom DTMF commands; administrators can manage the command list there.</p></article>
-			<article><h3>Favorites</h3><p>The Favs checkbox opens the Favorites module and is remembered by the browser. One click selects a Favorite and copies its node into Node Controls; <strong>double-click connects once</strong>. Drag Favorites to reorder them, edit descriptions, and use the color control to set each Favorite's tab color. Status indicators show networking, recent TX, Rx Busy, and scanning state.</p></article>
+			<article><h3>Node Controls</h3><p>Enter an AllStar node number and use Connect or Disconnect. <strong>Disc. before Connect</strong> disconnects existing ordinary AllStar links before the new connection and is remembered by that browser. <strong>Permanent</strong> requests a permanent connection for that action only and is not remembered. <strong>Commands</strong> opens configured custom DTMF commands; administrators can add, edit, reorder, or remove custom commands.</p></article>
+			<article><h3>Favorites</h3><p>The Favs checkbox opens the Favorites module and is remembered by the browser. One click selects a Favorite and copies its node into Node Controls; <strong>double-click connects once</strong>. Manage Favorites can reorder entries, edit descriptions and colors, import compatible Supermon favorites.ini entries without replacing existing customizations, and reset the list when needed. Status indicators show networking, recent TX, Rx Busy, and scanning state.</p></article>
 			<article><h3>Dashboard Layout</h3><p>Talkers, Node Controls, Favorites, Connection Status, and Digital Bridge Status can be reordered with their six-dot handles. Module order and open/closed UI preferences are browser-local, so changing browsers or devices can have a different layout.</p></article>
 		</div>
 	</section>
 
 	<section id="appearance-access" class="asr-instructions-section">
-		<h2>Settings, Appearance &amp; Access</h2>
+		<h2>Settings, Menus, Themes &amp; Access</h2>
 		<p>The current Settings interface is organized into <strong>My Account</strong>, <strong>Settings Home</strong>, <strong>Appearance &amp; Display</strong>, <strong>Bridges</strong>, <strong>Lookup &amp; Map</strong>, <strong>Access &amp; Administration</strong>, and <strong>System &amp; Recovery</strong>.</p>
 		<div class="asr-instructions-topic-grid">
 			<article><h3>Appearance &amp; Display</h3><p>Header title and logo, station display filters, and Display Performance live here. The title can use <strong>{CALLSIGN}</strong> and <strong>{NODE}</strong>. Low-Power Node Mode reduces background work and disables animated themes without changing Asterisk or bridge audio.</p></article>
 			<article><h3>Access &amp; Administration</h3><p>ASR and stock AllScan login requirements are controlled here. Administrator Tools links to Users, Advanced Configuration, and Performance Stats. Existing users and permissions are retained when access policy changes.</p></article>
-			<article><h3>Themes</h3><p>Theme selection is a browser preference rather than a node-level Settings value. Available Beta 8 themes include Dark Side, Bright Side, Deep Ocean, Matrix, and ST:ASL.</p></article>
-			<article><h3>Shared Menu</h3><p>The main menu provides Admin, Theme, Resources, Lookup, Support &amp; Feedback, and <strong>Donate to ASR</strong>. Donate to ASR is optional and opens the configured PayPal contribution link; it is separate from Support &amp; Feedback.</p></article>
+			<article><h3>Themes &amp; ST:ASL</h3><p>Theme selection is a browser preference rather than a node-level Settings value. Available Beta 8 themes include Dark Side, Bright Side, Deep Ocean, Matrix, and ST:ASL. ST:ASL uses four desktop header controls—<strong>Menu</strong>, <strong>Resources</strong>, <strong>Theme</strong>, and <strong>Lookup</strong>—while Menu opens the same shared Beta 8 hierarchy used by the other themes.</p></article>
+			<article><h3>Menu, Resources &amp; Support</h3><p>The shared menu provides Admin, Theme, Resources, Lookup, Support &amp; Feedback, and <strong>Donate to ASR</strong>. Resources links to operator references and project resources. Support &amp; Feedback is for bugs, questions, and feature requests. Donate to ASR opens the optional Support ASR contribution dialog and is separate from technical support.</p></article>
 		</div>
 	</section>
 
@@ -75,7 +76,7 @@ pageInit();
 		<dl class="asr-instructions-definitions">
 			<div><dt>Talking</dt><dd>Shows the current inbound digital source when the bridge supplies fresh evidence. Relay means local AllStar audio is being sent outward through the bridge.</dd></div>
 			<div><dt>Last Talker</dt><dd>The most recent verified inbound talker for that bridge. Stale or fallback local identity is not treated as a remote talker.</dd></div>
-			<div><dt>Connected Clients</dt><dd>Shows real remote clients only when that bridge provides a supported roster. Local loopback plumbing is not counted as a public client.</dd></div>
+			<div><dt>Connected Clients</dt><dd>Shows real remote clients only when that bridge provides a supported roster. Local loopback plumbing is not counted as a public client. Administrator Kick/Ban controls appear only when that backend supports them.</dd></div>
 			<div><dt>Recent Activity</dt><dd>Recent evidence-backed bridge activity. Missing data remains empty rather than being invented.</dd></div>
 			<div><dt>Fixed Bridge Recovery</dt><dd>A Standard Bridge can optionally restore a missing local fixed link. If Asterisk already maintains a native permanent link, ASR stays out of the way. Net Bridges are excluded.</dd></div>
 		</dl>
@@ -105,7 +106,7 @@ pageInit();
 		<ol class="asr-instructions-steps">
 			<li>Select DMR, YSF, P25, NXDN, or M17 on the Net Bridge card.</li>
 			<li>Enter the destination required by that mode. DMR accepts a valid talkgroup; YSF accepts a valid reflector; P25/NXDN accept their destination; M17 uses reflector plus module.</li>
-			<li>Select Connect and wait for bridge-side and AllStar-side evidence. Command acceptance alone is not proof of a completed connection.</li>
+			<li>Select Connect. During a mode handoff the button shows <strong>Waiting…</strong> until node 1999 belongs to the requested mode, then <strong>Connecting…</strong> while the backend connection is underway. Wait for bridge-side and AllStar-side evidence; command acceptance alone is not proof of a completed connection.</li>
 			<li>Use Disconnect when finished. Changing digital destination and linking ordinary AllStar nodes are separate operations.</li>
 		</ol>
 		<p class="asr-instructions-callout"><strong>Loop safety:</strong> Do not point the Net Bridge at the same destination already carried by a fixed bridge on the node. That can create an audio feedback loop.</p>
@@ -123,6 +124,16 @@ pageInit();
 		</ul>
 	</section>
 
+	<section id="client-management" class="asr-instructions-section">
+		<h2>Connected Clients, Manage Clients, Kicks &amp; Bans</h2>
+		<p>Client controls are capability-driven. A bridge shows only the client information and actions its qualified backend supports; an empty or unavailable roster is not replaced with guessed data.</p>
+		<ul class="asr-instructions-list">
+			<li><strong>Connected Clients:</strong> expands the current supported roster on a bridge card. Infrastructure and health-probe identities are excluded where the backend identifies them.</li>
+			<li><strong>Manage Kicks &amp; Bans:</strong> is administrator-only. Kick removes the selected current session from that bridge when supported. Ban is a global ASR callsign/prefix rule enforced by supported backends; protected service identities cannot be banned.</li>
+			<li><strong>Recent Activity:</strong> shows recent evidence-backed activity for that bridge. It is history, not a substitute for the live direction or current talker.</li>
+		</ul>
+	</section>
+
 	<section id="lookup-map" class="asr-instructions-section">
 		<h2>Lookup &amp; Station Map</h2>
 		<p>Lookup refreshes connected-station information in place and shows the update time in the viewer’s local time. Public node and callsign links open their appropriate lookup services; private four-digit bridge nodes are not treated as public AllStar lookup targets.</p>
@@ -131,7 +142,7 @@ pageInit();
 
 	<section id="updates" class="asr-instructions-section">
 		<h2>Update Notifications</h2>
-		<p>When a newer ASR release is available, a prominent notice appears near the top of the main dashboard. It shows the installed version, available version, release-notes link, package name, and SHA-256 checksum.</p>
+		<p>When a newer qualified ASR release is available, a prominent notice appears near the top of the main dashboard with the installed and available versions and verified release information. Beta 8 also exposes update and interrupted-update recovery controls under <strong>Settings → System &amp; Recovery</strong>. The final browser-update workflow is qualified as part of the Beta 8 release process; use only the controls and release instructions presented by the installed build.</p>
 		<ul class="asr-instructions-list">
 			<li><strong>Start in a root shell.</strong> Run <code>sudo -i</code> first, then confirm the prompt begins with <code>root@</code> and ends with <code>#</code>. Stop if it does not.</li>
 			<li><strong>Check root before preflight.</strong> Run <code>[ "$(id -u)" -eq 0 ] || { echo "ERROR: Root is required. Run sudo -i first." &gt;&amp;2; exit 1; }</code> before the package lint and self-tests.</li>
@@ -166,6 +177,7 @@ pageInit();
 			<li><strong>Bridge Diagnostics:</strong> Check card configuration, services, paths, and client sources without revealing credentials.</li>
 			<li><strong>Performance Stats:</strong> Review browser-feed and server-cache performance when status is slow.</li>
 			<li><strong>Support &amp; Feedback:</strong> Report a bug, ask a question, or suggest a feature from the main menu. Review the public issue text and any screenshots before submitting.</li>
+			<li><strong>Support ASR:</strong> The optional Donate to ASR item opens the contribution dialog. Donations are never required for updates, support, or normal ASR operation.</li>
 			<li>If DMR audio is distorted, confirm the net bridge has its own vocoder and that its gains match the known-good DMR bridge.</li>
 			<li>If TX Active never appears, confirm the dedicated bridge log is current and readable.</li>
 		</ul>
