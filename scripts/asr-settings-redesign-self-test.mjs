@@ -86,7 +86,7 @@ for (const duplicate of ['Update ASR','Performance Stats','>Users<','>Configs<',
 const commonAdmin = common.slice(common.indexOf('$admin = []'), common.indexOf('$returnMainPages'))
 check(commonAdmin.includes('asr-settings/?section=account') && commonAdmin.includes("asr-settings/\", null, 'Settings'"), 'Server-rendered menu does not use canonical Settings routes.')
 for (const duplicate of ['Update ASR','Performance Stats','Users','Configs','Reimagined Settings']) check(!commonAdmin.includes(duplicate), `Server-rendered Admin menu still contains duplicate ${duplicate}.`)
-check(app.includes("asr-settings/?section=system')}>Review update") && updateDialog.includes('asr-settings/?section=system'), 'Update links do not deep-link to System & Recovery.')
+check(app.includes('onClick={() => setUpdateDialogOpen(true)}>Update ASR</button>') && updateDialog.includes('asr-settings/?section=system'), 'Dashboard update alert does not open the updater or updater recovery link is wrong.')
 check(modernJs.includes('flattenSections()'), 'Simple Settings categories are not flattened.')
 check(css.includes('max-height:calc(100dvh - 24px)') && css.includes('@media(max-width:760px)') && css.includes('@media(max-width:480px)'), 'Responsive modal/phone structure is incomplete.')
 check(build.includes('public/js/asr-settings-modern.js') && build.includes('payload/compat/allscan-v1.02/js/asr-settings-modern.js'), 'Settings modal asset is not packaged.')
