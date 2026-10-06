@@ -67,7 +67,11 @@ if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then
   [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-standard-bridge-status 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 fi
 [ -d /run/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
-[ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
+if getent passwd asr-bridge >/dev/null 2>&1; then
+  [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "asr-bridge:$WEB_GROUP:2750" ] || needs_reapply=1
+else
+  [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:$WEB_GROUP:2750" ] || needs_reapply=1
+fi
 [ -d /var/log/allscan-reimagined ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /var/log/allscan-reimagined 2>/dev/null)" = "root:root:750" ] || needs_reapply=1
 for lifecycle_dir in bridge-ownership bridge-tombstones bridge-deletion-queue bridge-creation-intents; do

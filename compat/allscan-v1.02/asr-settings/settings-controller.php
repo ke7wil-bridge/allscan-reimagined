@@ -173,7 +173,7 @@ function asrSettingsCleanBridgeId($value) {
 }
 
 function asrSettingsSupportedBridgeModes() {
-	return ['dmr', 'ysf', 'dstar', 'zello', 'p25', 'nxdn', 'm17'];
+	return ['dmr', 'ysf', 'zello', 'p25', 'nxdn', 'm17'];
 }
 
 function asrSettingsBridgeMode($bridge) {
@@ -365,7 +365,6 @@ function asrSettingsDefaultBridgeTitle($id) {
 		case 'dmr_net': return 'DMR Net Bridge';
 		case 'ysf': return 'YSF Bridge';
 		case 'ysf_net': return 'YSF Net Bridge';
-		case 'dstar': return 'D-Star Bridge';
 		case 'zello': return 'Zello Bridge';
 		case 'p25': return 'P25 Bridge';
 		case 'm17': return 'M17 Bridge';
@@ -376,13 +375,11 @@ function asrSettingsDefaultBridgeTitle($id) {
 
 function asrSettingsDefaultModeTitle($mode, $cardType) {
 	$label = strtoupper($mode);
-	if($mode === 'dstar') $label = 'D-Star';
 	if($mode === 'zello') $label = 'Zello';
 	return $label . ($cardType === 'standard' ? ' Bridge' : ' Net Bridge');
 }
 
 function asrSettingsDefaultDetailTitle($mode) {
-	if($mode === 'dstar') return 'Bridge Status';
 	if($mode === 'zello') return 'Recent Talkers';
 	if($mode === 'p25' || $mode === 'nxdn' || $mode === 'm17') return 'Linked Clients';
 	return 'Connected Clients';
@@ -509,9 +506,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 	$seenUnifiedNetNodes = [];
 	$seenControlPaths = [];
 	$existingById = [];
-	$expectedLinkAlias = preg_match('/^[0-9]{3,6}$/D', (string)$localNode)
-		? '999' . str_pad((string)$localNode, 6, '0', STR_PAD_LEFT)
-		: '';
 	if(is_array($existingBridges)) {
 		foreach($existingBridges as $existingBridge) {
 			if(!is_array($existingBridge))
@@ -576,14 +570,14 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			continue;
 
 		if(!in_array($rawMode, asrSettingsSupportedBridgeModes(), true)) {
-			$error = 'Choose a supported Digital Mode: DMR, YSF, D-Star, Zello, P25, NXDN, or M17.';
+			$error = 'Choose a supported Digital Mode: DMR, YSF, Zello, P25, NXDN, or M17.';
 			return [];
 		}
 		if(!in_array($rawCardType, ['standard', 'net', 'dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'], true))
 			$rawCardType = 'standard';
 		$rawCardType = $rawCardType === 'standard' ? 'standard' : $rawMode . '_net';
-		if(in_array($rawMode, ['dstar', 'zello'], true) && $rawCardType !== 'standard') {
-			$error = ($rawMode === 'dstar' ? 'D-Star' : 'Zello') . ' supports a Standard Bridge card only.';
+		if($rawMode === 'zello' && $rawCardType !== 'standard') {
+			$error = 'Zello supports a Standard Bridge card only.';
 			return [];
 		}
 		$id = asrSettingsCleanBridgeId($rawId);
@@ -804,10 +798,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 					return [];
 				}
 				$seenControlPaths[$callsignKey] = $id;
-				if($rawCardType === 'm17_net' && empty($approvedDestinations)) {
-					$error = "M17 Net Bridge \"$id\" needs at least one approved destination.";
-					return [];
-				}
 				if($rawCardType === 'standard' && ($rawM17Reflector === '' || $rawM17Host === '' || $rawM17Port === '' || $rawM17Module === '')) {
 					$error = "M17 Standard Bridge \"$id\" needs its approved fixed reflector, host, port, and module.";
 					return [];
@@ -879,10 +869,6 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 					$approvedDestinations = array_values(array_unique(array_merge($approvedDestinations, [$rawFixedDestination])));
 				if($rawCardType === 'standard' && !asrSettingsDesignatorIsAllowed($rawFixedDestination, $rawMode)) {
 					$error = strtoupper($rawMode) . " Standard Bridge \"$id\" needs an approved fixed destination.";
-					return [];
-				}
-				if($rawCardType !== 'standard' && empty($approvedDestinations)) {
-					$error = strtoupper($rawMode) . " Net Bridge \"$id\" needs at least one approved destination.";
 					return [];
 				}
 			}
@@ -967,17 +953,11 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				'allowTune' => $rawCardType === 'm17_net',
 			]);
 		}
-		if($rawCardType === 'dmr_net') {
-			if($expectedLinkAlias === '' || $expectedLinkAlias === $rawNode) {
-				$error = "DMR Net Bridge \"$id\" could not generate a safe internal link alias from the main node.";
-				return [];
-			}
-			$bridge['linkAlias'] = $expectedLinkAlias;
-		}
 		// Preserve installer-owned/runtime metadata that Settings does not expose.
 		// Editable fields above remain authoritative.
 		if(isset($existingById[$id]) && is_array($existingById[$id]))
 			$bridge = array_replace($existingById[$id], $bridge);
+		if($rawCardType === 'dmr_net') unset($bridge['linkAlias']);
 		$bridges[] = $bridge;
 	}
 	return $bridges;
@@ -1757,14 +1737,13 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 	$deletePreviewJson = json_encode($lifecyclePreview, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 	if(!is_string($deletePreviewJson)) $deletePreviewJson = '{}';
 	if($panelTitle === '') $panelTitle = $id !== '' ? strtoupper($id) . ' Bridge' : 'New Digital Bridge';
-	$modeLabel = $mode === 'dstar' ? 'D-Star' : ($mode === 'zello' ? 'Zello' : strtoupper($mode));
+	$modeLabel = $mode === 'zello' ? 'Zello' : strtoupper($mode);
 	$modePurpose = [
 		'dmr' => 'Connects an AllStar bridge node to DMR. A Standard bridge normally uses a fixed destination; a Net Bridge lets authorized operators change talkgroups.',
 		'ysf' => 'Connects an AllStar bridge node to YSF. A Standard bridge stays on its configured reflector; a Net Bridge provides controlled reflector selection.',
 		'p25' => 'Connects an AllStar bridge node to a P25 reflector or talkgroup. Managed control requires an installed P25 gateway backend.',
 		'nxdn' => 'Connects an AllStar bridge node to an NXDN reflector or talkgroup. Managed control requires an installed NXDN gateway backend.',
 		'm17' => 'Connects an AllStar bridge node to an M17 reflector and module. Managed control requires a qualified M17 audio path.',
-		'dstar' => 'Displays the installed D-Star bridge, its reflector/module, gateway link evidence, and recent radio activity. ASR does not retune it here.',
 		'zello' => 'Displays the installed Zello bridge and recent or currently transmitting Zello identities. ASR does not manage Zello account sign-in here.',
 	][$mode] ?? 'Connects a private AllStar bridge node to a digital network.';
 	$clientTabLabel = $mode === 'zello' ? 'Recent Talkers' : ($mode === 'dmr' ? 'TGIF Sessions' : 'Client Data');
@@ -1795,7 +1774,6 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label><span>Digital Mode <small class="asr-field-requirement">Required</small></span><select name="bridgeMode[]"<?php echo $lockLifecycleShape ? ' disabled title="Delete and save this managed bridge before changing its Digital Mode."' : ''; ?>>
 					<?php echo asrSettingsSourceOption($mode, 'dmr', 'DMR'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'ysf', 'YSF'); ?>
-					<?php echo asrSettingsSourceOption($mode, 'dstar', 'D-Star'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'zello', 'Zello'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'p25', 'P25'); ?>
 					<?php echo asrSettingsSourceOption($mode, 'nxdn', 'NXDN'); ?>
@@ -1804,7 +1782,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<?php if($lockLifecycleShape): ?><input name="bridgeCardType[]" type="hidden" value="<?php echo asrSettingsH($cardRole); ?>"><?php endif; ?>
 				<label><span>Bridge Role <small class="asr-field-requirement">Required</small></span><select name="bridgeCardType[]"<?php echo $lockLifecycleShape ? ' disabled title="Delete and save this managed bridge before changing its role."' : ''; ?>>
 					<?php echo asrSettingsSourceOption($cardRole, 'standard', 'Standard Bridge'); ?>
-					<?php if(!in_array($mode, ['dstar', 'zello'], true)): ?><?php echo asrSettingsSourceOption($cardRole, 'net', 'Net Bridge'); ?><?php endif; ?>
+					<?php if($mode !== 'zello'): ?><?php echo asrSettingsSourceOption($cardRole, 'net', 'Net Bridge'); ?><?php endif; ?>
 				</select><small>Standard represents one installed bridge. Net Bridge adds supported destination controls for authorized operators.</small></label>
 				<input name="bridgeId[]" type="hidden" value="<?php echo asrSettingsH($id); ?>">
 				<label><span>Bridge AllStar Node <small class="asr-field-requirement">Required</small></span><input name="bridgeNode[]" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($bridge['node'] ?? ''); ?>"><small>The private local AllStar node assigned to this bridge—not your main node and not a talkgroup.</small></label>
@@ -1840,8 +1818,8 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Port <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Port[]" inputmode="numeric" type="text" placeholder="17000" value="<?php echo asrSettingsH($bridge['m17Port'] ?? ''); ?>"><small>UDP port published for the reflector.</small></label>
 				<label class="asr-m17-field asr-digital-fixed-field"><span>Fixed M17 Module <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Module[]" type="text" maxlength="1" placeholder="A" value="<?php echo asrSettingsH($bridge['m17Module'] ?? ''); ?>"><small>One-letter room on the reflector.</small></label>
 				<label class="asr-m17-field"><span>M17 Callsign <small class="asr-field-requirement">Required</small></span><input name="bridgeM17Callsign[]" type="text" placeholder="KE7WIL" maxlength="9" value="<?php echo asrSettingsH($bridge['m17Callsign'] ?? ''); ?>"><small>The callsign the M17 gateway sends to the reflector.</small></label>
-				<label class="asr-approved-destinations-field"<?php echo $cardRole === 'net' && !in_array($mode, ['dmr', 'ysf'], true) ? '' : ' hidden'; ?>><span>Approved Net Destinations <small class="asr-field-requirement">Required for Net Bridge</small></span><textarea name="bridgeApprovedDestinations[]" rows="4" placeholder="One approved destination per line"><?php echo asrSettingsH($approvedDestinationText); ?></textarea><small>Only these destinations will be offered to operators. P25/NXDN use numbers; M17 uses REFLECTOR | HOST | PORT | MODULE.</small></label>			</div>
-			<p class="asr-bridge-section-note asr-approved-destination-help">DMR talkgroups and YSF reflector names or IDs are entered manually on the dashboard. P25/NXDN use approved numeric designators. M17 reflector/module destinations are entered on the dashboard and resolved through the validated catalog; use REFLECTOR | HOST | PORT | MODULE here only for private or local endpoint overrides. Catalog availability alone is not permission.</p>
+				<label class="asr-approved-destinations-field"<?php echo $cardRole === 'net' && !in_array($mode, ['dmr', 'ysf'], true) ? '' : ' hidden'; ?>><span>Saved Net Defaults <small class="asr-field-requirement">Optional</small></span><textarea name="bridgeApprovedDestinations[]" rows="4" placeholder="One default destination per line"><?php echo asrSettingsH($approvedDestinationText); ?></textarea><small>These seed the initial destination; they do not restrict operator-entered targets. P25/NXDN use numbers; M17 uses REFLECTOR | HOST | PORT | MODULE for endpoint overrides.</small></label>			</div>
+			<p class="asr-bridge-section-note asr-approved-destination-help">All Net Bridge modes accept operator-entered valid destinations. Saved P25/NXDN numbers are defaults, not allowlists. M17 reflector/module destinations are resolved through the validated catalog; use REFLECTOR | HOST | PORT | MODULE here only for private or local endpoint overrides. Destination permission remains the operator's responsibility.</p>
 		</div>
 
 		<div class="asr-bridge-panel-section asr-backend-readiness-section" data-bridge-tab-label="Status">
@@ -1955,15 +1933,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			</details>
 		</div>
 
-		<div class="asr-bridge-panel-section asr-dstar-status-settings" data-bridge-tab-label="Status"<?php echo $cardRole === 'standard' && $mode === 'dstar' ? '' : ' hidden'; ?>>
-			<div class="asr-bridge-section-copy">
-				<strong>D-Star Live Status</strong>
-				<span>ASR reads the managed D-Star runtime, gateway link log, and current local reflector snapshot. It reports only evidence-backed gateway links and recent transmissions; this card has no reflector controls.</span>
-			</div>
-			<p class="asr-bridge-section-note">Runtime health, XRF reflector/module, linked gateways, and recent D-Star activity are collected automatically. Missing or stale evidence is shown as offline, unlinked, or empty rather than inferred.</p>
-		</div>
-
-		<div class="asr-bridge-panel-section asr-connected-client-settings" data-bridge-tab-label="<?php echo asrSettingsH($clientTabLabel); ?>"<?php echo $cardRole === 'standard' && !in_array($mode, ['dstar','dmr'], true) ? '' : ' hidden'; ?>>
+		<div class="asr-bridge-panel-section asr-connected-client-settings" data-bridge-tab-label="<?php echo asrSettingsH($clientTabLabel); ?>"<?php echo $cardRole === 'standard' && $mode !== 'dmr' ? '' : ' hidden'; ?>>
 			<details class="asr-progressive-details asr-connected-client-details">
 			<summary><?php echo $mode === 'zello' ? 'Recent Zello Talker Source' : 'Client Data Source'; ?></summary>
 			<div class="asr-bridge-section-copy">
@@ -2143,30 +2113,6 @@ function asrSettingsZelloSetupPayload($requireSecret, &$error) {
 }
 
 
-function asrSettingsDstarSetupPayload(&$error) {
-	$error = '';
-	$payload = [
-		'bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''),
-		'title' => asrSettingsCleanText($_POST['setupTitle'] ?? '', 80),
-		'bridgeNode' => trim((string)($_POST['setupBridgeNode'] ?? '')),
-		'callsign' => strtoupper(asrSettingsCleanText($_POST['setupCallsign'] ?? '', 8)),
-		'dmrId' => (int)($_POST['setupDigitalId'] ?? 0),
-		'reflector' => strtoupper(asrSettingsCleanText($_POST['setupReflector'] ?? '', 9)),
-		'module' => strtoupper(asrSettingsCleanText($_POST['setupModule'] ?? 'A', 1)),
-	];
-	if($payload['bridgeId'] === '') $error = 'Bridge ID must begin with a letter and use only lowercase letters, numbers, _ or -.';
-	elseif(!preg_match('/^[A-Z0-9]{3,8}$/D', $payload['callsign'])) $error = 'Enter a valid D-Star callsign.';
-	elseif($payload['dmrId'] < 1 || $payload['dmrId'] > 9999999) $error = 'Enter a valid 1-7 digit DMR ID for the bridge metadata.';
-	elseif(!preg_match('/^(?:XRF|XLX|REF|DCS)[0-9A-Z]{3,6}$/D', $payload['reflector'])) $error = 'Enter a D-Star reflector such as XRF641.';
-	elseif(!preg_match('/^[A-Z]$/D', $payload['module'])) $error = 'Enter a D-Star module A-Z.';
-	$planDigest = strtolower(asrSettingsCleanText($_POST['setupPlanDigest'] ?? '', 64));
-	if($planDigest !== '') {
-		if(!preg_match('/^[a-f0-9]{64}$/D', $planDigest)) $error = 'The D-Star installation preview is invalid; preview again.';
-		else $payload['planDigest'] = $planDigest;
-	}
-	return $payload;
-}
-
 function asrSettingsNetBridgeSetupPayload($requireSecret, &$error) {
 	$error = '';
 	$num = static fn($name) => trim((string)($_POST[$name] ?? ''));
@@ -2209,7 +2155,7 @@ function asrSettingsNetBridgeSetupPayload($requireSecret, &$error) {
 
 function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 	$error = '';
-	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install', 'net-bridge-plan', 'net-bridge-install'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
+	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
 	if(!function_exists('proc_open') || !is_executable(ASR_BRIDGE_SETUP_HELPER)) { $error = 'Bridge setup helper is not installed.'; return null; }
 	$hostSocket = '/run/allscan-reimagined-host/bridge-setup.sock';
 	$command = @filetype($hostSocket) === 'socket'
@@ -2436,7 +2382,7 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	$enabled = !empty($_POST['urfEnabled']);
 	$node = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
 	$modes = is_array($_POST['urfModes'] ?? null) ? $_POST['urfModes'] : [];
-	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'dstar'], array_map('strtolower', array_map('strval', $modes))));
+	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17'], array_map('strtolower', array_map('strval', $modes))));
 	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => []];	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
 		$error = 'URF Reflector needs a 3-10 digit shared AllStar node number.';
 		return [];
@@ -2545,7 +2491,7 @@ $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
 $urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
 
-$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'dstar-plan', 'dstar-install', 'net-bridge-plan', 'net-bridge-install'];if(in_array($asrAction, $bridgeSetupActions, true)) {
+$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install'];if(in_array($asrAction, $bridgeSetupActions, true)) {
 	header('Content-Type: application/json; charset=utf-8');
 	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
 	$error = '';
@@ -2557,7 +2503,6 @@ $bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nx
 		if($mode === 'net_bridge') $payload = asrSettingsNetBridgeSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'zello') $payload = asrSettingsZelloSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
-		elseif($mode === 'dstar') $payload = asrSettingsDstarSetupPayload($error);
 		else $payload = asrSettingsDigitalSetupPayload($mode, $error);
 		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error) : null;
 		// Guided provisioning writes the canonical bridge title directly into
@@ -2952,7 +2897,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		<div class="asr-settings-section-heading"><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Bridge Cards <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></div>
 		<div class="asr-settings-section-lead"><div><h3>Configured Bridges</h3><p>Select a bridge row to configure it. Reorder controls affect dashboard order.</p></div><button class="asr-settings-help-button" type="button" data-open-modal="asrBridgeHelpDialog">Bridge Setup Help</button></div>
 		<div class="asr-urf-inline-panel" data-urf-panel<?php echo !empty($urfConfig['enabled']) ? '' : ' hidden'; ?>>
-			<div class="asr-bridge-section-copy"><strong>URF Reflector</strong><span>One shared AllStar transport with mode cards for DMR, YSF, P25, NXDN, M17, and D-Star.</span></div>
+			<div class="asr-bridge-section-copy"><strong>URF Reflector</strong><span>One shared AllStar transport with mode cards for DMR, YSF, P25, NXDN, and M17.</span></div>
 			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
 			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
 			<p class="asr-settings-inline-note">The shared node is transport health only; it never determines which URF mode is transmitting.</p>
@@ -2960,7 +2905,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
 			<?php asrSettingsRenderUrfMode($urfMode, $urfLabel, (array)($urfConfig['modeConfig'][$urfMode] ?? []), in_array($urfMode,(array)($urfConfig['modes'] ?? []),true)); ?>
 			<?php endforeach; ?>
-			<label class="asr-settings-check"><input name="urfModes[]" type="checkbox" value="dstar"<?php echo in_array('dstar',(array)($urfConfig['modes'] ?? []),true) ? ' checked' : ''; ?>><span>D-Star Bridge</span></label>
 			</div>
 			<div class="asr-urf-destructive-actions"><span><strong>Remove reflector configuration</strong><small>This removes the aggregate URFWIL card when bridge changes are saved.</small></span><button type="button" class="asr-remove-urf-button">Remove URF Reflector</button></div>
 			<?php if(!$modernSettings): ?>
@@ -3012,7 +2956,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<strong>Bridge Setup Wizard</strong>
 			<p class="asr-settings-inline-note">Guided ASL3 provisioning uses Detect → Plan → Validate → Backup → Apply → Verify → Commit. Existing Asterisk configuration is protected and failed changes are rolled back.</p>
 			<div class="asr-bridge-fields-grid">
-				<label class="asr-setup-field asr-setup-field-short"><span>Bridge</span><select data-bridge-setup-mode><option value="net_bridge">Net Bridge</option><option value="m17">M17</option><option value="p25">P25</option><option value="nxdn">NXDN</option><option value="ysf">YSF</option><option value="dmr">DMR</option><option value="dstar">D-Star</option><option value="zello">Zello</option></select></label>
+				<label class="asr-setup-field asr-setup-field-short"><span>Bridge</span><select data-bridge-setup-mode><option value="net_bridge">Net Bridge</option><option value="m17">M17</option><option value="p25">P25</option><option value="nxdn">NXDN</option><option value="ysf">YSF</option><option value="dmr">DMR</option><option value="zello">Zello</option></select></label>
 				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-path-field><span>Bridge Type</span><select data-bridge-setup-path><option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option></select></label>				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-dmr hidden><span>DMR Network</span><select data-bridge-setup-dmr-network><option value="tgif">TGIF</option><option value="systemx">System X (FreeSTAR)</option><option value="amcomm">AmComm</option><option value="vkdmr">VKDMR</option><option value="freedmr">FreeDMR</option><option value="dmrplus">DMR+ / IPSC2</option><option value="custom">Custom DMR Network</option></select></label>
 				<label class="asr-setup-field asr-setup-field-wide"><span>Card Title <small>(optional)</small></span><input data-bridge-setup-title type="text" maxlength="80" placeholder="Generated automatically"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-node-field hidden><span>Private Bridge Node <small>(advanced override)</small></span><input data-bridge-setup-node type="text" inputmode="numeric" pattern="[0-9]+" maxlength="7" placeholder="Automatic"><small>Leave blank and ASR allocates an unused private node automatically.</small></label>
@@ -3208,7 +3152,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	<div class="asr-settings-modal-card asr-bridge-editor-modal-card"><header><div><span class="asr-settings-eyebrow">Bridge configuration</span><h2 id="asrBridgeEditorTitle">Configure Bridge</h2></div><button type="button" class="asr-modal-close" aria-label="Close bridge editor">×</button></header><div class="asr-settings-modal-body" data-bridge-editor-host></div><footer><span class="asr-modal-save-scope">Saves every unsaved change on the Bridges page.</span><button type="button" data-bridge-cancel>Cancel</button><button type="submit" form="asrReimaginedSettingsForm" name="Submit" value="<?php echo SAVE_REIMAGINED_SETTINGS; ?>" class="asr-primary-action">Save All Bridge Changes</button></footer></div>
 </div>
 <div id="asrBridgeHelpDialog" class="asr-settings-modal" role="dialog" aria-modal="true" aria-labelledby="asrBridgeHelpTitle" hidden>
-	<div class="asr-settings-modal-card"><header><h2 id="asrBridgeHelpTitle">Bridge Setup Help</h2><button type="button" class="asr-modal-close" aria-label="Close bridge setup help">×</button></header><div class="asr-settings-modal-body asr-help-modal-content"><section><h3>Before adding a bridge</h3><p>The bridge software and its private AllStar node must already be installed. Start with the mode, role, and node number; leave service paths and ports alone unless the installer gave you different values.</p></section><div class="asr-mode-help-grid"><section><h3>URFWIL</h3><p>One reflector with separate DMR, YSF, P25, NXDN, and M17 destinations. You need only the modes you intend to connect.</p></section><section><h3>DMR / TGIF</h3><p>You need a DMR talkgroup. TGIF also needs your callsign, website password, and optional session talkgroup for authenticated session visibility.</p></section><section><h3>YSF</h3><p>You need the exact published reflector name or five-digit ID, such as US-KE7WIL-YSF. Import a host list only for a tunable YSF Net Bridge.</p></section><section><h3>P25 and NXDN</h3><p>You need the numeric destination or talkgroup assigned by that network. ASR manages controls only when the gateway backend is installed and verified.</p></section><section><h3>M17</h3><p>You need a reflector such as M17-WIL and its one-letter module. Host and port normally come from the reflector operator or installer.</p></section><section><h3>D-Star</h3><p>ASR shows evidence-backed reflector, gateway, and recent activity data. Reflector configuration remains in the installed D-Star gateway.</p></section><section><h3>Zello</h3><p>ASR shows the active or recent Zello talker when the external bridge exposes it. Zello sign-in and account management remain outside ASR.</p></section></div><section><h3>Standard, Net, and display-only</h3><p>A Standard bridge normally stays on one destination. A Net Bridge gives authorized operators supported destination controls. Display-only means ASR monitors an externally installed service but does not operate it.</p></section><p><a href="<?php echo asrSettingsH(asrSettingsWebPath('asr-instructions/#bridge-setup')); ?>" target="_blank" rel="noopener noreferrer">Open detailed setup reference in a new tab</a></p></div></div>
+	<div class="asr-settings-modal-card"><header><h2 id="asrBridgeHelpTitle">Bridge Setup Help</h2><button type="button" class="asr-modal-close" aria-label="Close bridge setup help">×</button></header><div class="asr-settings-modal-body asr-help-modal-content"><section><h3>Before adding a bridge</h3><p>The bridge software and its private AllStar node must already be installed. Start with the mode, role, and node number; leave service paths and ports alone unless the installer gave you different values.</p></section><div class="asr-mode-help-grid"><section><h3>URFWIL</h3><p>One reflector with separate DMR, YSF, P25, NXDN, and M17 destinations. You need only the modes you intend to connect.</p></section><section><h3>DMR / TGIF</h3><p>You need a DMR talkgroup. TGIF also needs your callsign, website password, and optional session talkgroup for authenticated session visibility.</p></section><section><h3>YSF</h3><p>You need the exact published reflector name or five-digit ID, such as US-KE7WIL-YSF. Import a host list only for a tunable YSF Net Bridge.</p></section><section><h3>P25 and NXDN</h3><p>You need the numeric destination or talkgroup assigned by that network. ASR manages controls only when the gateway backend is installed and verified.</p></section><section><h3>M17</h3><p>You need a reflector such as M17-WIL and its one-letter module. Host and port normally come from the reflector operator or installer.</p></section><section><h3>Zello</h3><p>ASR shows the active or recent Zello talker when the external bridge exposes it. Zello sign-in and account management remain outside ASR.</p></section></div><section><h3>Standard, Net, and display-only</h3><p>A Standard bridge normally stays on one destination. A Net Bridge gives authorized operators supported destination controls. Display-only means ASR monitors an externally installed service but does not operate it.</p></section><p><a href="<?php echo asrSettingsH(asrSettingsWebPath('asr-instructions/#bridge-setup')); ?>" target="_blank" rel="noopener noreferrer">Open detailed setup reference in a new tab</a></p></div></div>
 </div>
 <div id="asrAdminDialog" class="asr-settings-modal" role="dialog" aria-modal="true" aria-labelledby="asrAdminDialogTitle" hidden>
 	<div class="asr-settings-modal-card asr-admin-modal-card"><header><h2 id="asrAdminDialogTitle">Administrator Tool</h2><button type="button" class="asr-modal-close" aria-label="Close administrator tool">×</button></header><div class="asr-settings-modal-body" data-admin-modal-body></div></div>
@@ -3495,9 +3439,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var isUnsaved = !id || !id.value.trim();
 		var modeLabel = mode && mode.value === 'zello'
 			? 'Zello'
-			: mode && mode.value === 'dstar'
-				? 'D-Star'
-				: (mode ? mode.value.toUpperCase() : '');
+			: (mode ? mode.value.toUpperCase() : '');
 		if(!text && !isUnsaved && modeLabel) text = modeLabel + (cardType && cardType.value === 'net' ? ' Net Bridge' : ' Bridge');
 		name.textContent = text || 'New Digital Bridge';
 		if(summary) summary.textContent = 'Node ' + (node && node.value.trim() ? node.value.trim() : 'not set') + ' · Bridge card, Connection Status name, and optional connected-client source.';
@@ -3516,16 +3458,15 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var dmrSettings = row.querySelector('.asr-dmr-net-settings');
 			var ysfSettings = row.querySelector('.asr-ysf-net-settings');
 			var nextDigitalSettings = row.querySelector('.asr-next-digital-settings');
-			var dstarStatusSettings = row.querySelector('.asr-dstar-status-settings');
 			var clientSettings = row.querySelector('.asr-connected-client-settings');
 			var fixedRecovery = row.querySelector('[data-fixed-recovery-checkbox]');
 			var fixedRecoveryValue = row.querySelector('input[name="bridgeFixedRecovery[]"]');
 			var netOption = select ? select.querySelector('option[value="net"]') : null;
-			var standardOnlyMode = !!mode && (mode.value === 'dstar' || mode.value === 'zello');
+			var standardOnlyMode = !!mode && mode.value === 'zello';
 			if(netOption) netOption.disabled = standardOnlyMode;
 			if(standardOnlyMode && select && select.value !== 'standard') {
 				select.value = 'standard';
-				select.setAttribute('aria-description', (mode.value === 'dstar' ? 'D-Star' : 'Zello') + ' is Standard-only; Net Bridge is unavailable.');
+				select.setAttribute('aria-description', 'Zello is Standard-only; Net Bridge is unavailable.');
 			}
 			var isStandard = !select || select.value === 'standard';
 			var currentMode = mode ? mode.value : 'dmr';
@@ -3542,7 +3483,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(dmrSettings) dmrSettings.hidden = isStandard || currentMode !== 'dmr';
 			if(ysfSettings) ysfSettings.hidden = isStandard || currentMode !== 'ysf';
 			if(nextDigitalSettings) nextDigitalSettings.hidden = !isNextDigitalMode || !isManaged;
-			if(dstarStatusSettings) dstarStatusSettings.hidden = !isStandard || currentMode !== 'dstar';
 			if(clientSettings) clientSettings.dataset.bridgeTabLabel = currentMode === 'zello' ? 'Recent Talkers' : 'Client Data';
 			row.querySelectorAll('.asr-digital-instance-field').forEach(function(field) {
 				field.hidden = !isNextDigitalMode || currentMode === 'm17';
@@ -3565,7 +3505,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			row.querySelectorAll('.asr-detail-title-field').forEach(function(field) {
 				field.hidden = !isStandard;
 			});
-			if(clientSettings) clientSettings.hidden = !isStandard || currentMode === 'dstar' || currentMode === 'dmr';
+			if(clientSettings) clientSettings.hidden = !isStandard || currentMode === 'dmr';
 			refreshClientSource(row);
 			refreshBridgeTitle(row);
 		}
@@ -4024,26 +3964,24 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var isM17 = mode === 'm17';
 		var isDmr = mode === 'dmr';
 		var isZello = mode === 'zello';
-		var isDstar = mode === 'dstar';
 		var isDigital = ['p25','nxdn','ysf','dmr'].indexOf(mode) !== -1;
 		var defaults = {
 			m17: {port: '17000', destination: '', host: ''},
 			p25: {port: '41000', destination: '64189', host: 'p25-reflector.example.net'},
 			nxdn: {port: '41400', destination: '64189', host: 'nxdn-reflector.example.net'},
 			ysf: {port: '42000', destination: '64189', host: 'ysf-reflector.example.net'},			dmr: {port: '', destination: '', host: ''},
-			zello: {port: '', destination: '', host: ''},
-			dstar: {port: '', destination: '', host: ''}
+			zello: {port: '', destination: '', host: ''}
 		};
 		var selected = defaults[mode] || defaults.m17;
-		document.querySelectorAll('[data-bridge-setup-reflector-field],[data-bridge-setup-module-field]').forEach(function(field) { field.hidden = !(isM17 || isDstar); });
-		document.querySelectorAll('[data-bridge-setup-digital]').forEach(function(field) { field.hidden = !(isDigital || isDstar); });
-		if(setupFields.setupDestination && setupFields.setupDestination.closest('label')) setupFields.setupDestination.closest('label').hidden = !(isDigital && !isDstar);
+		document.querySelectorAll('[data-bridge-setup-reflector-field],[data-bridge-setup-module-field]').forEach(function(field) { field.hidden = !isM17; });
+		document.querySelectorAll('[data-bridge-setup-digital]').forEach(function(field) { field.hidden = !isDigital; });
+		if(setupFields.setupDestination && setupFields.setupDestination.closest('label')) setupFields.setupDestination.closest('label').hidden = !isDigital;
 		document.querySelectorAll('[data-bridge-setup-dmr]').forEach(function(field) { field.hidden = !isDmr; });
 		document.querySelectorAll('[data-bridge-setup-tgif-auth]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif'); });
 		document.querySelectorAll('[data-bridge-setup-tgif-key]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif' && setupTgifAuthMode && setupTgifAuthMode.value === 'secured'); });
 		document.querySelectorAll('[data-bridge-setup-dmr-username-field]').forEach(function(field) { field.hidden = !isDmr || dmrNetwork === 'tgif'; });
 		document.querySelectorAll('[data-bridge-setup-zello]').forEach(function(field) { field.hidden = !isZello; });
-		document.querySelectorAll('[data-bridge-setup-network]').forEach(function(field) { field.hidden = isDmr || isZello || isDstar; });
+		document.querySelectorAll('[data-bridge-setup-network]').forEach(function(field) { field.hidden = isDmr || isZello; });
 		var label = document.querySelector('[data-bridge-setup-callsign-label]');
 		var digitalLabel = document.querySelector('[data-bridge-setup-digital-label]');
 		var destinationLabel = document.querySelector('[data-bridge-setup-destination-label]');
@@ -4051,10 +3989,9 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(setupFields.setupCallsign && setupFields.setupCallsign.closest('label')) setupFields.setupCallsign.closest('label').hidden = isZello;
 		if(digitalLabel) digitalLabel.textContent = isDmr ? 'DMR ID' : 'Digital ID';
 		var reflectorLabel = document.querySelector('[data-bridge-setup-reflector-label]');
-		if(reflectorLabel) reflectorLabel.textContent = path === 'urf' ? 'URF Reflector Name' : (isDstar ? 'D-Star Reflector Name' : (mode.toUpperCase() + ' Reflector Name'));
+		if(reflectorLabel) reflectorLabel.textContent = path === 'urf' ? 'URF Reflector Name' : mode.toUpperCase() + ' Reflector Name';
 		if(destinationLabel) destinationLabel.textContent = isDmr ? 'TGIF Talkgroup' : 'Destination / Reflector';
 		if(setupPreview) setupPreview.textContent = 'Check Setup'; if(setupInstall) { setupInstall.textContent = 'Install Bridge'; setupInstall.hidden = true; }
-		if(isDstar && setupFields.setupReflector) setupFields.setupReflector.placeholder = 'XRF641';
 		if(setupFields.setupHost) setupFields.setupHost.placeholder = selected.host;
 		if(setupFields.setupPort) setupFields.setupPort.value = selected.port;
 		if(setupFields.setupDestination) setupFields.setupDestination.value = selected.destination;
@@ -4132,11 +4069,6 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			details = 'M17 UDP port: ' + ports.m17 + '\n' +
 				'USRP receive/transmit: ' + ports.usrpRx + ' / ' + ports.usrpTx + '\n' +
 				'Files to change:\n  ' + changed;
-		} else if(mode === 'dstar') {
-			details = 'Managed D-Star runtime: yes\n' +
-				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +
-				'Gateway / MMDVM ports: ' + ports.gateway + ' / ' + ports.mmdvm + '\n' +
-				'Software AMBE port: ' + ports.vocoder;
 		} else if(mode === 'zello') {
 			details = 'Managed Zello runtime: yes\n' +
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx;

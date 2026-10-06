@@ -22,6 +22,7 @@ import re
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -29,9 +30,20 @@ import threading
 import time
 from typing import Callable
 
+DEFAULT_PROVISIONING_PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
+PROFILE_ENV = "ASR_CONTAINER_PROVISIONING_PROFILE"
+NETNS_ENTERED_ENV = "ASR_CONTAINER_NETNS_ENTERED"
+
+# Direct sudo invocations do not inherit the broker's private environment.
+# Select the fixed host profile only for root; the backend still validates its
+# ownership, permissions, shape, and mapped roots before using it.
+if (not os.environ.get(PROFILE_ENV) and os.geteuid() == 0
+        and DEFAULT_PROVISIONING_PROFILE.exists()):
+    os.environ[PROFILE_ENV] = str(DEFAULT_PROVISIONING_PROFILE)
+
 
 def provisioned_path(logical: str) -> Path:
-    if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+    if not os.environ.get(PROFILE_ENV):
         return Path(logical)
     source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
     if not source.is_file():
@@ -46,7 +58,9 @@ WATCH_CONFIG = os.environ.get("ASR_CONTAINER_WATCH_CONFIG", "")
 WATCH_SECRETS = os.environ.get("ASR_CONTAINER_WATCH_SECRETS", "")
 CONFIG_PATH = Path(WATCH_CONFIG) if WATCH_CONFIG else provisioned_path("/etc/allscan-reimagined/config.json")
 MQTT_SECRETS_PATH = Path(WATCH_SECRETS) if WATCH_SECRETS else provisioned_path("/etc/allscan-reimagined/bridge-mqtt-secrets.json")
-ASTERISK_BIN = "/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk" if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else "/usr/sbin/asterisk"
+MMDVM_LOG_DIR = Path("/var/log/mmdvm")
+RADIO_ID_PATH = Path("/var/lib/mmdvm/DMRIds.dat")
+ASTERISK_BIN = "/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk" if os.environ.get(PROFILE_ENV) else "/usr/sbin/asterisk"
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
 INSTANCE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -74,6 +88,40 @@ class PartialControlError(ControlError):
     def __init__(self, message: str, details: dict):
         super().__init__(message)
         self.details = details
+
+
+def enter_control_network_namespace(action: str) -> None:
+    if (action not in {"status", "connect", "disconnect"}
+            or WATCH_CONFIG or os.environ.get(NETNS_ENTERED_ENV)
+            or not os.environ.get(PROFILE_ENV)):
+        return
+    source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
+    if not source.is_file():
+        source = Path("/usr/local/libexec/allscan-reimagined/asr-provisioning-backend.py")
+    spec = importlib.util.spec_from_file_location("asr_backend_direct_control", source)
+    if not spec or not spec.loader:
+        raise ControlError("Container provisioning backend is unavailable.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    profile = module.load_profile(DEFAULT_PROVISIONING_PROFILE)
+    if profile is None:
+        raise ControlError("Container provisioning profile is unavailable.")
+    module.validate_active_profile(profile)
+    launcher = Path("/usr/local/libexec/allscan-reimagined/asr-container-netns-exec.py")
+    entrypoint = Path(sys.argv[0]).resolve()
+    for path, label in ((launcher, "network namespace launcher"),
+                        (entrypoint, "bridge control entry point")):
+        info = path.lstat()
+        if (path.is_symlink() or not path.is_file() or info.st_uid != 0
+                or info.st_nlink != 1 or info.st_mode & 0o022):
+            raise ControlError(f"The installed {label} is unsafe.")
+    os.environ[NETNS_ENTERED_ENV] = "1"
+    os.execv(str(launcher), [
+        str(launcher), "--container", profile.asterisk_container,
+        "--proc-root", str(profile.host_proc), "--",
+        str(entrypoint), *sys.argv[1:],
+    ])
 
 
 @dataclass(frozen=True)
@@ -327,6 +375,10 @@ def gateway_path(instance: str, spec: ModeSpec) -> Path:
     return Path(f"/opt/{spec.gateway_dir}_{instance}/{spec.gateway_ini}")
 
 
+def analog_bridge_path(instance: str) -> Path:
+    return Path(f"/opt/Analog_Bridge_{instance}/Analog_Bridge.ini")
+
+
 def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
     bridge_id = str(raw.get("id", ""))
     if not BRIDGE_ID_RE.fullmatch(bridge_id):
@@ -390,6 +442,13 @@ def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
             and str(config.get("netBridgeMode", "")).lower() != spec.mode):
         raise ControlError(f"{spec.label} is not the active Net Bridge mode.")
     local_node = str(config.get("node", ""))
+    local_callsign = str(config.get("callsign", "")).strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9/-]{1,15}", local_callsign):
+        local_callsign = ""
+    try:
+        local_digital_id = int(config.get("dmrId", 0) or 0)
+    except (TypeError, ValueError):
+        local_digital_id = 0
     bridge_node = str(raw.get("node", ""))
     if (
         not NODE_RE.fullmatch(local_node)
@@ -430,9 +489,11 @@ def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
     return {
         **raw, "id": bridge_id, "role": role, "instance": instance,
         "localNode": local_node, "bridgeNode": bridge_node,
-        "gatewayPath": expected_path, "services": services,
+        "gatewayPath": expected_path, "analogBridgePath": analog_bridge_path(instance),
+        "services": services,
         "mqttHost": mqtt_host, "mqttPort": mqtt_port, "mqttName": mqtt_name,
         "mmdvmMqttName": mmdvm_mqtt_name,
+        "localCallsign": local_callsign, "localDigitalId": local_digital_id,
         "fixedDestination": fixed, "approvedDestinations": approved,
     }
 
@@ -478,6 +539,46 @@ def parse_ini(bridge: dict, spec: ModeSpec, expected_uid: int = 0) -> None:
         raise ControlError("Gateway MQTT credentials are missing from its root-owned INI.")
     if values.get(("remote commands", "enable")) != "1":
         raise ControlError("Gateway MQTT remote commands are not enabled.")
+
+
+def tune_analog_bridge(
+    bridge: dict,
+    target: int,
+    expected_uid: int = 0,
+    socket_factory: Callable[..., socket.socket] = socket.socket,
+) -> None:
+    path = bridge["analogBridgePath"]
+    secure_regular_file(path, "Configured Analog Bridge file", expected_uid)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ControlError("Configured Analog Bridge file could not be read.") from exc
+    section = ""
+    values: dict[tuple[str, str], str] = {}
+    for line in text.splitlines():
+        stripped = line.split("#", 1)[0].split(";", 1)[0].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1].strip().lower()
+        elif "=" in stripped:
+            key, value = stripped.split("=", 1)
+            values[(section, key.strip().lower())] = value.strip()
+    if values.get(("ambe_audio", "address"), "127.0.0.1") not in {
+        "127.0.0.1", "::1", "localhost",
+    }:
+        raise ControlError("Analog Bridge control endpoint is not local.")
+    try:
+        port = int(values[("ambe_audio", "rxport")])
+    except (KeyError, ValueError) as exc:
+        raise ControlError("Analog Bridge control port is invalid.") from exc
+    if not 1024 <= port <= 65535:
+        raise ControlError("Analog Bridge control port is outside the allowed range.")
+    command = f"txTg={target}".encode("ascii")
+    packet = struct.pack("BB", 0x05, len(command)) + command
+    try:
+        with socket_factory(socket.AF_INET, socket.SOCK_DGRAM) as control:
+            control.sendto(packet, ("127.0.0.1", port))
+    except OSError as exc:
+        raise ControlError("Analog Bridge destination command could not be sent.") from exc
 
 
 def service_state(bridge: dict, runner: Runner) -> dict:
@@ -731,6 +832,17 @@ def event_epoch(value: object) -> int:
         return 0
 
 
+def event_epoch_ms(value: object) -> int:
+    text = str(value or "").strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp() * 1000)
+    except (ValueError, OverflowError):
+        return 0
+
+
 def normalize_event(payload: str, spec: ModeSpec, requested_disconnect: bool = False) -> dict:
     try:
         root = json.loads(payload)
@@ -748,7 +860,7 @@ def normalize_event(payload: str, spec: ModeSpec, requested_disconnect: bool = F
             target = int(link["talkgroup"])
         except (TypeError, ValueError) as exc:
             raise ControlError("Gateway MQTT talkgroup is invalid.") from exc
-    if requested_disconnect and action == "failed" and target == DISCONNECT_TG:
+    if action == "failed" and target == DISCONNECT_TG:
         action, target = "unlinked", None
     elif action in {"linking", "relinking"}:
         target = designator(target, spec)
@@ -777,13 +889,15 @@ def parse_mmdvm_activity(
     if isinstance(mode_event, dict):
         action = str(mode_event.get("action", "")).lower()
         epoch = event_epoch(mode_event.get("timestamp"))
+        epoch_ms = event_epoch_ms(mode_event.get("timestamp"))
         if (
             epoch < subscribed_epoch - 2
             or epoch > int(time.time()) + FUTURE_SKEW
         ):
             return None
         if action in {"start", "late_entry"}:
-            if mode_event.get("source") != "network":
+            source = str(mode_event.get("source", "")).lower()
+            if source not in {"network", "rf"}:
                 return None
             try:
                 source_id = int(mode_event.get("src_id", 0))
@@ -795,15 +909,20 @@ def parse_mmdvm_activity(
                 r"[\x00-\x1f\x7f]+", " ", str(mode_event.get("src_info", ""))
             ).strip()[:80]
             return {
-                "kind": "start",
-                "epoch": epoch,
+                "kind": "inbound-start" if source == "network" else "outbound-start",
+                "epoch": epoch, "epochMs": epoch_ms,
                 "talker": source_info or str(source_id),
                 "sourceId": source_id,
                 "destination": int(mode_event.get("dst_id", 0) or 0),
-                "provenance": "mmdvm-network",
+                "provenance": f"mmdvm-{source}",
             }
         if action in {"end", "lost"}:
-            return {"kind": "end", "epoch": epoch, "provenance": "mmdvm-network-eot"}
+            source = str(mode_event.get("source", "")).lower()
+            return {
+                "kind": "end", "source": source,
+                "epoch": epoch, "epochMs": epoch_ms,
+                "provenance": f"mmdvm-{source or 'generic'}-eot",
+            }
         return None
     host_event = root.get("MMDVM")
     if isinstance(host_event, dict) and str(host_event.get("mode", "")).lower() == "idle":
@@ -813,19 +932,100 @@ def parse_mmdvm_activity(
     return None
 
 
+def parse_mmdvm_log_activity(line: str, spec: ModeSpec) -> dict | None:
+    """Translate MMDVM_Bridge's direct TX/RX lifecycle log into card roles."""
+    match = re.match(
+        r"^[A-Z]:\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+"
+        + re.escape(spec.label) + r",\s+(.*)$",
+        line.strip(),
+    )
+    if not match:
+        return None
+    try:
+        parsed_time = datetime.strptime(
+            match.group(1), "%Y-%m-%d %H:%M:%S.%f"
+        ).replace(tzinfo=timezone.utc).timestamp()
+        epoch = int(parsed_time)
+        epoch_ms = int(parsed_time * 1000)
+    except (ValueError, OverflowError):
+        return None
+    message = match.group(2)
+    inbound = re.fullmatch(
+        r"received network transmission from (\d+) to TG (\d+)", message
+    )
+    if inbound:
+        source_id = int(inbound.group(1))
+        if source_id <= 0:
+            return None
+        return {
+            "kind": "inbound-start", "epoch": epoch, "epochMs": epoch_ms,
+            "talker": str(source_id), "sourceId": source_id,
+            "destination": int(inbound.group(2)),
+            "provenance": "mmdvm-log-network",
+        }
+    if message == "TX state = ON":
+        return {
+            "kind": "outbound-start", "epoch": epoch, "epochMs": epoch_ms,
+            "talker": "", "sourceId": 0, "destination": 0,
+            "provenance": "mmdvm-log-rf",
+        }
+    if message == "TX state = OFF":
+        return {
+            "kind": "end", "source": "rf", "epoch": epoch, "epochMs": epoch_ms,
+            "provenance": "mmdvm-log-rf-eot",
+        }
+    if (message.startswith("network end of transmission")
+            or message.startswith("network watchdog has expired")):
+        return {
+            "kind": "end", "source": "network", "epoch": epoch, "epochMs": epoch_ms,
+            "provenance": "mmdvm-log-network-eot",
+        }
+    return None
+
+
+def fast_activity_path(bridge: dict, spec: ModeSpec) -> Path:
+    return spec.run_dir / f"{bridge['id']}.activity.json"
+
+
+def write_fast_activity(
+    bridge: dict, spec: ModeSpec, payload: dict, expected_uid: int = 0
+) -> None:
+    ensure_runtime(spec, expected_uid)
+    path = fast_activity_path(bridge, spec)
+    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=spec.run_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o640)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 class TalkerStream:
-    def __init__(self, bridge: dict, spec: ModeSpec, credentials: dict[str, str]):
+    def __init__(
+        self, bridge: dict, spec: ModeSpec, credentials: dict[str, str],
+        expected_uid: int = 0,
+    ):
         self.bridge = bridge
         self.spec = spec
         self.credentials = credentials
+        self.expected_uid = expected_uid
         self.topic = f"{bridge['mmdvmMqttName']}/json"
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.connection: socket.socket | None = None
+        self.callsigns: dict[int, str] = {}
         self.state = {
-            "ready": False, "active": False, "talker": None,
+            "ready": False, "active": False, "outboundActive": False, "talker": None,
             "sourceId": None, "startEpoch": 0, "eotEpoch": 0,
-            "eventEpoch": 0, "provenance": "", "error": "stream not connected",
+            "eventEpoch": 0, "networkEotEpochMs": 0, "rfEotEpochMs": 0,
+            "currentInbound": None, "recentTalkers": [],
+            "provenance": "", "error": "stream not connected",
         }
         self.thread = threading.Thread(
             target=self._run,
@@ -853,29 +1053,215 @@ class TalkerStream:
     def _set_unavailable(self, message: str) -> None:
         with self.lock:
             self.state.update({
-                "ready": False, "active": False, "talker": None,
+                "ready": False, "active": False, "outboundActive": False, "talker": None,
                 "sourceId": None, "startEpoch": 0,
                 "provenance": "", "error": message[:160],
             })
+        self._write_fast()
+
+    def _write_fast(self) -> None:
+        state = self.snapshot()
+        role = (
+            "source" if state.get("active") is True
+            else "relay" if state.get("outboundActive") is True
+            else "idle"
+        )
+        try:
+            write_fast_activity(self.bridge, self.spec, {
+                "ok": state.get("ready") is True,
+                "mode": self.spec.mode,
+                "bridgeId": self.bridge["id"],
+                "role": role,
+                "callsign": state.get("talker") if role == "source" else "",
+                "eventEpoch": int(state.get("eventEpoch", 0) or 0),
+                "updatedEpochMs": int(time.time() * 1000),
+                "provenance": str(state.get("provenance", ""))[:40],
+                "recentTalkers": list(state.get("recentTalkers", []))[:4],
+            }, self.expected_uid)
+        except (ControlError, OSError):
+            pass
+
+    def _callsign(self, source_id: int, fallback: str) -> str:
+        cached = self.callsigns.get(source_id)
+        if cached:
+            return cached
+        try:
+            info = RADIO_ID_PATH.lstat()
+            if (not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                    or info.st_nlink != 1 or info.st_uid != 0
+                    or stat.S_IMODE(info.st_mode) & 0o022
+                    or info.st_size > 64 * 1024 * 1024):
+                return fallback
+            with RADIO_ID_PATH.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    fields = line.strip().replace(";", " ").split()
+                    if len(fields) < 2 or not fields[0].isdigit():
+                        continue
+                    if int(fields[0]) != source_id:
+                        continue
+                    callsign = fields[1].upper()
+                    if re.fullmatch(r"[A-Z0-9][A-Z0-9/-]{1,15}", callsign):
+                        self.callsigns[source_id] = callsign
+                        return callsign
+                    break
+        except OSError:
+            pass
+        return fallback
 
     def _apply(self, event: dict) -> None:
+        event_ms = int(event.get("epochMs", 0) or int(event.get("epoch", 0)) * 1000)
         with self.lock:
-            if event["kind"] == "start":
+            if event["kind"] == "inbound-start":
+                # Identity/start metadata may arrive after a very short call's
+                # EOT.  It must never resurrect an already-ended transmission.
+                if event_ms <= int(self.state.get("networkEotEpochMs", 0) or 0):
+                    return
+                source_id = int(event["sourceId"])
+                callsign = self._callsign(source_id, event["talker"])
                 self.state.update({
                     "ready": True, "active": True,
-                    "talker": event["talker"], "sourceId": event["sourceId"],
+                    "talker": callsign,
+                    "sourceId": source_id,
+                    "startEpoch": event["epoch"], "eventEpoch": event["epoch"],
+                    "currentInbound": {
+                        "callsign": callsign, "sourceId": source_id,
+                        "startEpoch": event["epoch"], "startEpochMs": event_ms,
+                    },
+                    "provenance": event["provenance"], "error": "",
+                })
+            elif event["kind"] == "outbound-start":
+                if event_ms <= int(self.state.get("rfEotEpochMs", 0) or 0):
+                    return
+                self.state.update({
+                    "ready": True, "outboundActive": True,
                     "startEpoch": event["epoch"], "eventEpoch": event["epoch"],
                     "provenance": event["provenance"], "error": "",
                 })
             else:
-                self.state.update({
-                    "ready": True, "active": False, "talker": None,
-                    "sourceId": None, "startEpoch": 0,
+                source = event.get("source")
+                ended = {
+                    "ready": True,
                     "eotEpoch": event["epoch"], "eventEpoch": event["epoch"],
                     "provenance": event["provenance"], "error": "",
-                })
+                }
+                if source == "rf":
+                    ended.update({
+                        "outboundActive": False,
+                        "rfEotEpochMs": max(
+                            event_ms, int(self.state.get("rfEotEpochMs", 0) or 0)
+                        ),
+                    })
+                elif source == "network":
+                    current = self.state.get("currentInbound")
+                    if isinstance(current, dict):
+                        recent = list(self.state.get("recentTalkers", []))
+                        recent.insert(0, {
+                            "callsign": str(current.get("callsign", ""))[:20],
+                            "sourceId": int(current.get("sourceId", 0) or 0),
+                            "startEpoch": int(current.get("startEpoch", 0) or 0),
+                            "eventEpoch": int(event["epoch"]),
+                            "duration": max(0, int(round(
+                                (event_ms - int(current.get("startEpochMs", event_ms))) / 1000
+                            ))),
+                        })
+                        ended["recentTalkers"] = recent[:4]
+                    ended.update({
+                        "active": False, "talker": None, "sourceId": None,
+                        "currentInbound": None,
+                        "networkEotEpochMs": max(
+                            event_ms, int(self.state.get("networkEotEpochMs", 0) or 0)
+                        ),
+                    })
+                else:
+                    ended.update({
+                        "active": False, "outboundActive": False,
+                        "talker": None, "sourceId": None,
+                        "networkEotEpochMs": max(
+                            event_ms, int(self.state.get("networkEotEpochMs", 0) or 0)
+                        ),
+                        "rfEotEpochMs": max(
+                            event_ms, int(self.state.get("rfEotEpochMs", 0) or 0)
+                        ),
+                    })
+                self.state.update(ended)
+        self._write_fast()
+
+    def _log_path(self) -> Path | None:
+        prefix = f"MMDVM_Bridge_{self.bridge['instance']}-"
+        owner_uid = os.geteuid() if WATCH_CONFIG else self.expected_uid
+        try:
+            candidates = []
+            for path in MMDVM_LOG_DIR.iterdir():
+                if not path.name.startswith(prefix) or not path.name.endswith(".log"):
+                    continue
+                info = path.lstat()
+                if (stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                        and not stat.S_ISLNK(info.st_mode)
+                        and info.st_uid == owner_uid
+                        and not stat.S_IMODE(info.st_mode) & 0o022):
+                    candidates.append((info.st_mtime_ns, path))
+            return max(candidates, default=(0, None))[1]
+        except OSError:
+            return None
 
     def _run(self) -> None:
+        """Follow the direct MMDVM log; its lifecycle pairs are authoritative."""
+        current_path: Path | None = None
+        handle = None
+        while not self.stop_event.is_set():
+            try:
+                selected = self._log_path()
+                if selected is None:
+                    raise ControlError("MMDVM activity log is unavailable.")
+                if handle is None or selected != current_path:
+                    if handle is not None:
+                        handle.close()
+                    handle = selected.open("r", encoding="utf-8", errors="replace")
+                    current_path = selected
+                    # Reconstruct state only from this MMDVM process lifetime.
+                    lines = handle.readlines()
+                    last_start = 0
+                    for index, line in enumerate(lines):
+                        if "MMDVM_Bridge-" in line and " is running" in line:
+                            last_start = index + 1
+                    with self.lock:
+                        self.state.update({
+                            "ready": True, "active": False,
+                            "outboundActive": False, "talker": None,
+                            "sourceId": None, "startEpoch": 0,
+                            "networkEotEpochMs": 0, "rfEotEpochMs": 0,
+                            "currentInbound": None, "recentTalkers": [],
+                            "error": "", "provenance": "mmdvm-log",
+                        })
+                    for line in lines[last_start:]:
+                        event = parse_mmdvm_log_activity(line, self.spec)
+                        if event is not None:
+                            self._apply(event)
+                    self._write_fast()
+                line = handle.readline()
+                if line:
+                    event = parse_mmdvm_log_activity(line, self.spec)
+                    if event is not None:
+                        self._apply(event)
+                    continue
+                self.stop_event.wait(0.1)
+            except (ControlError, OSError) as exc:
+                self._set_unavailable(str(exc))
+                if handle is not None:
+                    try:
+                        handle.close()
+                    except OSError:
+                        pass
+                handle = None
+                current_path = None
+                self.stop_event.wait(1.0)
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+
+    def _run_mqtt(self) -> None:
         while not self.stop_event.is_set():
             subscribed_epoch = int(time.time())
             try:
@@ -885,6 +1271,7 @@ class TalkerStream:
                 mqtt_subscribe(connection, self.topic)
                 with self.lock:
                     self.state.update({"ready": True, "error": ""})
+                self._write_fast()
                 last_ping = time.monotonic()
                 while not self.stop_event.is_set():
                     try:
@@ -954,7 +1341,7 @@ class TalkerManager:
                     continue
                 if current is not None:
                     current[1].stop()
-                stream = TalkerStream(bridge, self.spec, credentials)
+                stream = TalkerStream(bridge, self.spec, credentials, expected_uid)
                 self.streams[bridge_id] = (signature, stream)
                 stream.start()
             except (ControlError, OSError) as exc:
@@ -992,7 +1379,19 @@ class TalkerManager:
                 "talkerEvidenceProvenance": state.get("provenance", ""),
                 "talkerEvidenceReason": "" if ready else str(state.get("error", ""))[:160],
             })
-            if not ready:
+            if (ready and entry.get("ok") is True
+                    and entry.get("connectionState") == "stale"
+                    and entry.get("requestedTarget") is None
+                    and entry.get("confirmedTarget") is None
+                    and entry.get("gatewayAction") == ""
+                    and entry.get("serviceState", {}).get("ready") is True):
+                # A fresh authenticated MMDVM subscription is direct proof that
+                # the private broker and evidence path are healthy. A gateway
+                # with no retained link event and no local request is simply
+                # disconnected, not stale.
+                entry["connectionState"] = "disconnected"
+                entry["stale"] = False
+            elif not ready:
                 entry["stale"] = True
                 entry["connectionState"] = "stale"
         payload["stale"] = any(
@@ -1033,6 +1432,9 @@ def write_local_state(bridge: dict, spec: ModeSpec, payload: dict, expected_uid:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+            if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
+                os.fchown(handle.fileno(), pwd.getpwnam("asr-bridge").pw_uid,
+                          spec.run_dir.stat().st_gid)
         os.chmod(temporary, 0o640)
         os.replace(temporary, path)
     finally:
@@ -1169,6 +1571,30 @@ def base_status(
             confirmed, state = event["target"], "selected-unverified"
         elif action == "failed":
             state = "failed"
+    # The gateway retained topic records the last command result, including the
+    # synthetic disconnect TG.  After a successful connect, keep the locally
+    # accepted target authoritative when that retained event is older than the
+    # completed request.  This prevents a stale failed/unlink marker from
+    # erasing the selected destination on the card while AllStar is linked.
+    local_epoch = int(local.get("epoch", 0) or 0)
+    pending_action = str(local.get("pendingAction", ""))
+    if (
+        services["ready"]
+        and not local.get("pending")
+        and pending_action == "connect"
+        and requested is not None
+        and local_epoch > 0
+        and (event is None or event_time < local_epoch)
+    ):
+        confirmed, action, event_time, state = requested, "linking", local_epoch, "selected-unverified"
+    elif (
+        services["ready"]
+        and not local.get("pending")
+        and pending_action == "disconnect"
+        and local_epoch > 0
+        and (event is None or event_time <= local_epoch + 2)
+    ):
+        confirmed, action, state = None, "unlinked", "disconnected"
     if local.get("pending") and state not in {"offline", "stale", "failed"}:
         state = "pending"
     local_error = str(local.get("lastError", ""))[:160]
@@ -1374,8 +1800,9 @@ def connect(bridge_id: str, target_value: object, user: str, path: Path, spec: M
     target = designator(target_value, spec)
     if bridge["role"] == "standard" and target != bridge["fixedDestination"]:
         raise ControlError("Standard Bridge may connect only to its configured fixed destination.")
-    if bridge["role"] == "net" and target not in bridge["approvedDestinations"]:
-        raise ControlError("Destination is not approved for this Net Bridge.")
+    # Net Bridge destinations are operator-entered.  approvedDestinations is a
+    # set of saved defaults, not an allowlist; designator() is the authority for
+    # the mode's valid numeric range and reserved control values.
     services = service_state(bridge, runner)
     if not services["ready"]:
         raise ControlError("Bridge services are not ready; no MQTT command was sent.")
@@ -1400,6 +1827,10 @@ def connect(bridge_id: str, target_value: object, user: str, path: Path, spec: M
             raise ControlError("Audit log is unavailable; no MQTT command was sent.") from exc
         write_local_state(bridge, spec, {"requestedTarget": target, "pending": True, "pendingAction": "connect", "epoch": started}, expected_uid)
         try:
+            # Analog_Bridge originates outbound RF-side frames. Its runtime TG
+            # must match the selected reflector or P25/NXDN Gateway treats the
+            # media identity as a new destination and retunes mid-call.
+            tune_analog_bridge(bridge, target, expected_uid)
             publish(bridge, f"TalkGroup {target}", credentials)
             event = wait_event(bridge, spec, credentials, started, target, False)
         except ControlError as exc:
@@ -1421,6 +1852,7 @@ def connect(bridge_id: str, target_value: object, user: str, path: Path, spec: M
             rollback_message = "digital rollback unconfirmed"
             try:
                 if previous_target is not None and previous_target != target:
+                    tune_analog_bridge(bridge, previous_target, expected_uid)
                     publish(bridge, f"TalkGroup {previous_target}", credentials)
                     wait_event(
                         bridge, spec, credentials, int(time.time()),
@@ -1551,11 +1983,15 @@ def self_test(spec: ModeSpec) -> None:
         run = root / "run"
         audit_dir = root / "log"
         gateway = root / f"{spec.gateway_dir}_alpha" / spec.gateway_ini
+        analog = root / "Analog_Bridge_alpha" / "Analog_Bridge.ini"
         run.mkdir(mode=0o755)
         audit_dir.mkdir(mode=0o755)
         gateway.parent.mkdir(mode=0o755)
+        analog.parent.mkdir(mode=0o755)
         gateway.write_text("[MQTT]\nAddress=127.0.0.1\nPort=1883\nAuth=1\nUsername=gateway\nPassword=gateway-secret\nName=test-alpha\n[Remote Commands]\nEnable=1\n", encoding="utf-8")
+        analog.write_text("[AMBE_AUDIO]\naddress=127.0.0.1\nrxPort=32000\ntxTg=64189\n", encoding="utf-8")
         os.chmod(gateway, 0o600)
+        os.chmod(analog, 0o600)
         test_spec = ModeSpec(spec.mode, spec.label, spec.gateway_dir, spec.gateway_ini, run, audit_dir / "audit.jsonl", spec.reserved, spec.emulator_allowed)
         bridge = {
             "id": f"{spec.mode}_net", "digitalMode": spec.mode, "bridgeRole": "net",
@@ -1570,7 +2006,10 @@ def self_test(spec: ModeSpec) -> None:
             "node": "2001",
         }
         def test_config(*items: dict) -> dict:
-            return {"node": "1001", "bridges": list(items)}
+            return {
+                "node": "1001", "callsign": "N0CALL", "dmrId": 12345,
+                "bridges": list(items),
+            }
         config = root / "config.json"
         config.write_text(json.dumps(test_config(bridge)), encoding="utf-8")
         os.chmod(config, 0o600)
@@ -1606,6 +2045,7 @@ def self_test(spec: ModeSpec) -> None:
         # Production-path checks are independently tested; point the validated object at the fixture.
         validated = validate_bridge(bridge, test_config(bridge), spec)
         validated["gatewayPath"] = gateway
+        validated["analogBridgePath"] = analog
         parse_ini(validated, spec, uid)
         assert designator("10200", spec) == 10200
         for bad in ("0", "10", "65535", "1x", *(str(item) for item in spec.reserved)):
@@ -1632,6 +2072,10 @@ def self_test(spec: ModeSpec) -> None:
             unapproved, test_config(unapproved), spec
         )
         assert 10200 not in unapproved_validated["approvedDestinations"]
+        no_defaults = dict(bridge, approvedDestinations=[])
+        assert validate_bridge(no_defaults, test_config(no_defaults), spec)[
+            "approvedDestinations"
+        ] == set()
         standard = dict(
             bridge,
             id=f"{spec.mode}_fixed",
@@ -1694,6 +2138,27 @@ def self_test(spec: ModeSpec) -> None:
                 return value
             def close(self) -> None:
                 pass
+
+        class FakeDatagram:
+            def __init__(self, family: int, kind: int):
+                assert family == socket.AF_INET and kind == socket.SOCK_DGRAM
+                self.sent: tuple[bytes, tuple[str, int]] | None = None
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                pass
+            def sendto(self, payload: bytes, endpoint: tuple[str, int]) -> None:
+                self.sent = (payload, endpoint)
+
+        datagram = FakeDatagram(socket.AF_INET, socket.SOCK_DGRAM)
+        tune_analog_bridge(
+            validated, 10200, uid,
+            lambda family, kind: datagram,
+        )
+        assert datagram.sent == (
+            bytes((0x05, len(b"txTg=10200"))) + b"txTg=10200",
+            ("127.0.0.1", 32000),
+        )
 
         credentials = {"username": "controller", "password": "secret"}
         mqtt_json = json.dumps({
@@ -1767,10 +2232,37 @@ def self_test(spec: ModeSpec) -> None:
         assert inbound is not None and inbound["talker"] == "N0CALL"
         assert inbound["provenance"] == "mmdvm-network"
         outbound_payload = activity_start.replace('"network"', '"rf"')
-        assert parse_mmdvm_activity(
+        outbound = parse_mmdvm_activity(
             outbound_payload, spec, activity_topic, activity_topic,
             False, activity_epoch,
-        ) is None
+        )
+        assert outbound is not None and outbound["kind"] == "outbound-start"
+        assert outbound["provenance"] == "mmdvm-rf"
+        log_inbound = parse_mmdvm_log_activity(
+            f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
+            f"{spec.label}, received network transmission from 12345 to TG 10200",
+            spec,
+        )
+        assert log_inbound is not None and log_inbound["kind"] == "inbound-start"
+        assert log_inbound["sourceId"] == 12345
+        log_outbound = parse_mmdvm_log_activity(
+            f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
+            f"{spec.label}, TX state = ON",
+            spec,
+        )
+        assert log_outbound is not None and log_outbound["kind"] == "outbound-start"
+        log_network_eot = parse_mmdvm_log_activity(
+            f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
+            f"{spec.label}, network end of transmission, 1.2 seconds, 0% packet loss",
+            spec,
+        )
+        assert log_network_eot is not None and log_network_eot["source"] == "network"
+        log_rf_eot = parse_mmdvm_log_activity(
+            f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
+            f"{spec.label}, TX state = OFF",
+            spec,
+        )
+        assert log_rf_eot is not None and log_rf_eot["source"] == "rf"
         assert parse_mmdvm_activity(
             activity_start, spec, "wrong/json", activity_topic,
             False, activity_epoch,
@@ -1790,7 +2282,7 @@ def self_test(spec: ModeSpec) -> None:
             False, activity_epoch,
         )
         assert ended is not None and ended["kind"] == "end"
-        stream_fixture = TalkerStream(validated, spec, credentials)
+        stream_fixture = TalkerStream(validated, test_spec, credentials, uid)
         stream_fixture._apply({
             **inbound, "epoch": int(time.time()) - 20,
         })
@@ -1800,6 +2292,41 @@ def self_test(spec: ModeSpec) -> None:
         cleared = stream_fixture.snapshot()
         assert cleared["active"] is False and cleared["talker"] is None
         assert cleared["eotEpoch"] == ended["epoch"]
+        stream_fixture._apply({
+            **outbound, "epochMs": int(ended.get("epochMs", 0)) + 1,
+        })
+        assert stream_fixture.snapshot()["outboundActive"] is True
+        assert json.loads(fast_activity_path(validated, test_spec).read_text(
+            encoding="utf-8"
+        ))["role"] == "relay"
+        stream_fixture._apply(log_rf_eot)
+        assert json.loads(fast_activity_path(validated, test_spec).read_text(
+            encoding="utf-8"
+        ))["role"] == "idle"
+        stream_fixture._apply(log_network_eot)
+        recent = stream_fixture.snapshot()["recentTalkers"]
+        assert recent and recent[0]["callsign"] == "N0CALL"
+        assert recent[0]["sourceId"] == 12345
+        assert json.loads(fast_activity_path(validated, test_spec).read_text(
+            encoding="utf-8"
+        ))["recentTalkers"][0]["callsign"] == "N0CALL"
+        stream_fixture._apply({
+            **inbound,
+            "epochMs": log_network_eot["epochMs"] - 1,
+        })
+        assert stream_fixture.snapshot()["active"] is False
+        manager_fixture = TalkerManager(spec)
+        manager_fixture.streams[validated["id"]] = ((), stream_fixture)
+        cold = manager_fixture.augment({
+            "ok": False, "stale": True,
+            "bridges": {validated["id"]: {
+                "ok": True, "stale": True, "connectionState": "stale",
+                "requestedTarget": None, "confirmedTarget": None,
+                "gatewayAction": "", "serviceState": {"ready": True},
+            }},
+        })
+        assert cold["ok"] is True and cold["stale"] is False
+        assert cold["bridges"][validated["id"]]["connectionState"] == "disconnected"
         retained_disconnect = normalize_event(
             json.dumps({
                 "link": {
@@ -1930,6 +2457,7 @@ def main(spec: ModeSpec = P25_SPEC) -> int:
         if args.action == "self-test":
             self_test(spec)
             return 0
+        enter_control_network_namespace(args.action)
         raw_args = sys.argv[1:]
         if args.action == "connect" and raw_args != [
             "connect", args.bridge_id, args.destination, "--user", args.user

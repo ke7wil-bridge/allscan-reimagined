@@ -31,9 +31,17 @@ if (!is_array($config) || (empty($config['maintainFriendlyNames']) && (($argv[1]
 }
 
 $bridges = [];
+$unifiedNetCardTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'];
 foreach ((array) ($config['bridges'] ?? []) as $bridge) {
     if (!is_array($bridge)) continue;
     $node = trim((string) ($bridge['node'] ?? ''));
+    if ($node === '1999' && in_array((string) ($bridge['cardType'] ?? ''), $unifiedNetCardTypes, true)) {
+        // Node 1999 is a transport shared by mutually exclusive Net Bridge
+        // backends.  Its Asterisk identity must not inherit whichever mode
+        // happens to appear last in the configuration array.
+        $bridges[$node] = 'Unified Net Bridge';
+        continue;
+    }
     $title = trim((string) ($bridge['friendlyName'] ?? ''));
     if ($title === '') $title = trim((string) ($bridge['title'] ?? ''));
     if (!preg_match('/^[0-9]{3,10}$/', $node) || $title === '') continue;

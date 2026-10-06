@@ -170,7 +170,7 @@ install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/sc
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py asr-bridge-setup-dstar.py asr-bridge-setup-dstar-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
 for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do

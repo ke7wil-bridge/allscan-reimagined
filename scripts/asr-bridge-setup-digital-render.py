@@ -101,7 +101,11 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
             "Port": ports["network"],
             "HostsFile1": f"/opt/{name}_{settings['bridge_id']}/{name}Hosts.json",
             "HostsFile2": f"/opt/{name}_{settings['bridge_id']}/private-hosts.txt",
-            "Static": settings["destination"], "ReloadTime": 60,
+            # A Net Bridge must remain disconnected across startup/recovery;
+            # only an explicit control action may select its destination.
+            "Static": (0 if settings.get("bridge_role") == "net"
+                       else settings["destination"]),
+            "ReloadTime": 60,
         })
     else:
         content = set_ini(content, "Network", {
@@ -157,6 +161,9 @@ def mmdvm_ini(plan: dict[str, Any], stage: Path) -> str:
     mode, settings, ports = plan["bridgeType"], plan["settings"], plan["ports"]
     text = template(stage, "MMDVM_Bridge.ini.template")
     text = set_ini(text, "General", {"Callsign": settings["callsign"], "Id": settings["digital_id"]})
+    text = set_ini(text, "DMR Id Lookup", {
+        "File": f"/opt/MMDVM_Bridge_{settings['bridge_id']}/DMRIds.dat",
+    })
     text = set_ini(text, "Log", {
         "DisplayLevel": 1, "FileLevel": 2, "FilePath": "/var/log/mmdvm",
         "FileRoot": f"MMDVM_Bridge_{settings['bridge_id']}",

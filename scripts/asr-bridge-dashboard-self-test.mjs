@@ -22,9 +22,11 @@ const server = await createServer({
 try {
   const {
     bridgeConnectionIdentities,
+    configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
     normalizedBridgeMode,
+    netBridgeTalkerDestinationLabel,
     provisionedNetBridgeModes,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
@@ -61,6 +63,20 @@ try {
   assert(
     provisionedNetBridgeModes([{ ...netBridges[0], node: '1004' }]).size === 0,
     'a bridge outside the unified node 1999 transport was treated as a unified mode',
+  )
+  const sharedTransports = ['p25', 'ysf'].map((mode) => ({
+    ...netBridges[0], id: `${mode}_net`, mode, node: '1999', cardType: `${mode}_net`,
+  }))
+  assert(
+    bridgeConnectionIdentities(sharedTransports, 'p25').get('1999')?.id === 'p25_net',
+    'node 1999 was not bound exclusively to the active Unified Net Bridge mode',
+  )
+  const configuredTransportRow = configuredUnifiedNetBridgeRow(sharedTransports[0])
+  assert(
+    configuredTransportRow.node === '1999'
+      && configuredTransportRow.configuredTransport === true
+      && configuredTransportRow.connected === '',
+    'disconnected Unified Net Bridge transport row was not presentation-only',
   )
 
   const modeFixtures = {
@@ -163,6 +179,14 @@ try {
   assert(!bridgeCardShowsClientDetails('nxdn_net'), 'NXDN Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('m17_net'), 'M17 Net Bridge client details were shown')
   assert(
+    netBridgeTalkerDestinationLabel('p25_net', '707') === 'Talkgroup 707',
+    'P25 Talker Card destination was not labeled as a talkgroup',
+  )
+  assert(
+    netBridgeTalkerDestinationLabel('p25_net', 'Talkgroup 707') === 'Talkgroup 707',
+    'P25 Talker Card duplicated its talkgroup label',
+  )
+  assert(
     bridgeCardWarningText('-') === '-',
     'healthy backend readiness text was shown as a warning',
   )
@@ -183,8 +207,7 @@ try {
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
   assert(
-    allscanLiveSource.includes("|| (mode === 'dstar'")
-      && !allscanLiveSource.includes("healthSeverity: entry?.health_severity\n        || (entry?.online === false"),
+    !allscanLiveSource.includes("healthSeverity: entry?.health_severity\n        || (entry?.online === false"),
     'unknown DMR/YSF link state still creates a false bridge warning',
   )
   const dmrControls = appSource.match(
@@ -202,8 +225,15 @@ try {
   )
   assert(
     appSource.includes('void selectNetBridgeMode(event.target.value)')
+      && appSource.includes("const owner = 'net-bridge-mode'")
+      && appSource.includes("if (bridgeControlBusyRef.current === owner)")
+      && appSource.includes('pendingNetBridgeModeRef.current = mode')
       && appSource.includes('await activateNetBridgeMode(targetMode)')
-      && appSource.includes('netBridgeQueuedModeRef.current = mode')
+      && appSource.includes('setNetBridgeMode(selected)')
+      && appSource.includes('await waitForNetBridgeOwner(card)')
+      && appSource.includes("connectPending ? (modeSwitchBusy ? 'Waiting…' : 'Connecting…') : 'Connect'")
+      && !appSource.includes('Connect when ready')
+      && !appSource.includes('netBridgeQueuedModeRef')
       && !appSource.includes('on private node 1999'),
     'mode selection does not use the unified lifecycle or exposes its private node',
   )
@@ -221,7 +251,8 @@ try {
   )
   assert(
     appSource.includes('id={`m17-net-module-${card.id}`}')
-      && appSource.includes("Enter an M17 reflector in M17-XXX format and a module A-Z.")
+      && appSource.includes("Enter an M17 reflector as XXX or M17-XXX and a module A-Z.")
+      && appSource.includes("? `M17-${reflectorInput}`")
       && appSource.includes("/^M17-[A-Z0-9]{3}$/.test(reflector)")
       && appSource.includes("event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)"),
     'M17 Net reflector/module controls are missing or insufficiently validated',
@@ -320,7 +351,7 @@ try {
   const seedConfigSource = readFileSync(new URL('../personalization/config.seed.json', import.meta.url), 'utf8')
   assert(
     seedConfigSource.includes('"id": "zello"') && seedConfigSource.includes('"detailTitle": "Recent Talkers"')
-      && (seedConfigSource.match(/"detailTitle": "Connected Clients"/g) || []).length >= 6,
+      && (seedConfigSource.match(/"detailTitle": "Connected Clients"/g) || []).length >= 5,
     'seed bridge labels do not follow semantic roster/talker capabilities',
   )
   assert(
@@ -368,6 +399,19 @@ try {
       && settingsSource.includes("'net-bridge-install'")
       && !settingsSource.includes('m17.example.net'),
     'Settings unified rendering/provisioning wiring is incomplete or retains the fake M17 host',
+  )
+
+  assert(appSource.includes('const relayActive = zelloFastRelayRef.current'), 'Zello fast relay must be authoritative for key/unkey')
+  assert(!appSource.includes('zelloFastRelayRef.current || Boolean(row && localIsTransmitting)'), 'Zello relay must not fall back to lagging ASTAPI state')
+  assert(allscanLiveSource.includes('action=zello-fast-relay'), 'Zello fast relay endpoint fetch missing')
+  assert(
+    allscanLiveSource.includes('updatedEpochMs')
+      && appSource.includes('relay.updatedEpochMs < appliedEpochMs'),
+    'Zello fast relay polling must reject responses older than the producer event',
+  )
+  assert(
+    appSource.includes('Math.max(0, 100 - (performance.now() - started))'),
+    'Zello fast relay polling must remain single-flight while preserving its cadence',
   )
 
   console.log('bridge dashboard self-test: ok')

@@ -80,12 +80,10 @@ function postedBridge(array $values, array $existing = [], string $mainNode = '1
 	return $rows[0];
 }
 
-foreach(['dmr', 'ysf', 'dstar', 'zello'] as $mode) {
+foreach(['dmr', 'ysf', 'zello'] as $mode) {
 	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
 	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");
 }
-check(asrSettingsDefaultDetailTitle('dstar') === 'Bridge Status', 'D-Star detail default is not mode-aware.');
-check(asrSettingsDefaultModeTitle('dstar', 'standard') === 'D-Star Bridge', 'D-Star card title is not formatted correctly.');
 check(asrSettingsDefaultDetailTitle('zello') === 'Recent Talkers', 'Zello detail default is not mode-aware.');
 check(asrSettingsDefaultDetailTitle('p25') === 'Linked Clients', 'P25 detail default is not mode-aware.');
 check(asrSettingsClientPayloadHasSupportedShape([]), 'An authoritative empty client list was rejected.');
@@ -209,11 +207,6 @@ check(strpos($dmrMarkup, 'data-bridge-tab-label="TGIF Sessions"') !== false, 'DM
 check((bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dmrMarkup), 'DMR still exposes the duplicate generic client-source path.');
 check(strpos($dmrMarkup, 'name="bridgeDetailTitle[]"') !== false, 'Advanced client/talker heading lost its round-trip field name.');
 
-ob_start();
-asrSettingsBridgePanel(['id'=>'dstar','mode'=>'dstar','cardType'=>'standard','node'=>'1004','title'=>'D-Star'], [], [], ['available'=>true,'bridges'=>[]]);
-$dstarMarkup = (string)ob_get_clean();
-check(strpos($dstarMarkup, 'data-bridge-tab-label="Status"') !== false && (bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dstarMarkup), 'D-Star still has a false generic Connected Clients tab.');
-
 $_POST = [
 	'urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','ysf','p25','nxdn','m17'],
 	'urfConfig'=>['dmr'=>['network'=>'TGIF','talkgroup'=>'86753'],'m17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A']],
@@ -240,13 +233,13 @@ $p25Net = postedBridge([
 	'bridgeMode' => ['p25'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
 	'bridgeApprovedDestinations' => ['10200 10201'],
 ]);
-check($p25Net['cardType'] === 'p25_net' && $p25Net['approvedDestinations'] === ['10200', '10201'], 'P25 Net allowlist was not enforced.');
+check($p25Net['cardType'] === 'p25_net' && $p25Net['approvedDestinations'] === ['10200', '10201'], 'P25 Net defaults were not preserved.');
 
 $nxdn = postedBridge([
 	'bridgeMode' => ['nxdn'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['self_owned'],
 	'bridgeApprovedDestinations' => ['65000'],
 ]);
-check($nxdn['cardType'] === 'nxdn_net' && $nxdn['approvedDestinations'] === ['65000'], 'NXDN Net allowlist was not enforced.');
+check($nxdn['cardType'] === 'nxdn_net' && $nxdn['approvedDestinations'] === ['65000'], 'NXDN Net defaults were not preserved.');
 
 $dmr = postedBridge([
 	'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
@@ -254,7 +247,7 @@ $dmr = postedBridge([
 	'bridgeDvswitchScript' => ['/opt/MMDVM_Bridge_Test/dvswitch.sh'],
 	'bridgeAnalogConfig' => ['/opt/Analog_Bridge_Test/Analog_Bridge.ini'],
 ]);
-check($dmr['linkAlias'] === '999123456' && $dmr['approvedDestinations'] === [], 'DMR Net manual-entry card required an approved TG list.');
+check(!isset($dmr['linkAlias']) && $dmr['approvedDestinations'] === [], 'DMR Net manual-entry card retained a non-routable link alias or required an approved TG list.');
 
 expectFailure(static function (): void {
 	postedBridge([
@@ -321,9 +314,10 @@ expectFailure(static function (): void {
 	]);
 }, 'exact reflector names or five-digit IDs');
 
-expectFailure(static function (): void {
-	postedBridge(['bridgeMode' => ['p25'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved']]);
-}, 'at least one approved destination');
+$p25NetWithoutDefaults = postedBridge([
+	'bridgeMode' => ['p25'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
+]);
+check($p25NetWithoutDefaults['approvedDestinations'] === [], 'P25 Net Bridge unexpectedly required a destination allowlist.');
 
 expectFailure(static function (): void {
 	postedBridge([
@@ -334,7 +328,7 @@ expectFailure(static function (): void {
 
 expectFailure(static function (): void {
 	postedBridge(['bridgeMode' => ['dstar'], 'bridgeCardType' => ['net']]);
-}, 'Standard Bridge card only');
+}, 'Choose a supported Digital Mode');
 
 expectFailure(static function (): void {
 	postedBridge(['bridgeMode' => ['zello'], 'bridgeCardType' => ['net']]);
@@ -481,14 +475,12 @@ check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN he
 check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');
 check(strpos($settingsSource, "'dmr-plan', 'dmr-install'") !== false, 'DMR helper actions are unavailable.');
 check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
-check(strpos($settingsSource, "'dstar-plan', 'dstar-install'") !== false, 'D-Star helper actions are unavailable.');
-check(strpos($settingsSource, '<option value="dstar">D-Star</option>') !== false, 'D-Star guided setup is not enabled.');
+check(stripos($settingsSource, 'dstar') === false, 'D-Star remains exposed by Settings.');
 check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');
 check(strpos($settingsSource, '<option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option>') !== false, 'Standard Bridge/URF choices are incomplete.');
 check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') !== false, 'Unified Net Bridge choice is missing.');
 check(strpos($settingsSource, "urfOption.disabled = mode === 'zello'") !== false, 'Zello URF selection is not blocked.');
 check(strpos($settingsSource, "var isUnifiedNet = mode === 'net_bridge'") !== false, 'Unified Net Bridge mode handling is missing.');
-check(strpos($settingsSource, "'dstar'=>'D-Star'") !== false, 'D-Star is missing from shared URF modes.');
 check(strpos($settingsSource, 'DMR / TGIF via URF') === false, 'DMR is still mislabeled as URF-only.');
 check(strpos($settingsSource, 'data-bridge-setup-zello-private-key') !== false, 'Zello private-key input is missing.');
 check(strpos($settingsSource, 'data-bridge-setup-tgif-password') !== false, 'TGIF password input is missing from the guided wizard.');

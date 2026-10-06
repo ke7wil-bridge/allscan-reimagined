@@ -123,9 +123,18 @@ def refresh_watch_snapshots(profile: ContainerProfile, group_name: str = "asr-br
         # config.json is maintained by the provisioned web identity.  Trust
         # only that exact identity (or root), and still reject writable group/
         # other bits so another container account cannot replace its contents.
+        # config.json is intentionally group-writable by the provisioned web
+        # group so Settings can save it.  Accept that exact root:web 0664 shape;
+        # secrets remain non-group-writable.
+        allowed_group_write = (name == "config.json"
+                               and source_info.st_uid == 0
+                               and source_info.st_gid == profile.client_gid
+                               and (source_info.st_mode & 0o777) == 0o664)
+        unsafe_write_bits = bool(source_info.st_mode & 0o002) or (
+            bool(source_info.st_mode & 0o020) and not allowed_group_write)
         if (source.is_symlink() or not source.is_file()
                 or source_info.st_uid not in {0, profile.client_uid}
-                or source_info.st_nlink != 1 or source_info.st_mode & 0o022):
+                or source_info.st_nlink != 1 or unsafe_write_bits):
             raise BackendError(f"watch snapshot source is unsafe: {name}")
         descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=target_dir)
         try:

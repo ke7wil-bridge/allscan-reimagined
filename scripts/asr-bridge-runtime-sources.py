@@ -65,6 +65,8 @@ MODES = {
 }
 
 SOURCE_PATCHES = {
+    "p25": ["Reflectors.cpp: open the JSON hosts catalog read-only"],
+    "nxdn": ["Reflectors.cpp: open the JSON hosts catalog read-only"],
     "ysf": ["Log.cpp: bound vsnprintf to the remaining destination buffer"],
 }
 
@@ -278,6 +280,17 @@ def describe(mode: str) -> dict[str, Any]:
 
 def patch_gateway_source(gateway_dir: Path, mode: str) -> None:
     """Apply narrow audited fixes to checksum-verified pinned source."""
+    if mode in {"p25", "nxdn"}:
+        path = gateway_dir / "Reflectors.cpp"
+        original = "std::fstream file(fileName);"
+        replacement = "std::ifstream file(fileName);"
+        text = path.read_text(encoding="utf-8")
+        if text.count(original) != 1:
+            raise SourceError(
+                f"pinned {mode.upper()} gateway hosts source no longer matches its audited patch"
+            )
+        path.write_text(text.replace(original, replacement), encoding="utf-8")
+        return
     if mode != "ysf":
         return
     path = gateway_dir / "Log.cpp"

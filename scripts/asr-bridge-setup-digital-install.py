@@ -100,6 +100,10 @@ def file_spec(plan: dict, stage: Path, credentials: dict | None = None) -> dict[
         plan["resources"]["analog"]: renderer.analog_ini(plan),
         plan["resources"]["mmdvm"]: renderer.mmdvm_ini(plan, stage),
         f"{base['mmdvm']}/DVSwitch.ini": renderer.dvswitch_ini(plan, stage),
+        f"{base['mmdvm']}/DMRIds.dat": (
+            f"{plan['settings']['digital_id']} {plan['settings']['callsign']}\n"
+            f"{plan['settings']['digital_id'] * 100 + 1} {plan['settings']['callsign']}\n"
+        ),
         **renderer.hosts_files(plan),
     }
     containerized = load("asr_backend_digital_files", "asr-provisioning-backend.py").load_profile() is not None
@@ -161,7 +165,16 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
             "ysfGatewayService": units[0], "emulatorService": units[3],
             "commandTransport": "remote_command",
             "ysfHostsPath": f"/var/lib/mmdvm/ASR-{identity}-YSFHosts.txt",
-            "ysfCustomReflectors": [], "allowTune": role == "net",
+            # Keep the ASR-local reflector as a managed custom entry so importing
+            # a full external YSFHosts catalog cannot remove the startup target.
+            "ysfCustomReflectors": [{
+                "id": f"{int(plan['settings']['destination']):05d}",
+                "name": str(plan["settings"].get("reflector_name") or "").upper(),
+                "description": "ASR Bridge",
+                "host": str(plan["settings"]["reflector_host"]),
+                "port": int(plan["settings"]["reflector_port"]),
+            }],
+            "allowTune": role == "net",
             "approvedDestinations": [str(plan["settings"]["destination"])] if role == "net" else [],
         })
     else:

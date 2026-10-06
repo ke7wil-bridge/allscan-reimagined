@@ -22,6 +22,17 @@ from typing import Any, Callable, Iterable, Sequence
 
 HERE = Path(__file__).resolve().parent
 
+# Outgoing Net Bridge backends are mutually exclusive and all use app_rpt node
+# 1999. Keep chan_usrp on one endpoint for the lifetime of Asterisk: app_rpt
+# cannot replace a node's rxchannel on `core reload` without restarting every
+# app_rpt node and disrupting the main repeater.
+UNIFIED_NET_USRP_RX_PORT = 52000
+UNIFIED_NET_USRP_TX_PORT = 52001
+
+
+def unified_net_usrp_ports() -> tuple[int, int]:
+    return UNIFIED_NET_USRP_RX_PORT, UNIFIED_NET_USRP_TX_PORT
+
 
 def provisioning_backend():
     spec = importlib.util.spec_from_file_location(
@@ -88,7 +99,7 @@ class PlatformAdapter:
             )
         if not plan.bridge_id or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", plan.bridge_id):
             raise ProvisioningError("invalid bridge id")
-        if plan.bridge_type not in {"m17", "p25", "nxdn", "ysf", "dmr", "dstar", "zello"}:
+        if plan.bridge_type not in {"m17", "p25", "nxdn", "ysf", "dmr", "zello"}:
             raise ProvisioningError("unsupported bridge type")
         targets: set[tuple[str, str]] = set()
         protected = {Path(p) for p in plan.protected_paths}

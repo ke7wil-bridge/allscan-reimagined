@@ -35,7 +35,7 @@ def port_block(bridge_id: str) -> dict[str, int]:
 def tgif_network_id(dmr_id: int, bridge_node: int) -> int:
     """Return a stable TGIF hotspot ESSID distinct for each private node."""
     # The qualified managed Net Bridge identity is intentionally independent
-    # of its consolidated AllStar transport node.
+    # of its consolidated AllStar transport node and the URFWIL ESSID 01 peer.
     suffix = 4 if bridge_node == 1999 else (bridge_node % 100 or 99)
     return dmr_id * 100 + suffix
 
@@ -143,9 +143,13 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
     if not owned and node in used and not shared_net_node:
         raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
+    if settings.bridge_role == "net":
+        ports["usrp_rx"], ports["usrp_tx"] = core.unified_net_usrp_ports()
     occupied_udp = set(facts.listening_udp_ports)
     occupied_tcp = set(facts.listening_tcp_ports)
     udp_ports = {value for key, value in ports.items() if key != "transcoder"}
+    if settings.bridge_role == "net" and shared_net_node:
+        udp_ports -= set(core.unified_net_usrp_ports())
     if not owned and (occupied_udp.intersection(udp_ports) or ports["transcoder"] in occupied_tcp):
         raise PlanError("a required URF/TGIF port is already in use")
     runtime = runtime_root(settings.bridge_id)
@@ -173,13 +177,12 @@ def urfd_ini(plan: dict) -> str:
     return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nPort = {p['dcs']}\n[DExtra]\nPort = {p['dextra']}\n[DPlus]\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nPort = {p['dmrplus']}\n[M17]\nPort = {p['m17']}\n[MMDVM]\nPort = {p['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nPort = {p['nxdn']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[P25]\nPort = {p['p25']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[URF]\nPort = {p['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nPort = {p['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {reflector_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = /data/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = /data/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = /data/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = /data/urfd.pid\nXmlPath = /data/urfd.xml\nWhitelistPath = /config/urfd.whitelist\nBlacklistPath = /config/urfd.blacklist\nInterlinkPath = /config/urfd.interlink\nG3TerminalPath = /config/urfd.terminal\n"""
 
 def tcd_ini(plan: dict) -> str:
-    return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 16\nDStarGainOut = -16\nDmrYsfGainIn = -3\nDmrYsfGainOut = 0\nUsrpTxGain = 12\nUsrpRxGain = 3\n"""
+    return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 0\nDStarGainOut = 0\nDmrYsfGainIn = 0\nDmrYsfGainOut = 0\nUsrpTxGain = 0\nUsrpRxGain = 0\n"""
 
 def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
     config_path=safe_regular(root, CONFIG); rpt_path=safe_regular(root, RPT); modules_path=safe_regular(root, MODULES)
     config=json.loads(config_path.read_text(encoding="utf-8")); s=plan["settings"]; node=plan["bridgeNode"]; p=plan["ports"]
     role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(tgif_network_id(s["dmr_id"], node)),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
-    if role == "net": entry["linkAlias"] = "999" + str(plan["mainNode"]).zfill(6)
     bridges=config.setdefault("bridges",[]); matches=[i for i,b in enumerate(bridges) if isinstance(b,dict) and b.get("id")==s["bridge_id"]]
     if len(matches)>1: raise PlanError("duplicate bridge identity")
     if matches: bridges[matches[0]]=entry

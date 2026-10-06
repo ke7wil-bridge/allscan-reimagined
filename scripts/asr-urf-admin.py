@@ -19,14 +19,10 @@ KICK_REQUEST = os.path.join(RUNTIME_DIR, "asr-kick-client.request")
 KICK_RESULT = os.path.join(RUNTIME_DIR, "asr-kick-client.result")
 DMR_ROSTER = "/run/dmr-bridge/dmr-clients.json"
 DMR_CONTROL = "/run/dmr-bridge/dmr-admin.json"
-DSTAR_BLACKLIST = "/run/dstar-reflector-admin/xlxd.blacklist"
-DSTAR_RUNTIME_DIR = "/run/dstar-reflector-control"
-DSTAR_REQUEST = os.path.join(DSTAR_RUNTIME_DIR, "asr-dstar-client.request")
-DSTAR_RESULT = os.path.join(DSTAR_RUNTIME_DIR, "asr-dstar-client.result")
 ZELLO_RUNTIME_DIR = "/var/www/html/asr"
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
-PROTOCOLS = {"DMRMMDVM": "DMRMmdvm", "YSF": "YSF", "P25": "P25", "NXDN": "NXDN", "M17": "M17", "DSTAR": "DSTAR", "ZELLO": "ZELLO"}
+PROTOCOLS = {"DMRMMDVM": "DMRMmdvm", "YSF": "YSF", "P25": "P25", "NXDN": "NXDN", "M17": "M17", "ZELLO": "ZELLO"}
 BAN_DURATIONS = {"15m": 15 * 60, "1h": 60 * 60, "1w": 7 * 24 * 60 * 60, "30d": 30 * 24 * 60 * 60, "permanent": 0}
 RULE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_./-]{0,14}\*?$")
 PROTECTED_IDENTITIES = {"RFCKRD0", "YSF-LIVE", "KF0WSS"}
@@ -45,8 +41,6 @@ def configured_backends():
         mode = str(bridge.get("mode") or bridge.get("type") or bridge.get("id") or "").lower()
         if bridge.get("urfReflector") or mode.startswith("urf"):
             backends.add("urf")
-        if mode.startswith("dstar"):
-            backends.add("dstar")
     return backends
 
 
@@ -400,92 +394,6 @@ def sync_dmr_ban(rule, banned_state):
 
 
 
-def dstar_rule_supported(rule):
-    base = rule[:-1] if rule.endswith("*") else rule
-    if not base or len(base) > 7 or not re.fullmatch(r"[A-Z0-9]+", base):
-        return False
-    if not rule.endswith("*") and (len(base) < 3 or base[:3].isdigit()):
-        return False
-    return True
-
-
-def write_dstar_rules(rules):
-    directory = os.path.dirname(DSTAR_BLACKLIST)
-    if not os.path.isdir(directory) or not os.access(directory, os.W_OK):
-        raise RuntimeError("D-Star reflector blacklist mount is unavailable.")
-    fd, tmp = tempfile.mkstemp(prefix=".xlxd.blacklist.", dir=directory, text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write("# Managed by AllScan Reimagined Global Ban List\n")
-            for rule in sorted(set(rules)):
-                if dstar_rule_supported(rule):
-                    handle.write(rule + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, DSTAR_BLACKLIST)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-
-
-
-def read_dstar_rules():
-    try:
-        with open(DSTAR_BLACKLIST, "r", encoding="utf-8") as handle:
-            values = []
-            for raw in handle:
-                rule = raw.strip().upper()
-                if rule and not rule.startswith("#") and dstar_rule_supported(rule):
-                    values.append(rule)
-            return sorted(set(values))
-    except FileNotFoundError:
-        return []
-    except OSError:
-        raise RuntimeError("D-Star reflector blacklist is unreadable.")
-
-
-def sync_dstar_rules(rules):
-    if "dstar" not in configured_backends():
-        return []
-    expected = sorted({rule for rule in rules if dstar_rule_supported(rule)})
-    if read_dstar_rules() != expected:
-        write_dstar_rules(rules)
-        request_dstar_event("*", "reload", False)
-    return expected
-
-
-def request_dstar_event(rule, event, require_connected=False):
-    if event not in {"kick", "ban", "unban", "reload"}:
-        raise ValueError("Unsupported D-Star administrative event.")
-    if not os.path.isdir(DSTAR_RUNTIME_DIR) or not os.access(DSTAR_RUNTIME_DIR, os.W_OK):
-        raise RuntimeError("D-Star reflector administration runtime is unavailable.")
-    try:
-        os.unlink(DSTAR_RESULT)
-    except FileNotFoundError:
-        pass
-    fd, tmp = tempfile.mkstemp(prefix=".asr-dstar-client.", dir=DSTAR_RUNTIME_DIR, text=True)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(f"{rule}|DSTAR|{event}\n")
-    os.replace(tmp, DSTAR_REQUEST)
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        try:
-            result = open(DSTAR_RESULT, "r", encoding="utf-8").read().strip().split("|")
-        except FileNotFoundError:
-            result = []
-        if len(result) == 4 and result[:3] == [rule, "DSTAR", event]:
-            try:
-                removed = int(result[3])
-            except ValueError:
-                removed = 0
-            if require_connected and removed < 1:
-                raise RuntimeError("D-Star client was no longer connected or could not be kicked.")
-            return removed
-        time.sleep(0.1)
-    raise RuntimeError("D-Star reflector did not confirm the administrative client action.")
-
-
 def emit(**payload):
     print(json.dumps(payload, separators=(",", ":")))
 
@@ -592,13 +500,11 @@ def expire_timed_bans(rules, timed):
         if int(record.get("expiresAt") or 0) <= now
     )
     for rule in expired:
-        # Keep the visible rule authoritative unless both protocol backends
-        # have accepted removal of the expired ban.
+        # Keep the visible rule authoritative until the active backends have
+        # accepted removal of the expired ban.
         request_urf_disconnect(rule, "*", "unban", False)
         sync_dmr_ban(rule, False)
         next_rules = [item for item in rules if item != rule]
-        write_dstar_rules(next_rules)
-        request_dstar_event(rule, "unban", False)
         rules = next_rules
         timed.pop(rule, None)
         write_rules(rules)
@@ -673,11 +579,6 @@ def main():
         if protocol == "DMRMMDVM":
             write_dmr_kick(callsign, args.actor)
             return
-        if protocol == "DSTAR":
-            count = request_dstar_event(callsign, "kick", True)
-            append_audit_event("kick", args.actor, callsign=callsign, protocol=protocol, removed=count)
-            emit(ok=True, action="kick", callsign=callsign, protocol=protocol, audit=read_audit_events(), verified=True, removed=count, enforcement="local_session_removal", quietSeconds=0)
-            return
         if protocol == "ZELLO":
             raise ValueError("Zello does not support disconnecting a channel user.")
         count = request_urf_disconnect(callsign, runtime_protocol, "kick", True)
@@ -688,13 +589,11 @@ def main():
     timed = read_timed_bans()
     rules, timed, expired = expire_timed_bans(rules, timed)
     if args.action == "expire":
-        sync_dstar_rules(rules)
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
         emit(ok=True, asl=asl, action="expire", expired=expired, rules=sorted(set(rules)), bans=ban_payload(rules, timed), standalone=standalone, serverEpoch=int(time.time()))
         return
     if args.action == "list":
-        sync_dstar_rules(rules)
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
         emit(ok=True, asl=asl, rules=sorted(set(rules)), bans=ban_payload(rules, timed), audit=read_audit_events(), standalone=standalone, serverEpoch=int(time.time()), reloadSeconds=30)
@@ -711,15 +610,11 @@ def main():
         timed = set_ban_expiration(timed, rule, duration, now)
         write_rules(rules)
         write_timed_bans(timed)
-        if "dstar" in configured_backends():
-            write_dstar_rules(rules)
         sync_dmr_ban(rule, True)
         expected = sorted(set(rules))
         if read_rules() != expected:
             raise RuntimeError("URF blacklist write could not be verified.")
         removed = request_urf_disconnect(rule, "*", "ban", False)
-        if "dstar" in configured_backends() and dstar_rule_supported(rule):
-            removed += request_dstar_event(rule, "ban", False)
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
         removed += int(asl.get("applied", {}).get("removed", 0))
@@ -733,9 +628,6 @@ def main():
     request_urf_disconnect(rule, "*", "unban", False)
     sync_dmr_ban(rule, False)
     next_rules = [item for item in rules if item != rule]
-    if "dstar" in configured_backends():
-        write_dstar_rules(next_rules)
-        request_dstar_event(rule, "unban", False)
     rules = next_rules
     timed.pop(rule, None)
     write_rules(rules)

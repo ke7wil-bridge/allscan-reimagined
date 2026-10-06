@@ -35,16 +35,14 @@ check("'managementScope' => $globalAdmin ? 'asr-global' : 'bridge'" in API, "ASR
 check("'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none'" in API, "global-ban authority scope missing")
 check("'banScopeLabel' => $globalAdmin ? 'GLOBAL' : ''" in API, "global ban scope label missing")
 check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API and "is_dir('/run/dmr-bridge')" in API, "URF Kick capability is not runtime-gated")
-check("in_array($mode, ['dstar', 'zello'], true)" in API, "D-Star/Zello global administration capability scope missing")
-check("'/run/dstar-reflector-admin'" in API and "'/run/dstar-reflector-control'" in API, "D-Star administration capability is not runtime-gated")
 if ZELLO:
-    check("'DSTAR': 'DSTAR'" not in URF and '"DSTAR": "DSTAR"' in URF and '"ZELLO": "ZELLO"' in URF, "D-Star/Zello helper protocols missing")
-check("write_dstar_rules" in URF and "request_dstar_event" in URF, "D-Star global Ban/Kick adapter missing")
+    check('"ZELLO": "ZELLO"' in URF, "Zello helper protocol missing")
+check("dstar" not in URF.lower(), "D-Star administration remains in the URF helper")
 check("request_zello_kick" not in URF and "Zello does not support disconnecting a channel user." in URF, "Zello Kick helper remains")
 check("[A-Z0-9_.\\/-]" in API and "[A-Z0-9_./-]" in URF, "Zello underscore identity support missing")
 if ZELLO:
     check("_ke7wil_zello_is_banned" in ZELLO and "_ke7wil_zello_take_kick" not in ZELLO, "Zello Ban enforcement missing or Kick remains")
-check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP, "D-Star/Zello Manage Clients UI missing")
+check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP, "Zello Manage Clients UI missing")
 if ZELLO:
     check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP, "Zello Kick button remains")
 check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', 'listBans']" in API, "DMR client administration capability missing")

@@ -193,6 +193,16 @@ def m17_is_codec2_3200(frame_type: int) -> bool:
     return bool(frame_type & 1) and ((frame_type >> 1) & 0x3) == 2
 
 
+def normalize_m17_frame_type(frame_type: int) -> int:
+    """Accept the host-order TYPE emitted by QSO One on little-endian hosts."""
+    if m17_encryption_type(frame_type) == 0 and m17_is_codec2_3200(frame_type):
+        return frame_type
+    swapped = ((frame_type & 0xFF) << 8) | ((frame_type >> 8) & 0xFF)
+    if m17_encryption_type(swapped) == 0 and m17_is_codec2_3200(swapped):
+        return swapped
+    return frame_type
+
+
 def reflector_destination(reflector: str, module: str) -> str:
     destination = f"{reflector} {module}"
     if len(destination) > 9:
@@ -238,7 +248,7 @@ def parse_m17_stream(control: ModuleType, packet: bytes) -> dict[str, Any]:
     expected_crc = struct.unpack(">H", packet[-2:])[0]
     if m17_crc(packet[:-2]) != expected_crc:
         raise ConnectorError("M17 stream packet CRC failed.")
-    frame_type = struct.unpack(">H", packet[18:20])[0]
+    frame_type = normalize_m17_frame_type(struct.unpack(">H", packet[18:20])[0])
     if m17_encryption_type(frame_type) != 0:
         raise EncryptedM17Error("Encrypted M17 stream was rejected.")
     if not m17_is_codec2_3200(frame_type):
@@ -403,6 +413,22 @@ class AudioBridgeCore:
         self.inbound_stream_id = 0
         self.inbound_source = ""
         self.inbound_last_epoch = 0.0
+        self.inbound_start_epoch = 0.0
+        self.recent_talkers: deque[dict[str, Any]] = deque(maxlen=4)
+
+    def _finish_inbound(self, epoch: float) -> None:
+        if self.inbound_stream_id and self.inbound_source and self.inbound_start_epoch > 0:
+            self.recent_talkers.appendleft({
+                "callsign": self.inbound_source[:9],
+                "sourceId": self.inbound_stream_id,
+                "startEpoch": int(self.inbound_start_epoch),
+                "eventEpoch": int(epoch),
+                "duration": max(0, int(epoch - self.inbound_start_epoch)),
+            })
+        self.inbound_stream_id = 0
+        self.inbound_source = ""
+        self.inbound_last_epoch = 0.0
+        self.inbound_start_epoch = 0.0
 
     def _next_usrp(self, ptt: bool, pcm: bytes = b"") -> bytes:
         self.usrp_sequence = (self.usrp_sequence + 1) & 0xFFFFFFFF
@@ -467,6 +493,8 @@ class AudioBridgeCore:
         if self.inbound_stream_id and self.inbound_stream_id != int(frame["streamId"]):
             return []
         epoch = float(time.time() if now is None else now)
+        if not self.inbound_stream_id:
+            self.inbound_start_epoch = epoch
         self.inbound_stream_id = int(frame["streamId"])
         self.inbound_source = str(frame["source"])
         self.inbound_last_epoch = epoch
@@ -478,9 +506,7 @@ class AudioBridgeCore:
         ]
         if frame["eot"]:
             self.link.note_stream(frame["source"], frame["streamId"], True, now=epoch)
-            self.inbound_stream_id = 0
-            self.inbound_source = ""
-            self.inbound_last_epoch = 0.0
+            self._finish_inbound(epoch)
             output.append(self._next_usrp(False))
         return output
 
@@ -490,9 +516,7 @@ class AudioBridgeCore:
             self.link.note_stream(
                 self.inbound_source, self.inbound_stream_id, True, now=epoch
             )
-            self.inbound_stream_id = 0
-            self.inbound_source = ""
-            self.inbound_last_epoch = 0.0
+            self._finish_inbound(epoch)
             return [self._next_usrp(False)]
         return []
 
@@ -847,6 +871,8 @@ class ConnectorRuntime:
             "outboundStartEpoch": self.outbound_start_epoch,
             "lastInboundTalker": self.last_inbound_talker,
             "inboundAudioPeak": self.inbound_audio_peak,
+            "inboundStartEpoch": self.core.inbound_start_epoch,
+            "recentTalkers": list(self.core.recent_talkers),
         })
         self.control.atomic_json(self.bridge["statePath"], payload)
         self.last_state_write = now
@@ -1021,6 +1047,10 @@ def self_test() -> None:
     inbound = build_m17_stream(
         control, 0x4321, "M17-M17 C", "N0CALL", 7, bytes(range(16)), eot=False
     )
+    qso_one_inbound = bytearray(inbound)
+    qso_one_inbound[18:20] = struct.pack("<H", M17_VOICE_TYPE)
+    qso_one_inbound[-2:] = struct.pack(">H", m17_crc(qso_one_inbound[:-2]))
+    assert parse_m17_stream(control, bytes(qso_one_inbound))["frameType"] == M17_VOICE_TYPE
     broadcast_inbound = bytearray(inbound)
     broadcast_inbound[6:12] = M17_BROADCAST_ADDRESS
     broadcast_inbound[-2:] = struct.pack(">H", m17_crc(broadcast_inbound[:-2]))
@@ -1043,6 +1073,10 @@ def self_test() -> None:
     assert len(timed_out_audio) == 1
     assert parse_usrp_packet(timed_out_audio[0])["ptt"] is False
     assert link.state["talker"] == ""
+    assert core.recent_talkers[0] == {
+        "callsign": "N0CALL", "sourceId": 0x4321,
+        "startEpoch": 12, "eventEpoch": 14, "duration": 2,
+    }
     usrp_output = core.handle_m17(inbound, now=15.0)
     assert len(usrp_output) == 2
     inbound_eot = build_m17_stream(
@@ -1052,6 +1086,8 @@ def self_test() -> None:
     assert len(usrp_output) == 3
     assert parse_usrp_packet(usrp_output[-1])["ptt"] is False
     assert link.state["talker"] == ""
+    assert core.recent_talkers[0]["startEpoch"] == 15
+    assert core.recent_talkers[0]["eventEpoch"] == 15
 
     corrupted = bytearray(inbound)
     corrupted[40] ^= 1

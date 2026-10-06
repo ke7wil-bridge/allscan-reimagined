@@ -137,22 +137,6 @@
             "ysfHostsPath": "",
             "ysfCustomReflectors": [],
             "commandTransport": ""
-        },
-        {
-            "id": "dstar",
-            "mode": "dstar",
-            "title": "D-Star Bridge",
-            "detailTitle": "Connected Clients",
-            "clientSource": "disabled",
-            "clientUrl": "",
-            "clientUsername": "",
-            "cardType": "standard",
-            "backendMode": "managed",
-            "allowTune": false,
-            "commandTransport": "",
-            "node": "1007",
-            "friendlyName": "D-Star Bridge",
-            "fixedBridgeRecovery": true
         }
     ],
     "node": "641890",

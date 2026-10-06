@@ -29,6 +29,7 @@ def rejected(function, *args) -> None:
 
 
 def bridge(mode: str, destination: str) -> dict:
+    usrp_rx, usrp_tx = control.core.unified_net_usrp_ports()
     bridge_id = f"{mode}_net"
     value = {
         "id": bridge_id, "mode": mode, "cardType": f"{mode}_net",
@@ -40,14 +41,13 @@ def bridge(mode: str, destination: str) -> dict:
         value.update({
             "backendMode": "managed", "managedNetControl": True,
             "managedTargetFile": f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target",
-            "setupPorts": {"usrp_rx": 31001, "usrp_tx": 31002},
+            "setupPorts": {"usrp_rx": usrp_rx, "usrp_tx": usrp_tx},
         })
     elif mode == "m17":
-        value.update({"m17UsrpRxPort": 35001, "m17UsrpTxPort": 35002})
+        value.update({"m17UsrpRxPort": usrp_rx, "m17UsrpTxPort": usrp_tx})
     else:
         value.update({
-            "setupPorts": {"usrp_rx": 32000 + len(mode) * 10,
-                           "usrp_tx": 32001 + len(mode) * 10},
+            "setupPorts": {"usrp_rx": usrp_rx, "usrp_tx": usrp_tx},
             "gatewayService": f"{mode}gateway-{bridge_id}.service",
             "mmdvmService": f"mmdvm-bridge-{bridge_id}.service",
             "analogBridgeService": f"analog-bridge-{bridge_id}.service",
@@ -62,6 +62,8 @@ class FakeRunner:
         self.active = {mode: mode == old_mode for mode in control.MODES}
         self.fail_mode = fail_mode
         self.commands: list[list[str]] = []
+        self.reload_count = 0
+        self.channel_ports = control.selected_ports(old_mode, bridge(old_mode, "1"))
 
     def __call__(self, argv: list[str], _check: bool) -> subprocess.CompletedProcess[str]:
         self.commands.append(argv)
@@ -70,6 +72,16 @@ class FakeRunner:
         if argv[0] == control.ASTERISK and argv[-1].startswith("rpt stats "):
             node = argv[-1].rsplit(" ", 1)[-1]
             return subprocess.CompletedProcess(argv, 0, f"NODE {node} STATISTICS\n", "")
+        if argv[0] == control.ASTERISK and argv[-1].startswith("rpt show channels "):
+            rx, tx = self.channel_ports
+            return subprocess.CompletedProcess(
+                argv, 0,
+                f"RPT channels for node 1999\nrxchannel                : usrp/127.0.0.1:{rx}:{tx}\n",
+                "",
+            )
+        if argv[0] == control.ASTERISK and argv[-1] == "core reload":
+            self.reload_count += 1
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK or argv[-2:] == ["restart", "asterisk.service"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
         if "docker compose" in joined:
@@ -134,6 +146,8 @@ def main() -> None:
             result = control.switch_mode("ysf", profile, runner)
             assert result["ok"] and result["mode"] == "ysf" and result["node"] == 1999
             assert runner.active == {mode: mode == "ysf" for mode in control.MODES}
+            assert not any("channel request hangup" in " ".join(command)
+                           for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
             assert updated["netBridgeMode"] == "ysf"
             assert {item["node"] for item in updated["bridges"]} == {"1999"}
@@ -144,6 +158,19 @@ def main() -> None:
             assert rpt.count("[1999]") == 1
             assert rpt.count("1999 = radio@127.0.0.1:4572/1999,NONE") == 1
             assert all(f"[{node}]" not in rpt for node in range(1004, 1009))
+            assert "controlstates = asr-bridge-controlstates" in rpt
+            assert "0 = rptena,lnkena,apdis,totena,ufdis,noicd" in rpt
+            # chan_usrp is host:remote:local.  For every backend, Asterisk's
+            # remote port must be the backend Rx/bind port and Asterisk's local
+            # port must be the backend Tx/destination port.
+            for mode in control.MODES:
+                rendered = control.unified_rpt("[nodes]\n", {
+                    item["mode"]: item for item in original["bridges"]
+                }, mode)
+                backend_rx, backend_tx = control.selected_ports(
+                    mode, next(item for item in original["bridges"] if item["mode"] == mode)
+                )
+                assert f"rxchannel = USRP/127.0.0.1:{backend_rx}:{backend_tx}" in rendered
 
         with tempfile.TemporaryDirectory() as temporary:
             profile, _original = fixture(Path(temporary))
@@ -158,6 +185,14 @@ def main() -> None:
         bad["gatewayService"] = "sshd.service"
         rejected(control.service_units, "ysf", bad)
         rejected(control.runtime_argv, "ysf", bridge("ysf", "64189"), "exec")
+        legacy = bridge("dmr", "1")
+        legacy["setupPorts"]["usrp_rx"] = 39800
+        rejected(control.selected_ports, "dmr", legacy)
+        rewritten = control.rewrite_usrp_ini(
+            "[USRP]\naddress=127.0.0.1\ntxPort=1\nrxPort=2\n\n[DV3000]\n",
+            *control.core.unified_net_usrp_ports(), False,
+        )
+        assert "RxPort=52000" in rewritten and "TxPort=52001" in rewritten
         print("unified Net Bridge mode-control self-test: PASS")
     finally:
         control.backend.refresh_watch_snapshots = original_refresh

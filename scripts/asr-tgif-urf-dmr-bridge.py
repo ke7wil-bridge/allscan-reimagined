@@ -49,11 +49,12 @@ def clear_health(name):
         pass
 
 
-def publish_dmr_client(source, now=None):
+def publish_dmr_client(source, now=None, active=True):
     if not ROSTER_FILE or not source:
         return
     epoch = int(time.time() if now is None else now)
-    row = {"dmrid": str(source), "id": str(source), "last_seen_epoch": epoch, "connected": True}
+    row = {"dmrid": str(source), "id": str(source), "last_seen_epoch": epoch, "connected": True,
+           "active": bool(active), "active_until_epoch_ms": int((time.time() if now is None else now) * 1000) + (2000 if active else 0)}
     if source == DMR_ID and CALLSIGN:
         row["callsign"] = CALLSIGN
     prior = {}
@@ -187,12 +188,24 @@ def active_tgif_tg():
             pass
     return TGIF_TG
 
+
+def inbound_matches_active_tg(packet):
+    """Relay the selected group or a private call addressed only to this subscriber."""
+    if not packet.startswith(b"DMRD"):
+        return True
+    destination = destination_id(packet)
+    return destination == active_tgif_tg() or (
+        len(packet) > 15 and bool(packet[15] & 0x40) and destination == DMR_ID
+    )
+
+
 def rewrite_for_tgif(packet):
     if not packet.startswith(b"DMRD") or len(packet) < 15:
         return packet
     out = bytearray(packet)
+    target = active_tgif_tg()
     out[5:8] = DMR_ID.to_bytes(3, "big")
-    out[8:11] = active_tgif_tg().to_bytes(3, "big")
+    out[8:11] = target.to_bytes(3, "big")
     out[11:15] = network_id_bytes()
     return bytes(out)
 
@@ -401,6 +414,8 @@ def main():
                     clear_health("tgif")
                 elif tgif_authenticated and packet.startswith((b"MSTPONG", b"DMRD")):
                     mark_health("tgif")
+                if not inbound_matches_active_tg(packet):
+                    continue
                 sid = source_id(packet)
                 banned_ids, kicked_ids = read_admin_control()
                 if sid in BLOCKED or sid in banned_ids:
@@ -423,7 +438,9 @@ def main():
                     del kicked_ids[sid]
                     write_admin_control(banned_ids, kicked_ids)
                 if sid:
-                    publish_dmr_client(sid)
+                    terminator = (packet.startswith(b"DMRD") and len(packet) > 15
+                                  and (packet[15] & 0x30) == 0x20 and (packet[15] & 0x0F) == 0x02)
+                    publish_dmr_client(sid, active=not terminator)
                 local.sendto(packet, ("127.0.0.1", MMDVM_PORT))
                 if urf is not None and packet.startswith(b"DMRD"):
                     try:
@@ -482,6 +499,15 @@ def self_test():
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("67498\n")
             assert active_tgif_tg() == 67498
+            assert inbound_matches_active_tg(bytes(packet)) is False
+            packet[8:11] = (67498).to_bytes(3, "big")
+            assert inbound_matches_active_tg(bytes(packet)) is True
+            packet[8:11] = DMR_ID.to_bytes(3, "big")
+            packet[15] = 0x40
+            assert inbound_matches_active_tg(bytes(packet)) is True
+            packet[15] = 0x00
+            assert inbound_matches_active_tg(bytes(packet)) is False
+            assert inbound_matches_active_tg(b"MSTPONG") is True
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("4000\n")
             assert active_tgif_tg() == TGIF_TG
@@ -493,7 +519,7 @@ def self_test():
     assert destination_id(rewrite_for_urf(bytes(packet))) == 4000
     toward_tgif = rewrite_for_tgif(bytes(packet))
     assert source_id(toward_tgif) == DMR_ID
-    assert destination_id(toward_tgif) == TGIF_TG
+    assert destination_id(toward_tgif) == active_tgif_tg()
     assert toward_tgif[11:15] == network_id_bytes()
     print("TGIF/URFWIL DMR adapter self-test: ok")
 

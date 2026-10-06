@@ -11,19 +11,22 @@ RUN pnpm run build
 FROM php:8.3-apache
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git rsync sqlite3 libsqlite3-dev pkg-config ca-certificates python3 \
+  && apt-get install -y --no-install-recommends git rsync sqlite3 libsqlite3-dev pkg-config ca-certificates python3 python3-socketio python3-websocket sudo \
   && docker-php-source extract \
   && cp /usr/src/php/ext/sqlite3/config0.m4 /usr/src/php/ext/sqlite3/config.m4 \
   && docker-php-ext-install pdo_sqlite sqlite3 \
   && docker-php-source delete \
   && rm -rf /var/lib/apt/lists/*
 
+RUN a2enmod rewrite
+
 WORKDIR /opt/asr-source
 COPY . /opt/asr-source
 COPY --from=ui-builder /src/dist /opt/asr-ui-dist
 COPY docker/layered-entrypoint.sh /usr/local/bin/layered-entrypoint.sh
-RUN chmod +x /usr/local/bin/layered-entrypoint.sh
-RUN install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link \
+COPY docker/layered-reapply.sh /usr/local/sbin/allscan-reimagined-docker-reapply
+RUN chmod +x /usr/local/bin/layered-entrypoint.sh /usr/local/sbin/allscan-reimagined-docker-reapply \
+  && install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link \
   && /usr/local/sbin/allscan-reimagined-node-db-link --self-test
 
 EXPOSE 80

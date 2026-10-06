@@ -16,6 +16,11 @@ import {
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
+  fetchDmrFastSource,
+  fetchFastNextModeActivity,
+  fetchFastStandardActivity,
+  fetchFastYsfNetActivity,
+  fetchZelloFastRelay,
   fetchAuthStatus,
   fetchCpuTemp,
   fetchCustomCommands,
@@ -25,6 +30,7 @@ import {
   manageFavorite,
   fetchReleaseStatus,
   normalizedBridgeMode,
+  netBridgeTalkerDestinationLabel,
   fetchUrfBlacklist,
   updateUrfBlacklist,
   kickUrfClient,
@@ -36,6 +42,7 @@ import {
   connectBridge,
   type FavoritesFileOption,
   type FavoriteStats,
+  type FastNextModeActivity,
   sendNodeCommand,
   subscribeConnectionFeed,
   type BridgeCardView,
@@ -54,7 +61,7 @@ import {
 const FAVORITES_DISPLAY_CACHE_KEY = 'asrFavoritesDisplayCache.v2'
 const NODE_MESSAGE_LIVE_CACHE_KEY = 'asrNodeMessageState.liveOnly.v1'
 const NODE_MESSAGE_LIVE_TTL = 300000
-const BRIDGE_REFRESH_MS = 2000
+const BRIDGE_REFRESH_MS = 500
 const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
@@ -488,7 +495,6 @@ function App({ config }: { config: RuntimeConfig }) {
       currentDestination: '',
       currentDestinationLabel: '',
       controlLinked: false,
-      controlReady: false,
       digitalLinked: false,
       allstarLinked: false,
       detailTitle: bridge.detailTitle,
@@ -502,6 +508,8 @@ function App({ config }: { config: RuntimeConfig }) {
       linkProtocol: '',
       lastTransmitter: '-',
       lastTxEpoch: 0,
+      activeStartEpoch: 0,
+      recentTalkers: [],
       recentRows: [],
     })),
   }))
@@ -509,8 +517,11 @@ function App({ config }: { config: RuntimeConfig }) {
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
   const [m17ModuleInputs, setM17ModuleInputs] = useState<Record<string, string>>({})
   const [netBridgeMode, setNetBridgeMode] = useState(() => config.netBridgeMode || 'dmr')
-  const netBridgeSwitchingRef = useRef(false)
-  const netBridgeQueuedModeRef = useRef('')
+  const activeNetBridgeModeRef = useRef(config.netBridgeMode || 'dmr')
+  const pendingNetBridgeModeRef = useRef('')
+  const modeSwitchPromiseRef = useRef<Promise<void> | null>(null)
+  const pendingConnectBridgeRef = useRef('')
+  const bridgeControlBusyRef = useRef('')
   const [bridgeControlBusy, setBridgeControlBusy] = useState('')
   const availableNetBridgeModes = useMemo(() => provisionedNetBridgeModes(config.bridges), [config.bridges])
   const [bridgeControlAction, setBridgeControlAction] = useState<'connect' | 'disconnect' | ''>('')
@@ -595,6 +606,14 @@ function App({ config }: { config: RuntimeConfig }) {
   const [donateAsrOpen, setDonateAsrOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
+  const dmrFastActiveRef = useRef(false)
+  const fastStandardActivityRef = useRef<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>>({})
+  const fastYsfNetActivityRef = useRef<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>>({})
+  const fastNextModeActivityRef = useRef<Record<string, FastNextModeActivity>>({})
+  const bridgeTalkerIdentityRef = useRef<Record<string, { callsign: string; source: string; description: string }>>({})
+  const ysfNetOwnsUrfRef = useRef(false)
+  const ysfNetReleasedUrfRef = useRef(false)
+  const zelloFastRelayRef = useRef(false)
   const nodeInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const reportBugParamHandled = useRef(false)
@@ -653,10 +672,133 @@ function App({ config }: { config: RuntimeConfig }) {
     [adjacentCount, bridgeState.cards, directCount],
   )
 
+  const enrichBridgeTalker = (talker: TalkerFeedEntry | null): TalkerFeedEntry | null => {
+    if (!talker) return null
+    const transportNode = String(talker.node || '')
+    if (transportNode !== '1001' && transportNode !== '1999') return talker
+    const isCurrentTalker = talker === currentTalker
+
+    const modeCard = transportNode === '1999'
+      ? bridgeState.cards.find((card) => card.node === '1999' && card.mode.toLowerCase() === netBridgeMode)
+      : undefined
+    const sourceCard = bridgeState.cards.find((card) => {
+      if (transportNode === '1001') return card.cardType === 'standard' && card.status === 'Source/TX'
+      return card.node === '1999' && card.mode.toLowerCase() === netBridgeMode && card.status === 'Source/TX'
+    })
+    const cacheKey = `${transportNode}:${transportNode === '1999' ? netBridgeMode : 'standard'}:${talker.startedEpoch || talker.eventEpoch}`
+    if (transportNode === '1999' && modeCard
+        && (modeCard.cardType === 'p25_net' || modeCard.cardType === 'nxdn_net')) {
+      const fast = fastNextModeActivityRef.current[modeCard.id]
+      const eventTime = talker.eventEpoch || talker.startedEpoch
+      const recentIdentity = fast?.recentTalkers
+        .map((entry) => ({
+          entry,
+          distance: Math.min(
+            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
+            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
+          ),
+        }))
+        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
+        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const liveMatchesTransmission = fast?.role === 'source'
+        && fast.eventEpoch > 0
+        && talker.startedEpoch > 0
+        && Math.abs(fast.eventEpoch - talker.startedEpoch) <= 3
+      const liveCallsign = liveMatchesTransmission ? String(fast.callsign || '').trim() : ''
+      const callsign = liveCallsign || String(recentIdentity?.callsign || '').trim()
+      if (callsign && callsign !== '-') {
+        bridgeTalkerIdentityRef.current[cacheKey] = {
+          callsign,
+          source: modeCard.mode.toUpperCase(),
+          description: netBridgeTalkerDestinationLabel(
+            modeCard.cardType,
+            modeCard.currentDestinationLabel || modeCard.currentDestination || modeCard.reflector || talker.description,
+          ),
+        }
+      }
+    }
+    if (transportNode === '1999' && modeCard?.cardType === 'm17_net') {
+      const eventTime = talker.eventEpoch || talker.startedEpoch
+      const recentIdentity = modeCard.recentTalkers
+        .map((entry) => ({
+          entry,
+          distance: Math.min(
+            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
+            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
+          ),
+        }))
+        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
+        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const liveCallsign = isCurrentTalker && sourceCard
+        ? String(sourceCard.lastCaller || sourceCard.lastTransmitter || '').trim()
+        : ''
+      const callsign = liveCallsign || String(recentIdentity?.callsign || '').trim()
+      if (callsign && callsign !== '-') {
+        bridgeTalkerIdentityRef.current[cacheKey] = {
+          callsign,
+          source: 'M17',
+          description: netBridgeTalkerDestinationLabel(
+            modeCard.cardType,
+            modeCard.currentDestinationLabel || modeCard.currentDestination || modeCard.reflector || talker.description,
+          ),
+        }
+      }
+    }
+    // A live bridge card describes only the transmission happening now.  Do
+    // not stamp that identity onto every historical row for the same transport
+    // node; those rows retain the identity cached when they were current.
+    if (isCurrentTalker && sourceCard && sourceCard.cardType !== 'p25_net' && sourceCard.cardType !== 'nxdn_net') {
+      const fast = transportNode === '1001'
+        ? fastStandardActivityRef.current[sourceCard.id]
+        : sourceCard.mode.toLowerCase() === 'ysf'
+          ? fastYsfNetActivityRef.current[sourceCard.id]
+          : undefined
+      const cardCallsign = String(sourceCard.lastCaller || sourceCard.lastTransmitter || '').trim()
+      const fastCallsign = String(fast?.callsign || '').trim()
+      const callsign = fastCallsign && fastCallsign !== '-' ? fastCallsign : cardCallsign
+      if (callsign && callsign !== '-') {
+        bridgeTalkerIdentityRef.current[cacheKey] = {
+          callsign,
+          source: sourceCard.mode.toUpperCase(),
+          description: netBridgeTalkerDestinationLabel(
+            sourceCard.cardType,
+            sourceCard.currentDestinationLabel || sourceCard.currentDestination || sourceCard.reflector || talker.description,
+          ),
+        }
+      }
+    }
+    const identity = bridgeTalkerIdentityRef.current[cacheKey]
+    if (!identity && transportNode === '1999') {
+      if (!isCurrentTalker) return null
+      const mode = String(netBridgeMode || modeCard?.mode || '').trim().toUpperCase()
+      const destination = modeCard
+        ? netBridgeTalkerDestinationLabel(
+          modeCard.cardType,
+          modeCard.currentDestinationLabel || modeCard.currentDestination || modeCard.reflector || '',
+        )
+        : ''
+      return {
+        ...talker,
+        info: 'Identifying…',
+        source: mode || 'NET BRIDGE',
+        node: 'Net Bridge',
+        description: destination || `${mode || 'Digital'} traffic`,
+      }
+    }
+    if (!identity) return talker
+    return {
+      ...talker,
+      info: identity.callsign,
+      source: identity.source,
+      node: transportNode === '1999' ? 'Net Bridge' : 'URFWIL',
+      description: identity.description,
+    }
+  }
   const talkerCards = useMemo(() => {
     const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
-    return [currentTalker, ...history, null, null, null, null].slice(0, 5)
-  }, [currentTalker, recentTalkers])
+    return [currentTalker, ...history, null, null, null, null].slice(0, 5).map(enrichBridgeTalker)
+  }, [currentTalker, recentTalkers, bridgeState.cards, netBridgeMode])
+
   const talkerLastHeard = (talker: TalkerFeedEntry | null, index: number) => {
     if (!talker || index === 0 || talker.eventEpoch <= 0) return ''
     return new Date(talker.eventEpoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -715,7 +857,11 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [urfAccessOpen])
 
   function applyBridgeConnectionOverrides(next: { updatedLabel: string; cards: BridgeCardView[] }) {
-    const rowsByNode = new Map(connectionRowsRef.current.map((row) => [row.node, row]))
+    const rowsByNode = new Map(
+      connectionRowsRef.current
+        .filter((row) => !row.configuredTransport)
+        .map((row) => [row.node, row]),
+    )
     const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
     const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
     const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
@@ -723,13 +869,14 @@ function App({ config }: { config: RuntimeConfig }) {
       status,
       lastCaller: status === 'Relay' ? '-' : card.lastCaller,
     })
-
     return {
       ...next,
       cards: next.cards.map((card) => {
         const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
         const isUrfModeCard = bridgeConfig?.urfReflector === true
         const isTunableDigitalBridge = card.cardType !== 'standard'
+        const standardUrfMode = isUrfModeCard && card.cardType === 'standard'
+          ? normalizedBridgeMode(bridgeConfig?.mode, bridgeConfig?.id || card.id) : ''
         const row = isUrfModeCard
           ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
             || rowsByNode.get(bridgeConfig?.node || card.node)
@@ -737,13 +884,51 @@ function App({ config }: { config: RuntimeConfig }) {
             ? connectionRowsRef.current.find((candidate) => candidate.bridgeId === card.id && candidate.direction.toUpperCase() === 'OUT' && candidate.state !== 'message')
               || rowsByNode.get(bridgeConfig?.node || card.node)
             : rowsByNode.get(card.node)
-        // For tunable Net Bridges the physical Asterisk bridge node is the
-        // authoritative direction signal.  If that node is keyed, network audio
-        // is entering AllStar and the card must remain Source/TX for the full
-        // transmission.  A shared/lagging URF collector must not downgrade it
-        // to Relay mid-stream.
+        const fastStandard = fastStandardActivityRef.current[card.id]
+        if (standardUrfMode) {
+          if (dmrFastActiveRef.current) {
+            return withStatus(card, standardUrfMode === 'dmr' ? 'Source/TX' : 'Relay')
+          }
+          if (ysfNetOwnsUrfRef.current) return withStatus(card, 'Relay')
+          if (ysfNetReleasedUrfRef.current) {
+            if (!fastStandard || fastStandard.role === 'idle') ysfNetReleasedUrfRef.current = false
+            return withStatus(card, 'Idle')
+          }
+          if (fastStandard) {
+            return withStatus(card, fastStandard.role === 'source' ? 'Source/TX' : fastStandard.role === 'relay' ? 'Relay' : 'Idle')
+          }
+          const transportActive = row?.state === 'talking' || localIsTransmitting
+          return withStatus(card, transportActive ? 'Relay' : 'Idle')
+        }
+        if (normalizedBridgeMode(bridgeConfig?.mode, bridgeConfig?.id || card.id) === 'zello') {
+          if (card.status === 'Source/TX') return card
+          // Zello's own feed is authoritative for inbound Source/TX. Outbound
+          // relay follows the live AllStar transport immediately; the optional
+          // fast hint may only accelerate that signal, never suppress it.
+          // Once the fast producer has observed Zello USRP activity it is
+          // authoritative for both key and unkey.  Falling back to ASTAPI after
+          // the fast unkey reintroduces its ~1.5-2s release lag.
+          const relayActive = zelloFastRelayRef.current
+          return withStatus(card, relayActive ? 'Relay' : 'Idle')
+        }
+        const fastYsfNet = fastYsfNetActivityRef.current[card.id]
+        const fastNextMode = fastNextModeActivityRef.current[card.id]
+        if ((card.cardType === 'p25_net' || card.cardType === 'nxdn_net') && fastNextMode?.ready) {
+          return withStatus(card, fastNextMode.role === 'source'
+            ? 'Source/TX'
+            : fastNextMode.role === 'relay' ? 'Relay' : 'Idle')
+        }
+        // The physical Net Bridge node wins for inbound direction.  The fast
+        // protocol feed may observe the digital-side relay edge first, but do
+        // not paint Relay while node 1999 is still idle: that creates a false
+        // Relay -> Source/TX transition at the start of an inbound transmission.
         if (isTunableDigitalBridge && row?.state === 'talking') {
           return withStatus(card, 'Source/TX')
+        }
+        if (card.cardType === 'ysf_net' && fastYsfNet) {
+          if (fastYsfNet.role === 'source') return withStatus(card, 'Source/TX')
+          if (fastYsfNet.role === 'relay') return withStatus(card, localIsTransmitting ? 'Relay' : 'Idle')
+          return withStatus(card, 'Idle')
         }
         // Otherwise a bridge-specific Source/TX or Relay role is more
         // authoritative than its Asterisk transport row.
@@ -751,6 +936,11 @@ function App({ config }: { config: RuntimeConfig }) {
           return card
         }
         if (card.cardType !== 'standard' && card.cardType !== 'dmr_net' && !card.controlLinked) {
+          return withStatus(card, 'Idle')
+        }
+        // Standard URF mode cards share one AllStar transport row. Until the
+        // reflector identifies the source protocol, do not invent Relay state.
+        if (isUrfModeCard && card.cardType === 'standard' && row?.state === 'talking') {
           return withStatus(card, 'Idle')
         }
         if (row?.state === 'talking') {
@@ -1142,6 +1332,7 @@ function App({ config }: { config: RuntimeConfig }) {
     const stop = subscribeConnectionFeed(
       config.node,
       config.bridges,
+      netBridgeMode,
       (snapshot) => {
         const labeledRows = snapshot.rows.map((row) => {
           const configuredLabel = row.bridgeId
@@ -1175,7 +1366,7 @@ function App({ config }: { config: RuntimeConfig }) {
     // Bridge nodes are read when this node subscription is created; reconnecting
     // is intentionally keyed to the primary node only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.node])
+  }, [config.node, netBridgeMode])
 
   useEffect(() => {
     let cancelled = false
@@ -1268,6 +1459,138 @@ function App({ config }: { config: RuntimeConfig }) {
     // applyBridgeConnectionOverrides reads the latest connection-row ref and
     // must not restart bridge polling when connection rows change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config])
+
+  useEffect(() => {
+    let cancelled = false
+    let previous = ''
+    let requestSequence = 0
+    let appliedSequence = 0
+    const tick = async () => {
+      const sequence = ++requestSequence
+      try {
+        const cards = await fetchFastNextModeActivity()
+        if (cancelled || sequence < appliedSequence) return
+        appliedSequence = sequence
+        const fingerprint = JSON.stringify(cards)
+        fastNextModeActivityRef.current = cards
+        if (fingerprint === previous) return
+        previous = fingerprint
+        setBridgeState((current) => applyBridgeConnectionOverrides(current))
+      } catch { /* full bridge and connection status remain the fallback */ }
+    }
+    void tick()
+    const timer = window.setInterval(tick, 100)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [config])
+
+  useEffect(() => {
+    let cancelled = false
+    let previous = ''
+    let requestSequence = 0
+    let appliedSequence = 0
+    const tick = async () => {
+      const sequence = ++requestSequence
+      try {
+        const cards = await fetchFastYsfNetActivity()
+        // The 100 ms poll may overlap when a request is slow. Never let an
+        // older Relay response arrive after and overwrite a newer direct EOT.
+        // A real re-key is a newer request and is therefore applied at once.
+        if (cancelled || sequence < appliedSequence) return
+        appliedSequence = sequence
+        const fingerprint = JSON.stringify(cards)
+        const active = Object.values(cards).some((card) => card.role !== 'idle')
+        if (active) {
+          ysfNetOwnsUrfRef.current = true
+          ysfNetReleasedUrfRef.current = false
+        } else if (ysfNetOwnsUrfRef.current) {
+          ysfNetOwnsUrfRef.current = false
+          ysfNetReleasedUrfRef.current = true
+        }
+        fastYsfNetActivityRef.current = cards
+        if (fingerprint === previous) return
+        previous = fingerprint
+        setBridgeState((current) => applyBridgeConnectionOverrides(current))
+      } catch { /* full bridge status remains available */ }
+    }
+    void tick()
+    const timer = window.setInterval(tick, 100)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [config])
+
+  useEffect(() => {
+    let cancelled = false
+    let previous = false
+    let appliedEpochMs = 0
+    let timer: number | undefined
+    const tick = async () => {
+      const started = performance.now()
+      try {
+        const relay = await fetchZelloFastRelay()
+        // This poll is single-flight because the producer timestamp has
+        // millisecond precision. Sequential observations disambiguate two
+        // legitimate opposite edges that happen within the same millisecond.
+        if (cancelled || relay.updatedEpochMs <= 0 || relay.updatedEpochMs < appliedEpochMs) return
+        appliedEpochMs = relay.updatedEpochMs
+        if (relay.active === previous) return
+        previous = relay.active
+        zelloFastRelayRef.current = relay.active
+        setBridgeState((current) => applyBridgeConnectionOverrides(current))
+      } catch { /* full bridge status remains available */ }
+      finally {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), Math.max(0, 100 - (performance.now() - started)))
+      }
+    }
+    void tick()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [config])
+
+  useEffect(() => {
+    let cancelled = false
+    let previous = ''
+    let requestSequence = 0
+    let appliedSequence = 0
+    const tick = async () => {
+      const sequence = ++requestSequence
+      try {
+        const cards = await fetchFastStandardActivity()
+        if (cancelled || sequence < appliedSequence) return
+        appliedSequence = sequence
+        const fingerprint = JSON.stringify(cards)
+        fastStandardActivityRef.current = cards
+        if (fingerprint === previous) return
+        previous = fingerprint
+        setBridgeState((current) => applyBridgeConnectionOverrides(current))
+      } catch { /* full bridge status remains available if the fast feed fails */ }
+    }
+    void tick()
+    const timer = window.setInterval(tick, 100)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [config])
+
+  useEffect(() => {
+    let cancelled = false
+    let wasActive = false
+    let requestSequence = 0
+    let appliedSequence = 0
+    const tick = async () => {
+      const sequence = ++requestSequence
+      try {
+        const fast = await fetchDmrFastSource()
+        if (cancelled || sequence < appliedSequence) return
+        appliedSequence = sequence
+        if (!fast.active && !wasActive) return
+        dmrFastActiveRef.current = fast.active
+        wasActive = fast.active
+        setBridgeState((current) => applyBridgeConnectionOverrides(current))
+      } catch { /* full bridge status remains available */ }
+    }
+    void tick()
+    const timer = window.setInterval(tick, 100)
+    return () => { cancelled = true; window.clearInterval(timer) }
   }, [config])
 
   useEffect(() => {
@@ -1906,9 +2229,12 @@ function App({ config }: { config: RuntimeConfig }) {
     destination = '',
     timeoutMs = 7_000,
   ) {
-    let last = applyBridgeConnectionOverrides(await fetchBridgeCards(config))
-    const attempts = Math.max(1, Math.ceil(timeoutMs / 250))
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const deadline = Date.now() + timeoutMs
+    let last = applyBridgeConnectionOverrides(await fetchBridgeCards(
+      config,
+      AbortSignal.timeout(Math.min(5_000, timeoutMs)),
+    ))
+    while (true) {
       const card = last.cards.find((item) => item.id === bridgeId)
       const confirmed = card
         && card.controlLinked === linked
@@ -1917,60 +2243,96 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState(last)
         return card
       }
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 250))
-      last = applyBridgeConnectionOverrides(await fetchBridgeCards(config))
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) break
+      await new Promise<void>((resolve) => window.setTimeout(resolve, Math.min(250, remaining)))
+      const requestBudget = Math.max(250, Math.min(5_000, deadline - Date.now()))
+      last = applyBridgeConnectionOverrides(await fetchBridgeCards(
+        config,
+        AbortSignal.timeout(requestBudget),
+      ))
     }
     setBridgeState(last)
     throw new Error('The bridge command completed, but canonical status did not confirm it in time.')
   }
 
-  async function selectNetBridgeMode(mode: string) {
-    if (!authStatus.canModify || mode === netBridgeMode) return
-    setNetBridgeMode(mode)
-    if (netBridgeSwitchingRef.current) {
-      netBridgeQueuedModeRef.current = mode
-      return
-    }
+  function beginBridgeControl(owner: string) {
+    if (bridgeControlBusyRef.current) return false
+    bridgeControlBusyRef.current = owner
+    setBridgeControlBusy(owner)
+    return true
+  }
 
-    netBridgeSwitchingRef.current = true
-    setBridgeControlBusy('net-bridge-mode')
-    let confirmedMode = netBridgeMode
-    let targetMode = mode
+  function endBridgeControl(owner: string) {
+    if (bridgeControlBusyRef.current !== owner) return
+    bridgeControlBusyRef.current = ''
+    setBridgeControlBusy('')
+  }
+
+  async function runNetBridgeModeSwitch(initialMode: string, owner: string) {
+    let targetMode = initialMode
     try {
       while (targetMode) {
         const result = await activateNetBridgeMode(targetMode)
         const selected = String(result.mode || '').toLowerCase()
         if (selected !== targetMode || result.node !== 1999) throw new Error('Net Bridge mode control returned an invalid result.')
-        confirmedMode = selected
-        const queuedMode = netBridgeQueuedModeRef.current
-        netBridgeQueuedModeRef.current = ''
-        if (queuedMode && queuedMode !== confirmedMode) {
-          targetMode = queuedMode
+        activeNetBridgeModeRef.current = selected
+        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(
+          config,
+          AbortSignal.timeout(10_000),
+        )))
+        const pendingMode = pendingNetBridgeModeRef.current
+        pendingNetBridgeModeRef.current = ''
+        if (pendingMode && pendingMode !== selected) {
+          targetMode = pendingMode
           continue
         }
-        setNetBridgeMode(confirmedMode)
-        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
-        const lateQueuedMode = netBridgeQueuedModeRef.current
-        netBridgeQueuedModeRef.current = ''
-        if (lateQueuedMode && lateQueuedMode !== confirmedMode) {
-          targetMode = lateQueuedMode
-          continue
-        }
-        appendNodeMessage(`Net Bridge switched to ${confirmedMode.toUpperCase()}.`)
+        setNetBridgeMode(selected)
+        appendNodeMessage(`Net Bridge switched to ${selected.toUpperCase()}.`)
         break
       }
     } catch (error) {
-      setNetBridgeMode(confirmedMode)
+      setNetBridgeMode(activeNetBridgeModeRef.current)
       appendNodeMessage(error instanceof Error ? error.message : 'Net Bridge mode switch failed.')
+      throw error
     } finally {
-      netBridgeSwitchingRef.current = false
-      netBridgeQueuedModeRef.current = ''
-      setBridgeControlBusy('')
+      pendingNetBridgeModeRef.current = ''
+      endBridgeControl(owner)
+    }
+  }
+
+  async function selectNetBridgeMode(mode: string) {
+    if (!authStatus.canModify || mode === netBridgeMode) return
+    setNetBridgeMode(mode)
+    const owner = 'net-bridge-mode'
+    if (bridgeControlBusyRef.current === owner) {
+      pendingNetBridgeModeRef.current = mode
+      return
+    }
+    if (!beginBridgeControl(owner)) {
+      setNetBridgeMode(activeNetBridgeModeRef.current)
+      return
+    }
+    try {
+      const operation = runNetBridgeModeSwitch(mode, owner)
+      modeSwitchPromiseRef.current = operation
+      await operation
+    } catch {
+      // runNetBridgeModeSwitch reports the actionable error.
+    } finally {
+      modeSwitchPromiseRef.current = null
+    }
+  }
+
+  async function waitForNetBridgeOwner(card: BridgeCardView) {
+    if (modeSwitchPromiseRef.current) await modeSwitchPromiseRef.current
+    if (activeNetBridgeModeRef.current !== card.mode.toLowerCase()) {
+      throw new Error(`${card.mode.toUpperCase()} did not become the confirmed Net Bridge owner.`)
     }
   }
 
   async function connectDmrNetCard(card: BridgeCardView) {
-    if (!authStatus.canModify || bridgeControlBusy) return
+    if (!authStatus.canModify) return
     const talkgroup = String(dmrTalkgroupInputs[card.id] || '').trim()
     if (!/^\d{1,8}$/.test(talkgroup) || Number(talkgroup) < 1 || Number(talkgroup) > 16777215) {
       appendNodeMessage('Enter a valid DMR talkgroup.')
@@ -1980,9 +2342,14 @@ function App({ config }: { config: RuntimeConfig }) {
       appendNodeMessage('Use Disconnect instead of entering TG 4000.')
       return
     }
+    if (pendingConnectBridgeRef.current) return
+    pendingConnectBridgeRef.current = card.id
+    setBridgeControlAction('connect')
+    let acquired = false
     try {
-      setBridgeControlBusy(card.id)
-      setBridgeControlAction('connect')
+      await waitForNetBridgeOwner(card)
+      acquired = beginBridgeControl(card.id)
+      if (!acquired) throw new Error('Bridge control is busy. Try Connect again in a moment.')
       await connectBridge(card.id, talkgroup)
       const canonical = await confirmBridgeControlState(card.id, true, talkgroup)
       setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: '' }))
@@ -1990,16 +2357,16 @@ function App({ config }: { config: RuntimeConfig }) {
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'DMR Net Bridge connection failed.')
     } finally {
-      setBridgeControlBusy('')
+      if (acquired) endBridgeControl(card.id)
+      if (pendingConnectBridgeRef.current === card.id) pendingConnectBridgeRef.current = ''
       setBridgeControlAction('')
     }
   }
 
   async function disconnectDmrNetCard(card: BridgeCardView) {
-    if (!authStatus.canModify || bridgeControlBusy) return
+    if (!authStatus.canModify || !beginBridgeControl(card.id)) return
 
     try {
-      setBridgeControlBusy(card.id)
       setBridgeControlAction('disconnect')
       await disconnectBridge(card.id)
       await confirmBridgeControlState(card.id, false)
@@ -2008,14 +2375,17 @@ function App({ config }: { config: RuntimeConfig }) {
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'DMR Net Bridge disconnect failed.')
     } finally {
-      setBridgeControlBusy('')
+      endBridgeControl(card.id)
       setBridgeControlAction('')
     }
   }
 
   async function connectReflectorNetCard(card: BridgeCardView) {
-    if (!authStatus.canModify || bridgeControlBusy) return
-    const reflector = String(bridgeDestinationInputs[card.id] || '').trim().toUpperCase()
+    if (!authStatus.canModify) return
+    const reflectorInput = String(bridgeDestinationInputs[card.id] || '').trim().toUpperCase()
+    const reflector = card.cardType === 'm17_net' && /^[A-Z0-9]{3}$/.test(reflectorInput)
+      ? `M17-${reflectorInput}`
+      : reflectorInput
     const module = String(m17ModuleInputs[card.id] || config.bridges.find((bridge) => bridge.id === card.id)?.m17Module || 'A').trim().toUpperCase()
     const destination = card.cardType === 'm17_net' ? `${reflector} ${module}` : reflector
     if (!destination) {
@@ -2029,13 +2399,17 @@ function App({ config }: { config: RuntimeConfig }) {
       return
     }
     if (card.cardType === 'm17_net' && (!/^M17-[A-Z0-9]{3}$/.test(reflector) || !/^[A-Z]$/.test(module))) {
-      appendNodeMessage('Enter an M17 reflector in M17-XXX format and a module A-Z.')
+      appendNodeMessage('Enter an M17 reflector as XXX or M17-XXX and a module A-Z.')
       return
     }
-
+    if (pendingConnectBridgeRef.current) return
+    pendingConnectBridgeRef.current = card.id
+    setBridgeControlAction('connect')
+    let acquired = false
     try {
-      setBridgeControlBusy(card.id)
-      setBridgeControlAction('connect')
+      await waitForNetBridgeOwner(card)
+      acquired = beginBridgeControl(card.id)
+      if (!acquired) throw new Error('Bridge control is busy. Try Connect again in a moment.')
       const result = await connectBridge(card.id, destination)
       const canonicalId = String(result.currentDestination || '').trim()
       if (!canonicalId || canonicalId.length > 80) {
@@ -2044,9 +2418,9 @@ function App({ config }: { config: RuntimeConfig }) {
       if (card.cardType === 'p25_net' || card.cardType === 'nxdn_net') {
         setBridgeDestinationInputs((current) => ({ ...current, [card.id]: '' }))
         setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
-        appendNodeMessage(
-          `${card.title} selected ${canonicalId} and confirmed its AllStar transport. ASR counts that selected Net Bridge locally, but Gateway selection is not proof that the remote reflector is reachable, so reflector reachability remains unverified.`,
-        )
+        appendNodeMessage(card.cardType === 'p25_net'
+          ? `${card.title} selected Talkgroup ${canonicalId}.`
+          : `${card.title} selected ${canonicalId}.`)
         return
       }
       const canonical = await confirmBridgeControlState(
@@ -2063,16 +2437,16 @@ function App({ config }: { config: RuntimeConfig }) {
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : `${card.title} connection failed.`)
     } finally {
-      setBridgeControlBusy('')
+      if (acquired) endBridgeControl(card.id)
+      if (pendingConnectBridgeRef.current === card.id) pendingConnectBridgeRef.current = ''
       setBridgeControlAction('')
     }
   }
 
   async function disconnectReflectorNetCard(card: BridgeCardView) {
-    if (!authStatus.canModify || bridgeControlBusy) return
+    if (!authStatus.canModify || !beginBridgeControl(card.id)) return
 
     try {
-      setBridgeControlBusy(card.id)
       setBridgeControlAction('disconnect')
       await disconnectBridge(card.id)
       await confirmBridgeControlState(
@@ -2086,7 +2460,7 @@ function App({ config }: { config: RuntimeConfig }) {
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : `${card.title} disconnect failed.`)
     } finally {
-      setBridgeControlBusy('')
+      endBridgeControl(card.id)
       setBridgeControlAction('')
     }
   }
@@ -3032,7 +3406,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         : row.state === 'talking'
                           ? row.state
                           : configuredBridgeState || row.state
-                      const canUseRowNode = canPopulateNodeControl(row.node)
+                      const canUseRowNode = !row.configuredTransport && canPopulateNodeControl(row.node)
                       const localStyle = isLocalRow
                         ? localRowStyles[row.state as keyof typeof localRowStyles]
                         : undefined
@@ -3275,7 +3649,11 @@ function App({ config }: { config: RuntimeConfig }) {
                     && row.direction.toUpperCase() === 'OUT'
                     && row.state !== 'message',
                 )
-                const cardBusy = bridgeControlBusy === card.id
+                // Node 1999 has one control-plane owner. Draft fields remain
+                // editable during an operation; only actions are serialized.
+                const modeSwitchBusy = bridgeControlBusy === 'net-bridge-mode'
+                const bridgeActionBusy = Boolean(bridgeControlBusy && !modeSwitchBusy)
+                const connectPending = bridgeControlAction === 'connect'
                 const destinationInput = bridgeDestinationInputs[card.id] || ''
                 const dmrTalkgroupCandidate = dmrTalkgroupInputs[card.id] || ''
                 const validDmrTalkgroup = /^\d{1,8}$/.test(dmrTalkgroupCandidate)
@@ -3340,25 +3718,25 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className="allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-dmr">
                       <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
                         <label htmlFor={`net-mode-${card.id}`}>Mode</label>
-                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
+                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy || bridgeActionBusy || connectPending} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
                           {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
                         </select>
                         <div className="allscan-bridge-link-buttons">
                           <button
                             type="button"
                             className="allscan-action-button allscan-connect-button"
-                            disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || !validDmrTalkgroup}
+                            disabled={busy || bridgeActionBusy || connectPending || !canConnect || !canChangeDestination || !validDmrTalkgroup}
                             onClick={() => void connectDmrNetCard(card)}
                           >
-                            {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
+                            {connectPending ? (modeSwitchBusy ? 'Waiting…' : 'Connecting…') : 'Connect'}
                           </button>
                           <button
                             type="button"
                             className="allscan-action-button allscan-disconnect-button"
-                            disabled={busy || cardBusy || !canDisconnect || !card.controlReady}
+                            disabled={busy || Boolean(bridgeControlBusy) || !canDisconnect}
                             onClick={() => void disconnectDmrNetCard(card)}
                           >
-                            {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                            {bridgeActionBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
                           </button>
                         </div>
                       </div>
@@ -3373,7 +3751,6 @@ function App({ config }: { config: RuntimeConfig }) {
                           maxLength={8}
                           value={dmrTalkgroupCandidate}
                           placeholder=""
-                          disabled={busy || cardBusy}
                           onChange={(event) => {
                             const talkgroup = event.target.value.replace(/\D/g, '').slice(0, 8)
                             setDmrTalkgroupInputs((current) => ({ ...current, [card.id]: talkgroup }))
@@ -3387,32 +3764,27 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className={`allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-${card.mode.toLowerCase()}`}>
                       <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
                         <label htmlFor={`net-mode-${card.id}`}>Mode</label>
-                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
+                        <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy || bridgeActionBusy || connectPending} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
                           {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
                         </select>
-                        <div className="allscan-bridge-link-buttons">
+                        {card.cardType !== 'm17_net' ? <div className="allscan-bridge-link-buttons">
                           <button
                             type="button"
                             className="allscan-action-button allscan-connect-button"
-                            disabled={busy || cardBusy || !canConnect || !canChangeDestination || !card.controlReady || connectDestination === ''}
+                            disabled={busy || bridgeActionBusy || connectPending || !canConnect || !canChangeDestination || connectDestination === ''}
                             onClick={() => void connectReflectorNetCard(card)}
                           >
-                            {cardBusy && bridgeControlAction === 'connect' ? 'Connecting…' : 'Connect'}
+                            {connectPending ? (modeSwitchBusy ? 'Waiting…' : 'Connecting…') : 'Connect'}
                           </button>
                           <button
                             type="button"
                             className="allscan-action-button allscan-disconnect-button"
-                            disabled={busy || cardBusy || !canDisconnect || (
-                              !card.controlReady
-                              && !card.controlLinked
-                              && !card.digitalLinked
-                              && !card.allstarLinked
-                            )}
+                            disabled={busy || Boolean(bridgeControlBusy) || !canDisconnect}
                             onClick={() => void disconnectReflectorNetCard(card)}
                           >
-                            {cardBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                            {bridgeActionBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
                           </button>
-                        </div>
+                        </div> : null}
                       </div>
                       <div className={`allscan-bridge-tune allscan-net-bridge-destination-row${card.cardType === 'm17_net' ? ' allscan-m17-net-tune' : ''}`}>
                         <label htmlFor={`digital-net-destination-${card.id}`}>{card.cardType === 'm17_net' ? 'Ref' : card.cardType === 'ysf_net' ? 'Reflector' : 'Target'}</label>
@@ -3426,7 +3798,6 @@ function App({ config }: { config: RuntimeConfig }) {
                             maxLength={card.cardType === 'm17_net' ? 7 : 80}
                             value={destinationInput}
                             placeholder=""
-                            disabled={busy || cardBusy}
                             onChange={(event) => {
                               setBridgeDestinationInputs((current) => ({
                                 ...current,
@@ -3446,7 +3817,6 @@ function App({ config }: { config: RuntimeConfig }) {
                               spellCheck={false}
                               maxLength={1}
                               value={m17ModuleInput}
-                              disabled={busy || cardBusy}
                               onChange={(event) => setM17ModuleInputs((current) => ({
                                 ...current,
                                 [card.id]: event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1),
@@ -3464,7 +3834,6 @@ function App({ config }: { config: RuntimeConfig }) {
                             maxLength={8}
                             value={destinationInput}
                             placeholder=""
-                            disabled={busy || cardBusy}
                             onChange={(event) => {
                               const destination = event.target.value.replace(/\D/g, '').slice(0, 8)
                               setBridgeDestinationInputs((current) => ({
@@ -3475,6 +3844,24 @@ function App({ config }: { config: RuntimeConfig }) {
                           />
                         )}
                       </div>
+                      {card.cardType === 'm17_net' ? <div className="allscan-bridge-link-buttons allscan-m17-link-buttons">
+                        <button
+                          type="button"
+                          className="allscan-action-button allscan-connect-button"
+                          disabled={busy || bridgeActionBusy || connectPending || !canConnect || !canChangeDestination || connectDestination === ''}
+                          onClick={() => void connectReflectorNetCard(card)}
+                        >
+                          {connectPending ? (modeSwitchBusy ? 'Waiting…' : 'Connecting…') : 'Connect'}
+                        </button>
+                        <button
+                          type="button"
+                          className="allscan-action-button allscan-disconnect-button"
+                          disabled={busy || Boolean(bridgeControlBusy) || !canDisconnect}
+                          onClick={() => void disconnectReflectorNetCard(card)}
+                        >
+                          {bridgeActionBusy && bridgeControlAction === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      </div> : null}
                     </div>
                   ) : null}
 

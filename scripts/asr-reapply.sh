@@ -83,7 +83,7 @@ is_stock_status_artifact() {
   esac
   case "$relative" in
     bridge-live.json|bridge-live.json.tmp|connected-clients.json|asr-connected-clients.json|\
-    zello-status-data.json|zello-stream-debug.json|zello-talkers.json|dstar-clients.json|\
+    zello-status-data.json|zello-stream-debug.json|zello-talkers.json|\
     public-status.json|.public-status-talkers.json|.public-status.*.json|\
     .connected-clients.*.json|.*-public-status-push.json|\
     .*-public-status-talker-live.json|.*-public-status-live-push.json|\
@@ -255,7 +255,7 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py asr-bridge-setup-dstar.py asr-bridge-setup-dstar-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
@@ -275,21 +275,21 @@ if [ -d "$MASTER_DIR/runtime/zello" ]; then
   rm -rf /usr/local/share/allscan-reimagined/runtime/zello
   mv /usr/local/share/allscan-reimagined/runtime/zello.new /usr/local/share/allscan-reimagined/runtime/zello
 fi
-if [ -d "$MASTER_DIR/runtime/dstar" ]; then
-  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
-  rm -rf /usr/local/share/allscan-reimagined/runtime/dstar.new
-  cp -a "$MASTER_DIR/runtime/dstar" /usr/local/share/allscan-reimagined/runtime/dstar.new
-  chown -R root:root /usr/local/share/allscan-reimagined/runtime/dstar.new
-  rm -rf /usr/local/share/allscan-reimagined/runtime/dstar
-  mv /usr/local/share/allscan-reimagined/runtime/dstar.new /usr/local/share/allscan-reimagined/runtime/dstar
-fi
 [ -f "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
 [ -f "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" /usr/local/sbin/allscan-reimagined-bridge-lifecycle
 [ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
-install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
+if getent passwd asr-bridge >/dev/null 2>&1; then
+  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-control
+  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
+  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
+else
+  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-control
+  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
+  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
+fi
 install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
@@ -319,11 +319,22 @@ d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
-d /run/allscan-reimagined-ysf-bridge-control 0755 root root -
-d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
-d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -
+d /run/allscan-reimagined-bridge-control 0755 root root -
 d /run/allscan-reimagined-m17 0755 root root -
 EOF
+if getent passwd asr-bridge >/dev/null 2>&1; then
+  cat >> /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
+d /run/allscan-reimagined-ysf-bridge-control 2750 asr-bridge $WEB_GROUP -
+d /run/allscan-reimagined-p25-bridge-control 2750 asr-bridge $WEB_GROUP -
+d /run/allscan-reimagined-nxdn-bridge-control 2750 asr-bridge $WEB_GROUP -
+EOF
+else
+  cat >> /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
+d /run/allscan-reimagined-ysf-bridge-control 2750 root $WEB_GROUP -
+d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
+d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -
+EOF
+fi
 systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
@@ -337,7 +348,7 @@ if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
 fi
 cat > /etc/systemd/system/allscan-reimagined-standard-bridge-status.service <<'EOF'
 [Unit]
-Description=Reconcile live activity for configured Standard DMR, YSF, and D-Star bridges
+Description=Reconcile live activity for configured Standard DMR and YSF bridges
 After=network.target asterisk.service
 
 [Service]
@@ -374,7 +385,7 @@ except (OSError, ValueError):
 raise SystemExit(0 if any(
     isinstance(item, dict)
     and item.get("cardType", "standard") == "standard"
-    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf", "dstar"))
+    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf"))
     for item in payload.get("bridges", [])
 ) else 1)
 PY
@@ -1001,8 +1012,6 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-plan
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-install
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dstar-plan
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dstar-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion

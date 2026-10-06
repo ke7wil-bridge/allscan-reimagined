@@ -247,8 +247,8 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         approved.append(target)
 
     fixed_target = None if card_type == "m17_net" else _fixed_target(bridge)
-    if card_type == "m17_net" and not approved:
-        raise ControlError("M17 Net Bridge needs at least one approved destination.")
+    # Net targets may be selected from the validated public catalog even when
+    # no local endpoint override/default is configured.
 
     for other in config.get("bridges", []):
         if not isinstance(other, dict) or other is bridge:
@@ -355,6 +355,47 @@ def catalog_destination(
     }
 
 
+def catalog_destinations(path: Path = HOST_CATALOG, *, expected_uid: int = 0) -> list[dict[str, str]]:
+    try:
+        info = path.lstat()
+        if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != expected_uid or stat.S_IMODE(info.st_mode) & 0o022
+                or info.st_size > 4 * 1024 * 1024):
+            raise ControlError("M17 reflector catalog is unsafe.")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except ControlError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ControlError("M17 reflector catalog is unavailable or invalid.") from exc
+    entries = payload.get("reflectors", []) if isinstance(payload, dict) else []
+    if not isinstance(entries, list) or len(entries) > 4096:
+        raise ControlError("M17 reflector catalog is invalid.")
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            reflector = validate_reflector(entry.get("designator"))
+            modules = entry.get("modules", [])
+            encrypted = entry.get("encrypted", [])
+            if not isinstance(modules, list) or not isinstance(encrypted, list):
+                continue
+            encrypted_modules = {validate_module(value) for value in encrypted}
+            for raw_module in modules:
+                module = validate_module(raw_module)
+                value = f"{reflector} {module}"
+                if module in encrypted_modules or value in seen:
+                    continue
+                seen.add(value)
+                result.append({"id": value, "name": value, "value": value, "label": value})
+        except ControlError:
+            continue
+    if not result:
+        raise ControlError("M17 reflector catalog has no usable destinations.")
+    return sorted(result, key=lambda item: item["value"])
+
+
 def approved_destination(
     bridge: dict[str, Any], reflector: object, module: object,
     catalog_path: Path = HOST_CATALOG, *, expected_uid: int = 0,
@@ -406,6 +447,18 @@ def saved_destination(
                 or payload.get("bridgeId") != bridge["id"]):
             raise ControlError("Saved M17 destination is invalid.")
         return validate_target(payload.get("target"), "Saved M17 destination")
+
+
+def clear_saved_destination(bridge: dict[str, Any], *, expected_uid: int = 0) -> None:
+    path = bridge["selectionPath"]
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    if (path.is_symlink() or not path.is_file() or info.st_uid != expected_uid
+            or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o022):
+        raise ControlError("Saved M17 destination is unsafe.")
+    path.unlink()
     targets = bridge.get("approvedDestinations", [])
     return dict(targets[0]) if bridge.get("cardType") == "m17_net" and targets else None
 
@@ -694,10 +747,12 @@ class M17LinkState:
             self.state["linkState"] == "disconnecting"
             and epoch - float(self.state.get("disconnectRequestEpoch", 0)) > CONNECT_TIMEOUT
         ):
-            self.state.update({
-                "linkState": "disconnect_failed",
-                "lastError": "M17 reflector did not confirm the disconnect request.",
-            })
+            # DISC is UDP and some otherwise healthy reflectors do not echo a
+            # confirmation.  Once the bounded grace period expires, enforce
+            # the requested disconnect locally and let the connector unlink
+            # node 1999.  The remote has already received the DISC datagram.
+            self.disconnect()
+            return True
         return False
 
 
@@ -843,6 +898,22 @@ def read_public_status(bridge: dict[str, Any], now: float | None = None) -> dict
             "talkerAuthenticated": False,
             "error": "M17 connector state is stale.",
         }
+    recent_talkers = []
+    for row in payload.get("recentTalkers", []) if isinstance(payload.get("recentTalkers"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        callsign = str(row.get("callsign", ""))[:9]
+        source_id = max(0, int(row.get("sourceId", 0) or 0))
+        event_epoch = max(0, int(row.get("eventEpoch", 0) or 0))
+        if not callsign or source_id <= 0 or event_epoch <= 0:
+            continue
+        recent_talkers.append({
+            "callsign": callsign,
+            "sourceId": source_id,
+            "startEpoch": max(0, int(row.get("startEpoch", 0) or 0)),
+            "eventEpoch": event_epoch,
+            "duration": max(0, int(row.get("duration", 0) or 0)),
+        })
     return {
         "ok": True,
         "bridgeId": bridge["id"],
@@ -854,6 +925,8 @@ def read_public_status(bridge: dict[str, Any], now: float | None = None) -> dict
         "confirmedTarget": payload.get("confirmedTarget"),
         "talker": str(payload.get("talker", ""))[:9],
         "talkerAuthenticated": False,
+        "inboundStartEpoch": max(0, int(payload.get("inboundStartEpoch", 0) or 0)),
+        "recentTalkers": recent_talkers[:4],
         "outboundActive": payload.get("outboundActive") is True,
         "outboundActivityEpoch": payload.get("outboundActivityEpoch", 0),
         "outboundStartEpoch": payload.get("outboundStartEpoch", 0),
@@ -923,8 +996,21 @@ def self_test() -> None:
             bridge, "M17-TST", "B", catalog_path, expected_uid=os.geteuid()
         )
         assert catalog_target["host"] == "test.m17.example" and catalog_target["module"] == "B"
+        assert [item["value"] for item in catalog_destinations(
+            catalog_path, expected_uid=os.geteuid()
+        )] == ["M17-TST A", "M17-TST B"]
+        no_defaults = dict(raw_bridge, approvedDestinations=[])
+        no_defaults_bridge = validate_bridge(
+            no_defaults, {"node": "123456", "bridges": [no_defaults]}
+        )
+        assert approved_destination(
+            no_defaults_bridge, "M17-TST", "A", catalog_path,
+            expected_uid=os.geteuid(),
+        )["reflector"] == "M17-TST"
         persist_destination(bridge, catalog_target)
         assert saved_destination(bridge, expected_uid=os.geteuid()) == catalog_target
+        clear_saved_destination(bridge, expected_uid=os.geteuid())
+        assert saved_destination(bridge, expected_uid=os.geteuid()) is None
         for bad_reflector, bad_module in (("M17-TOOLONG", "A"), ("M17-TST", "AA"), ("M17-TST", "C")):
             try:
                 approved_destination(
@@ -1000,14 +1086,10 @@ def self_test() -> None:
         disconnecting.handle_control(b"ACKN", now=301.0)
         disconnecting.mark_combined_linked()
         disconnecting.begin_disconnect(now=302.0)
-        assert disconnecting.tick(now=313.0) is False
-        assert disconnecting.state["linkState"] == "disconnect_failed"
-        assert disconnecting.state["digitalLinked"] is True
-        assert disconnecting.state["allstarLinked"] is True
-        disconnecting.handle_control(b"DISC", now=314.0)
-        assert disconnecting.state["linkState"] == "digital_disconnected"
+        assert disconnecting.tick(now=313.0) is True
+        assert disconnecting.state["linkState"] == "disconnected"
         assert disconnecting.state["digitalLinked"] is False
-        assert disconnecting.state["allstarLinked"] is True
+        assert disconnecting.state["allstarLinked"] is False
 
         command = queue_command(bridge, "connect", target, "tester\nsecret")
         assert command["action"] == "connect"
@@ -1050,11 +1132,19 @@ def main() -> int:
     subparsers.add_parser("disconnect")
     subparsers.add_parser("status")
     subparsers.add_parser("validate")
+    subparsers.add_parser("catalog")
     args = parser.parse_args()
     if args.self_test:
         self_test()
         print("M17 bridge control self-test passed")
         return 0
+    if args.action == "catalog":
+        try:
+            print(json.dumps({"ok": True, "destinations": catalog_destinations()}, separators=(",", ":")))
+            return 0
+        except ControlError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, separators=(",", ":")))
+            return 1
     if not args.bridge or not args.action:
         parser.error("--bridge and an action are required")
     if os.geteuid() != 0:
@@ -1079,6 +1169,7 @@ def main() -> int:
                 "target": {"reflector": target["reflector"], "module": target["module"]},
             }, separators=(",", ":")))
         elif args.action == "disconnect":
+            clear_saved_destination(bridge)
             queue_command(bridge, "disconnect", None, args.user)
             audit(bridge["id"], args.user, "disconnect", None, "queued", AUDIT_LOG)
             print(json.dumps({

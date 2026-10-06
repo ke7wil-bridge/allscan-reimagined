@@ -36,6 +36,7 @@ def validate_command(argv: list[str]) -> str:
     command = argv[1]
     if not (re.fullmatch(r"rpt stats [0-9]{3,10}", command)
             or re.fullmatch(r"rpt lstats [0-9]{3,10}", command)
+            or re.fullmatch(r"rpt show channels [0-9]{3,10}", command)
             or re.fullmatch(r"rpt cmd [0-9]{3,10} ilink (?:3|11) [0-9]{3,10}", command)
             or command == "core reload"
             or command == "module show like chan_usrp.so"):
@@ -67,10 +68,15 @@ def run_host(command: str, *, allow_pending: bool = False) -> subprocess.Complet
     )
 
 
-def safe_root_json(path: Path, allowed_uid: int = 0) -> dict:
+def safe_root_json(path: Path, allowed_uid: int = 0, allowed_gid: int | None = None) -> dict:
     info = path.lstat()
+    allowed_group_write = (allowed_gid is not None and info.st_uid == 0
+                           and info.st_gid == allowed_gid
+                           and (info.st_mode & 0o777) == 0o664)
+    unsafe_write_bits = bool(info.st_mode & 0o002) or (
+        bool(info.st_mode & 0o020) and not allowed_group_write)
     if (path.is_symlink() or not path.is_file() or info.st_uid not in {0, allowed_uid}
-            or info.st_nlink != 1 or info.st_mode & 0o022):
+            or info.st_nlink != 1 or unsafe_write_bits):
         raise RuntimeError("Asterisk authorization state is unsafe")
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -83,7 +89,7 @@ def authorize_command(command: str, profile, loader=safe_root_json,
                       allow_pending: bool = False) -> None:
     if command in {"module show like chan_usrp.so", "core reload"}:
         return
-    config = (loader(profile.asr_config / "config.json", profile.client_uid)
+    config = (loader(profile.asr_config / "config.json", profile.client_uid, profile.client_gid)
               if loader is safe_root_json else loader(profile.asr_config / "config.json"))
     main_node = str(config.get("node", ""))
     if not re.fullmatch(r"[0-9]{3,10}", main_node):
@@ -119,7 +125,7 @@ def authorize_command(command: str, profile, loader=safe_root_json,
         if (record.get("bridgeId") == bridge_id
                 and (str(record.get("bridgeNode", "")) == node or unified_owner)):
             owned.add(node)
-    status = re.fullmatch(r"rpt (?:stats|lstats) ([0-9]{3,10})", command)
+    status = re.fullmatch(r"rpt (?:stats|lstats|show channels) ([0-9]{3,10})", command)
     if status:
         if status.group(1) != main_node and not (allow_pending and status.group(1) in pending):
             raise RuntimeError("Asterisk status node is not authorized")

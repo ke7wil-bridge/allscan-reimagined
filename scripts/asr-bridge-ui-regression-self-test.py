@@ -37,6 +37,28 @@ for chunk in mapping_chunks[:2]:
     if "!bridge.linkAlias" not in chunk:
         errors.append("bridge node mapping no longer excludes explicit link aliases")
 
+talker_enrichment = app[app.find("const enrichBridgeTalker"):app.find("const talkerCards")]
+if "info: 'Identifying…'" not in talker_enrichment or "node: 'Net Bridge'" not in talker_enrichment:
+    errors.append("node 1999 can leak its generic AllStar identity before mode enrichment")
+if "if (!isCurrentTalker) return null" not in talker_enrichment:
+    errors.append("unmatched Net Bridge history can remain stuck on Identifying while idle")
+if "fastNextModeActivityRef.current" not in talker_enrichment:
+    errors.append("P25/NXDN fast identity is not used by Talker Card enrichment")
+if "fast?.recentTalkers" not in talker_enrichment or "bridgeTalkerIdentityRef.current[cacheKey]" not in talker_enrichment:
+    errors.append("completed P25/NXDN talkers no longer retain event-scoped fast identity")
+if "liveMatchesTransmission" not in talker_enrichment or "Math.abs(fast.eventEpoch - talker.startedEpoch)" not in talker_enrichment:
+    errors.append("live P25/NXDN identity can leak across transmissions")
+if "isCurrentTalker && sourceCard && sourceCard.cardType !== 'p25_net' && sourceCard.cardType !== 'nxdn_net'" not in talker_enrichment:
+    errors.append("generic node metadata can overwrite authoritative P25/NXDN identity")
+if "modeCard?.cardType === 'm17_net'" not in talker_enrichment or "modeCard.recentTalkers" not in talker_enrichment:
+    errors.append("completed M17 talkers do not retain event-scoped identity")
+if "selected Talkgroup ${canonicalId}." not in app:
+    errors.append("P25 success message is not concise or lacks Talkgroup terminology")
+if "confirmed its AllStar transport" in app:
+    errors.append("P25 success message exposes internal qualification language")
+if ".filter((row) => !row.configuredTransport)" not in app:
+    errors.append("configured node 1999 presentation row can leak into live activity arbitration")
+
 if errors:
     print("FAIL: bridge UI regression checks")
     for error in errors:

@@ -45,6 +45,7 @@ def load(name: str, filename: str):
 
 backend = load("asr_net_mode_backend", "asr-provisioning-backend.py")
 m17 = load("asr_net_mode_m17", "asr-bridge-setup-m17.py")
+core = load("asr_net_mode_core", "asr-bridge-setup-core.py")
 
 
 def atomic(path: Path, text: str) -> None:
@@ -181,7 +182,7 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
     raise ModeError(f"{mode.upper()} runtime readiness was not confirmed")
 
 
-def selected_ports(mode: str, bridge: dict) -> tuple[int, int]:
+def configured_ports(mode: str, bridge: dict) -> tuple[int, int]:
     try:
         if mode == "m17":
             rx, tx = int(bridge["m17UsrpRxPort"]), int(bridge["m17UsrpTxPort"])
@@ -193,6 +194,104 @@ def selected_ports(mode: str, bridge: dict) -> tuple[int, int]:
     if not (1024 <= rx <= 65535 and 1024 <= tx <= 65535 and rx != tx):
         raise ModeError(f"{mode.upper()} USRP ports are invalid")
     return rx, tx
+
+
+def selected_ports(mode: str, bridge: dict) -> tuple[int, int]:
+    rx, tx = configured_ports(mode, bridge)
+    expected = core.unified_net_usrp_ports()
+    if (rx, tx) != expected:
+        raise ModeError(
+            f"{mode.upper()} Net Bridge requires shared USRP ports "
+            f"{expected[0]}:{expected[1]}; reprovision the backend"
+        )
+    return rx, tx
+
+
+def rewrite_usrp_ini(text: str, rx: int, tx: int, spaced: bool) -> str:
+    section = re.search(r"(?ms)^\[USRP\]\s*$.*?(?=^\[[^]]+\]\s*$|\Z)", text)
+    if not section:
+        raise ModeError("backend configuration has no [USRP] section")
+    block = section.group(0)
+    separator = " = " if spaced else "="
+    for key, value in (("RxPort", rx), ("TxPort", tx)):
+        pattern = re.compile(rf"(?mi)^{key}\s*=\s*[0-9]+\s*$")
+        if len(pattern.findall(block)) != 1:
+            raise ModeError(f"backend configuration has invalid {key}")
+        block = pattern.sub(f"{key}{separator}{value}", block)
+    return text[:section.start()] + block + text[section.end():]
+
+
+def migrate_transport(profile, runner: Runner = run) -> dict:
+    """Normalize legacy per-mode USRP ports without touching live app_rpt."""
+    config_path = profile.asr_config / "config.json"
+    rpt_path = profile.asterisk_config / "rpt.conf"
+    original_config = config_path.read_text(encoding="utf-8")
+    original_rpt = rpt_path.read_text(encoding="utf-8")
+    config = json.loads(original_config)
+    bridges = net_bridges(config)
+    if set(bridges) != set(MODES):
+        raise ModeError("all five Net Bridge modes must be provisioned before migration")
+    mode = str(config.get("netBridgeMode", "")).lower()
+    if mode not in bridges:
+        raise ModeError("selected Net Bridge mode is invalid")
+    for candidate, bridge in bridges.items():
+        runtime_argv(candidate, bridge, "status")
+        configured_ports(candidate, bridge)
+
+    rx, tx = core.unified_net_usrp_ports()
+    files: dict[Path, bool] = {}
+    dmr_root = dmr_compose(bridges["dmr"]).parent
+    files[dmr_root / "config" / "urfd.ini"] = True
+    for candidate in ("ysf", "p25", "nxdn"):
+        bridge_id = str(bridges[candidate]["id"])
+        files[Path(f"/opt/Analog_Bridge_{bridge_id}/Analog_Bridge.ini")] = False
+    originals: dict[Path, str] = {}
+    rendered: dict[Path, str] = {}
+    for path, spaced in files.items():
+        if path.is_symlink() or not path.is_file():
+            raise ModeError(f"unsafe or missing backend configuration: {path}")
+        originals[path] = path.read_text(encoding="utf-8")
+        rendered[path] = rewrite_usrp_ini(originals[path], rx, tx, spaced)
+
+    updated = json.loads(original_config)
+    for bridge in updated["bridges"]:
+        if not isinstance(bridge, dict) or bridge.get("cardType") not in NET_CARD_TYPES:
+            continue
+        bridge["node"] = str(NODE)
+        bridge.pop("linkAlias", None)
+        if bridge.get("mode") == "m17":
+            bridge["m17UsrpRxPort"], bridge["m17UsrpTxPort"] = rx, tx
+        else:
+            bridge["setupPorts"]["usrp_rx"] = rx
+            bridge["setupPorts"]["usrp_tx"] = tx
+    updated_bridges = net_bridges(updated)
+    new_rpt = unified_rpt(original_rpt, updated_bridges, mode)
+    stopped = False
+    try:
+        for candidate, bridge in bridges.items():
+            stop_backend(candidate, bridge, runner)
+        stopped = True
+        for path, value in rendered.items():
+            atomic(path, value)
+        atomic(rpt_path, new_rpt)
+        atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
+        backend.refresh_watch_snapshots(profile)
+    except Exception:
+        if stopped:
+            for path, value in originals.items():
+                try:
+                    atomic(path, value)
+                except Exception:
+                    pass
+            try:
+                atomic(rpt_path, original_rpt)
+                atomic(config_path, original_config)
+                backend.refresh_watch_snapshots(profile)
+            except Exception:
+                pass
+        raise
+    return {"ok": True, "migrated": True, "mode": mode, "node": NODE,
+            "usrpRx": rx, "usrpTx": tx, "appRptRestartRequired": True}
 
 
 def strip_managed(text: str, bridge_ids: list[str]) -> str:
@@ -235,12 +334,28 @@ def disconnect_transport(config: dict, bridge_node: str, runner: Runner = run) -
         runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 11 {node}"], False)
 
 
-def reload_and_verify(runner: Runner = run, node: int = NODE) -> None:
-    # A full Asterisk service restart tears down every live AllStar link,
-    # including unrelated transport nodes 1001-1003.  app_rpt reads the staged
-    # rpt.conf on a global reload without dropping those established links.
+def reload_and_verify(
+    runner: Runner = run, node: int = NODE,
+    expected_ports: tuple[int, int] | None = None,
+) -> None:
+    # Every Net Bridge backend shares one permanent chan_usrp endpoint. app_rpt
+    # does not recreate a soft-hung rxchannel, and `rpt restart` disrupts every
+    # node, so a routine mode switch must never replace this channel.
     checked(runner([ASTERISK, "-rx", "core reload"], False),
             "reloading unified Asterisk configuration")
+    if expected_ports is not None:
+        expected = f"usrp/127.0.0.1:{expected_ports[0]}:{expected_ports[1]}"
+        channels = runner([ASTERISK, "-rx", f"rpt show channels {node}"], False)
+        checked(channels, "reading unified Asterisk channels")
+        match = re.search(r"(?mi)^rxchannel\s*:\s*(usrp/127\.0\.0\.1:[0-9]{4,5}:[0-9]{4,5})\s*$",
+                          channels.stdout)
+        if not match:
+            raise ModeError("Asterisk did not report the unified USRP receive channel")
+        if match.group(1).lower() != expected:
+            raise ModeError(
+                f"Asterisk node {node} is using {match.group(1)}, not permanent "
+                f"USRP {expected}; one app_rpt recovery restart is required"
+            )
     last = ""
     for _ in range(20):
         result = runner([ASTERISK, "-rx", f"rpt stats {node}"], False)
@@ -287,7 +402,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
         atomic(rpt_path, new_rpt)
         atomic(config_path, staged_config)
         backend.refresh_watch_snapshots(profile)
-        reload_and_verify(runner)
+        reload_and_verify(runner, expected_ports=selected_ports(mode, bridges[mode]))
         start_backend(mode, bridges[mode], runner)
         updated["netBridgeMode"] = mode
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
@@ -304,7 +419,8 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
             atomic(config_path, original_config)
             backend.refresh_watch_snapshots(profile)
             rollback_node = int(bridges[old_mode]["node"]) if old_mode else NODE
-            reload_and_verify(runner, rollback_node)
+            rollback_ports = selected_ports(old_mode, bridges[old_mode]) if old_mode else None
+            reload_and_verify(runner, rollback_node, rollback_ports)
             if old_mode:
                 start_backend(old_mode, bridges[old_mode], runner)
         except Exception as rollback_exc:
@@ -316,7 +432,9 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=MODES, required=True)
+    operation = parser.add_mutually_exclusive_group(required=True)
+    operation.add_argument("--mode", choices=MODES)
+    operation.add_argument("--migrate-transport", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     # Unlike broker-launched requests, the root-only administrative entry point
@@ -332,9 +450,14 @@ def main() -> int:
     os.environ[backend.PROFILE_ENV] = str(PROFILE)
     config = json.loads((profile.asr_config / "config.json").read_text())
     bridges = net_bridges(config)
-    if args.mode not in bridges:
+    if args.mode is not None and args.mode not in bridges:
         raise SystemExit(f"Net Bridge mode {args.mode} is not provisioned")
     if args.dry_run:
+        if args.migrate_transport:
+            rx, tx = core.unified_net_usrp_ports()
+            print(json.dumps({"ok": True, "migrate": True, "usrpRx": rx,
+                              "usrpTx": tx}))
+            return 0
         rx, tx = selected_ports(args.mode, bridges[args.mode])
         print(json.dumps({"ok": True, "mode": args.mode, "node": NODE,
                           "bridgeId": bridges[args.mode]["id"],
@@ -349,7 +472,8 @@ def main() -> int:
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            result = switch_mode(args.mode, profile)
+            result = (migrate_transport(profile) if args.migrate_transport
+                      else switch_mode(args.mode, profile))
         except (ModeError, OSError, ValueError, subprocess.SubprocessError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}))
             return 1

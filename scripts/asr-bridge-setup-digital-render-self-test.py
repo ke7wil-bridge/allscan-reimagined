@@ -55,8 +55,10 @@ def main() -> None:
             assert f"useEmulator={'false' if mode == 'p25' else 'true'}" in analog
             assert f"emulatorAddress=127.0.0.1:{plan['ports']['emulator']}" in analog
             assert f"rxPort={plan['ports']['usrp_rx']}" in analog
+            assert f"txPort={plan['ports']['usrp_tx']}" in analog
             mmdvm = renderer.mmdvm_ini(plan, stage)
             assert f"FileRoot=MMDVM_Bridge_{mode}_test" in mmdvm
+            assert f"File=/opt/MMDVM_Bridge_{mode}_test/DMRIds.dat" in mmdvm
             assert f"LocalPort={plan['ports']['gateway_tx']}" in mmdvm
             dvswitch = renderer.dvswitch_ini(plan, stage)
             assert f"RemotePort={plan['ports']['remote']}" in dvswitch

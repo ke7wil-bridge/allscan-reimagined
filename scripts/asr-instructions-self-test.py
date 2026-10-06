@@ -102,10 +102,10 @@ def main() -> int:
         "A new untitled bridge does not retain the New Digital Bridge label",
     )
     require(
-        "D-Star Live Status" in settings
-        and "'dstar' => ['D-Star Bridge'" in api
-        and "D-Star" in instructions,
-        "Settings, API, and help must retain D-Star status support",
+        "D-Star Live Status" not in settings
+        and "'dstar' => ['D-Star Bridge'" not in api
+        and "D-Star" not in instructions,
+        "D-Star remains exposed in Beta 8 Settings, API, or help",
     )
     require(
         'name="bridgeFixedRecovery[]"' in settings

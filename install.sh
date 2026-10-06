@@ -1102,13 +1102,13 @@ raise SystemExit(
         and re.sub(
             r"[^a-z0-9]", "",
             str(item.get("mode", item.get("id", ""))).lower(),
-        ).startswith(("dmr", "ysf", "dstar"))
+        ).startswith(("dmr", "ysf"))
         for item in payload.get("bridges", [])
     ) else 1
 )
 PY
 then
-  validate_command "configured Standard DMR/YSF/D-Star status service is active" \
+  validate_command "configured Standard DMR/YSF status service is active" \
     systemctl is-active --quiet allscan-reimagined-standard-bridge-status.service
 fi
 if python3 - /etc/allscan-reimagined/config.json <<'PY'

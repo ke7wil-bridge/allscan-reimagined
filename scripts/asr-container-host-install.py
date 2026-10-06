@@ -319,8 +319,13 @@ def install(profile) -> None:
     PROFILE.parent.mkdir(parents=True, exist_ok=True)
     atomic(PROFILE, profile_json(profile), 0o600)
     group = grp.getgrgid(profile.client_gid).gr_name
+    runtime_directories = "".join(
+        f"d /run/allscan-reimagined-{mode}-bridge-control 2750 {SERVICE_USER} {group} -\n"
+        for mode in ("ysf", "p25", "nxdn")
+    )
     atomic(SOCKET_TMPFILES,
-           f"d /run/allscan-reimagined-host 0750 root {group} -\n", 0o644)
+           f"d /run/allscan-reimagined-host 0750 root {group} -\n" + runtime_directories,
+           0o644)
     subprocess.run(["systemd-tmpfiles", "--create", str(SOCKET_TMPFILES)], check=True)
     atomic(SOCKET_UNIT, f"""[Unit]
 Description=ASR container provisioning socket
@@ -392,7 +397,7 @@ User=root
 Group=root
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=read-only
 ProtectSystem=strict
 BindReadOnlyPaths={profile.asterisk_config} {profile.asr_config} {PROFILE} /var/run/docker.sock
 RestrictAddressFamilies=AF_UNIX
@@ -475,7 +480,25 @@ WantedBy=timers.target
         helper = Path("/usr/local/sbin") / f"allscan-reimagined-{mode}-bridge-control"
         run_dir = Path("/run") / f"allscan-reimagined-{mode}-bridge-control"
         run_dir.mkdir(parents=True, exist_ok=True)
-        watch_command = f"{helper} --watch" if mode == "ysf" else f"{helper} watch --interval 2"
+        if mode == "ysf":
+            watch_command = f"{helper} --watch"
+            watch_user = SERVICE_USER
+            socket_guard = "InaccessiblePaths=/var/run/docker.sock"
+        else:
+            # P25/NXDN MQTT brokers intentionally listen only on loopback inside
+            # the Asterisk container network namespace. Enter that namespace,
+            # then drop to the bridge service account before running the watcher.
+            watch_command = (
+                f"{DEST}/asr-container-netns-exec.py --container {profile.asterisk_container} "
+                f"--proc-root {profile.host_proc} --user {SERVICE_USER} -- {helper} watch --interval 2"
+            )
+            watch_user = "root"
+            socket_guard = ""
+        # The proven namespace launcher needs the host's normal root capability
+        # set only until setns succeeds.  It immediately setuid/setgid drops to
+        # asr-bridge, and NoNewPrivileges prevents regaining capabilities.
+        capability_guard = ("" if mode != "ysf" else
+                            "CapabilityBoundingSet=\nAmbientCapabilities=\n")
         atomic(Path("/etc/systemd/system") / f"allscan-reimagined-{mode}-net-live.service", f"""[Unit]
 Description=ASR {mode.upper()} managed bridge status
 After=network-online.target
@@ -486,8 +509,8 @@ Environment=ASR_CONTAINER_PROVISIONING_PROFILE={PROFILE}
 Environment=ASR_CONTAINER_WATCH_CONFIG=/run/allscan-reimagined-bridge-rpc/config.json
 Environment=ASR_CONTAINER_WATCH_SECRETS=/run/allscan-reimagined-bridge-rpc/bridge-mqtt-secrets.json
 ExecStart={watch_command}
-User={SERVICE_USER}
-Group={SERVICE_USER}
+User={watch_user}
+Group={watch_user}
 Restart=on-failure
 RestartSec=3s
 NoNewPrivileges=true
@@ -496,9 +519,8 @@ ProtectHome=true
 ProtectSystem=strict
 BindReadOnlyPaths={profile.asterisk_config} {profile.asr_config} {PROFILE}
 ReadWritePaths={run_dir} /var/log/allscan-reimagined
-InaccessiblePaths=/var/run/docker.sock
-CapabilityBoundingSet=
-AmbientCapabilities=
+{socket_guard}
+{capability_guard}
 
 [Install]
 WantedBy=multi-user.target

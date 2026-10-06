@@ -137,6 +137,12 @@ def plan(root: Path, settings: DigitalSettings) -> dict[str, Any]:
         raise PlanError("main AllStar node is missing") from exc
     matches = [bridge for bridge in config["bridges"]
                if isinstance(bridge, dict) and bridge.get("id") == settings.bridge_id]
+    shared_net_node = (settings.bridge_role == "net"
+                       and any(isinstance(item, dict)
+                               and item.get("id") != settings.bridge_id
+                               and item.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}
+                               and str(item.get("node", "")) == "1999"
+                               for item in config["bridges"]))
     if len(matches) > 1 or (matches and matches[0].get("mode") != settings.mode):
         raise PlanError("bridge ID belongs to another or duplicate bridge")
     record_path = rooted(root, f"{STATE}/{settings.bridge_id}.json")
@@ -163,21 +169,28 @@ def plan(root: Path, settings: DigitalSettings) -> dict[str, Any]:
                 except (ValueError, TypeError):
                     pass
         node = 1999 if settings.bridge_role == "net" else (settings.bridge_node or core.allocate_node(used))
-        shared_net_node = (settings.bridge_role == "net" and node == 1999
-                           and any(isinstance(item, dict)
-                                   and item.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}
-                                   and str(item.get("node", "")) == "1999"
-                                   for item in config["bridges"]))
         if node in used and not shared_net_node:
             raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
+    if settings.bridge_role == "net":
+        ports["usrp_rx"], ports["usrp_tx"] = core.unified_net_usrp_ports()
     for bridge in config["bridges"]:
         if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
             continue
         occupied = bridge.get("setupPorts", {})
-        if isinstance(occupied, dict) and set(ports.values()) & {p for p in occupied.values() if isinstance(p, int)}:
+        candidate_ports = set(ports.values())
+        occupied_ports = ({p for p in occupied.values() if isinstance(p, int)}
+                          if isinstance(occupied, dict) else set())
+        if (settings.bridge_role == "net"
+                and bridge.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}):
+            candidate_ports -= set(core.unified_net_usrp_ports())
+            occupied_ports -= set(core.unified_net_usrp_ports())
+        if candidate_ports & occupied_ports:
             raise PlanError("instance port block overlaps another ASR bridge")
-    if not matches and set(ports.values()) & set(facts.listening_udp_ports):
+    listening_candidates = set(ports.values())
+    if settings.bridge_role == "net" and shared_net_node:
+        listening_candidates -= set(core.unified_net_usrp_ports())
+    if not matches and listening_candidates & set(facts.listening_udp_ports):
         raise PlanError("instance port block overlaps an active UDP listener")
     if (not matches and settings.mode in {"p25", "nxdn"}
             and ports["mqtt"] in facts.listening_tcp_ports):

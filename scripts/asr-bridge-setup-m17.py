@@ -165,22 +165,57 @@ def insert_nodes_mapping(text: str, node: int) -> str:
     return text[:at].rstrip() + "\n" + line + "\n\n" + text[at:].lstrip("\n")
 
 
-def upsert_node_section(text: str, bridge_id: str, node: int, rx: int, tx: int) -> str:
+def ensure_bridge_control_states(text: str) -> str:
+    """Keep transport-only nodes from entering autopatch/user-command state."""
+    section = "asr-bridge-controlstates"
+    expected = "0 = rptena,lnkena,apdis,totena,ufdis,noicd"
+    legacy = "0 = rptena,lnkena,apdis,totena,ufdis,noice"
+    match = re.search(
+        rf"(?ms)^\[{re.escape(section)}\]\s*$.*?(?=^\[[^]]+\]\s*$|\Z)", text,
+    )
+    if match:
+        if re.search(rf"(?m)^\s*{re.escape(legacy)}\s*$", match.group(0)):
+            return text[:match.start()] + re.sub(
+                rf"(?m)^\s*{re.escape(legacy)}\s*$", expected,
+                match.group(0), count=1,
+            ) + text[match.end():]
+        if not re.search(rf"(?m)^\s*{re.escape(expected)}\s*$", match.group(0)):
+            raise InstallError(f"rpt.conf [{section}] conflicts with bridge safety policy")
+        return text
+    return text.rstrip() + f"\n\n[{section}]\n{expected}\n"
+
+
+def upsert_node_section(
+    text: str, bridge_id: str, node: int,
+    backend_receive_port: int, asterisk_receive_port: int,
+) -> str:
+    """Install chan_usrp with complementary local/remote UDP endpoints.
+
+    chan_usrp spells its device as ``host:remote_port:local_port``.  The first
+    port is where Asterisk sends audio (the backend's RxPort); the second is
+    where Asterisk listens (the backend's TxPort).  Backend configuration names
+    the same pair from the backend's point of view, so these values must not be
+    swapped here.
+    """
     begin = f"{MANAGED_PREFIX}BEGIN {bridge_id}"
     end = f"{MANAGED_PREFIX}END {bridge_id}"
+    node_label = "Unified Net Bridge" if node == 1999 else "M17 Bridge"
     block = (
-        f"{begin}\n[{node}] ; M17 Bridge ({bridge_id})\n"
-        f"rxchannel = USRP/127.0.0.1:{rx}:{tx}\n"
+        f"{begin}\n[{node}] ; {node_label} ({bridge_id})\n"
+        f"rxchannel = USRP/127.0.0.1:{backend_receive_port}:{asterisk_receive_port}\n"
         "duplex = 0\nhangtime = 0\nalthangtime = 0\n"
+        "controlstates = asr-bridge-controlstates\n"
         "holdofftelem = 1\ntelemdefault = 0\ntelemdynamic = 0\n"
         f"beaconing = 0\n{end}"
     )
     pattern = re.compile(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*$")
     if pattern.search(text):
-        return pattern.sub(block, text, count=1).rstrip() + "\n"
+        return ensure_bridge_control_states(
+            pattern.sub(block, text, count=1).rstrip() + "\n"
+        )
     if re.search(rf"(?m)^\s*\[{node}\](?:\s|;|$)", text):
         raise InstallError(f"rpt.conf node section {node} already exists")
-    return text.rstrip() + "\n\n" + block + "\n"
+    return ensure_bridge_control_states(text.rstrip() + "\n\n" + block + "\n")
 
 
 def ensure_usrp_module(text: str) -> str:
@@ -281,6 +316,12 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
     facts = adapter.detect()
     existing = find_existing_bridge(config, settings.bridge_id)
     used = set(facts.node_numbers) | existing_bridge_nodes(config) | {main_node}
+    shared_net_node = (settings.card_type == "m17_net"
+                       and any(isinstance(item, dict)
+                               and item.get("id") != settings.bridge_id
+                               and item.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}
+                               and str(item.get("node", "")) == "1999"
+                               for item in config.get("bridges", [])))
     if existing is not None:
         try:
             node = 1999 if settings.card_type == "m17_net" else int(existing["node"])
@@ -288,10 +329,6 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
             raise InstallError("existing M17 bridge node is invalid") from exc
     elif settings.card_type == "m17_net":
         node = 1999
-        shared_net_node = any(isinstance(item, dict)
-                              and item.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}
-                              and str(item.get("node", "")) == "1999"
-                              for item in config.get("bridges", []))
         if node in used and not shared_net_node:
             raise InstallError(f"requested bridge node {node} is already in use")
     elif settings.bridge_node is not None:
@@ -303,6 +340,8 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
     if node == main_node:
         raise InstallError("bridge node must differ from the main node")
     ports = core.derived_m17_ports(settings.bridge_id)
+    if settings.card_type == "m17_net":
+        ports = (ports[0], *core.unified_net_usrp_ports())
     occupied = set(facts.listening_udp_ports)
     for bridge in config.get("bridges", []):
         if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
@@ -312,6 +351,8 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
                 occupied.add(int(bridge[key]))
             except (KeyError, TypeError, ValueError):
                 pass
+    if settings.card_type == "m17_net" and (shared_net_node or existing is not None):
+        occupied -= set(core.unified_net_usrp_ports())
     if ports[0] in occupied or ports[1] in occupied:
         raise InstallError("derived M17 receive port is already in use")
     errors = dependency_errors(root)
