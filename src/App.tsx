@@ -3093,7 +3093,7 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
               <div className="allscan-update-actions">
                 {authStatus.isAdmin ? (
-                  <a href={asrPath('asr-settings/?section=system')}>Review update</a>
+                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update ASR</button>
                 ) : null}
                 {releaseStatus.releaseUrl ? (
                   <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release details</a>
