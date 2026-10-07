@@ -8476,3 +8476,27 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     margin-bottom: -10px !important;
   }
 }
+
+/* Beta 8 responsive acceptance: keep the Connection Status header row at the
+   accepted phone-portrait height on every non-desktop layout. */
+@media (max-width: 1199px) {
+  .allscan-connection-table thead th {
+    padding-top: 1px !important;
+    padding-bottom: 1px !important;
+    line-height: 10px !important;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 16px !important;
+  }
+}
+
+/* Beta 8 responsive acceptance: match the accepted phone-portrait local/green
+   Connection Status row height on every non-desktop layout. */
+@media (max-width: 1199px) {
+  .allscan-connection-table .allscan-connection-row-local > td {
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    line-height: 12px !important;
+  }
+}
