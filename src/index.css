@@ -8500,3 +8500,32 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     line-height: 12px !important;
   }
 }
+
+/* Beta 8 responsive acceptance #2: use the accepted phone-portrait Favorites
+   legend sizing on mobile landscape and both tablet orientations. */
+@media (max-width: 1199px) {
+  .allscan-favorites-legend {
+    gap: 4px 8px;
+    font-size: 11px;
+    line-height: 1.15;
+  }
+
+  .allscan-favorites-legend span {
+    gap: 4px;
+  }
+
+  .allscan-fav-dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .allscan-fav-rxbar {
+    width: 13px;
+    height: 4px;
+  }
+
+  .allscan-fav-underline {
+    width: 13px;
+    height: 7px;
+  }
+}
