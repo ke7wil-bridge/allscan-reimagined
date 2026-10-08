@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { flushSync } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import UpdateAsrDialog from './components/UpdateAsrDialog'
@@ -68,6 +68,8 @@ const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
+const TOUCH_MODULE_DRAG_DELAY_MS = 350
+const TOUCH_MODULE_DRAG_CANCEL_DISTANCE_PX = 8
 const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
 const TALKERS_OPEN_KEY = 'asrTalkersOpen.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
@@ -627,6 +629,14 @@ function App({ config }: { config: RuntimeConfig }) {
   const dashboardDragScrollFrameRef = useRef<number | null>(null)
   const dashboardModuleOrderRef = useRef<DashboardModuleKey[]>(dashboardModuleOrder)
   const dashboardDragStartOrderRef = useRef<DashboardModuleKey[] | null>(null)
+  const pendingDashboardDragRef = useRef<{
+    key: DashboardModuleKey
+    pointerId: number
+    startX: number
+    startY: number
+    handle: HTMLButtonElement
+    timer: number
+  } | null>(null)
 
   const browserTitle = config.browserTitle
   const titleText = config.headerTitle
@@ -677,6 +687,10 @@ function App({ config }: { config: RuntimeConfig }) {
     const transportNode = String(talker.node || '')
     if (transportNode !== '1001' && transportNode !== '1999') return talker
     const isCurrentTalker = talker === currentTalker
+    const persistedUrfIdentity = transportNode === '1001'
+      && String(talker.source || '').trim().toUpperCase() !== 'ALLSTAR'
+      && !String(talker.info || '').trim().toUpperCase().startsWith('URFWIL')
+    if (persistedUrfIdentity) return { ...talker, node: 'URFWIL' }
 
     const modeCard = transportNode === '1999'
       ? bridgeState.cards.find((card) => card.node === '1999' && card.mode.toLowerCase() === netBridgeMode)
@@ -768,6 +782,17 @@ function App({ config }: { config: RuntimeConfig }) {
       }
     }
     const identity = bridgeTalkerIdentityRef.current[cacheKey]
+    if (!identity && transportNode === '1001') {
+      if (!isCurrentTalker) return null
+      const mode = String(sourceCard?.mode || '').trim().toUpperCase()
+      return {
+        ...talker,
+        info: 'Identifying…',
+        source: mode || 'DIGITAL',
+        node: 'URFWIL',
+        description: `${mode || 'Digital'} traffic`,
+      }
+    }
     if (!identity && transportNode === '1999') {
       if (!isCurrentTalker) return null
       const mode = String(netBridgeMode || modeCard?.mode || '').trim().toUpperCase()
@@ -1873,19 +1898,57 @@ function App({ config }: { config: RuntimeConfig }) {
     dashboardDragScrollFrameRef.current = window.requestAnimationFrame(runDashboardDragAutoScroll)
   }
 
-  function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+  function activateDashboardModuleDrag(
+    key: DashboardModuleKey,
+    handle: HTMLButtonElement,
+    pointerId: number,
+    x: number,
+    y: number,
+  ) {
+    handle.setPointerCapture(pointerId)
     dashboardModuleOverRef.current = key
     dashboardModuleOrderRef.current = dashboardModuleOrder
     dashboardDragStartOrderRef.current = [...dashboardModuleOrder]
-    dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
+    dashboardDragPointerRef.current = { x, y }
     setDashboardModuleDragging(key)
     setDashboardModuleOver(key)
   }
 
+  function clearPendingDashboardDrag() {
+    const pending = pendingDashboardDragRef.current
+    if (!pending) return
+    window.clearTimeout(pending.timer)
+    pendingDashboardDragRef.current = null
+  }
+
+  function beginDashboardModuleDrag(key: DashboardModuleKey, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return
+    clearPendingDashboardDrag()
+    if (event.pointerType === 'touch' && window.innerWidth < 1200) {
+      const handle = event.currentTarget
+      const pointerId = event.pointerId
+      const startX = event.clientX
+      const startY = event.clientY
+      const timer = window.setTimeout(() => {
+        const pending = pendingDashboardDragRef.current
+        if (!pending || pending.pointerId !== pointerId || pending.handle !== handle) return
+        pendingDashboardDragRef.current = null
+        activateDashboardModuleDrag(key, handle, pointerId, startX, startY)
+      }, TOUCH_MODULE_DRAG_DELAY_MS)
+      pendingDashboardDragRef.current = { key, pointerId, startX, startY, handle, timer }
+      return
+    }
+    event.preventDefault()
+    activateDashboardModuleDrag(key, event.currentTarget, event.pointerId, event.clientX, event.clientY)
+  }
+
   function updateDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const pending = pendingDashboardDragRef.current
+    if (pending?.pointerId === event.pointerId) {
+      const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY)
+      if (distance > TOUCH_MODULE_DRAG_CANCEL_DISTANCE_PX) clearPendingDashboardDrag()
+      return
+    }
     if (!dashboardModuleDragging) return
     event.preventDefault()
     dashboardDragPointerRef.current = { x: event.clientX, y: event.clientY }
@@ -1894,6 +1957,7 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function clearDashboardModuleDrag() {
+    clearPendingDashboardDrag()
     stopDashboardDragAutoScroll()
     dashboardModuleOverRef.current = null
     setDashboardModuleDragging(null)
@@ -1901,6 +1965,10 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function endDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (pendingDashboardDragRef.current?.pointerId === event.pointerId) {
+      clearPendingDashboardDrag()
+      return
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     if (dashboardModuleDragging) writeDashboardModuleOrder(dashboardModuleOrderRef.current)
     dashboardDragStartOrderRef.current = null
@@ -1908,6 +1976,10 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function cancelDashboardModuleDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (pendingDashboardDragRef.current?.pointerId === event.pointerId) {
+      clearPendingDashboardDrag()
+      return
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     const startOrder = dashboardDragStartOrderRef.current
     if (startOrder) {
@@ -2557,10 +2629,10 @@ function App({ config }: { config: RuntimeConfig }) {
           </form>
           <div className="allscan-favorites-tools">
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
-              if (window.confirm('Reset the saved custom order for this Favorites list? Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
+              if (window.confirm('WARNING: Reset the saved custom order for this Favorites list?\n\nThis cannot be undone. Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
             }}><RotateCcw /> Reset order</button>
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
-              if (window.confirm('Reset all Favorite colors for this list? Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
+              if (window.confirm('WARNING: Reset all Favorite colors for this list?\n\nThis cannot be undone. Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
             }}><RotateCcw /> Reset colors</button>
           </div>
         </div>
@@ -3172,7 +3244,6 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   Disconnect
                 </button>
-
               </div>
 
               <div className="allscan-controls-lower-row">
@@ -3547,7 +3618,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)
                     const historyOpen = bridgeHistoryOpen.has(card.id)
-                    return <article key={card.id} className={`allscan-bridge-card allscan-urf-mini-card ${bridgeRoleClasses[card.status]}`}>
+                    return <article key={card.id} className={`allscan-bridge-card allscan-urf-mini-card${clientsOpen || historyOpen ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}>
                       <div className="allscan-bridge-head">
                         <span className="allscan-bridge-head-title">{card.title.replace(/\s+Bridge$/i, '')}</span>
                         <span className="allscan-urf-mini-head-actions">
@@ -3591,7 +3662,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     </article>
                   })}
                 </div>
-                {urfAccessOpen && authStatus.isAdmin ? <div className="allscan-urf-access-modal" role="dialog" aria-modal="true" aria-label="Manage Kicks & Bans" onMouseDown={(event) => { if (event.target === event.currentTarget) setUrfAccessOpen(false) }}><div className="allscan-urf-access-panel"><div className="allscan-urf-access-modal-head"><strong>Manage Kicks & Bans</strong><button type="button" className="allscan-urf-access-close" aria-label="Close Manage Kicks & Bans" onClick={() => setUrfAccessOpen(false)}>×</button></div><div className="allscan-management-tabs" role="tablist" aria-label="Connection management"><button type="button" role="tab" aria-selected={managementTab === 'clients'} onClick={() => setManagementTab('clients')}>Connected clients</button><button type="button" role="tab" aria-selected={managementTab === 'bans'} onClick={() => { setManagementTab('bans'); void loadAslBans() }}>Bans</button></div>{managementTab === 'clients' ? <>
+                {urfAccessOpen && authStatus.isAdmin ? createPortal(<div className="allscan-urf-access-modal" role="dialog" aria-modal="true" aria-label="Manage Kicks & Bans" onMouseDown={(event) => { if (event.target === event.currentTarget) setUrfAccessOpen(false) }}><div className="allscan-urf-access-panel"><div className="allscan-urf-access-modal-head"><strong>Manage Kicks & Bans</strong><button type="button" className="allscan-urf-access-close" aria-label="Close Manage Kicks & Bans" onClick={() => setUrfAccessOpen(false)}>×</button></div><div className="allscan-management-tabs" role="tablist" aria-label="Connection management"><button type="button" role="tab" aria-selected={managementTab === 'clients'} onClick={() => setManagementTab('clients')}>Connected clients</button><button type="button" role="tab" aria-selected={managementTab === 'bans'} onClick={() => { setManagementTab('bans'); void loadAslBans() }}>Bans</button></div>{managementTab === 'clients' ? <>
                   <div className="allscan-urf-admin-scope"><strong>Client administration</strong><span>Ban is global across ASR bridges. Enforcement is applied by each supported backend. Protected service and health-probe identities cannot be banned. Kick affects only the selected current bridge session.</span></div>
                   <div className="allscan-urf-admin-tools">
                     <label>Find connected client<input value={urfClientFilter} onChange={(event) => setUrfClientFilter(event.target.value.toUpperCase())} placeholder="Callsign or mode" maxLength={32} /></label>
@@ -3622,7 +3693,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     <button type="button" className="allscan-action-button" onClick={() => void loadAslBans()}>Refresh</button>
                   </div>}
                   {urfAccessStatus ? <div className="allscan-urf-access-status" role="status">{urfAccessStatus}</div> : null}
-                </div></div> : null}
+                </div></div>, document.body) : null}
               </div>
             })()}
 
@@ -3665,7 +3736,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 return (
                 <article
                   key={card.id}
-                  className={`allscan-bridge-card${card.cardType !== 'standard' ? ' allscan-net-bridge-card' : ''} ${bridgeRoleClasses[card.status]}`}
+                  className={`allscan-bridge-card${card.cardType !== 'standard' ? ' allscan-net-bridge-card' : ''}${bridgeClientsOpen.has(card.id) || bridgeHistoryOpen.has(card.id) ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}
                 >
                   <div className="allscan-bridge-head">
                     <span className="allscan-bridge-head-title">{card.cardType !== 'standard' ? 'Net Bridge' : card.title}</span>
