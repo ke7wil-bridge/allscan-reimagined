@@ -8456,27 +8456,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   }
 }
 
-/* Beta 8 locked responsive acceptance: Connection Status uses the accepted
-   phone-portrait compact header/local-row geometry on every non-desktop layout. */
-@media (max-width: 1199px) {
-  .allscan-connection-table thead th {
-    padding-top: 1px !important;
-    padding-bottom: 1px !important;
-    line-height: 10px !important;
-  }
-
-  .allscan-connection-sort-button {
-    min-height: 16px !important;
-  }
-
-
-  .allscan-connection-table .allscan-connection-row-local > td {
-    padding-top: 2px !important;
-    padding-bottom: 2px !important;
-    line-height: 12px !important;
-  }
-}
-
 /* Beta 8 locked responsive acceptance: use the accepted phone-portrait Favorites
    legend sizing on mobile landscape and both tablet orientations. */
 @media (max-width: 1199px) {
@@ -8520,7 +8499,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     overflow-wrap: normal;
   }
 }
-
 
 /* Beta 8 locked responsive acceptance: reuse the accepted phone-portrait bridge/card
    sizing on all non-desktop layouts without changing the locked portrait block. */
@@ -8759,7 +8737,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   }
 }
 
-
 /* Beta 8 locked responsive acceptance: use the accepted mobile Talker-card geometry
    throughout non-desktop layouts. */
 @media (min-width: 521px) and (max-width: 1199px) {
@@ -8798,7 +8775,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-talker-location { margin-top: 1px; }
   .allscan-talker-duration { gap: 2px; padding-top: 4px; font-size: 9px; line-height: 1.05; }
 }
-
 
 /* Beta 8 locked responsive acceptance: tablet portrait fits all five compact Talker cards on one row. */
 @media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
@@ -8846,7 +8822,6 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     transform: translateY(-50%) !important;
   }
 }
-
 
 /* Beta 8 locked tablet-landscape geometry: match each module OUTER frame to the
    already-qualified Digital Bridge Status outer frame. Do not rewrite child geometry. */
