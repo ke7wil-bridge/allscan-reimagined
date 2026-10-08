@@ -9283,3 +9283,47 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-talker-location,
   .allscan-talker-duration { font-size: 13px; }
 }
+
+/* Beta 8 locked tablet-landscape Favorites: centered title, enlarged legend, accepted entry typography. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-favorites-panel > .allscan-section-title {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+    grid-column: 2 !important;
+    position: relative !important;
+    display: inline-block !important;
+    width: max-content !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    text-align: center !important;
+  }
+
+  .allscan-favorites-panel > .allscan-section-title .allscan-module-drag-handle {
+    position: absolute !important;
+    top: 50% !important;
+    right: calc(100% + 7px) !important;
+    left: auto !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .allscan-favorites-legend { gap: 7px 14px; font-size: 14px; line-height: 1.2; }
+  .allscan-favorites-legend span { gap: 6px; }
+  .allscan-fav-dot { width: 11px; height: 11px; }
+  .allscan-fav-rxbar { width: 18px; height: 6px; }
+  .allscan-fav-underline { width: 18px; height: 10px; }
+
+  .allscan-favorites-table tbody tr { font-size: 15px; }
+  .allscan-favorites-table tbody td:nth-child(2) { font-size: 20px; }
+  .allscan-favorite-description { font-size: 15px; }
+  .allscan-favorites-table tbody td:nth-child(4),
+  .allscan-favorite-frequency,
+  .allscan-favorite-location,
+  .allscan-favorite-description small { font-size: 13px; }
+}
