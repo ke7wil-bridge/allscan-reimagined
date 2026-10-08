@@ -5,6 +5,7 @@ import re, sys
 
 root = Path(__file__).resolve().parents[1]
 app = (root / "src/App.tsx").read_text()
+live = (root / "src/lib/allscanLive.ts").read_text()
 errors = []
 
 recent_starts = [m.start() for m in re.finditer(r"card\.recentRows\.map", app)]
@@ -50,10 +51,20 @@ if "liveMatchesTransmission" not in talker_enrichment or "Math.abs(fast.eventEpo
     errors.append("live P25/NXDN identity can leak across transmissions")
 if "isCurrentTalker && sourceCard && sourceCard.cardType !== 'p25_net' && sourceCard.cardType !== 'nxdn_net'" not in talker_enrichment:
     errors.append("generic node metadata can overwrite authoritative P25/NXDN identity")
+if "persistedUrfIdentity" not in talker_enrichment or "talker.source" not in talker_enrichment or "node: 'URFWIL'" not in talker_enrichment:
+    errors.append("persisted URFWIL caller identity/provenance is not rendered after refresh")
+if "String(entry.description || '').trim() || parts.description" not in live or "String(entry.location || '').trim() || parts.location" not in live:
+    errors.append("persisted Talker Card description/location metadata is discarded")
+if "if (!isCurrentTalker) return null" not in talker_enrichment or "info: 'Identifying…'" not in talker_enrichment:
+    errors.append("generic URFWIL transport identity can masquerade as the caller")
 if "modeCard?.cardType === 'm17_net'" not in talker_enrichment or "modeCard.recentTalkers" not in talker_enrichment:
     errors.append("completed M17 talkers do not retain event-scoped identity")
 if "selected Talkgroup ${canonicalId}." not in app:
     errors.append("P25 success message is not concise or lacks Talkgroup terminology")
+if "TOUCH_MODULE_DRAG_DELAY_MS = 350" not in app or "TOUCH_MODULE_DRAG_CANCEL_DISTANCE_PX = 8" not in app:
+    errors.append("responsive module dragging lacks a touch hold delay and scroll-cancel threshold")
+if "event.pointerType === 'touch' && window.innerWidth < 1200" not in app or "clearPendingDashboardDrag()" not in app:
+    errors.append("touch module drag delay is not limited to the responsive range or cannot be cancelled")
 if "confirmed its AllStar transport" in app:
     errors.append("P25 success message exposes internal qualification language")
 if ".filter((row) => !row.configuredTransport)" not in app:

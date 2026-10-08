@@ -458,8 +458,8 @@ type FeedPayload = Record<
     node: string
     info: string
     remote_nodes: FeedNode[]
-    current_talker?: { node?: string; info?: string; source?: string; duration?: string | number; started_epoch?: number } | null
-    last_talkers?: Array<{ node?: string; info?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
+    current_talker?: { node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; started_epoch?: number } | null
+    last_talkers?: Array<{ node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
   }
 >
 
@@ -711,8 +711,8 @@ function buildSnapshot(
     return {
     node,
     info: parts.callsign,
-    description: parts.description,
-    location: parts.location,
+    description: String(entry.description || '').trim() || parts.description,
+    location: String(entry.location || '').trim() || parts.location,
     source: String(entry.source || 'AllStar'),
     duration: String(entry.duration ?? ''),
     eventEpoch: historical ? Math.max(0, Number((entry as { event_epoch?: number }).event_epoch || 0)) : 0,
@@ -1510,8 +1510,24 @@ export async function fetchBridgeCards(
     }
   })
 
-  const updatedLabel = bridge.updated
-    ? bridge.updated.replace(/^\d{4}-\d{2}-\d{2}\s+/, '').replace(/\s+Local$/i, '')
+  // Module-level Last Activity should describe actual bridge traffic, not the
+  // collector refresh time. Use the newest persisted TX/client event across every
+  // configured bridge so the value is consistent on every layout/device.
+  let latestActivityEpoch = 0
+  for (const bridgeConfig of config.bridges) {
+    const value = bridge[bridgeConfig.id]
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const entry = value as BridgeEntry
+    latestActivityEpoch = Math.max(
+      latestActivityEpoch,
+      Number(entry.last_source_epoch || 0),
+      Number(entry.active_start_epoch || 0),
+      ...(Array.isArray(entry.tx_events) ? entry.tx_events.map((event) => Number(event.epoch || event.event_epoch || event.start_epoch || 0)) : []),
+      ...(Array.isArray(entry.client_events) ? entry.client_events.map((event) => Number(event.epoch || event.event_epoch || 0)) : []),
+    )
+  }
+  const updatedLabel = latestActivityEpoch > 0
+    ? new Date(latestActivityEpoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '--:--:--'
 
   return { updatedLabel, cards }

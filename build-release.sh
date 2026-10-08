@@ -23,6 +23,7 @@ allscan-v1.02/asr-settings/settings-controller.php
 allscan-v1.02/astapi/AMI.php
 allscan-v1.02/astapi/asrAmiGuard.php
 allscan-v1.02/astapi/asrEchoLink.php
+allscan-v1.02/astapi/asrTalkerIdentity.php
 allscan-v1.02/astapi/server.php
 allscan-v1.02/css/asr-admin.css
 allscan-v1.02/echolink-lookup/index.php
@@ -120,6 +121,7 @@ if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.02/astapi/asrAmiGuard.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.02/astapi/server.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.02/astapi/asrEchoLink.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.02/astapi/asrTalkerIdentity.php" >/dev/null
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"
@@ -240,6 +242,7 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.02/astapi/asrAmiGuard.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/astapi/server.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/astapi/asrEchoLink.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.02/astapi/asrTalkerIdentity.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrBridgeStatus.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrCpuTemperature.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrLinkState.php" >/dev/null
