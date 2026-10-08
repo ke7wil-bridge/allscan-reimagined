@@ -10,6 +10,7 @@ require_once('AMI.php');
 require_once('nodeInfo.php');
 require_once(__DIR__ . '/asrEchoLink.php');
 require_once(__DIR__ . '/asrAmiGuard.php');
+require_once(__DIR__ . '/asrTalkerIdentity.php');
 
 if(!readOk()) {
 	statErr('Insufficient user permission to retrieve data.');
@@ -105,7 +106,14 @@ statMsg($s);
 $current = [];
 $saved = [];
 $nodeTime = [];
-$asrTalkerHistory = loadTalkerHistory($sharedDir . '/talkers-' . $node . '.json');
+$talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
+$asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
+$urfTalkerEvents = asrUrfTalkerEvents();
+$enrichedTalkerHistory = asrEnrichUrfTalkers($asrTalkerHistory, $urfTalkerEvents);
+if($enrichedTalkerHistory !== $asrTalkerHistory) {
+	$asrTalkerHistory = $enrichedTalkerHistory;
+	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
+}
 $asrCurrentTalker = null;
 //$n = 0;
 while(!empty($fp[$node])) {
@@ -174,11 +182,13 @@ while(!empty($fp[$node])) {
 		$finished = $asrCurrentTalker;
 		$finished['event_epoch'] = time();
 		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
+		$urfTalkerEvents = asrUrfTalkerEvents();
+		$finished = asrEnrichUrfTalker($finished, $urfTalkerEvents);
 		// History is transmission-event history, not unique-station history.
 		// If the same node keys three separate times, keep all three events.
 		array_unshift($asrTalkerHistory, $finished);
 		$asrTalkerHistory = array_slice($asrTalkerHistory, 0, 4);
-		writeTalkerHistory($sharedDir . '/talkers-' . $node . '.json', $asrTalkerHistory);
+		writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
 	}
 	if($nextCurrentTalker !== null) {
 		if($asrCurrentTalker === null || $previousNode !== $nextNode)
@@ -187,6 +197,10 @@ while(!empty($fp[$node])) {
 			$nextCurrentTalker['started_epoch'] = $asrCurrentTalker['started_epoch'] ?? time();
 	}
 	$asrCurrentTalker = $nextCurrentTalker;
+	if($asrCurrentTalker !== null) {
+		$urfTalkerEvents = asrUrfTalkerEvents();
+		$asrCurrentTalker = asrEnrichUrfTalker($asrCurrentTalker, $urfTalkerEvents);
+	}
 	$current[$node]['current_talker'] = $asrCurrentTalker;
 	$current[$node]['last_talkers'] = $asrTalkerHistory;
 
