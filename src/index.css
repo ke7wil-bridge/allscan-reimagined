@@ -9220,3 +9220,66 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     left: 3px;
   }
 }
+
+/* Beta 8 tablet-landscape header trial: match accepted tablet-portrait proportions. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app { padding-top: 130px; }
+  .allscan-brand { width: 78px; height: 52px; }
+  .allscan-brand-main { transform: scale(1.08); transform-origin: left center; }
+  .allscan-header-ke7wil-logo { width: 51px; height: 51px; }
+  .allscan-title { font-size: 22px; }
+  .allscan-cpu,
+  .allscan-clockline,
+  .allscan-status-label { font-size: 13px; }
+  .allscan-cpu-pill,
+  .allscan-pill { font-size: 12px; }
+  .allscan-menu-button { font-size: 19px; padding: 9px 11px; }
+}
+
+/* Beta 8 locked tablet-landscape Talkers: centered title, accepted header clearance, five cards across, readable typography. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-talkers-section { margin-top: 20px !important; }
+
+  .allscan-talkers-section > .allscan-section-title {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap {
+    grid-column: 2 !important;
+    position: relative !important;
+    display: inline-block !important;
+    width: max-content !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title .allscan-module-drag-handle {
+    position: absolute !important;
+    top: 50% !important;
+    right: calc(100% + 7px) !important;
+    left: auto !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .allscan-talker-cards {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  .allscan-talker-card,
+  .allscan-talker-card:nth-child(4),
+  .allscan-talker-card:nth-child(5) { grid-column: auto !important; }
+
+  .allscan-talker-card-title { font-size: 14px; }
+  .allscan-talker-callsign { font-size: 17px; }
+  .allscan-talker-source,
+  .allscan-talker-description,
+  .allscan-talker-location,
+  .allscan-talker-duration { font-size: 13px; }
+}
