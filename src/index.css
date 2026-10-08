@@ -9221,7 +9221,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   }
 }
 
-/* Beta 8 tablet-landscape header trial: match accepted tablet-portrait proportions. */
+/* Beta 8 locked tablet-landscape header: match accepted tablet-portrait proportions. */
 @media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
   html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app { padding-top: 130px; }
   .allscan-brand { width: 78px; height: 52px; }
@@ -9362,4 +9362,150 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child {
     font-size: 13.5px !important;
   }
+}
+
+/* Beta 8 locked tablet bridge presentation: accepted portrait and landscape bridge geometry/typography. */
+@media (min-width: 701px) and (max-width: 1199px) {
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row {
+    transform: translateX(-6px) !important;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 320px !important;
+    width: 320px !important;
+    min-width: 320px !important;
+    max-width: 320px !important;
+  }
+
+  .allscan-talker-card-title { font-size: 14px !important; }
+  .allscan-talker-callsign { font-size: 17px !important; }
+  .allscan-talker-source,
+  .allscan-talker-description,
+  .allscan-talker-location,
+  .allscan-talker-duration { font-size: 13px !important; }
+
+  .allscan-favorites-legend { font-size: 14px !important; }
+  .allscan-favorites-table tbody tr { font-size: 15px !important; }
+  .allscan-favorites-table tbody td:nth-child(2) { font-size: 20px !important; }
+  .allscan-favorite-description { font-size: 15px !important; }
+  .allscan-favorites-table tbody td:nth-child(4),
+  .allscan-favorite-frequency,
+  .allscan-favorite-location,
+  .allscan-favorite-description small { font-size: 13px !important; }
+
+  .allscan-connection-table thead th { font-size: 12px !important; line-height: 14px !important; }
+  .allscan-connection-table tbody tr.allscan-connection-row-local > td,
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    font-size: 13px !important;
+    line-height: 16px !important;
+  }
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child { font-size: 13.5px !important; }
+
+  .allscan-bridge-grid .allscan-bridge-head-title,
+  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status { font-size: 12px !important; }
+  .allscan-bridge-grid .allscan-bridge-row,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-bridge-grid .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-client-user,
+  .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
+  .allscan-bridge-grid .allscan-bridge-client-meta,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
+  .allscan-urf-group-title { font-size: 14px !important; }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b { transform: translateX(3px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-row > b:last-child { left: calc(50% + 12px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+    transform: translateX(10px) !important;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-bridge-section {
+    box-sizing: border-box !important;
+    width: min(1280px, calc(100vw - 24px)) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .allscan-bridge-section .allscan-urf-group {
+    box-sizing: border-box !important;
+    left: auto !important;
+    width: calc(100% - 16px) !important;
+    max-width: calc(100% - 16px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle { transform: translateX(-9px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > svg,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > svg { transform: translateX(11px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+    transform: translateX(11px) !important;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex: 0 0 calc((100% - 24px) / 5) !important;
+    width: calc((100% - 24px) / 5) !important;
+    max-width: calc((100% - 24px) / 5) !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 320px !important;
+    width: 320px !important;
+    min-width: 320px !important;
+    max-width: 320px !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-head-title,
+  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status {
+    min-width: 64px !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding-inline: 8px !important;
+    font-size: 12px !important;
+  }
+  .allscan-bridge-grid .allscan-bridge-row,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-bridge-grid .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-client-user,
+  .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
+  .allscan-bridge-grid .allscan-bridge-client-meta,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
+  .allscan-urf-group-title { font-size: 14px !important; }
 }
