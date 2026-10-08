@@ -9181,3 +9181,42 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
     font-size: 11.5px !important;
   }
 }
+
+/* Beta 8 locked tablet-portrait bridge layout: equal standard cards, centered partial rows, wider Net Bridge. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex: 0 0 calc((100% - 18px) / 4) !important;
+    width: calc((100% - 18px) / 4) !important;
+    max-width: calc((100% - 18px) / 4) !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 min(92%, 340px) !important;
+    width: min(92%, 340px) !important;
+    max-width: 340px !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > span {
+    transform: translateX(-8px);
+    white-space: nowrap;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > svg {
+    position: relative;
+    left: 3px;
+  }
+}
