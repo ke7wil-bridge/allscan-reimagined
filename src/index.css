@@ -9327,3 +9327,39 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-favorite-location,
   .allscan-favorite-description small { font-size: 13px; }
 }
+
+/* Beta 8 locked tablet-landscape Connection Status: compact accepted geometry with readable rows. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-connection-table thead th {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+    font-size: 12px !important;
+    line-height: 14px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 22px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr.allscan-connection-row-local > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child {
+    font-size: 13.5px !important;
+  }
+}
