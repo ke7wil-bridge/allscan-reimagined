@@ -9170,3 +9170,39 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   }
   .allscan-controls-shell .allscan-node-messages-summary::after { font-size: 10px; }
 }
+
+/* Beta 8 locked non-desktop Connection Status readability. */
+@media (max-width: 1199px) {
+  .allscan-connection-table thead th {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+    font-size: 12px !important;
+    line-height: 14px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 22px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table .allscan-connection-row-local > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 11px !important;
+    line-height: 15px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child {
+    font-size: 11.5px !important;
+  }
+}
