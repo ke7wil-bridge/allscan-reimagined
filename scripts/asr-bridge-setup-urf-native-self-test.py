@@ -7,6 +7,7 @@ import json
 import stat
 import sys
 import tempfile
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -72,6 +73,16 @@ def main() -> None:
         settings = fixture(root)
         plan = planner.plan(root, settings)
         assert plan["backend"] == "native" and not plan["images"]
+        assert planner.tgif_network_id(3224939, 1001, 50) == 322493950
+        test_settings = planner.UrfSettings(
+            "dmr_tgif", "KE7WIL", 3224939, 86753, "URFWIL", "TGIF DMR", 1001,
+            "standard", 50)
+        test_plan = planner.plan(root, test_settings)
+        assert test_plan["settings"]["dmr_id"] == 3224939
+        assert test_plan["settings"]["tgif_essid"] == 50
+        assert test_plan["dmrNetworkId"] == 322493950
+        assert b"Environment=DMR_NETWORK_ID=322493950" in installer.native_units(test_plan)[
+            "/etc/systemd/system/allscan-reimagined-tgif-dmr_tgif.service"][0]
         assert len(plan["services"]) == 3
         provenance = plan["runtimeRequirements"]["provenance"]
         assert provenance["architecture"] == installer.native_sources.architecture()
@@ -100,6 +111,9 @@ def main() -> None:
         rejected(installer.install, root, settings, "never-log-this-secret",
                  expected_digest=plan["digest"], fail_after=4, contains="injected")
         assert not (root / plan["resources"]["root"].lstrip("/")).exists()
+        for logical in installer.file_spec(root, plan, "never-log-this-secret"):
+            assert not (root / logical.lstrip("/")).exists() or logical in {
+                planner.CONFIG, planner.RPT, planner.MODULES}
         after_failure = snapshot(root)
         assert {key: value for key, value in after_failure.items()
                 if not key.startswith("var/lib/")} == original
@@ -131,6 +145,45 @@ def main() -> None:
         assert container_outputs[secret][1] == 0o600
         assert all(b"container-secret" not in data
                    for path, (data, _mode) in container_outputs.items() if path != secret)
+
+    with tempfile.TemporaryDirectory(prefix="asr-native-startup-test-") as temporary:
+        run = Path(temporary)
+        for name in ("adapter.pid", "mmdvm.pid"):
+            put(run, name, "123\n")
+        (run / "tgif-health").touch()
+        put(run, "urf-identity.json", json.dumps({"state": "rejected"}))
+
+        def database_becomes_ready(_interval):
+            put(run, "urf-identity.json", json.dumps({"state": "authenticated"}))
+            (run / "urf-health").touch()
+
+        with mock.patch.object(installer.os, "kill"), \
+                mock.patch.object(installer.time, "sleep", side_effect=database_becomes_ready) as sleeper:
+            ready, error, state = installer.poll_native_runtime(run, attempts=3, interval=0)
+        assert ready and not error and state == "authenticated" and sleeper.call_count == 1
+
+        (run / "urf-health").unlink()
+        put(run, "urf-identity.json", json.dumps({"state": "rejected"}))
+        with mock.patch.object(installer.os, "kill"), mock.patch.object(installer.time, "sleep"):
+            ready, error, state = installer.poll_native_runtime(run, attempts=3, interval=0)
+        assert not ready and state == "rejected" and error
+        assert str(installer.native_runtime_failure(state, "", error)) == (
+            "URFD rejected the configured DMR identity; verify the DMR ID and callsign")
+
+        (run / "urf-health").touch()
+        put(run, "urf-identity.json", json.dumps({"state": "authenticated"}))
+        with mock.patch.object(installer.os, "kill"), \
+                mock.patch.object(installer.time, "sleep") as sleeper:
+            ready, error, state = installer.poll_native_runtime(run, attempts=3, interval=0)
+        assert ready and not error and state == "authenticated" and not sleeper.called
+
+    affected = ("wrapper.service", "urfd.service", "tcd.service", "tgif.service")
+    with mock.patch.object(installer.subprocess, "run") as systemctl:
+        installer.reload_and_reset_failed(affected)
+    commands = [call.args[0] for call in systemctl.call_args_list]
+    assert commands[0] == ["systemctl", "daemon-reload"]
+    assert commands[1:] == [["systemctl", "reset-failed", unit] for unit in affected]
+    assert all("unrelated.service" not in command for command in commands)
 
     source = (HERE / "asr-bridge-urf-native-runtime.py").read_text(encoding="utf-8")
     for revision in (planner.load("native_source_constants", "asr-bridge-urf-native-runtime.py").URFD[1],

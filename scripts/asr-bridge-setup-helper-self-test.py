@@ -78,6 +78,10 @@ def main() -> None:
     dmr_value = helper.dmr_settings(dmr, dmr_request)
     assert dmr_value.reflector == "URFWIL" and dmr_value.tgif_tg == 86753
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
+    test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
+                                           "hotspotEssid": 50})
+    assert test_value.dmr_id == 3224939 and test_value.tgif_essid == 50
+    assert dmr.tgif_network_id(test_value.dmr_id, 1001, test_value.tgif_essid) == 322493950
     dmr_ports = dmr.port_block("dmr_tgif_net")
     rendered_urf = dmr.urfd_ini({
         "settings": {"reflector": "URFWIL", "callsign": "KE7WIL", "dmr_id": 3224939},

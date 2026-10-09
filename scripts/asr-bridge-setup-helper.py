@@ -396,6 +396,7 @@ def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "title",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
+        "hotspotEssid",
     }
     if set(payload) - allowed:
         raise HelperError("DMR request contains unsupported fields")
@@ -416,6 +417,7 @@ def dmr_settings(module, payload: dict[str, Any]):
         reflector=reflector, title=str(payload.get("title") or "DMR Bridge"),
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
+        tgif_essid=int(payload["hotspotEssid"]) if payload.get("hotspotEssid") else None,
     )
 
 

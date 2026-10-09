@@ -4,6 +4,8 @@ TGIF_RUNTIME_DIR="${HEALTH_DIR:-/run/tgif-dmr}"
 TGIF_ASSET_DIR="${TGIF_ASSET_DIR:-/opt/tgif}"
 MMDVM_BINARY="${MMDVM_BINARY:-/opt/MMDVM_Bridge}"
 install -d -m 750 "$TGIF_RUNTIME_DIR"
+rm -f -- "$TGIF_RUNTIME_DIR/urf-health" "$TGIF_RUNTIME_DIR/tgif-health" \
+  "$TGIF_RUNTIME_DIR/urf-identity.json" "$TGIF_RUNTIME_DIR/urf-identity.json.tmp"
 python3 - <<'RENDER'
 import os
 from pathlib import Path

@@ -428,10 +428,10 @@ check($setupError === '' && $setup['callsign'] === 'N0CALL' && $setup['destinati
 $_POST = [
 	'setupBridgeId' => 'urf_dmr', 'setupTitle' => 'DMR Bridge',
 	'setupCallsign' => 'ke7wil', 'setupDigitalId' => '3224939',
-	'setupDestination' => '86753',
+	'setupDestination' => '86753', 'setupTgifEssid' => '50',
 ];
 $dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
-check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
+check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hotspotEssid'] === '50' && $dmrSetup['digitalId'] === 3224939 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';
@@ -441,6 +441,10 @@ check($setupError === '' && $dmrInstall['tgifPassword'] === 'secret-123', 'Secur
 $_POST['setupTgifPassword'] = "bad\npassword";
 asrSettingsDmrSetupPayload(true, $setupError);
 check(strpos($setupError, 'hotspot key') !== false, 'Unsafe TGIF hotspot key was accepted.');
+$_POST['setupTgifPassword'] = 'secret-123';
+$_POST['setupTgifEssid'] = '100';
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'ESSID') !== false, 'Unsafe TGIF hotspot ESSID was accepted.');
 
 $_POST = [
 	'setupBridgeId' => 'zello', 'setupTitle' => 'Zello Bridge',

@@ -33,11 +33,11 @@ def port_block(bridge_id: str) -> dict[str, int]:
              "dvswitch_tx", "dvswitch_rx", "dcs", "dextra", "dplus", "urf")
     return dict(zip(names, range(base, base + len(names))))
 
-def tgif_network_id(dmr_id: int, bridge_node: int) -> int:
+def tgif_network_id(dmr_id: int, bridge_node: int, essid: int | None = None) -> int:
     """Return a stable TGIF hotspot ESSID distinct for each private node."""
     # The qualified managed Net Bridge identity is intentionally independent
     # of its consolidated AllStar transport node and the URFWIL ESSID 01 peer.
-    suffix = 4 if bridge_node == 1999 else (bridge_node % 100 or 99)
+    suffix = essid if essid is not None else (4 if bridge_node == 1999 else (bridge_node % 100 or 99))
     return dmr_id * 100 + suffix
 
 class PlanError(RuntimeError):
@@ -69,6 +69,7 @@ class UrfSettings:
     title: str = "DMR Bridge"
     bridge_node: int | None = None
     bridge_role: str = "standard"
+    tgif_essid: int | None = None
 def load(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
     if not spec or not spec.loader:
@@ -95,12 +96,15 @@ def validate(value: UrfSettings) -> UrfSettings:
         raise PlanError("enter a valid TGIF talkgroup")
     if value.bridge_role not in {"standard", "net"}:
         raise PlanError("bridge role must be standard or net")
+    if value.tgif_essid is not None and (
+            not isinstance(value.tgif_essid, int) or not 1 <= value.tgif_essid <= 99):
+        raise PlanError("TGIF hotspot ESSID must be 1-99")
     if not isinstance(value.title, str) or not value.title.strip() or len(value.title) > 80 or any(ch in value.title for ch in "\r\n\0"):
         raise PlanError("invalid bridge title")
     if value.bridge_node is not None and not 1001 <= value.bridge_node <= 1999:
         raise PlanError("private bridge node must be in 1001-1999")
     return UrfSettings(bridge_id, callsign, value.dmr_id, value.tgif_tg, reflector,
-                       value.title.strip(), value.bridge_node, value.bridge_role)
+                       value.title.strip(), value.bridge_node, value.bridge_role, value.tgif_essid)
 def rooted(root: Path, logical: str) -> Path:
     return load("asr_backend_urf", "asr-provisioning-backend.py").map_path(root, logical)
 
@@ -190,7 +194,9 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
     result = {
         "schema": 2, "bridgeType": "dmr", "runtime": "urf-tgif", "backend": backend,
         "settings": asdict(settings),
-        "mainNode": main_node, "bridgeNode": node, "ports": ports, "resources": resources,
+        "mainNode": main_node, "bridgeNode": node,
+        "dmrNetworkId": tgif_network_id(settings.dmr_id, node, settings.tgif_essid),
+        "ports": ports, "resources": resources,
         "services": services,
         "runtimeRequirements": ({"dockerCompose": True} if containerized else {
             "os": "debian-12-or-13", "architectures": ["amd64", "arm64", "armhf"],
@@ -221,7 +227,7 @@ def tcd_ini(plan: dict) -> str:
 def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
     config_path=safe_regular(root, CONFIG); rpt_path=safe_regular(root, RPT); modules_path=safe_regular(root, MODULES)
     config=json.loads(config_path.read_text(encoding="utf-8")); s=plan["settings"]; node=plan["bridgeNode"]; p=plan["ports"]
-    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(tgif_network_id(s["dmr_id"], node)),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
+    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(plan["dmrNetworkId"]),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
     bridges=config.setdefault("bridges",[]); matches=[i for i,b in enumerate(bridges) if isinstance(b,dict) and b.get("id")==s["bridge_id"]]
     if len(matches)>1: raise PlanError("duplicate bridge identity")
     if matches: bridges[matches[0]]=entry

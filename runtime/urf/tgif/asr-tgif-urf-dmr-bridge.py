@@ -25,6 +25,8 @@ HEALTH_DIR = os.environ.get("HEALTH_DIR", "")
 ROSTER_FILE = os.environ.get("DMR_ROSTER_FILE", os.path.join(HEALTH_DIR, "dmr-clients.json") if HEALTH_DIR else "")
 CONTROL_FILE = os.environ.get("DMR_CONTROL_FILE", os.path.join(os.path.dirname(ROSTER_FILE), "dmr-admin.json") if ROSTER_FILE else "")
 CALLSIGN = os.environ.get("CALLSIGN", "").strip().upper()
+URF_IDENTITY_FILE = os.path.join(HEALTH_DIR, "urf-identity.json") if HEALTH_DIR else ""
+urf_login_attempts = 0
 
 
 def mark_health(name):
@@ -45,6 +47,27 @@ def clear_health(name):
         os.unlink(os.path.join(HEALTH_DIR, name + "-health"))
     except FileNotFoundError:
         pass
+    except OSError:
+        pass
+
+
+def publish_urf_identity(state):
+    """Publish the latest local URFD authentication result atomically."""
+    if not URF_IDENTITY_FILE:
+        return
+    payload = {
+        "state": state,
+        "dmrid": str(DMR_ID),
+        "callsign": CALLSIGN,
+        "attempts": urf_login_attempts,
+        "updated_epoch": int(time.time()),
+    }
+    try:
+        os.makedirs(os.path.dirname(URF_IDENTITY_FILE), exist_ok=True)
+        temporary = URF_IDENTITY_FILE + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+        os.replace(temporary, URF_IDENTITY_FILE)
     except OSError:
         pass
 
@@ -230,20 +253,24 @@ def urf_login(sock):
 
 
 def connect_urf():
+    global urf_login_attempts
+    urf_login_attempts += 1
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", URF_LOCAL_PORT))
     sock.connect((URF_HOST, URF_PORT))
     sock.settimeout(0.5)
     if not urf_login(sock):
         sock.close()
+        publish_urf_identity("rejected")
         print(
             f"URFWIL DMR login rejected for DMR ID {DMR_ID}; verify the configured DMR identity",
             flush=True,
         )
         return None
     sock.setblocking(False)
-    print(f"URFWIL DMR session connected: {URF_HOST}:{URF_PORT}", flush=True)
     mark_health("urf")
+    publish_urf_identity("authenticated")
+    print(f"URFWIL DMR session connected: {URF_HOST}:{URF_PORT}", flush=True)
     return sock
 
 
@@ -305,6 +332,11 @@ def main():
     tgif_authenticated = False
     tgif_login_phase = ""
     clear_health("tgif")
+    clear_health("urf")
+    try:
+        os.unlink(URF_IDENTITY_FILE)
+    except (FileNotFoundError, OSError):
+        pass
 
     while True:
         now = time.monotonic()
@@ -488,9 +520,21 @@ def self_test():
     toward_urf = rewrite_for_urf(bytes(packet))
     old_roster = globals().get("ROSTER_FILE", "")
     old_target = globals().get("TARGET_FILE", "")
+    old_identity_file = globals().get("URF_IDENTITY_FILE", "")
+    old_attempts = globals().get("urf_login_attempts", 0)
     try:
         with tempfile.TemporaryDirectory() as scratch:
             globals()["ROSTER_FILE"] = os.path.join(scratch, "dmr-clients.json")
+            globals()["URF_IDENTITY_FILE"] = os.path.join(scratch, "urf-identity.json")
+            globals()["urf_login_attempts"] = 2
+            publish_urf_identity("rejected")
+            with open(globals()["URF_IDENTITY_FILE"], "r", encoding="utf-8") as handle:
+                identity = json.load(handle)
+            assert identity["state"] == "rejected" and identity["attempts"] == 2
+            publish_urf_identity("authenticated")
+            with open(globals()["URF_IDENTITY_FILE"], "r", encoding="utf-8") as handle:
+                identity = json.load(handle)
+            assert identity["state"] == "authenticated"
             publish_dmr_client(1234567, 100)
             publish_dmr_client(7654321, 101)
             with open(globals()["ROSTER_FILE"], "r", encoding="utf-8") as handle:
@@ -515,6 +559,8 @@ def self_test():
     finally:
         globals()["ROSTER_FILE"] = old_roster
         globals()["TARGET_FILE"] = old_target
+        globals()["URF_IDENTITY_FILE"] = old_identity_file
+        globals()["urf_login_attempts"] = old_attempts
     assert destination_id(toward_urf) == URF_TG
     packet[8:11] = (4000).to_bytes(3, "big")
     assert destination_id(rewrite_for_urf(bytes(packet))) == 4000

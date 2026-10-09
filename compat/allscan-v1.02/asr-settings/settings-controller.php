@@ -2050,6 +2050,7 @@ function asrSettingsDigitalSetupPayload($mode, &$error) {
 function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	$error = '';
 	$authMode = strtolower(asrSettingsCleanText($_POST['setupTgifAuthMode'] ?? 'legacy', 12));
+	$hotspotEssid = trim((string)($_POST['setupTgifEssid'] ?? ''));
 	$stationCallsign = (string) (asrSettingsReadConfig()['callsign'] ?? '');
 	if($stationCallsign === 'SCRATCH')
 		$stationCallsign = (string) ($_POST['setupCallsign'] ?? '');
@@ -2063,6 +2064,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'destination' => (int)($_POST['setupDestination'] ?? 0),
 		'network' => strtolower(asrSettingsCleanText($_POST['setupDmrNetwork'] ?? 'tgif', 24)),
 		'authMode' => $authMode,
+		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
 	];
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
@@ -2073,6 +2075,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	elseif(!in_array($authMode, ['legacy', 'secured'], true)) $error = 'Select a valid TGIF DMR connection method.';
 	elseif($payload['callsign'] === '') $error = 'The node callsign is not configured.';
 	elseif($payload['digitalId'] < 1 || $payload['digitalId'] > 9999999) $error = 'Enter a valid 1-7 digit DMR ID.';
+	elseif($hotspotEssid !== '' && (!ctype_digit($hotspotEssid) || (int)$hotspotEssid < 1 || (int)$hotspotEssid > 99)) $error = 'Enter a TGIF hotspot ESSID from 1 to 99.';
 	elseif($payload['destination'] < 1 || $payload['destination'] > 16777215 || $payload['destination'] === 4000) $error = 'Enter a valid TGIF talkgroup other than 4000.';
 	elseif($requireSecret && $authMode === 'secured' && ($password === '' || strlen($password) > 128 || preg_match('/[\x00-\x1F\x7F]/', $password))) $error = 'Enter a valid TGIF hotspot key (1-128 characters; control characters are not allowed).';
 	$planDigest = strtolower(asrSettingsCleanText($_POST['setupPlanDigest'] ?? '', 64));
@@ -2968,6 +2971,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-digital-label>DMR ID</span><input data-bridge-setup-digital-id type="number" min="1" max="9999999" placeholder="1234567" value="<?php echo $setupDmrIdDefault > 0 ? (int)$setupDmrIdDefault : ''; ?>"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-destination-label>Talkgroup</span><input data-bridge-setup-destination type="text" inputmode="numeric" pattern="[0-9]+" maxlength="8" placeholder="64189"></label>
 				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-tgif-auth hidden><span>TGIF DMR Connection</span><select data-bridge-setup-tgif-auth-mode><option value="legacy">Legacy (no personal key)</option><option value="secured">Secured (hotspot key)</option></select><small>Your TGIF website callsign/password are separate from the DMR connection. Legacy uses your DMR ID without a personal key.</small></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-tgif-auth hidden><span>TGIF Hotspot ESSID <small>(optional)</small></span><input data-bridge-setup-tgif-essid type="number" min="1" max="99" placeholder="Automatic"><small>Use a unique 1-99 suffix when another hotspot for this DMR ID may be online.</small></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-dmr-username-field hidden><span>Network Username / Callsign</span><input data-bridge-setup-dmr-username type="text" maxlength="80" autocomplete="username" placeholder="Callsign or network username"></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-tgif-key hidden><span>TGIF Hotspot Key <small>(not the website password)</small></span><input data-bridge-setup-tgif-password type="password" maxlength="128" autocomplete="new-password"></label>
 				<label data-bridge-setup-zello hidden><span>Zello Username</span><input data-bridge-setup-zello-username type="text" maxlength="80" autocomplete="username"></label>
@@ -3217,6 +3221,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupDigitalId: document.querySelector('[data-bridge-setup-digital-id]'),
 		setupDestination: document.querySelector('[data-bridge-setup-destination]'),
 		setupTgifAuthMode: document.querySelector('[data-bridge-setup-tgif-auth-mode]'),
+		setupTgifEssid: document.querySelector('[data-bridge-setup-tgif-essid]'),
 		setupDmrUsername: document.querySelector('[data-bridge-setup-dmr-username]'),
 		setupTgifPassword: document.querySelector('[data-bridge-setup-tgif-password]'),
 		setupZelloUsername: document.querySelector('[data-bridge-setup-zello-username]'),
@@ -4072,6 +4077,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx;
 		} else if(mode === 'dmr') {
 			details = 'Managed URF/TGIF runtime: yes\n' +
+				'TGIF hotspot/network ID: ' + (result.dmrNetworkId || 'automatic') + '\n' +
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +
 				'URF DMR port: ' + ports.dmr + '\n' +
 				'TGIF local ports: ' + ports.tgif_local + ' / ' + ports.tgif_mmdvm;

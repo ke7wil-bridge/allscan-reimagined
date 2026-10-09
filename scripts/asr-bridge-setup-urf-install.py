@@ -28,6 +28,8 @@ CONTAINER_DOCKER_HOME = "/var/cache/allscan-reimagined/docker-home"
 CONTAINER_DOCKER_CONFIG = "/var/cache/allscan-reimagined/docker-config"
 CONTAINER_BUILDX_CONFIG = "/var/cache/allscan-reimagined/buildx"
 NATIVE_RUNTIME_ROOT = Path("/opt/allscan-reimagined-bridges/.runtime/urf-native")
+NATIVE_STARTUP_ATTEMPTS = 90
+NATIVE_STARTUP_POLL_SECONDS = 1.0
 def service_name(bridge_id: str) -> str:
     if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
         raise InstallError("invalid bridge ID")
@@ -126,8 +128,7 @@ def compose_yaml(plan: dict[str, Any]) -> str:
             or not re.fullmatch(r"(?:host|container:[A-Za-z0-9][A-Za-z0-9_.-]{0,127})", network_mode)):
         raise InstallError("invalid URF Docker network mode")
     reflector_name, transcoder_name, tgif_name = runtime_names(plan)
-    network_dmr_id = planner.tgif_network_id(
-        plan["settings"]["dmr_id"], plan["bridgeNode"])
+    network_dmr_id = plan["dmrNetworkId"]
     return f"""services:
   urfd:
     image: allscan-reimagined/urf:managed
@@ -264,7 +265,7 @@ WantedBy=multi-user.target
 """
     environment = {
         "DMR_ID": settings["dmr_id"],
-        "DMR_NETWORK_ID": planner.tgif_network_id(settings["dmr_id"], plan["bridgeNode"]),
+        "DMR_NETWORK_ID": plan["dmrNetworkId"],
         "CALLSIGN": settings["callsign"], "TGIF_HOST": "tgif.network", "TGIF_PORT": 62031,
         "TGIF_TG": settings["tgif_tg"], "TGIF_TARGET_FILE": f"{run}/net-target",
         "LOCAL_PORT": ports["tgif_local"], "MMDVM_PORT": ports["tgif_mmdvm"],
@@ -544,6 +545,60 @@ def capture_runtime_diagnostics(plan: dict[str, Any]) -> None:
     atomic(directory / "latest.txt", output.encode(), 0o600)
 
 
+def native_identity_state(run: Path) -> str:
+    try:
+        payload = json.loads((run / "urf-identity.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(payload.get("state", "")) if isinstance(payload, dict) else ""
+
+
+def poll_native_runtime(run: Path, *, attempts: int = NATIVE_STARTUP_ATTEMPTS,
+                        interval: float = NATIVE_STARTUP_POLL_SECONDS) -> tuple[bool, str, str]:
+    """Wait for positive runtime signals while treating early identity rejects as transient."""
+    last_error = ""
+    identity_state = ""
+    for attempt in range(attempts):
+        try:
+            pids = [int((run / name).read_text().strip()) for name in ("adapter.pid", "mmdvm.pid")]
+            for pid in pids:
+                os.kill(pid, 0)
+            now = time.time()
+            identity_state = native_identity_state(run) or identity_state
+            markers_fresh = all(now - (run / name).stat().st_mtime <= 60
+                                for name in ("urf-health", "tgif-health"))
+            if identity_state == "authenticated" and markers_fresh:
+                return True, "", identity_state
+            last_error = ("waiting for authenticated URFWIL DMR login"
+                          if identity_state != "authenticated"
+                          else "health markers are not fresh")
+        except (OSError, ValueError) as exc:
+            last_error = str(exc)
+        if attempt + 1 < attempts:
+            time.sleep(interval)
+    return False, last_error, identity_state
+
+
+def reload_and_reset_failed(units: tuple[str, ...]) -> None:
+    """Reload units, then independently clear only this transaction's failures."""
+    subprocess.run(["systemctl", "daemon-reload"], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for unit in units:
+        subprocess.run(["systemctl", "reset-failed", unit], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def native_runtime_failure(identity_state: str, diagnostics: str, last_error: str) -> InstallError:
+    if "TGIF authentication rejected by master" in diagnostics:
+        return InstallError("TGIF rejected the hotspot security key for this DMR ID")
+    if identity_state == "rejected" or (
+            identity_state != "authenticated"
+            and "URFWIL DMR login rejected for DMR ID" in diagnostics):
+        return InstallError("URFD rejected the configured DMR identity; verify the DMR ID and callsign")
+    return InstallError(
+        f"TGIF/URF native runtime health check did not pass: {last_error or 'unknown'}")
+
+
 def verify_container_runtime(plan: dict[str, Any]) -> None:
     names = runtime_names(plan)
     for name in names:
@@ -600,29 +655,12 @@ def verify_native_runtime(plan: dict[str, Any]) -> None:
             capture_runtime_diagnostics(plan)
             raise InstallError(f"native runtime process for {unit} is not alive")
     run = rooted(Path("/"), plan["resources"]["tgifRun"])
-    last_error = ""
-    for _ in range(30):
-        try:
-            pids = [int((run / name).read_text().strip()) for name in ("adapter.pid", "mmdvm.pid")]
-            for pid in pids:
-                os.kill(pid, 0)
-            now = time.time()
-            if all(now - (run / name).stat().st_mtime <= 60
-                   for name in ("urf-health", "tgif-health")):
-                break
-            last_error = "health markers are not fresh"
-        except (OSError, ValueError) as exc:
-            last_error = str(exc)
-        time.sleep(1)
-    else:
+    ready, last_error, identity_state = poll_native_runtime(run)
+    if not ready:
         capture_runtime_diagnostics(plan)
         diagnostic = Path("/var/lib/allscan-reimagined/bridge-setup/diagnostics/latest.txt")
         text = diagnostic.read_text(encoding="utf-8", errors="replace") if diagnostic.is_file() else ""
-        if "TGIF authentication rejected by master" in text:
-            raise InstallError("TGIF rejected the hotspot security key for this DMR ID")
-        if "URFWIL DMR login rejected for DMR ID" in text:
-            raise InstallError("URFD rejected the configured DMR identity; verify the DMR ID and callsign")
-        raise InstallError(f"TGIF/URF native runtime health check did not pass: {last_error or 'unknown'}")
+        raise native_runtime_failure(identity_state, text, last_error)
     verify_asterisk_node(plan)
 
 
@@ -761,12 +799,10 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
         except Exception as exc:
             rollback_errors.append(str(exc))
         if manage_services:
-            subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            reset_units = [service]
+            reset_units = (service,)
             if plan["backend"] == "native":
-                reset_units.extend(native_service_names(identity))
-            subprocess.run(["systemctl", "reset-failed", *reset_units], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                reset_units += native_service_names(identity)
+            reload_and_reset_failed(reset_units)
             if asterisk_changed:
                 subprocess.run(["systemctl", "restart", "asterisk.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
