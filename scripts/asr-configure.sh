@@ -62,6 +62,9 @@ detect_node() {
 
   if [ -r "$ALLSCAN_DIR/include/common.php" ]; then
     node=$(php -r '
+      // CLI has no web SCRIPT_NAME. Set the stock route explicitly so dbInit()
+      // targets /etc/allscan/allscan.db rather than accidentally creating .db.
+      $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
       chdir($argv[1]);
       require_once "include/common.php";
       $msg = [];
@@ -202,7 +205,7 @@ if [ -z "$detected_node" ]; then
   echo "No AllStar node was detected automatically; you can enter it below."
 fi
 detected_call=""
-[ -n "$detected_node" ] && detected_call=$(detect_callsign "$detected_node")
+[ -n "$detected_node" ] && detected_call=$(detect_callsign "$detected_node" || true)
 
 echo
 echo "=== AllScan Reimagined Personalization ==="

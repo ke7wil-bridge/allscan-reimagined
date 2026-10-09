@@ -407,6 +407,16 @@ prune_old_backups() {
 for command in curl php python3 tar install find systemctl flock; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command not found: $command"
 done
+# The upstream AllScan installer downloads a zip archive on first install.
+# Bootstrap installs unzip on clean ASL3 nodes; keep direct archive installs usable too.
+if ! command -v unzip >/dev/null 2>&1; then
+  command -v apt-get >/dev/null 2>&1 || fail "Required command not found: unzip"
+  echo "Installing required package: unzip"
+  DEBIAN_FRONTEND=noninteractive apt-get update \
+    || fail "Could not refresh package metadata required to install unzip"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y unzip \
+    || fail "Could not install required package: unzip"
+fi
 install -d -o root -g root -m 755 /run/lock
 exec 9>/run/lock/allscan-reimagined-rollback.lock
 flock -n 9 || fail "Another ASR installation or rollback is already running."
@@ -988,7 +998,11 @@ validate_command "Bridge-status privacy helper PHP syntax" php -l "$ASR_WEB_DIR/
 validate_command "CPU temperature helper PHP syntax" php -l "$ASR_WEB_DIR/include/asrCpuTemperature.php" >/dev/null
 validate_command "Bridge-status privacy self-test" php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"
 validate_command "CPU temperature sensor-selection self-test" php "$RELEASE_DIR/scripts/asr-cpu-temperature-self-test.php"
-validate_command "ASR-wide CPU temperature consumer self-test" node "$RELEASE_DIR/scripts/asr-cpu-temperature-consumers-self-test.mjs"
+if command -v node >/dev/null 2>&1; then
+  validate_command "ASR-wide CPU temperature consumer self-test" node "$RELEASE_DIR/scripts/asr-cpu-temperature-consumers-self-test.mjs"
+else
+  echo "  Node.js is not installed; build-time JavaScript consumer validation already passed."
+fi
 echo "  Checking release notification, rollback, bridge, Favorites, and access helpers..."
 validate_command "release-check helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-release-check.py" --self-test >/dev/null
