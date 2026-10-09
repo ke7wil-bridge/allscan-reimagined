@@ -364,7 +364,8 @@ def digital_command(payload: dict[str, Any], mode: str, apply: bool) -> dict[str
         if not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise HelperError(f"{mode.upper()} installation requires a current preview digest")
         # Reject stale previews before package installation or runtime staging mutates the host.
-        if planner.plan(Path("/"), settings)["digest"] != expected:
+        current_plan = planner.plan(Path("/"), settings)
+        if current_plan["digest"] != expected:
             raise HelperError("preview is stale; preview again")
         source = load_module(f"asr_setup_{mode}_source", DIGITAL_SOURCE_PATH)
         packages_before = installed_packages()
@@ -428,7 +429,8 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         expected = str(payload.get("planDigest", ""))
         if not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise HelperError("DMR installation requires a current preview digest")
-        if planner.plan(Path("/"), settings)["digest"] != expected:
+        current_plan = planner.plan(Path("/"), settings)
+        if current_plan["digest"] != expected:
             raise HelperError("preview is stale; preview again")
         auth_mode = payload.get("authMode", "secured" if payload.get("tgifPassword") else "legacy")
         if auth_mode == "legacy":
@@ -440,10 +442,21 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
             if not password:
                 raise HelperError("TGIF secured connection requires a hotspot key")
         installer = load_module("asr_setup_dmr_install", URF_INSTALL_PATH)
-        result = installer.install(
-            Path("/"), settings, password,
-            expected_digest=expected, manage_services=True,
-        )
+        packages_before = installed_packages() if current_plan.get("backend") == "native" else set()
+        try:
+            result = installer.install(
+                Path("/"), settings, password,
+                expected_digest=expected, manage_services=True,
+            )
+        except Exception as original:
+            if current_plan.get("backend") == "native":
+                try:
+                    rollback_packages(packages_before)
+                except Exception as rollback:
+                    raise HelperError(
+                        f"installation failed ({original}); package rollback failed ({rollback})"
+                    ) from rollback
+            raise
     append_audit({
         "action": "dmr-install" if apply else "dmr-plan",
         "bridgeId": settings.bridge_id, "result": "ok",

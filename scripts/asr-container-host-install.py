@@ -31,7 +31,7 @@ HOST_FILES = (
     "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
     "asr-bridge-setup-m17.py", "asr-bridge-setup-helper.py",
-    "asr-bridge-runtime-sources.py", "asr-bridge-setup-digital.py",
+    "asr-bridge-runtime-sources.py", "asr-bridge-urf-native-runtime.py", "asr-bridge-setup-digital.py",
     "asr-bridge-setup-digital-render.py", "asr-bridge-setup-digital-install.py",
     "asr-bridge-setup-urf.py", "asr-bridge-setup-urf-install.py",
 )

@@ -255,7 +255,14 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+if ! getent passwd asr-bridge >/dev/null 2>&1; then
+  if getent group asr-bridge >/dev/null 2>&1; then
+    useradd --system --gid asr-bridge --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
+  else
+    useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
+  fi
+fi
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
@@ -279,6 +286,8 @@ fi
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
 [ -f "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" /usr/local/sbin/allscan-reimagined-bridge-lifecycle
+[ -f "$MASTER_DIR/scripts/asr-net-bridge-mode-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-net-bridge-mode-control.py" /usr/local/sbin/allscan-reimagined-net-bridge-mode-control
 [ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
 if getent passwd asr-bridge >/dev/null 2>&1; then

@@ -21,8 +21,11 @@ NET_CARD_TYPES = {f"{mode}_net" for mode in MODES}
 NODE = 1999
 LOCK = Path("/run/lock/allscan-reimagined-net-bridge-mode.lock")
 PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
-SYSTEMCTL = "/usr/local/libexec/allscan-reimagined/asr-container-systemctl.py"
-ASTERISK = "/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
+CONTAINERIZED = bool(os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"))
+SYSTEMCTL = ("/usr/local/libexec/allscan-reimagined/asr-container-systemctl.py"
+             if CONTAINERIZED else "/usr/bin/systemctl")
+ASTERISK = ("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
+            if CONTAINERIZED else "/usr/sbin/asterisk")
 Runner = Callable[[list[str], bool], subprocess.CompletedProcess[str]]
 
 
@@ -118,31 +121,27 @@ def service_units(mode: str, bridge: dict) -> list[str]:
     return units
 
 
-def dmr_compose(bridge: dict) -> Path:
+def dmr_runtime(bridge: dict) -> Path:
     bridge_id = str(bridge["id"])
     expected = Path(f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target")
     target = Path(str(bridge.get("managedTargetFile", "")))
     if (bridge.get("managedNetControl") is not True
             or bridge.get("backendMode") != "managed" or target != expected):
         raise ModeError("DMR Net Bridge runtime allowlist is invalid")
-    return target.parent.parent / "compose.yml"
+    return target.parent.parent
 
 
 def runtime_argv(mode: str, bridge: dict, verb: str) -> list[list[str]]:
     if verb not in {"start", "stop", "status"}:
         raise ModeError("invalid runtime operation")
     if mode == "dmr":
-        compose = dmr_compose(bridge)
-        project = str(bridge["id"])
+        dmr_runtime(bridge)
         unit = f"allscan-reimagined-urf-tgif-{bridge['id']}.service"
         if verb == "start":
-            return [[SYSTEMCTL, "enable", unit],
-                    ["docker", "compose", "-f", str(compose), "-p", project, "up", "-d"]]
+            return [[SYSTEMCTL, "enable", "--now", unit]]
         if verb == "stop":
-            return [["docker", "compose", "-f", str(compose), "-p", project, "stop"],
-                    [SYSTEMCTL, "disable", unit]]
-        return [["docker", "compose", "-f", str(compose), "-p", project,
-                 "ps", "--services", "--filter", "status=running"]]
+            return [[SYSTEMCTL, "disable", "--now", unit]]
+        return [[SYSTEMCTL, "is-active", "--quiet", unit]]
     units = service_units(mode, bridge)
     if verb == "start":
         return [[SYSTEMCTL, "enable", "--now", unit] for unit in units]
@@ -156,10 +155,7 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         checked(runner(argv, False), f"stopping {mode.upper()} runtime")
     for argv in runtime_argv(mode, bridge, "status"):
         result = runner(argv, False)
-        if mode == "dmr":
-            if result.returncode or result.stdout.strip():
-                raise ModeError("DMR runtime did not stop cleanly")
-        elif result.returncode == 0:
+        if result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
 
 
@@ -170,10 +166,7 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         ready = True
         for argv in runtime_argv(mode, bridge, "status"):
             result = runner(argv, False)
-            if mode == "dmr":
-                if result.returncode or len(result.stdout.splitlines()) < 3:
-                    ready = False
-            elif result.returncode:
+            if result.returncode:
                 ready = False
         if ready:
             return

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import platform
 import re
 import sys
 import zlib
@@ -41,6 +42,22 @@ def tgif_network_id(dmr_id: int, bridge_node: int) -> int:
 
 class PlanError(RuntimeError):
     pass
+
+def validate_runtime_requirements(facts, containerized: bool, asterisk_available: bool,
+                                  release: dict[str, str], machine: str) -> None:
+    if not facts.systemd:
+        raise PlanError("URF/TGIF setup requires systemd")
+    if containerized:
+        if not facts.docker or not facts.docker_compose:
+            raise PlanError("container-host URF/TGIF setup requires Docker with the Compose plugin")
+    else:
+        if (release.get("ID") != "debian"
+                or release.get("VERSION_ID", "").split(".")[0] not in {"12", "13"}):
+            raise PlanError("native URF/TGIF setup requires Debian 12 or 13")
+        if machine.lower() not in {"x86_64", "aarch64", "armv7l"}:
+            raise PlanError("native URF/TGIF setup is unsupported on this architecture")
+    if not asterisk_available:
+        raise PlanError("Asterisk chan_usrp module is not installed")
 
 @dataclass(frozen=True)
 class UrfSettings:
@@ -111,13 +128,13 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         raise PlanError("ASR bridges are invalid")
     core = load("asr_setup_core_urf", "asr-bridge-setup-core.py")
     facts = core.ASL3Adapter(root).detect()
+    backend_module = load("asr_backend_urf_module", "asr-provisioning-backend.py")
+    containerized = root == Path("/") and backend_module.load_profile() is not None
     if root == Path("/"):
-        if not facts.systemd:
-            raise PlanError("URF/TGIF setup requires systemd")
-        if not facts.docker or not facts.docker_compose:
-            raise PlanError("URF/TGIF setup requires Docker with the Compose plugin")
-        if not load("asr_backend_urf_module", "asr-provisioning-backend.py").asterisk_module_available():
-            raise PlanError("Asterisk chan_usrp module is not installed")
+        validate_runtime_requirements(
+            facts, containerized, backend_module.asterisk_module_available(),
+            platform.freedesktop_os_release(), platform.machine(),
+        )
     try:
         main_node = int(config["node"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -157,11 +174,30 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         "root": runtime, "compose": f"{runtime}/compose.yml", "urfConfig": f"{runtime}/config/urfd.ini",
         "tcdConfig": f"{runtime}/config/tcd.ini", "blacklist": f"{runtime}/config/urfd.blacklist",
         "tgifSecret": f"{runtime}/secrets/tgif-password", "config": CONFIG, "rpt": RPT, "modules": MODULES,
+        "data": f"{runtime}/data", "tgifRun": f"{runtime}/tgif-run",
     }
+    backend = "container" if containerized else "native"
+    native_provenance = None
+    if not containerized:
+        native_source = load("asr_native_urf_plan_source", "asr-bridge-urf-native-runtime.py")
+        digital_source = load("asr_native_urf_plan_digital_source", "asr-bridge-runtime-sources.py")
+        native_provenance = native_source.describe(digital_source)
+    services = ([f"allscan-reimagined-urf-tgif-{settings.bridge_id}.service"] if containerized else [
+        f"allscan-reimagined-urfd-{settings.bridge_id}.service",
+        f"allscan-reimagined-tcd-{settings.bridge_id}.service",
+        f"allscan-reimagined-tgif-{settings.bridge_id}.service",
+    ])
     result = {
-        "schema": 1, "bridgeType": "dmr", "runtime": "urf-tgif", "settings": asdict(settings),
+        "schema": 2, "bridgeType": "dmr", "runtime": "urf-tgif", "backend": backend,
+        "settings": asdict(settings),
         "mainNode": main_node, "bridgeNode": node, "ports": ports, "resources": resources,
-        "images": {"urf": "allscan-reimagined/urf:managed", "tcd": "allscan-reimagined/urf-tcd:managed"},
+        "services": services,
+        "runtimeRequirements": ({"dockerCompose": True} if containerized else {
+            "os": "debian-12-or-13", "architectures": ["amd64", "arm64", "armhf"],
+            "systemd": True, "account": "asr-bridge", "provenance": native_provenance,
+        }),
+        "images": ({"urf": "allscan-reimagined/urf:managed", "tcd": "allscan-reimagined/urf-tcd:managed"}
+                   if containerized else {}),
         "hostState": {
             "configSha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
             "rptSha256": hashlib.sha256(rpt_path.read_bytes()).hexdigest(),
@@ -174,7 +210,10 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
 def urfd_ini(plan: dict) -> str:
     s, p = plan["settings"], plan["ports"]
     reflector_id = max(1, (int(plan["mainNode"]) // 10) % 100000)
-    return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nPort = {p['dcs']}\n[DExtra]\nPort = {p['dextra']}\n[DPlus]\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nPort = {p['dmrplus']}\n[M17]\nPort = {p['m17']}\n[MMDVM]\nPort = {p['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nPort = {p['nxdn']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[P25]\nPort = {p['p25']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[URF]\nPort = {p['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nPort = {p['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {reflector_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = /data/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = /data/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = /data/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = /data/urfd.pid\nXmlPath = /data/urfd.xml\nWhitelistPath = /config/urfd.whitelist\nBlacklistPath = /config/urfd.blacklist\nInterlinkPath = /config/urfd.interlink\nG3TerminalPath = /config/urfd.terminal\n"""
+    native = plan.get("backend") == "native"
+    data = plan["resources"]["data"] if native else "/data"
+    config = f"{plan['resources']['root']}/config" if native else "/config"
+    return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nPort = {p['dcs']}\n[DExtra]\nPort = {p['dextra']}\n[DPlus]\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nPort = {p['dmrplus']}\n[M17]\nPort = {p['m17']}\n[MMDVM]\nPort = {p['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nPort = {p['nxdn']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[P25]\nPort = {p['p25']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[URF]\nPort = {p['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nPort = {p['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {reflector_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = {data}/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = {data}/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = {data}/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = {data}/urfd.pid\nXmlPath = {data}/urfd.xml\nWhitelistPath = {config}/urfd.whitelist\nBlacklistPath = {config}/urfd.blacklist\nInterlinkPath = {config}/urfd.interlink\nG3TerminalPath = {config}/urfd.terminal\n"""
 
 def tcd_ini(plan: dict) -> str:
     return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 0\nDStarGainOut = 0\nDmrYsfGainIn = 0\nDmrYsfGainOut = 0\nUsrpTxGain = 0\nUsrpRxGain = 0\n"""

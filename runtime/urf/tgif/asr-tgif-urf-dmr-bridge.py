@@ -236,6 +236,10 @@ def connect_urf():
     sock.settimeout(0.5)
     if not urf_login(sock):
         sock.close()
+        print(
+            f"URFWIL DMR login rejected for DMR ID {DMR_ID}; verify the configured DMR identity",
+            flush=True,
+        )
         return None
     sock.setblocking(False)
     print(f"URFWIL DMR session connected: {URF_HOST}:{URF_PORT}", flush=True)

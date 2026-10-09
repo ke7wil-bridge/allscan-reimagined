@@ -6,6 +6,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
+import pwd
 import re
 import shutil
 import stat
@@ -25,6 +27,7 @@ STATE = "/var/lib/allscan-reimagined/bridge-setup/installations"
 CONTAINER_DOCKER_HOME = "/var/cache/allscan-reimagined/docker-home"
 CONTAINER_DOCKER_CONFIG = "/var/cache/allscan-reimagined/docker-config"
 CONTAINER_BUILDX_CONFIG = "/var/cache/allscan-reimagined/buildx"
+NATIVE_RUNTIME_ROOT = Path("/opt/allscan-reimagined-bridges/.runtime/urf-native")
 def service_name(bridge_id: str) -> str:
     if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
         raise InstallError("invalid bridge ID")
@@ -32,6 +35,13 @@ def service_name(bridge_id: str) -> str:
 
 def unit_path(bridge_id: str) -> str:
     return f"/etc/systemd/system/{service_name(bridge_id)}"
+
+def native_service_names(bridge_id: str) -> tuple[str, str, str]:
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
+        raise InstallError("invalid bridge ID")
+    return (f"allscan-reimagined-urfd-{bridge_id}.service",
+            f"allscan-reimagined-tcd-{bridge_id}.service",
+            f"allscan-reimagined-tgif-{bridge_id}.service")
 
 class InstallError(RuntimeError):
     pass
@@ -66,6 +76,7 @@ def load(name: str, filename: str):
 
 planner = load("urf_installer_plan", "asr-bridge-setup-urf.py")
 sources = load("urf_installer_sources", "asr-bridge-runtime-sources.py")
+native_sources = load("urf_installer_native_sources", "asr-bridge-urf-native-runtime.py")
 def rooted(root: Path, logical: str) -> Path:
     if not logical.startswith("/") or ".." in Path(logical).parts:
         raise InstallError("unsafe managed path")
@@ -168,7 +179,7 @@ def compose_yaml(plan: dict[str, Any]) -> str:
       retries: 6
       start_period: 10s
 """
-def unit_text(plan: dict[str, Any]) -> str:
+def container_unit_text(plan: dict[str, Any]) -> str:
     backend = load("asr_backend_urf_unit", "asr-provisioning-backend.py")
     compose = backend.map_path(Path("/"), plan["resources"]["compose"])
     root = backend.map_path(Path("/"), plan["resources"]["root"])
@@ -190,11 +201,106 @@ TimeoutStartSec=120
 WantedBy=multi-user.target
 """
 
+def native_units(plan: dict[str, Any]) -> dict[str, tuple[bytes, int]]:
+    identity = plan["settings"]["bridge_id"]
+    wrapper = service_name(identity)
+    urfd, tcd, tgif = native_service_names(identity)
+    runtime = plan["resources"]["root"]
+    shared = str(NATIVE_RUNTIME_ROOT / "current")
+    data = plan["resources"]["data"]
+    run = plan["resources"]["tgifRun"]
+    secret = plan["resources"]["tgifSecret"]
+    settings, ports = plan["settings"], plan["ports"]
+    common = """Restart=on-failure
+RestartSec=2
+User=asr-bridge
+Group=asr-bridge
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+"""
+    tcd_command = f"{shared}/bin/tcd-armhf {plan['resources']['tcdConfig']}"
+    if platform.machine().lower() != "armv7l":
+        tcd_command = (f"{shared}/bin/qemu-arm-static -L /usr/arm-linux-gnueabihf "
+                       f"{shared}/bin/tcd-armhf {plan['resources']['tcdConfig']}")
+    wrapper_text = f"""[Unit]
+Description=ASR managed native URF + TGIF bridge ({identity})
+After=network-online.target asterisk.service
+Wants=network-online.target
+Wants={urfd} {tcd} {tgif}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+
+[Install]
+WantedBy=multi-user.target
+"""
+    def component(description: str, after: str, command: str, writable: str) -> str:
+        return f"""[Unit]
+Description={description}
+After={after}
+PartOf={wrapper}
+
+[Service]
+Type=simple
+WorkingDirectory={runtime}
+ExecStart={command}
+{common}ReadWritePaths={writable}
+
+[Install]
+WantedBy=multi-user.target
+"""
+    environment = {
+        "DMR_ID": settings["dmr_id"],
+        "DMR_NETWORK_ID": planner.tgif_network_id(settings["dmr_id"], plan["bridgeNode"]),
+        "CALLSIGN": settings["callsign"], "TGIF_HOST": "tgif.network", "TGIF_PORT": 62031,
+        "TGIF_TG": settings["tgif_tg"], "TGIF_TARGET_FILE": f"{run}/net-target",
+        "LOCAL_PORT": ports["tgif_local"], "MMDVM_PORT": ports["tgif_mmdvm"],
+        "URF_HOST": "127.0.0.1", "URF_PORT": ports["dmr"],
+        "URF_LOCAL_PORT": ports["urf_local"], "URF_TG": 4001,
+        "DVSWITCH_TX": ports["dvswitch_tx"], "DVSWITCH_RX": ports["dvswitch_rx"],
+        "HEALTH_DIR": run, "DMR_ROSTER_FILE": f"{run}/dmr-clients.json",
+        "TGIF_PASSWORD_FILE": secret, "TGIF_ASSET_DIR": f"{shared}/tgif",
+        "MMDVM_BINARY": f"{shared}/bin/MMDVM_Bridge",
+    }
+    env_lines = "".join(f"Environment={key}={value}\n" for key, value in environment.items())
+    tgif_text = component(
+        f"ASR TGIF adapter and MMDVM bridge ({identity})", f"network-online.target {urfd}",
+        f"{shared}/tgif/run.sh", run,
+    ).replace("ExecStart=", env_lines + "ExecStart=", 1)
+    return {
+        unit_path(identity): (wrapper_text.encode(), 0o644),
+        f"/etc/systemd/system/{urfd}": (component(
+            f"ASR native URFD reflector ({identity})", "network-online.target asterisk.service",
+            f"{shared}/bin/urfd {plan['resources']['urfConfig']}", data).encode(), 0o644),
+        f"/etc/systemd/system/{tcd}": (component(
+            f"ASR native TCD transcoder ({identity})", f"network.target {urfd}",
+            tcd_command, data).encode(), 0o644),
+        f"/etc/systemd/system/{tgif}": (tgif_text.encode(), 0o644),
+    }
+
 def file_spec(root: Path, plan: dict[str, Any], password: str) -> dict[str, tuple[bytes, int]]:
     outputs = planner.integration_files(root, plan)
-    outputs[plan["resources"]["compose"]] = (compose_yaml(plan).encode(), 0o644)
-    outputs[plan["resources"]["tgifSecret"]] = ((password + "\n").encode(), 0o600)
-    outputs[unit_path(plan["settings"]["bridge_id"])] = (unit_text(plan).encode(), 0o644)
+    if plan["backend"] == "container":
+        outputs[plan["resources"]["compose"]] = (compose_yaml(plan).encode(), 0o644)
+        outputs[unit_path(plan["settings"]["bridge_id"])] = (container_unit_text(plan).encode(), 0o644)
+        secret_mode = 0o600
+    else:
+        outputs.update(native_units(plan))
+        secret_mode = 0o640
+    outputs[plan["resources"]["tgifSecret"]] = ((password + "\n").encode(), secret_mode)
     return outputs
 
 def validate_password(value: str) -> str:
@@ -320,30 +426,125 @@ def build_images() -> dict[str, dict[str, str]]:
             raise InstallError(f"image build failed ({original}); image rollback also failed ({rollback})") from original
         raise
 
+
+def prepare_native_runtime() -> dict[str, Any]:
+    """Build and atomically promote the shared, provenance-verified runtime."""
+    if not RUNTIME_SOURCE.is_dir():
+        raise InstallError("URF runtime source is not installed")
+    current = NATIVE_RUNTIME_ROOT / "current"
+    if NATIVE_RUNTIME_ROOT.is_symlink() or current.is_symlink():
+        raise InstallError("native runtime staging path is unsafe")
+    try:
+        native_sources.verify(current, RUNTIME_SOURCE, sources)
+        return {"changed": False}
+    except native_sources.SourceError:
+        pass
+    NATIVE_RUNTIME_ROOT.mkdir(parents=True, exist_ok=True, mode=0o755)
+    transaction_id = f"{os.getpid()}-{time.time_ns():x}"
+    candidate = NATIVE_RUNTIME_ROOT / f"candidate-{transaction_id}"
+    backup = NATIVE_RUNTIME_ROOT / f"previous-{transaction_id}"
+    transaction: dict[str, Any] = {
+        "changed": True, "current": current, "candidate": candidate,
+        "backup": backup, "hadPrior": current.exists(),
+    }
+    try:
+        native_sources.install_packages()
+        native_sources.build(candidate, RUNTIME_SOURCE, sources)
+        native_sources.verify(candidate, RUNTIME_SOURCE, sources)
+        if current.exists():
+            os.replace(current, backup)
+        os.replace(candidate, current)
+        native_sources.verify(current, RUNTIME_SOURCE, sources)
+        return transaction
+    except Exception as original:
+        try:
+            if candidate.exists():
+                shutil.rmtree(candidate)
+            if backup.exists() and not current.exists():
+                os.replace(backup, current)
+        except Exception as rollback:
+            raise InstallError(
+                f"native runtime build failed ({original}); staging rollback failed ({rollback})"
+            ) from original
+        raise
+
+
+def finish_native_runtime(transaction: dict[str, Any]) -> None:
+    if transaction.get("changed") and Path(transaction["backup"]).exists():
+        shutil.rmtree(transaction["backup"])
+
+
+def restore_native_runtime(transaction: dict[str, Any]) -> None:
+    if not transaction.get("changed"):
+        return
+    current, backup = Path(transaction["current"]), Path(transaction["backup"])
+    failed = NATIVE_RUNTIME_ROOT / f"failed-{time.time_ns():x}"
+    if current.exists():
+        os.replace(current, failed)
+    if transaction.get("hadPrior"):
+        if not backup.exists():
+            raise InstallError("native runtime rollback copy is missing")
+        os.replace(backup, current)
+        native_sources.verify(current, RUNTIME_SOURCE, sources)
+    if failed.exists():
+        shutil.rmtree(failed)
+
+
+def ensure_native_runtime_paths(plan: dict[str, Any]) -> None:
+    try:
+        account = pwd.getpwnam("asr-bridge")
+    except KeyError as exc:
+        raise InstallError("native bridge service account asr-bridge is unavailable") from exc
+    for logical in (plan["resources"]["data"], plan["resources"]["tgifRun"]):
+        path = rooted(Path("/"), logical)
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise InstallError(f"native runtime writable path is unsafe: {logical}")
+        path.mkdir(parents=True, exist_ok=True, mode=0o750)
+        os.chown(path, account.pw_uid, account.pw_gid)
+        os.chmod(path, 0o750)
+    secret = rooted(Path("/"), plan["resources"]["tgifSecret"])
+    os.chown(secret, 0, account.pw_gid)
+    os.chmod(secret, 0o640)
+
 def capture_runtime_diagnostics(plan: dict[str, Any]) -> None:
     """Preserve bounded private logs before the transactional rollback."""
     directory = Path("/var/lib/allscan-reimagined/bridge-setup/diagnostics")
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     lines = []
-    for name in runtime_names(plan):
-        state = docker_run(
-            ["docker", "inspect", "-f", "{{json .State}}", name],
-            capture_output=True, text=True,
-        )
-        logs = docker_run(
-            ["docker", "logs", "--tail", "80", name],
-            capture_output=True, text=True,
-        )
-        lines.extend((f"=== {name} state ===", state.stdout or state.stderr,
-                      f"=== {name} logs ===", logs.stdout, logs.stderr))
-    password = ""
+    if plan["backend"] == "container":
+        for name in runtime_names(plan):
+            state = docker_run(
+                ["docker", "inspect", "-f", "{{json .State}}", name],
+                capture_output=True, text=True,
+            )
+            logs = docker_run(
+                ["docker", "logs", "--tail", "80", name],
+                capture_output=True, text=True,
+            )
+            lines.extend((f"=== {name} state ===", state.stdout or state.stderr,
+                          f"=== {name} logs ===", logs.stdout, logs.stderr))
+    else:
+        for name in (service_name(plan["settings"]["bridge_id"]),
+                     *native_service_names(plan["settings"]["bridge_id"])):
+            state = subprocess.run(
+                ["systemctl", "show", name, "--property=ActiveState,SubState,Result"],
+                capture_output=True, text=True,
+            )
+            logs = subprocess.run(
+                ["journalctl", "--no-pager", "-u", name, "-n", "80"],
+                capture_output=True, text=True,
+            )
+            lines.extend((f"=== {name} state ===", state.stdout or state.stderr,
+                          f"=== {name} logs ===", logs.stdout, logs.stderr))
+    secret = rooted(Path("/"), plan["resources"]["tgifSecret"])
+    password = secret.read_text(encoding="utf-8").rstrip("\n") if secret.is_file() else ""
     output = "\n".join(lines)
     if password:
         output = output.replace(password, "[REDACTED]")
     atomic(directory / "latest.txt", output.encode(), 0o600)
 
 
-def verify_runtime(plan: dict[str, Any]) -> None:
+def verify_container_runtime(plan: dict[str, Any]) -> None:
     names = runtime_names(plan)
     for name in names:
         result = docker_run(["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True)
@@ -379,6 +580,66 @@ def verify_runtime(plan: dict[str, Any]) -> None:
     detail = f": {last_asterisk_error[-500:]}" if last_asterisk_error else ""
     raise InstallError(f"Asterisk did not register URF transport node {node}{detail}")
 
+
+def verify_native_runtime(plan: dict[str, Any]) -> None:
+    identity = plan["settings"]["bridge_id"]
+    units = (service_name(identity), *native_service_names(identity))
+    for unit in units:
+        result = subprocess.run(["systemctl", "is-active", "--quiet", unit])
+        if result.returncode:
+            capture_runtime_diagnostics(plan)
+            raise InstallError(f"native runtime unit {unit} did not start")
+    urfd, tcd, _tgif = native_service_names(identity)
+    for unit in (urfd, tcd):
+        result = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", unit],
+                                capture_output=True, text=True)
+        try:
+            pid = int(result.stdout.strip())
+            os.kill(pid, 0)
+        except (ValueError, OSError):
+            capture_runtime_diagnostics(plan)
+            raise InstallError(f"native runtime process for {unit} is not alive")
+    run = rooted(Path("/"), plan["resources"]["tgifRun"])
+    last_error = ""
+    for _ in range(30):
+        try:
+            pids = [int((run / name).read_text().strip()) for name in ("adapter.pid", "mmdvm.pid")]
+            for pid in pids:
+                os.kill(pid, 0)
+            now = time.time()
+            if all(now - (run / name).stat().st_mtime <= 60
+                   for name in ("urf-health", "tgif-health")):
+                break
+            last_error = "health markers are not fresh"
+        except (OSError, ValueError) as exc:
+            last_error = str(exc)
+        time.sleep(1)
+    else:
+        capture_runtime_diagnostics(plan)
+        diagnostic = Path("/var/lib/allscan-reimagined/bridge-setup/diagnostics/latest.txt")
+        text = diagnostic.read_text(encoding="utf-8", errors="replace") if diagnostic.is_file() else ""
+        if "TGIF authentication rejected by master" in text:
+            raise InstallError("TGIF rejected the hotspot security key for this DMR ID")
+        if "URFWIL DMR login rejected for DMR ID" in text:
+            raise InstallError("URFD rejected the configured DMR identity; verify the DMR ID and callsign")
+        raise InstallError(f"TGIF/URF native runtime health check did not pass: {last_error or 'unknown'}")
+    verify_asterisk_node(plan)
+
+
+def verify_asterisk_node(plan: dict[str, Any]) -> None:
+    node = plan["bridgeNode"]
+    last_error = ""
+    for _ in range(20):
+        result = subprocess.run(["asterisk", "-rx", f"rpt stats {node}"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and f"NODE {node} STATISTICS" in result.stdout:
+            return
+        last_error = (result.stderr or result.stdout).strip()
+        time.sleep(0.5)
+    capture_runtime_diagnostics(plan)
+    raise InstallError(f"Asterisk did not register URF transport node {node}"
+                       f"{': ' + last_error[-500:] if last_error else ''}")
+
 def install(root: Path, settings, password: str, *, expected_digest: str,
             manage_services: bool = False, fail_after: int | None = None) -> dict[str, Any]:
     if manage_services and root != Path("/"):
@@ -388,6 +649,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     if plan["digest"] != expected_digest:
         raise InstallError("preview is stale; preview again")
     outputs = file_spec(root, plan, password)
+    runtime_root_was_present = rooted(root, plan["resources"]["root"]).exists()
     identity = settings.bridge_id
     service = service_name(identity)
     record = f"{STATE}/{identity}.json"
@@ -410,6 +672,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     backup.mkdir(parents=True, mode=0o700)
     atomic(backup / "manifest.json", (json.dumps({k: {"existed": v is not None, "sha256": hashlib.sha256(v[0]).hexdigest() if v else None} for k,v in before.items()}, indent=2, sort_keys=True) + "\n").encode(), 0o600)
     prior_images: dict[str, dict[str, str]] = {}
+    native_transaction: dict[str, Any] = {"changed": False}
     service_was_enabled = False
     service_was_active = False
     changed = 0
@@ -423,6 +686,11 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
             asterisk_changed |= logical in (planner.RPT, planner.MODULES)
             if fail_after is not None and changed >= fail_after:
                 raise InstallError("injected apply failure")
+        for logical, (data, mode) in outputs.items():
+            target = rooted(root, logical)
+            if (not target.is_file() or target.read_bytes() != data
+                    or stat.S_IMODE(target.stat().st_mode) != mode):
+                raise InstallError(f"managed file verification failed: {logical}")
         net_inactive = (str(plan["settings"].get("bridge_role") or "standard") == "net"
                         and json.loads(rooted(root, planner.CONFIG).read_text()).get("netBridgeMode") != "dmr")
         if manage_services:
@@ -432,7 +700,16 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
             service_was_active = subprocess.run(
                 ["systemctl", "is-active", "--quiet", service], check=False
             ).returncode == 0
-            prior_images = build_images()
+            if plan["backend"] == "container":
+                prior_images = build_images()
+            else:
+                native_transaction = prepare_native_runtime()
+                ensure_native_runtime_paths(plan)
+                secret_info = rooted(root, plan["resources"]["tgifSecret"]).stat()
+                account = pwd.getpwnam("asr-bridge")
+                if (secret_info.st_uid != 0 or secret_info.st_gid != account.pw_gid
+                        or stat.S_IMODE(secret_info.st_mode) != 0o640):
+                    raise InstallError("TGIF credential ownership verification failed")
             subprocess.run(["systemctl", "daemon-reload"], check=True)
             if net_inactive:
                 subprocess.run(["systemctl", "disable", "--now", service], check=True,
@@ -443,15 +720,21 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
                 subprocess.run(["systemctl", "enable", service], check=True, capture_output=True, text=True)
                 subprocess.run(["systemctl", "restart" if service_was_active else "start", service],
                                check=True, capture_output=True, text=True)
-                verify_runtime(plan)
+                if plan["backend"] == "container":
+                    verify_container_runtime(plan)
+                else:
+                    verify_native_runtime(plan)
         owned = sorted(path for path in outputs if path not in (planner.CONFIG, planner.RPT, planner.MODULES))
-        record_data = {"schema": 1, "bridgeType": "dmr", "runtime": "urf-tgif", "bridgeId": identity,
+        record_data = {"schema": 2, "bridgeType": "dmr", "runtime": "urf-tgif",
+                       "backend": plan["backend"], "bridgeId": identity,
                        "bridgeNode": plan["bridgeNode"], "ports": plan["ports"], "service": service,
+                       "services": plan["services"],
                        "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False,
                        "committedAt": old_record.get("committedAt", int(time.time())) if old_record else int(time.time()),
                        "ownedFiles": owned}
         atomic(existing, (json.dumps(record_data, indent=2, sort_keys=True) + "\n").encode(), 0o600)
         cleanup_image_transaction(prior_images)
+        finish_native_runtime(native_transaction)
         return {"ok": True, "digest": plan["digest"], "bridgeId": identity, "bridgeNode": plan["bridgeNode"],
                 "service": service, "changedFiles": changed, "backup": str(backup),
                 "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False}
@@ -461,34 +744,49 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
             subprocess.run(["systemctl", "disable", "--now", service],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            for logical, original in reversed(list(before.items())):
+            for logical, prior in reversed(list(before.items())):
                 target = rooted(root, logical)
-                if original is None:
+                if prior is None:
                     target.unlink(missing_ok=True)
                 else:
-                    atomic(target, original[0], original[1])
+                    atomic(target, prior[0], prior[1])
                     if owners[logical] is not None:
                         os.chown(target, *owners[logical])
-            for logical, original in before.items():
+            for logical, prior in before.items():
                 target = rooted(root, logical)
-                if original is None and target.exists():
+                if prior is None and target.exists():
                     raise InstallError(f"rollback verification failed: {logical}")
-                if original is not None and (not target.is_file() or target.read_bytes() != original[0] or stat.S_IMODE(target.stat().st_mode) != original[1]):
+                if prior is not None and (not target.is_file() or target.read_bytes() != prior[0] or stat.S_IMODE(target.stat().st_mode) != prior[1]):
                     raise InstallError(f"rollback verification failed: {logical}")
         except Exception as exc:
             rollback_errors.append(str(exc))
         if manage_services:
             subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            reset_units = [service]
+            if plan["backend"] == "native":
+                reset_units.extend(native_service_names(identity))
+            subprocess.run(["systemctl", "reset-failed", *reset_units], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if asterisk_changed:
                 subprocess.run(["systemctl", "restart", "asterisk.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
-                restore_images(prior_images)
+                if plan["backend"] == "container":
+                    restore_images(prior_images)
+                else:
+                    restore_native_runtime(native_transaction)
                 if service_was_enabled:
                     subprocess.run(["systemctl", "enable", service], check=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if service_was_active:
                     subprocess.run(["systemctl", "start", service], check=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as exc:
+                rollback_errors.append(str(exc))
+        if plan["backend"] == "native" and not runtime_root_was_present:
+            try:
+                runtime_root = rooted(root, plan["resources"]["root"])
+                if runtime_root.is_dir() and not runtime_root.is_symlink():
+                    shutil.rmtree(runtime_root)
             except Exception as exc:
                 rollback_errors.append(str(exc))
         if rollback_errors:
