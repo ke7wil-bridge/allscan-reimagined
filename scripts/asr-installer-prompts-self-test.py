@@ -43,6 +43,27 @@ def main() -> int:
     require(root_message in installer, "installer root guidance is not plain and copy-ready")
     require("umask 022" in installer, "installer does not set a deterministic secure umask")
     require(
+        'detect_callsign "$detected_node" || true' in configure,
+        "clean installs without an ASTDB callsign must fall back instead of aborting",
+    )
+    require(
+        '$_SERVER["SCRIPT_NAME"] = "/allscan/index.php";' in configure,
+        "CLI stock detection must initialize the canonical allscan.db path",
+    )
+    require(
+        "apt-get install -y unzip" in installer,
+        "installer must provision the upstream AllScan unzip dependency on clean nodes",
+    )
+    require(
+        'if command -v node >/dev/null 2>&1; then' in installer,
+        "target validation must not require Node.js on a clean ASL3 node",
+    )
+    reapply = (SCRIPT_PATH.parents[1] / "scripts" / "asr-reapply.sh").read_text(encoding="utf-8")
+    require(
+        "ReadWritePaths=/run/allscan-reimagined /var/lib/allscan-reimagined" in reapply,
+        "TGIF session collector sandbox must permit its persistent state directory",
+    )
+    require(
         installer.index(root_check) < installer.index('ASR_VERSION=')
         and installer.index("umask 022") < installer.index('ASR_VERSION='),
         "root and umask preflight must run before installer setup",

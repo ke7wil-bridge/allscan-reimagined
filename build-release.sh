@@ -43,6 +43,34 @@ allscan-v1.02/lookup/index.php
 allscan-v1.02/performance/index.php
 allscan-v1.02/tgif/index.php
 allscan-v1.02/user/settings/index.php
+allscan-v1.03/LICENSE
+allscan-v1.03/asr-instructions/index.php
+allscan-v1.03/asr-settings/index.php
+allscan-v1.03/asr-settings/rollback-status.php
+allscan-v1.03/asr-settings/settings-controller.php
+allscan-v1.03/astapi/AMI.php
+allscan-v1.03/astapi/asrAmiGuard.php
+allscan-v1.03/astapi/asrEchoLink.php
+allscan-v1.03/astapi/asrTalkerIdentity.php
+allscan-v1.03/astapi/server.php
+allscan-v1.03/css/asr-admin.css
+allscan-v1.03/echolink-lookup/index.php
+allscan-v1.03/include/CfgModel.php
+allscan-v1.03/include/UserModel.php
+allscan-v1.03/include/asrBridgeStatus.php
+allscan-v1.03/include/asrCpuTemperature.php
+allscan-v1.03/include/asrFavorites.php
+allscan-v1.03/include/asrLinkState.php
+allscan-v1.03/include/asrPerformanceContract.php
+allscan-v1.03/include/asrRuntime.php
+allscan-v1.03/include/common.php
+allscan-v1.03/include/dbUtils.php
+allscan-v1.03/js/asr-cmd-buttons-config.js
+allscan-v1.03/js/asr-favorites-config.js
+allscan-v1.03/lookup/index.php
+allscan-v1.03/performance/index.php
+allscan-v1.03/tgif/index.php
+allscan-v1.03/user/settings/index.php
 EOF
 )
 ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
@@ -99,6 +127,7 @@ python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
 bash -n "$ROOT/bootstrap.sh"
+bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
@@ -122,6 +151,11 @@ if command -v php >/dev/null 2>&1; then
 	php -l "$ROOT/compat/allscan-v1.02/astapi/server.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.02/astapi/asrEchoLink.php" >/dev/null
 	php -l "$ROOT/compat/allscan-v1.02/astapi/asrTalkerIdentity.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.03/astapi/AMI.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.03/astapi/asrAmiGuard.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.03/astapi/server.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.03/astapi/asrEchoLink.php" >/dev/null
+	php -l "$ROOT/compat/allscan-v1.03/astapi/asrTalkerIdentity.php" >/dev/null
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"
@@ -216,9 +250,13 @@ while IFS= read -r compat_file; do
   mkdir -p "$STAGE/payload/compat/$(dirname "$compat_file")"
   install -m 644 "compat/$compat_file" "$STAGE/payload/compat/$compat_file"
 done <<< "$COMPAT_MANIFEST"
-install -m 644 public/js/asr-settings-modern.js "$STAGE/payload/compat/allscan-v1.02/js/asr-settings-modern.js"
+for compat_version in v1.02 v1.03; do
+  install -m 644 public/js/asr-settings-modern.js "$STAGE/payload/compat/allscan-$compat_version/js/asr-settings-modern.js"
+done
 install -m 755 install.sh "$STAGE/install.sh"
 install -m 755 bootstrap.sh "$STAGE/bootstrap.sh"
+bash -n "$STAGE/install.sh"
+bash -n "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
@@ -247,6 +285,15 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrCpuTemperature.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrLinkState.php" >/dev/null
   php -l "$STAGE/payload/compat/allscan-v1.02/include/asrPerformanceContract.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/astapi/AMI.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/astapi/asrAmiGuard.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/astapi/server.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/astapi/asrEchoLink.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/astapi/asrTalkerIdentity.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/include/asrBridgeStatus.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/include/asrCpuTemperature.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/include/asrLinkState.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.03/include/asrPerformanceContract.php" >/dev/null
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"

@@ -853,7 +853,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/run/allscan-reimagined
+ReadWritePaths=/run/allscan-reimagined /var/lib/allscan-reimagined
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'

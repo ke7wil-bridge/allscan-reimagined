@@ -11,6 +11,15 @@ for command in python3 bash; do
   command -v "$command" >/dev/null || { echo "Missing $command." >&2; exit 1; }
 done
 
+# The upstream AllScan installer requires unzip on a clean node. Install it here
+# so the documented one-command ASR bootstrap remains sufficient on ASL3.
+if ! command -v unzip >/dev/null 2>&1; then
+  command -v apt-get >/dev/null 2>&1 || { echo "Missing unzip and apt-get; install unzip and retry." >&2; exit 1; }
+  echo "Installing required package: unzip"
+  DEBIAN_FRONTEND=noninteractive apt-get update || { echo "Could not refresh package metadata required to install unzip." >&2; exit 1; }
+  DEBIAN_FRONTEND=noninteractive apt-get install -y unzip || { echo "Could not install required package: unzip." >&2; exit 1; }
+fi
+
 stage=$(mktemp -d /tmp/asr-bootstrap.XXXXXXXX)
 chmod 700 "$stage"
 trap 'rm -rf -- "$stage"' EXIT

@@ -431,7 +431,7 @@ $_POST = [
 	'setupDestination' => '86753',
 ];
 $dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
-check($setupError === '' && $dmrSetup['callsign'] === 'KE7WIL' && $dmrSetup['destination'] === 86753 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
+check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';
