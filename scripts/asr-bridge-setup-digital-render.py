@@ -97,7 +97,7 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
             "Username": mqtt_user, "Password": mqtt_password,
             "Name": f"{mode}_{settings['bridge_id']}",
         })
-        content = set_ini(content, "Network", {
+        network = {
             "Port": ports["network"],
             "HostsFile1": f"/opt/{name}_{settings['bridge_id']}/{name}Hosts.json",
             "HostsFile2": f"/opt/{name}_{settings['bridge_id']}/private-hosts.txt",
@@ -106,7 +106,14 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
             "Static": (0 if settings.get("bridge_role") == "net"
                        else settings["destination"]),
             "ReloadTime": 60,
-        })
+        }
+        if mode == "p25" and settings.get("bridge_role") == "net":
+            # Net Bridge destinations are explicit operator sessions. Keep the
+            # gateway selected (and polling) until Disconnect or a mode switch;
+            # an inactivity unlink would leave the permanent AllStar transport
+            # linked to node 1999 with no digital destination behind it.
+            network["RFHangTime"] = 0
+        content = set_ini(content, "Network", network)
     else:
         content = set_ini(content, "Network", {
             "Startup": f"{settings['callsign']}-ASR", "InactivityTimeout": 0,
@@ -184,13 +191,19 @@ def mmdvm_ini(plan: dict[str, Any], stage: Path) -> str:
 
 
 def dvswitch_ini(plan: dict[str, Any], stage: Path) -> str:
-    mode, ports = plan["bridgeType"], plan["ports"]
+    mode, settings, ports = plan["bridgeType"], plan["settings"], plan["ports"]
     text = template(stage, "DVSwitch.ini.template")
     section = {"p25": "P25", "nxdn": "NXDN", "ysf": "YSF"}[mode]
-    return set_ini(text, section, {
+    values = {
         "address": "127.0.0.1", "txPort": ports["analog_rx"],
         "rxPort": ports["analog_tx"], "RemotePort": ports["remote"],
-    })
+    }
+    if mode == "nxdn":
+        # Analog_Bridge presents the local DMR identity in its TLV metadata.
+        # When the DMR-to-NXDN database cannot translate it, md380-emu must
+        # use the configured NXDN identity instead of the upstream sample ID.
+        values["nxdnFallbackID"] = settings["destination"]
+    return set_ini(text, section, values)
 
 
 def hosts_files(plan: dict[str, Any]) -> dict[str, str]:

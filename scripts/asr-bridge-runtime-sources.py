@@ -65,7 +65,11 @@ MODES = {
 }
 
 SOURCE_PATCHES = {
-    "p25": ["Reflectors.cpp: open the JSON hosts catalog read-only"],
+    "p25": [
+        "Reflectors.cpp: open the JSON hosts catalog read-only",
+        "P25Gateway: treat Static=0 as intentionally disconnected",
+        "P25Gateway: publish validated reflector poll-response evidence",
+    ],
     "nxdn": ["Reflectors.cpp: open the JSON hosts catalog read-only"],
     "ysf": ["Log.cpp: bound vsnprintf to the remaining destination buffer"],
 }
@@ -288,6 +292,82 @@ def patch_gateway_source(gateway_dir: Path, mode: str) -> None:
         if text.count(original) != 1:
             raise SourceError(
                 f"pinned {mode.upper()} gateway hosts source no longer matches its audited patch"
+            )
+        path.write_text(text.replace(original, replacement), encoding="utf-8")
+        if mode == "nxdn":
+            return
+    if mode == "p25":
+        header = gateway_dir / "P25Gateway.h"
+        text = header.read_text(encoding="utf-8")
+        original = "\tvoid writeJSONRelinking(unsigned int tg);"
+        replacement = original + "\n\tvoid writeJSONReachable(unsigned int tg);"
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway header no longer matches its audited reachability patch"
+            )
+        header.write_text(text.replace(original, replacement), encoding="utf-8")
+
+        path = gateway_dir / "P25Gateway.cpp"
+        text = path.read_text(encoding="utf-8")
+        original = """\tfor (const auto& it : staticIds) {
+\t\tCP25Reflector* reflector = m_reflectors->find(it);"""
+        replacement = """\tfor (const auto& it : staticIds) {
+\t\tif (it == 0U) {
+\t\t\twriteJSONUnlinked("startup");
+\t\t\tcontinue;
+\t\t}
+
+\t\tCP25Reflector* reflector = m_reflectors->find(it);"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway startup loop no longer matches its audited disconnected-state patch"
+            )
+        text = text.replace(original, replacement)
+        original = """\t\t\t\t\tm_hangTimer.start();
+\t\t\t\t}
+\t\t\t} else if (m_currentTG.isEmpty()) {"""
+        replacement = """\t\t\t\t\tm_hangTimer.start();
+\t\t\t\t} else if (buffer[0U] == 0xF0U && len == 11U) {
+\t\t\t\t\tstd::string callsign = m_conf.getCallsign();
+\t\t\t\t\tcallsign.resize(10U, ' ');
+\t\t\t\t\tif (::memcmp(buffer + 1U, callsign.data(), 10U) == 0)
+\t\t\t\t\t\twriteJSONReachable(m_currentTG.m_id);
+\t\t\t\t}
+\t\t\t} else if (m_currentTG.isEmpty()) {"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway control receive loop no longer matches its audited reachability patch"
+            )
+        text = text.replace(original, replacement)
+        original = """void CP25Gateway::writeJSONRelinking(unsigned int tg)
+{
+\tnlohmann::json json;
+
+\tjson[\"timestamp\"] = CUtils::createTimestamp();
+\tjson[\"action\"]    = \"relinking\";
+\tjson[\"talkgroup\"] = int(tg);
+
+\tWriteJSON(\"link\", json, true);
+}
+"""
+        replacement = original + """
+void CP25Gateway::writeJSONReachable(unsigned int tg)
+{
+\tnlohmann::json json;
+
+\tjson[\"timestamp\"] = CUtils::createTimestamp();
+\tjson[\"action\"]    = \"linking\";
+\tjson[\"reason\"]    = \"network\";
+\tjson[\"talkgroup\"] = int(tg);
+\tjson[\"reachable\"] = true;
+\tjson[\"evidence\"]  = \"poll-response\";
+
+\tWriteJSON(\"link\", json, true);
+}
+"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT source no longer matches its audited reachability patch"
             )
         path.write_text(text.replace(original, replacement), encoding="utf-8")
         return

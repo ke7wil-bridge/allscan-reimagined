@@ -38,10 +38,16 @@ else
 fi
 
 mkdir -p "$STOCK_DIR" "$ASR_DIR"
-rsync -a --delete --exclude=.git "$UPSTREAM_CACHE/" "$STOCK_DIR/"
+RUNTIME_EXCLUDES="--exclude=bridge-live.json --exclude=connected-clients.json --exclude=asr-connected-clients.json --exclude=zello-talkers.json --exclude=zello-relay.json --exclude=zello-status-data.json"
+# These bounded runtime artifacts are produced in the persistent shared web
+# volume. An upstream refresh or container recreation must not erase completed
+# bridge activity before the dashboard can consume it.
+# shellcheck disable=SC2086
+rsync -a --delete --exclude=.git $RUNTIME_EXCLUDES "$UPSTREAM_CACHE/" "$STOCK_DIR/"
 # User-uploaded ASR assets live in the persistent web volume. Exclude them
 # from the stock-tree refresh so container starts/recreates cannot delete them.
-rsync -a --delete --exclude=asr-user-content "$STOCK_DIR/" "$ASR_DIR/"
+# shellcheck disable=SC2086
+rsync -a --delete --exclude=asr-user-content $RUNTIME_EXCLUDES "$STOCK_DIR/" "$ASR_DIR/"
 
 # The php:apache image sets DirectoryIndex to "index.php index.html".  Since
 # /asr is layered over stock AllScan, both files exist there; without this
@@ -61,7 +67,14 @@ EOF
 
 # Place built frontend assets without deleting backend runtime files.
 rsync -a /opt/asr-ui-dist/ "$ASR_DIR/"
-rsync -a /opt/asr-source/compat/allscan-v1.02/ "$ASR_DIR/"
+BACKEND_VERSION="$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' \
+  "$STOCK_DIR/include/common.php" | head -1)"
+COMPAT_DIR="/opt/asr-source/compat/allscan-${BACKEND_VERSION:-unknown}"
+if [ ! -d "$COMPAT_DIR" ]; then
+  echo "No exact ASR compatibility layer exists for AllScan ${BACKEND_VERSION:-unknown}." >&2
+  exit 1
+fi
+rsync -a "$COMPAT_DIR/" "$ASR_DIR/"
 cp /opt/asr-source/asr-api.php "$ASR_DIR/asr-api.php"
 install -d -o root -g root -m 755 "$ASR_DIR/js"
 install -o root -g root -m 644 /opt/asr-source/public/js/asr-settings-modern.js "$ASR_DIR/js/asr-settings-modern.js"

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -152,14 +153,69 @@ def file_spec(root: Path, plan: dict[str, Any], secrets: dict[str, str]) -> dict
     outputs[UNIT] = (unit_text(plan).encode(), 0o644)
     return outputs
 
+def prepare_runtime_source(source: Path, destination: Path) -> None:
+    """Stage upstream Zello source and enforce the chan_usrp unkey debounce."""
+    shutil.copytree(source, destination)
+    usrp = destination / "asl_zello_bridge/usrp.py"
+    if not usrp.is_file():
+        raise InstallError("Zello runtime is missing asl_zello_bridge/usrp.py")
+    text = usrp.read_text()
+    marker = "def _commit_usrp_off(self):"
+    if marker not in text:
+        transport = "        self._transport = None\n\n        self._usrp_ptt = usrp_ptt"
+        replacement = "        self._transport = None\n        self._usrp_off_handle = None\n\n        self._usrp_ptt = usrp_ptt"
+        false_edge = """    def datagram_received(self, data, addr):
+        ptt = self._frame_ptt_state(data)
+        if not ptt:
+            if self._usrp_ptt.is_set():
+                _write_relay_state(False)
+            self._usrp_ptt.clear()
+            return
+
+        if not self._usrp_ptt.is_set():
+"""
+        debounced_edge = """    def _commit_usrp_off(self):
+        self._usrp_off_handle = None
+        if self._usrp_ptt.is_set():
+            _write_relay_state(False)
+        self._usrp_ptt.clear()
+
+    def datagram_received(self, data, addr):
+        ptt = self._frame_ptt_state(data)
+        if not ptt:
+            # chan_usrp can emit an isolated false marker during continuous TX.
+            # Delay the edge so the following voice frame can cancel it.
+            if self._usrp_ptt.is_set() and self._usrp_off_handle is None:
+                self._usrp_off_handle = asyncio.get_running_loop().call_later(
+                    0.15, self._commit_usrp_off)
+            return
+
+        if self._usrp_off_handle is not None:
+            self._usrp_off_handle.cancel()
+            self._usrp_off_handle = None
+        if not self._usrp_ptt.is_set():
+"""
+        if transport not in text or false_edge not in text:
+            raise InstallError("unsupported Zello USRP runtime; relay debounce cannot be applied safely")
+        text = text.replace(transport, replacement, 1).replace(false_edge, debounced_edge, 1)
+        usrp.write_text(text)
+    if (marker not in text
+            or "call_later(" not in text
+            or "self._usrp_off_handle.cancel()" not in text):
+        raise InstallError("Zello relay debounce validation failed")
+
+
 def build_image() -> str:
     if not RUNTIME_SOURCE.is_dir():
         raise InstallError("Zello runtime source is not installed")
     check = subprocess.run(["docker", "image", "inspect", "allscan-reimagined/zello:managed",
                             "--format", "{{.Id}}"], capture_output=True, text=True)
     prior = check.stdout.strip() if check.returncode == 0 else ""
-    result = subprocess.run(["docker", "build", "-t", "allscan-reimagined/zello:managed",
-                             str(RUNTIME_SOURCE)], capture_output=True, text=True)
+    with tempfile.TemporaryDirectory(prefix="asr-zello-runtime-") as raw_stage:
+        stage = Path(raw_stage) / "runtime"
+        prepare_runtime_source(RUNTIME_SOURCE, stage)
+        result = subprocess.run(["docker", "build", "-t", "allscan-reimagined/zello:managed",
+                                 str(stage)], capture_output=True, text=True)
     if result.returncode:
         raise InstallError(f"Zello runtime build failed: {result.stdout[-300:]} {result.stderr[-500:]}")
     return prior

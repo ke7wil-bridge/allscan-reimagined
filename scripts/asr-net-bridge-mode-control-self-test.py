@@ -84,6 +84,9 @@ class FakeRunner:
             return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK or argv[-2:] == ["restart", "asterisk.service"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if (argv[0].startswith("/usr/local/sbin/allscan-reimagined-")
+                or argv[0].endswith("asr-container-netns-exec.py")):
+            return subprocess.CompletedProcess(argv, 0, '{"ok":true}\n', "")
         if "docker compose" in joined:
             if " up -d" in joined:
                 if self.fail_mode == "dmr":
@@ -133,10 +136,17 @@ def fixture(root: Path) -> tuple[SimpleNamespace, dict]:
             *control.selected_ports(item["mode"], item),
         )
     (asterisk / "rpt.conf").write_text(rpt)
-    return SimpleNamespace(asr_config=asr, asterisk_config=asterisk), config
+    return SimpleNamespace(
+        asr_config=asr, asterisk_config=asterisk,
+        asterisk_container="allstarlink3", host_proc=Path("/proc"),
+    ), config
 
 
 def main() -> None:
+    if control.PROFILE.is_file():
+        assert control.CONTAINERIZED
+        assert "asr-container-systemctl.py" in control.SYSTEMCTL
+        assert "asr-container-asterisk.py" in control.ASTERISK
     original_refresh = control.backend.refresh_watch_snapshots
     control.backend.refresh_watch_snapshots = lambda _profile: None
     try:
@@ -146,6 +156,17 @@ def main() -> None:
             result = control.switch_mode("ysf", profile, runner)
             assert result["ok"] and result["mode"] == "ysf" and result["node"] == 1999
             assert runner.active == {mode: mode == "ysf" for mode in control.MODES}
+            disconnect = [
+                command for command in runner.commands
+                if command and command[0].endswith("managed-dmr-net-control")
+            ]
+            assert disconnect == [[
+                "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+                "--bridge", "dmr_net", "--disconnect",
+            ]]
+            dmr_commands = [" ".join(command) for command in runner.commands]
+            assert any("docker compose" in command and command.endswith(" stop")
+                       for command in dmr_commands)
             assert not any("channel request hangup" in " ".join(command)
                            for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
@@ -179,6 +200,11 @@ def main() -> None:
             restored = json.loads((profile.asr_config / "config.json").read_text())
             assert restored["netBridgeMode"] == "dmr"
             assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
+            assert any(
+                "docker compose" in " ".join(command)
+                and " ".join(command).endswith(" up -d")
+                for command in runner.commands
+            )
 
         rejected(control.switch_mode, "shell", SimpleNamespace())
         bad = bridge("ysf", "64189")

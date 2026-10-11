@@ -73,6 +73,7 @@ COMMAND_TIMEOUT = 4.0
 VERIFY_TIMEOUT = 5.0
 ALLSTAR_VERIFY_TIMEOUT = 10.0
 FUTURE_SKEW = 30
+P25_POLL_EVIDENCE_MAX_AGE = 15
 WATCH_INTERVAL_MIN = 1.0
 WATCH_INTERVAL_MAX = 60.0
 PRODUCTION_CONFIG_DIR_MODE = 0o775
@@ -860,13 +861,28 @@ def normalize_event(payload: str, spec: ModeSpec, requested_disconnect: bool = F
             target = int(link["talkgroup"])
         except (TypeError, ValueError) as exc:
             raise ControlError("Gateway MQTT talkgroup is invalid.") from exc
-    if action == "failed" and target == DISCONNECT_TG:
+    reason = str(link.get("reason", ""))[:32]
+    if action == "failed" and (
+        target == DISCONNECT_TG and requested_disconnect
+        or target == 0 and reason == "startup"
+    ):
         action, target = "unlinked", None
     elif action in {"linking", "relinking"}:
         target = designator(target, spec)
     elif action == "unlinked":
         target = None
-    return {"action": action, "target": target, "epoch": event_epoch(link.get("timestamp")), "reason": str(link.get("reason", ""))[:32]}
+    reachable = bool(
+        spec.mode == "p25"
+        and action in {"linking", "relinking"}
+        and reason == "network"
+        and link.get("reachable") is True
+        and link.get("evidence") == "poll-response"
+    )
+    return {
+        "action": action, "target": target,
+        "epoch": event_epoch(link.get("timestamp")), "reason": reason,
+        "reachable": reachable,
+    }
 
 
 def parse_mmdvm_activity(
@@ -975,6 +991,7 @@ def parse_mmdvm_log_activity(line: str, spec: ModeSpec) -> dict | None:
             "provenance": "mmdvm-log-rf-eot",
         }
     if (message.startswith("network end of transmission")
+            or message.startswith("received network end of transmission")
             or message.startswith("network watchdog has expired")):
         return {
             "kind": "end", "source": "network", "epoch": epoch, "epochMs": epoch_ms,
@@ -1027,11 +1044,53 @@ class TalkerStream:
             "currentInbound": None, "recentTalkers": [],
             "provenance": "", "error": "stream not connected",
         }
+        self._restore_retained_activity()
         self.thread = threading.Thread(
             target=self._run,
             name=f"asr-{spec.mode}-talker-{bridge['id']}",
             daemon=True,
         )
+
+    def _restore_retained_activity(self) -> None:
+        """Retain completed activity across collector/backend restarts only."""
+        path = fast_activity_path(self.bridge, self.spec)
+        owner_uid = os.geteuid() if WATCH_CONFIG else self.expected_uid
+        try:
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                    or info.st_nlink != 1 or info.st_uid != owner_uid
+                    or stat.S_IMODE(info.st_mode) & 0o022
+                    or info.st_size > 64 * 1024):
+                return
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if (not isinstance(payload, dict) or payload.get("ok") is not True
+                or payload.get("mode") != self.spec.mode
+                or payload.get("bridgeId") != self.bridge["id"]):
+            return
+        event_epoch = max(0, int(payload.get("eventEpoch", 0) or 0))
+        if event_epoch > int(time.time()) + 300:
+            return
+        recent = []
+        for row in payload.get("recentTalkers", []):
+            if not isinstance(row, dict):
+                continue
+            callsign = str(row.get("callsign", "")).upper()[:20]
+            if not re.fullmatch(r"[A-Z0-9][A-Z0-9 /-]{0,19}", callsign):
+                continue
+            recent.append({
+                "callsign": callsign,
+                "sourceId": max(0, int(row.get("sourceId", 0) or 0)),
+                "startEpoch": max(0, int(row.get("startEpoch", 0) or 0)),
+                "eventEpoch": max(0, int(row.get("eventEpoch", 0) or 0)),
+                "duration": max(0, int(row.get("duration", 0) or 0)),
+            })
+        self.state.update({
+            "eventEpoch": event_epoch,
+            "recentTalkers": recent[:4],
+            "provenance": str(payload.get("provenance", ""))[:40],
+        })
 
     def start(self) -> None:
         self.thread.start()
@@ -1230,7 +1289,7 @@ class TalkerStream:
                             "outboundActive": False, "talker": None,
                             "sourceId": None, "startEpoch": 0,
                             "networkEotEpochMs": 0, "rfEotEpochMs": 0,
-                            "currentInbound": None, "recentTalkers": [],
+                            "currentInbound": None,
                             "error": "", "provenance": "mmdvm-log",
                         })
                     for line in lines[last_start:]:
@@ -1555,6 +1614,7 @@ def base_status(
     action = ""
     event_time = 0
     state = "offline" if not services["ready"] else "disconnected"
+    reachability_confirmed = False
     if services["ready"] and not mqtt_available:
         state = "stale"
     elif event:
@@ -1569,6 +1629,10 @@ def base_status(
             state = "stale" if services["ready"] else "offline"
         elif action in {"linking", "relinking"}:
             confirmed, state = event["target"], "selected-unverified"
+            reachability_confirmed = bool(
+                event.get("reachable")
+                and int(time.time()) - event_time <= P25_POLL_EVIDENCE_MAX_AGE
+            )
         elif action == "failed":
             state = "failed"
     # The gateway retained topic records the last command result, including the
@@ -1578,6 +1642,8 @@ def base_status(
     # erasing the selected destination on the card while AllStar is linked.
     local_epoch = int(local.get("epoch", 0) or 0)
     pending_action = str(local.get("pendingAction", ""))
+    if action == "unlinked" and event_time >= local_epoch - 2:
+        requested = None
     if (
         services["ready"]
         and not local.get("pending")
@@ -1598,11 +1664,15 @@ def base_status(
     if local.get("pending") and state not in {"offline", "stale", "failed"}:
         state = "pending"
     local_error = str(local.get("lastError", ""))[:160]
+    if local_epoch > 0 and services["gatewayStartEpoch"] > local_epoch + 2:
+        local_error = ""
     if local_error and services["ready"] and state != "stale":
         state = "failed"
     message = (
         local_error
         if state == "failed" and local_error
+        else "Reflector reachability was confirmed by a P25 poll response."
+        if reachability_confirmed
         else "Gateway selection is not proof of remote reflector reachability."
     )
     return {
@@ -1610,7 +1680,12 @@ def base_status(
         "instance": bridge["instance"], "serviceState": services,
         "configuredTarget": bridge["fixedDestination"], "requestedTarget": requested,
         "confirmedTarget": confirmed, "gatewayAction": action,
-        "gatewayEventEpoch": event_time, "reachabilityConfirmed": False,
+        "gatewayEventEpoch": event_time,
+        "reachabilityConfirmed": reachability_confirmed,
+        "reachabilityEvidence": (
+            "p25-poll-response" if reachability_confirmed else None
+        ),
+        "reachabilityEvidenceEpoch": event_time if reachability_confirmed else 0,
         "talkerEvidenceAvailable": False,
         "inboundTalker": None,
         "inboundTalkerActive": None,
@@ -1630,7 +1705,10 @@ def with_allstar_state(result: dict, linked: bool) -> dict:
     updated["digitalSelected"] = updated.get("confirmedTarget") is not None
     state = str(updated.get("connectionState", "stale"))
     if state == "selected-unverified" and linked:
-        updated["connectionState"] = "connected-unverified"
+        updated["connectionState"] = (
+            "connected" if updated.get("reachabilityConfirmed")
+            else "connected-unverified"
+        )
     elif state == "selected-unverified" and not linked:
         updated["connectionState"] = "partial-digital-only"
     elif state == "disconnected" and linked:
@@ -1684,6 +1762,8 @@ def failed_watch_entry(spec: ModeSpec, bridge_id: str, message: str) -> dict:
         "gatewayAction": "",
         "gatewayEventEpoch": 0,
         "reachabilityConfirmed": False,
+        "reachabilityEvidence": None,
+        "reachabilityEvidenceEpoch": 0,
         "talkerEvidenceAvailable": False,
         "inboundTalker": None,
         "inboundTalkerActive": None,
@@ -1897,7 +1977,13 @@ def connect(bridge_id: str, target_value: object, user: str, path: Path, spec: M
         base_status(bridge, spec, services, read_local_state(bridge, spec), event),
         True,
     )
-    result["message"] = f"{spec.label} gateway selected {target} and AllStar linked; reflector reachability remains unverified."
+    result["message"] = (
+        f"{spec.label} gateway selected {target}, AllStar linked, and reflector "
+        "reachability was confirmed by a P25 poll response."
+        if result.get("reachabilityConfirmed")
+        else f"{spec.label} gateway selected {target} and AllStar linked; "
+             "reflector reachability remains unverified."
+    )
     return result
 
 
@@ -2101,8 +2187,26 @@ def self_test(spec: ModeSpec) -> None:
             pass
         linked = normalize_event(json.dumps({"link": {"timestamp": "2026-08-11T12:00:00Z", "action": "linking", "reason": "remote", "talkgroup": 10200}}), spec)
         assert linked["target"] == 10200 and linked["action"] == "linking"
+        proven = normalize_event(json.dumps({"link": {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "linking", "reason": "network", "talkgroup": 10200,
+            "reachable": True, "evidence": "poll-response",
+        }}), spec)
+        assert proven["reachable"] is (spec.mode == "p25")
+        untrusted_proof = normalize_event(json.dumps({"link": {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "linking", "reason": "remote", "talkgroup": 10200,
+            "reachable": True, "evidence": "poll-response",
+        }}), spec)
+        assert untrusted_proof["reachable"] is False
         unlinked = normalize_event(json.dumps({"link": {"timestamp": "2026-08-11T12:00:01Z", "action": "failed", "reason": "remote", "talkgroup": 9999}}), spec, True)
         assert unlinked["action"] == "unlinked" and unlinked["target"] is None
+        startup_disconnected = normalize_event(json.dumps({"link": {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "failed", "reason": "startup", "talkgroup": 0,
+        }}), spec)
+        assert startup_disconnected["action"] == "unlinked"
+        assert startup_disconnected["target"] is None
         unsafe = root / "unsafe.json"
         unsafe.write_text("{}", encoding="utf-8")
         os.chmod(unsafe, 0o666)
@@ -2208,6 +2312,26 @@ def self_test(spec: ModeSpec) -> None:
         assert base_status(
             validated, spec, service_snapshot, {}, current_event
         )["reachabilityConfirmed"] is False
+        restarted_disconnected = base_status(
+            validated, spec, service_snapshot,
+            {"requestedTarget": 10200, "epoch": int(time.time()) - 60},
+            startup_disconnected,
+        )
+        assert restarted_disconnected["requestedTarget"] is None
+        assert restarted_disconnected["connectionState"] == "disconnected"
+        if spec.mode == "p25":
+            proven_status = base_status(
+                validated, spec, service_snapshot, {}, proven
+            )
+            assert proven_status["reachabilityConfirmed"] is True
+            assert proven_status["reachabilityEvidence"] == "p25-poll-response"
+            assert with_allstar_state(proven_status, True)["connectionState"] == "connected"
+            stale_proof = dict(
+                proven, epoch=int(time.time()) - P25_POLL_EVIDENCE_MAX_AGE - 1
+            )
+            assert base_status(
+                validated, spec, service_snapshot, {}, stale_proof
+            )["reachabilityConfirmed"] is False
         evidence_status = base_status(
             validated, spec, service_snapshot, {}, current_event
         )
@@ -2257,6 +2381,13 @@ def self_test(spec: ModeSpec) -> None:
             spec,
         )
         assert log_network_eot is not None and log_network_eot["source"] == "network"
+        log_received_network_eot = parse_mmdvm_log_activity(
+            f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
+            f"{spec.label}, received network end of transmission, 1.2 seconds, 0% packet loss",
+            spec,
+        )
+        assert (log_received_network_eot is not None
+                and log_received_network_eot["source"] == "network")
         log_rf_eot = parse_mmdvm_log_activity(
             f"M: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} "
             f"{spec.label}, TX state = OFF",
@@ -2310,6 +2441,12 @@ def self_test(spec: ModeSpec) -> None:
         assert json.loads(fast_activity_path(validated, test_spec).read_text(
             encoding="utf-8"
         ))["recentTalkers"][0]["callsign"] == "N0CALL"
+        restarted_stream = TalkerStream(validated, test_spec, credentials, uid)
+        restarted_state = restarted_stream.snapshot()
+        assert restarted_state["active"] is False
+        assert restarted_state["outboundActive"] is False
+        assert restarted_state["eventEpoch"] == log_network_eot["epoch"]
+        assert restarted_state["recentTalkers"][0]["callsign"] == "N0CALL"
         stream_fixture._apply({
             **inbound,
             "epochMs": log_network_eot["epochMs"] - 1,

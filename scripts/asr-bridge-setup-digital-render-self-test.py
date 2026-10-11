@@ -62,6 +62,9 @@ def main() -> None:
             assert f"LocalPort={plan['ports']['gateway_tx']}" in mmdvm
             dvswitch = renderer.dvswitch_ini(plan, stage)
             assert f"RemotePort={plan['ports']['remote']}" in dvswitch
+            if mode == "nxdn":
+                assert "nxdnFallbackID=15846" in dvswitch
+                assert "nxdnFallbackID  = 12345" not in dvswitch
             hosts = renderer.hosts_files(plan)
             assert len(hosts) in (1, 2)
             assert all("127.0.0.1" in text for text in hosts.values() if not text.startswith("#"))
@@ -73,6 +76,17 @@ def main() -> None:
                        in text for text in units.values())
             if mode in ("p25", "nxdn"):
                 assert any("/usr/sbin/mosquitto -c " in text for text in units.values())
+            if mode == "p25":
+                net_settings = planner.DigitalSettings(
+                    mode, "p25_net", "KE7WIL", 1234567, 15846,
+                    "127.0.0.1", 41400, bridge_role="net",
+                )
+                net_gateway = renderer.gateway_ini(
+                    planner.plan(root, net_settings), stage,
+                    "test-user", "test-secret",
+                )
+                assert "Static=0" in net_gateway
+                assert "RFHangTime=0" in net_gateway
     print("digital render source integration: PASS")
 
 if __name__ == "__main__":

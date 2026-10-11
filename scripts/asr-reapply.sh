@@ -422,6 +422,9 @@ TasksMax=16
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-bridge-control
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-bridge-control
 
 [Install]
@@ -465,6 +468,9 @@ TasksMax=16
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-ysf-bridge-control
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-ysf-bridge-control /var/lib/allscan-reimagined/ysf-hosts
 
 [Install]
@@ -523,6 +529,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-${digital_mode}-bridge-control
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-${digital_mode}-bridge-control /var/log/allscan-reimagined
 
 [Install]
@@ -568,6 +577,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-m17
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-m17
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 

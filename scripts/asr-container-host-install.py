@@ -420,6 +420,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-m17
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 BindReadOnlyPaths={profile.asterisk_config} {profile.asr_config} {PROFILE}
 ReadWritePaths=/run/allscan-reimagined-m17 /var/log/allscan-reimagined /var/lib/allscan-reimagined/m17
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
@@ -483,6 +486,8 @@ WantedBy=timers.target
         if mode == "ysf":
             watch_command = f"{helper} --watch"
             watch_user = SERVICE_USER
+            watch_group = group
+            watch_prefix = ""
             socket_guard = "InaccessiblePaths=/var/run/docker.sock"
         else:
             # P25/NXDN MQTT brokers intentionally listen only on loopback inside
@@ -492,7 +497,12 @@ WantedBy=timers.target
                 f"{DEST}/asr-container-netns-exec.py --container {profile.asterisk_container} "
                 f"--proc-root {profile.host_proc} --user {SERVICE_USER} -- {helper} watch --interval 2"
             )
-            watch_user = "root"
+            # RuntimeDirectory ownership follows User/Group.  Keep it owned by
+            # the dropped service account and web-reader group, while the '+'
+            # prefix starts only the audited setns launcher as root.
+            watch_user = SERVICE_USER
+            watch_group = group
+            watch_prefix = "+"
             socket_guard = ""
         # The proven namespace launcher needs the host's normal root capability
         # set only until setns succeeds.  It immediately setuid/setgid drops to
@@ -508,15 +518,19 @@ Type=simple
 Environment=ASR_CONTAINER_PROVISIONING_PROFILE={PROFILE}
 Environment=ASR_CONTAINER_WATCH_CONFIG=/run/allscan-reimagined-bridge-rpc/config.json
 Environment=ASR_CONTAINER_WATCH_SECRETS=/run/allscan-reimagined-bridge-rpc/bridge-mqtt-secrets.json
-ExecStart={watch_command}
+ExecStart={watch_prefix}{watch_command}
 User={watch_user}
-Group={watch_user}
+Group={watch_group}
+SupplementaryGroups={SERVICE_USER}
 Restart=on-failure
 RestartSec=3s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory={run_dir.name}
+RuntimeDirectoryMode=2750
+RuntimeDirectoryPreserve=yes
 BindReadOnlyPaths={profile.asterisk_config} {profile.asr_config} {PROFILE}
 ReadWritePaths={run_dir} /var/log/allscan-reimagined
 {socket_guard}

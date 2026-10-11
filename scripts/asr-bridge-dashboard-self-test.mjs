@@ -25,6 +25,7 @@ try {
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
+    bridgeLastActivityEpoch,
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
     provisionedNetBridgeModes,
@@ -172,6 +173,14 @@ try {
   assert(resolveBridgeLastCaller(
     { current_user: 'OUTBOUND', last_source_user: 'SOURCE' }, 'Relay', config,
   ) === '-', 'relay displayed a source caller')
+  assert(
+    bridgeLastActivityEpoch({ activity_epoch: 2_000_000_123, last_source_epoch: 0 }) === 2_000_000_123,
+    'real outbound activity was discarded when no inbound talker existed',
+  )
+  assert(
+    bridgeLastActivityEpoch({ last_time_epoch: 2_000_000_124 }) === 2_000_000_124,
+    'collector-persisted last activity was not consumed by the production UI path',
+  )
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
   assert(!bridgeCardShowsClientDetails('dmr_net'), 'DMR Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('ysf_net'), 'YSF Net Bridge client details were shown')
@@ -206,6 +215,19 @@ try {
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+  const asrApiSource = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
+  const runtimeV102 = readFileSync(new URL('../compat/allscan-v1.02/include/asrRuntime.php', import.meta.url), 'utf8')
+  const runtimeV103 = readFileSync(new URL('../compat/allscan-v1.03/include/asrRuntime.php', import.meta.url), 'utf8')
+  assert(
+    asrApiSource.includes("['connected', 'selected-unverified', 'connected-unverified', 'partial-digital-only']"),
+    'Protocol-confirmed P25/NXDN connections must remain linked in the production API',
+  )
+  assert(
+    asrApiSource.includes('$zelloConfigured')
+      && asrApiSource.includes("'activity_epoch' => $activityEpoch")
+      && asrApiSource.includes("$role === 'relay' ? 'RELAY'"),
+    'Zello USRP relay/EOT state is absent from the production bridge-status payload',
+  )
   assert(
     !allscanLiveSource.includes("healthSeverity: entry?.health_severity\n        || (entry?.online === false"),
     'unknown DMR/YSF link state still creates a false bridge warning',
@@ -404,6 +426,20 @@ try {
   assert(appSource.includes('const relayActive = zelloFastRelayRef.current'), 'Zello fast relay must be authoritative for key/unkey')
   assert(!appSource.includes('zelloFastRelayRef.current || Boolean(row && localIsTransmitting)'), 'Zello relay must not fall back to lagging ASTAPI state')
   assert(allscanLiveSource.includes('action=zello-fast-relay'), 'Zello fast relay endpoint fetch missing')
+  assert(
+    asrApiSource.includes("'updatedEpochMs' => max(0, (int) ($payload['updated_epoch_ms'] ?? 0))"),
+    'Zello fast relay endpoint must preserve the producer event timestamp',
+  )
+  assert(
+    runtimeV102.includes("'zello-relay.json'") && runtimeV103.includes("'zello-relay.json'"),
+    'Zello fast relay runtime file must be allowed by every supported ASTAPI runtime',
+  )
+  assert(
+    allscanLiveSource.includes('action=fast-next-mode-activity')
+      && asrApiSource.includes('function asr_fast_next_mode_activity_payload()')
+      && asrApiSource.includes("$action === 'fast-next-mode-activity'"),
+    'P25/NXDN fast activity producer and API route must be deployed together',
+  )
   assert(
     allscanLiveSource.includes('updatedEpochMs')
       && appSource.includes('relay.updatedEpochMs < appliedEpochMs'),

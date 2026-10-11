@@ -797,6 +797,11 @@ def gateway_event(line: str) -> tuple[str, str, str] | None:
     return None
 
 
+def same_reflector_name(left: object, right: object) -> bool:
+    """YSFGateway normalizes host-list names to uppercase in its log."""
+    return clean_name(str(left or "")).casefold() == clean_name(str(right or "")).casefold()
+
+
 def gateway_link_state(
     log_path: Path | None,
     prior: dict | None = None,
@@ -823,7 +828,9 @@ def gateway_link_state(
     pending: tuple[str, str, int] | None = None
     name_ids: dict[str, list[str]] = {}
     for item in destinations or []:
-        name_ids.setdefault(str(item.get("name", "")), []).append(str(item.get("id", "")))
+        name_ids.setdefault(
+            clean_name(str(item.get("name", ""))).casefold(), []
+        ).append(str(item.get("id", "")))
     for line in lines:
         event = gateway_event(line)
         epoch = line_epoch(line)
@@ -831,7 +838,7 @@ def gateway_link_state(
             continue
         if event[0] == "connect":
             pending = (event[1], event[2], epoch)
-        elif event[0] == "linked" and pending and event[2] == pending[1]:
+        elif event[0] == "linked" and pending and same_reflector_name(event[2], pending[1]):
             result = {
                 "linked": True,
                 "destination": pending[0],
@@ -839,10 +846,11 @@ def gateway_link_state(
                 "eventEpoch": epoch or pending[2],
             }
             pending = None
-        elif event[0] == "linked" and len(name_ids.get(event[2], [])) == 1:
+        elif (event[0] == "linked"
+              and len(name_ids.get(event[2].casefold(), [])) == 1):
             result = {
                 "linked": True,
-                "destination": name_ids[event[2]][0],
+                "destination": name_ids[event[2].casefold()][0],
                 "name": event[2],
                 "eventEpoch": epoch,
             }
@@ -886,9 +894,11 @@ def wait_gateway_connect(settings: dict, marker: tuple[str, int, int], item: dic
             event = gateway_event(line)
             if not event:
                 continue
-            if event == ("connect", item["id"], item["name"]):
+            if (event[0] == "connect" and event[1] == item["id"]
+                    and same_reflector_name(event[2], item["name"])):
                 saw_connect = True
-            elif saw_connect and event == ("linked", "", item["name"]):
+            elif (saw_connect and event[0] == "linked"
+                  and same_reflector_name(event[2], item["name"])):
                 return True
         time.sleep(0.2)
     return False
@@ -1113,6 +1123,10 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
         }
 
 
+def gateway_disconnect_complete(state: dict) -> bool:
+    return state.get("linked") is False
+
+
 def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
     require_secure_config_file(path)
     bridge = bridge_config(bridge_id, path)
@@ -1136,16 +1150,20 @@ def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
         except OSError as exc:
             raise ControlError("YSF audit log is unavailable; no command was sent.") from exc
 
-        digital_ok = False
+        # Disconnect is intentionally idempotent. Mode switching may cleanly
+        # disconnect a card before stopping its selected backend, then invoke
+        # the same cleanup again while moving to the next mode.
+        digital_ok = gateway_disconnect_complete(previous)
         digital_error = ""
         marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
-        try:
-            remote_command(bridge, settings["port"], "UnLink")
-            digital_ok = wait_gateway_disconnect(settings, marker)
-            if not digital_ok:
-                digital_error = "YSF Gateway did not confirm disconnect"
-        except ControlError as exc:
-            digital_error = str(exc)
+        if previous["linked"]:
+            try:
+                remote_command(bridge, settings["port"], "UnLink")
+                digital_ok = wait_gateway_disconnect(settings, marker)
+                if not digital_ok:
+                    digital_error = "YSF Gateway did not confirm disconnect"
+            except ControlError as exc:
+                digital_error = str(exc)
 
         allstar_ok = False
         allstar_error = ""
@@ -1580,6 +1598,7 @@ def self_test() -> None:
                 raise AssertionError("invalid custom YSF reflector was accepted")
         assert gateway_event('M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "') == ("connect", "23456", "US-TEST-WIDE")
         assert gateway_event("M: 2026-01-01 12:00:01.100 Linked to US-TEST-WIDE    ") == ("linked", "", "US-TEST-WIDE")
+        assert same_reflector_name("US-Netoholics", "US-NETOHOLICS")
         assert gateway_event("M: 2026-01-01 12:10:00.000 Disconnect by remote command") == ("disconnect", "", "")
 
         gateway_log = tmp / "gateway.log"
@@ -1590,9 +1609,20 @@ def self_test() -> None:
         )
         state = gateway_link_state(gateway_log)
         assert state["linked"] and state["destination"] == "23456" and state["name"] == "US-TEST-WIDE"
+        mixed_case_log = tmp / "mixed-case-gateway.log"
+        mixed_case_log.write_text(
+            'M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-NETOHOLICS   "\n'
+            "M: 2026-01-01 12:00:01.100 Linked to US-NETOHOLICS    \n",
+            encoding="utf-8",
+        )
+        mixed_case_state = gateway_link_state(mixed_case_log)
+        assert mixed_case_state["linked"] and mixed_case_state["destination"] == "23456"
         with gateway_log.open("a", encoding="utf-8") as handle:
             handle.write("M: 2026-01-01 12:10:00.000 Disconnect by remote command\n")
-        assert not gateway_link_state(gateway_log)["linked"]
+        disconnected_state = gateway_link_state(gateway_log)
+        assert not disconnected_state["linked"]
+        assert gateway_disconnect_complete(disconnected_state)
+        assert not gateway_disconnect_complete(state)
         startup_log = tmp / "startup.log"
         startup_log.write_text(
             "M: 2026-01-01 00:00:01.000 Linked to US-EXAMPLE\n",

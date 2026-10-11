@@ -21,7 +21,9 @@ NET_CARD_TYPES = {f"{mode}_net" for mode in MODES}
 NODE = 1999
 LOCK = Path("/run/lock/allscan-reimagined-net-bridge-mode.lock")
 PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
-CONTAINERIZED = bool(os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"))
+# Direct root administration does not inherit the broker marker.  The fixed
+# profile is still ownership/shape validated in main() before any helper runs.
+CONTAINERIZED = bool(os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")) or PROFILE.is_file()
 SYSTEMCTL = ("/usr/local/libexec/allscan-reimagined/asr-container-systemctl.py"
              if CONTAINERIZED else "/usr/bin/systemctl")
 ASTERISK = ("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
@@ -121,27 +123,39 @@ def service_units(mode: str, bridge: dict) -> list[str]:
     return units
 
 
-def dmr_runtime(bridge: dict) -> Path:
+def dmr_compose(bridge: dict) -> Path:
     bridge_id = str(bridge["id"])
     expected = Path(f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target")
     target = Path(str(bridge.get("managedTargetFile", "")))
     if (bridge.get("managedNetControl") is not True
             or bridge.get("backendMode") != "managed" or target != expected):
         raise ModeError("DMR Net Bridge runtime allowlist is invalid")
-    return target.parent.parent
+    return target.parent.parent / "compose.yml"
 
 
 def runtime_argv(mode: str, bridge: dict, verb: str) -> list[list[str]]:
     if verb not in {"start", "stop", "status"}:
         raise ModeError("invalid runtime operation")
     if mode == "dmr":
-        dmr_runtime(bridge)
+        compose = dmr_compose(bridge)
+        project = str(bridge["id"])
         unit = f"allscan-reimagined-urf-tgif-{bridge['id']}.service"
         if verb == "start":
-            return [[SYSTEMCTL, "enable", "--now", unit]]
+            return [
+                [SYSTEMCTL, "enable", unit],
+                ["docker", "compose", "-f", str(compose), "-p", project,
+                 "up", "-d"],
+            ]
         if verb == "stop":
-            return [[SYSTEMCTL, "disable", "--now", unit]]
-        return [[SYSTEMCTL, "is-active", "--quiet", unit]]
+            return [
+                ["docker", "compose", "-f", str(compose), "-p", project,
+                 "stop"],
+                [SYSTEMCTL, "disable", unit],
+            ]
+        return [[
+            "docker", "compose", "-f", str(compose), "-p", project,
+            "ps", "--services", "--filter", "status=running",
+        ]]
     units = service_units(mode, bridge)
     if verb == "start":
         return [[SYSTEMCTL, "enable", "--now", unit] for unit in units]
@@ -155,7 +169,10 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         checked(runner(argv, False), f"stopping {mode.upper()} runtime")
     for argv in runtime_argv(mode, bridge, "status"):
         result = runner(argv, False)
-        if result.returncode == 0:
+        if mode == "dmr":
+            if result.returncode or result.stdout.strip():
+                raise ModeError("DMR runtime did not stop cleanly")
+        elif result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
 
 
@@ -166,13 +183,56 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         ready = True
         for argv in runtime_argv(mode, bridge, "status"):
             result = runner(argv, False)
-            if result.returncode:
+            if mode == "dmr":
+                if result.returncode or len(result.stdout.splitlines()) < 3:
+                    ready = False
+            elif result.returncode:
                 ready = False
         if ready:
             return
         if attempt < 19:
             time.sleep(0.5)
     raise ModeError(f"{mode.upper()} runtime readiness was not confirmed")
+
+
+def disconnect_backend(mode: str, bridge: dict, profile, runner: Runner = run) -> None:
+    """End both halves of the selected session before its runtime is stopped."""
+    bridge_id = str(bridge["id"])
+    user = "mode-switch"
+    controls = {
+        "dmr": [
+            "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+            "--bridge", bridge_id, "--disconnect",
+        ],
+        "ysf": [
+            "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
+            "--disconnect", bridge_id, "--user", user,
+        ],
+        "p25": [
+            "/usr/local/sbin/allscan-reimagined-p25-bridge-control",
+            "disconnect", bridge_id, "--user", user,
+        ],
+        "nxdn": [
+            "/usr/local/sbin/allscan-reimagined-nxdn-bridge-control",
+            "disconnect", bridge_id, "--user", user,
+        ],
+        "m17": [
+            "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+            "--bridge", bridge_id, "--user", user, "disconnect",
+        ],
+    }
+    command = controls[mode]
+    if mode in {"p25", "nxdn"}:
+        command = [
+            "/usr/local/libexec/allscan-reimagined/asr-container-netns-exec.py",
+            "--container", profile.asterisk_container,
+            "--proc-root", str(profile.host_proc), "--",
+            "/usr/bin/env",
+            "ASR_CONTAINER_WATCH_CONFIG=/run/allscan-reimagined-bridge-rpc/config.json",
+            "ASR_CONTAINER_WATCH_SECRETS=/run/allscan-reimagined-bridge-rpc/bridge-mqtt-secrets.json",
+            *command,
+        ]
+    checked(runner(command, False), f"disconnecting {mode.upper()} session")
 
 
 def configured_ports(mode: str, bridge: dict) -> tuple[int, int]:
@@ -389,6 +449,8 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     staged_config = json.dumps(updated, sort_keys=True, indent=2) + "\n"
     try:
         old_node = str(bridges[old_mode].get("node", NODE)) if old_mode else str(NODE)
+        if old_mode:
+            disconnect_backend(old_mode, bridges[old_mode], profile, runner)
         disconnect_transport(config, old_node, runner)
         for candidate, bridge in bridges.items():
             stop_backend(candidate, bridge, runner)
