@@ -695,6 +695,46 @@ then
   echo "The pre-existing startup bridge summary sound directory is not ASR-owned; it was preserved." >&2
   STARTUP_SUMMARY_SOUND_READY=0
 fi
+cat > /etc/systemd/system/allscan-reimagined-net-bridge-recovery.service <<'EOF'
+[Unit]
+Description=Restore the permanent AllScan Reimagined Unified Net Bridge transport
+After=network-online.target asterisk.service
+Wants=network-online.target
+ConditionPathExists=/etc/allscan-reimagined/config.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-net-bridge-mode-control --restore-transport
+TimeoutStartSec=90s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+net_bridge_recovery_enabled=$(python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+mode = str(payload.get("netBridgeMode", "")).lower()
+expected = f"{mode}_net"
+ready = mode in {"dmr", "ysf", "p25", "nxdn", "m17"} and any(
+    isinstance(item, dict)
+    and item.get("cardType") == expected
+    and str(item.get("node", "")) == "1999"
+    for item in payload.get("bridges", [])
+)
+print("1" if ready else "0")
+PY
+)
+systemctl daemon-reload
+if [ "$net_bridge_recovery_enabled" = "1" ]; then
+  systemctl enable allscan-reimagined-net-bridge-recovery.service >/dev/null
+else
+  systemctl disable allscan-reimagined-net-bridge-recovery.service >/dev/null 2>&1 || true
+fi
+
 cat > /etc/systemd/system/allscan-reimagined-startup-bridge-summary.service <<'EOF'
 [Unit]
 Description=Announce established Standard ASR digital bridges once after startup

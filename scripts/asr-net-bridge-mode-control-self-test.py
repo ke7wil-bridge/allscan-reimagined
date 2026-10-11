@@ -63,6 +63,7 @@ class FakeRunner:
         self.fail_mode = fail_mode
         self.commands: list[list[str]] = []
         self.reload_count = 0
+        self.transport_linked = False
         self.channel_ports = control.selected_ports(old_mode, bridge(old_mode, "1"))
 
     def __call__(self, argv: list[str], _check: bool) -> subprocess.CompletedProcess[str]:
@@ -72,6 +73,13 @@ class FakeRunner:
         if argv[0] == control.ASTERISK and argv[-1].startswith("rpt stats "):
             node = argv[-1].rsplit(" ", 1)[-1]
             return subprocess.CompletedProcess(argv, 0, f"NODE {node} STATISTICS\n", "")
+        if argv[0] == control.ASTERISK and argv[-1].startswith("rpt lstats "):
+            row = "1999 1999 0 OUT 00:00:02 ESTABLISHED\n" if self.transport_linked else ""
+            output = ("NODE PEER RECONNECTS DIRECTION CONNECT TIME CONNECT STATE\n" + row)
+            return subprocess.CompletedProcess(argv, 0, output, "")
+        if argv[0] == control.ASTERISK and argv[-1].endswith(" ilink 3 1999"):
+            self.transport_linked = True
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK and argv[-1].startswith("rpt show channels "):
             rx, tx = self.channel_ports
             return subprocess.CompletedProcess(
@@ -202,6 +210,16 @@ def main() -> None:
                     mode, next(item for item in original["bridges"] if item["mode"] == mode)
                 )
                 assert f"rxchannel = USRP/127.0.0.1:{backend_rx}:{backend_tx}" in rendered
+
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, _original = fixture(Path(temporary))
+            runner = FakeRunner()
+            restored = control.restore_transport(profile, runner)
+            assert restored["ok"] and restored["mode"] == "dmr"
+            assert restored["transportLinked"] is True
+            assert runner.transport_linked is True
+            assert any(command[-1] == "rpt cmd 641890 ilink 3 1999"
+                       for command in runner.commands)
 
         with tempfile.TemporaryDirectory() as temporary:
             profile, _original = fixture(Path(temporary))

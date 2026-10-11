@@ -78,6 +78,25 @@ for lifecycle_dir in bridge-ownership bridge-tombstones bridge-deletion-queue br
   [ "$(stat -c '%U:%G:%a' "/var/lib/allscan-reimagined/$lifecycle_dir" 2>/dev/null)" = "root:root:700" ] || needs_reapply=1
 done
 [ -f /etc/systemd/system/allscan-reimagined-startup-bridge-summary.service ] || needs_reapply=1
+[ -f /etc/systemd/system/allscan-reimagined-net-bridge-recovery.service ] || needs_reapply=1
+if python3 - /etc/allscan-reimagined/config.json <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+mode = str(payload.get("netBridgeMode", "")).lower()
+expected = f"{mode}_net"
+raise SystemExit(0 if mode in {"dmr", "ysf", "p25", "nxdn", "m17"} and any(
+    isinstance(item, dict) and item.get("cardType") == expected
+    and str(item.get("node", "")) == "1999"
+    for item in payload.get("bridges", [])
+) else 1)
+PY
+then
+  systemctl is-enabled --quiet allscan-reimagined-net-bridge-recovery.service || needs_reapply=1
+fi
 [ ! -L /etc/sudoers.d/allscan-reimagined ] \
   && [ -f /etc/sudoers.d/allscan-reimagined ] \
   && [ "$(stat -c '%U:%G:%a:%h' /etc/sudoers.d/allscan-reimagined 2>/dev/null)" = "root:root:440:1" ] \

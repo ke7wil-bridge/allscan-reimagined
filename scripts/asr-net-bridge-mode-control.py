@@ -415,6 +415,56 @@ def disconnect_transport(config: dict, bridge_node: str, runner: Runner = run) -
         runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 11 {node}"], False)
 
 
+def parse_lstats_links(output: str) -> set[tuple[str, str]]:
+    if not re.search(
+        r"^NODE\s+PEER\s+RECONNECTS\s+DIRECTION\s+CONNECT TIME\s+CONNECT STATE\s*$",
+        output,
+        re.MULTILINE,
+    ):
+        raise ModeError("Asterisk direct-link status was not recognized")
+    return set(
+        re.findall(
+            r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)[ \t]+",
+            output,
+            re.MULTILINE,
+        )
+    )
+
+
+def transport_linked(main_node: str, runner: Runner = run) -> bool:
+    result = runner([ASTERISK, "-rx", f"rpt lstats {main_node}"], False)
+    checked(result, "reading permanent Net Bridge link state")
+    return (str(NODE), "OUT") in parse_lstats_links(result.stdout)
+
+
+def restore_transport(profile, runner: Runner = run) -> dict:
+    config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
+    bridges = net_bridges(config)
+    mode = str(config.get("netBridgeMode", "")).lower()
+    if mode not in bridges:
+        raise ModeError("selected Net Bridge mode is not provisioned")
+    main_node = str(config.get("node", ""))
+    if not re.fullmatch(r"[0-9]{3,10}", main_node):
+        raise ModeError("main AllStar node is invalid")
+    ports = selected_ports(mode, bridges[mode])
+    reload_and_verify(runner, expected_ports=ports)
+    start_backend(mode, bridges[mode], runner)
+    if not transport_linked(main_node, runner):
+        checked(
+            runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 3 {NODE}"], False),
+            "restoring permanent Net Bridge link",
+        )
+        for attempt in range(40):
+            if transport_linked(main_node, runner):
+                break
+            if attempt < 39:
+                time.sleep(0.25)
+        else:
+            raise ModeError("Asterisk did not restore the permanent Net Bridge link")
+    return {"ok": True, "mode": mode, "node": NODE,
+            "bridgeId": bridges[mode]["id"], "transportLinked": True}
+
+
 def reload_and_verify(
     runner: Runner = run, node: int = NODE,
     expected_ports: tuple[int, int] | None = None,
@@ -518,6 +568,7 @@ def main() -> int:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--mode", choices=MODES)
     operation.add_argument("--migrate-transport", action="store_true")
+    operation.add_argument("--restore-transport", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if CONTAINERIZED:
@@ -546,6 +597,15 @@ def main() -> int:
             print(json.dumps({"ok": True, "migrate": True, "usrpRx": rx,
                               "usrpTx": tx}))
             return 0
+        if args.restore_transport:
+            mode = str(config.get("netBridgeMode", "")).lower()
+            if mode not in bridges:
+                raise SystemExit("selected Net Bridge mode is not provisioned")
+            rx, tx = selected_ports(mode, bridges[mode])
+            print(json.dumps({"ok": True, "restore": True, "mode": mode,
+                              "node": NODE, "bridgeId": bridges[mode]["id"],
+                              "usrpRx": rx, "usrpTx": tx}))
+            return 0
         rx, tx = selected_ports(args.mode, bridges[args.mode])
         print(json.dumps({"ok": True, "mode": args.mode, "node": NODE,
                           "bridgeId": bridges[args.mode]["id"],
@@ -560,8 +620,12 @@ def main() -> int:
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            result = (migrate_transport(profile) if args.migrate_transport
-                      else switch_mode(args.mode, profile))
+            if args.migrate_transport:
+                result = migrate_transport(profile)
+            elif args.restore_transport:
+                result = restore_transport(profile)
+            else:
+                result = switch_mode(args.mode, profile)
         except (ModeError, OSError, ValueError, subprocess.SubprocessError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}))
             return 1

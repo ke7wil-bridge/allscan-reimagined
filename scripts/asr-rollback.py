@@ -697,6 +697,34 @@ def rewrite_owned_policy_without(
         temporary.unlink(missing_ok=True)
 
 
+def reconcile_net_bridge_recovery_wiring(release_root: Path) -> None:
+    """Remove the boot recovery unit when the restored controller predates it."""
+    controller = release_root / "scripts/asr-net-bridge-mode-control.py"
+    try:
+        supported = controller.is_file() and "--restore-transport" in controller.read_text(
+            encoding="utf-8"
+        )
+    except OSError:
+        supported = False
+    if supported:
+        return
+    subprocess.run(
+        ["systemctl", "disable", "--now", "allscan-reimagined-net-bridge-recovery.service"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    Path("/etc/systemd/system/allscan-reimagined-net-bridge-recovery.service").unlink(
+        missing_ok=True
+    )
+    subprocess.run(
+        ["systemctl", "daemon-reload"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def reconcile_next_digital_wiring(release_root: Path) -> None:
     """Remove ASR-owned P25/NXDN/M17 helpers when the restored release predates them."""
     scripts = release_root / "scripts"
@@ -1144,6 +1172,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                 )
             reconcile_ysf_net_wiring(release_target)
             reconcile_next_digital_wiring(release_target)
+            reconcile_net_bridge_recovery_wiring(release_target)
             reconcile_fixed_bridge_recovery_wiring(release_target)
             reconcile_standard_bridge_status_wiring(release_target)
             reconcile_bridge_lifecycle_wiring(release_target)

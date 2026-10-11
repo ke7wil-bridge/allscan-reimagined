@@ -154,6 +154,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-startup-bridge-summary.service \
+    allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
@@ -172,6 +173,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-startup-bridge-summary.service \
+    allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-dmr-net-live.service \
@@ -344,6 +346,7 @@ rollback_on_error() {
         allscan-reimagined-fixed-bridge-recovery.service \
         allscan-reimagined-fixed-bridge-recovery.timer \
         allscan-reimagined-startup-bridge-summary.service \
+        allscan-reimagined-net-bridge-recovery.service \
         allscan-reimagined-standard-bridge-status.service \
         allscan-reimagined-tgif-user-sessions.service \
         allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
@@ -563,6 +566,7 @@ for unit in \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
@@ -688,6 +692,7 @@ systemctl stop \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
 systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
 
