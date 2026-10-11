@@ -113,7 +113,7 @@ def main() -> None:
             "dmr": {"destination": 86753, "authMode": "legacy", "tgifPassword": ""},
             "ysf": {"destination": 64189, "name": "US-KE7WIL-YSF", "host": "127.0.0.1", "port": 42000},
             "p25": {"destination": 64189, "host": "127.0.0.1", "port": 41000},
-            "nxdn": {"destination": 15846, "host": "127.0.0.1", "port": 41400},
+            "nxdn": {"destination": 6749, "identity": 15846, "host": "127.0.0.1", "port": 41400},
             "m17": {"reflector": "M17-WIL", "host": "127.0.0.1", "port": 17000, "module": "A"},
         },
     }
@@ -121,9 +121,24 @@ def main() -> None:
     assert set(net_modes) == {"dmr", "ysf", "p25", "nxdn", "m17"}
     assert all(value.get("bridgeNode") == "1999" for value in net_modes.values())
     assert net_modes["dmr"]["destination"] == "86753"
+    assert net_modes["nxdn"]["destination"] == "6749"
+    assert net_modes["nxdn"]["identity"] == "15846"
     try:
         helper.net_bridge_mode_payloads({**net_request, "command": "systemctl restart anything"})
         raise AssertionError("unrestricted Net Bridge command field accepted")
+    except helper.HelperError:
+        pass
+    sync_calls = []
+    def sync_runner(argv, **kwargs):
+        sync_calls.append((argv, kwargs))
+        return helper.subprocess.CompletedProcess(argv, 0, "ok", "")
+    helper.sync_net_ysf_custom_hosts(sync_runner)
+    assert sync_calls[0][0][-1] == "--sync-custom-hosts"
+    try:
+        helper.sync_net_ysf_custom_hosts(
+            lambda argv, **kwargs: helper.subprocess.CompletedProcess(argv, 1, "", "failed")
+        )
+        raise AssertionError("failed YSF catalog activation accepted")
     except helper.HelperError:
         pass
 

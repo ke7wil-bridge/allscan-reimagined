@@ -792,7 +792,10 @@ def gateway_event(line: str) -> tuple[str, str, str] | None:
     linked = re.search(r"Linked to\s+(.+?)\s*$", line)
     if linked:
         return ("linked", "", clean_name(linked.group(1)))
-    if "Disconnect by remote command" in line:
+    if "CONNECT Reply" in line:
+        return ("reply", "", "")
+    if ("Disconnect by remote command" in line
+            or "Link has failed, polls lost" in line):
         return ("disconnect", "", "")
     return None
 
@@ -838,7 +841,9 @@ def gateway_link_state(
             continue
         if event[0] == "connect":
             pending = (event[1], event[2], epoch)
-        elif event[0] == "linked" and pending and same_reflector_name(event[2], pending[1]):
+        elif event[0] in {"linked", "reply"} and pending and (
+            event[0] == "reply" or same_reflector_name(event[2], pending[1])
+        ):
             result = {
                 "linked": True,
                 "destination": pending[0],
@@ -897,8 +902,11 @@ def wait_gateway_connect(settings: dict, marker: tuple[str, int, int], item: dic
             if (event[0] == "connect" and event[1] == item["id"]
                     and same_reflector_name(event[2], item["name"])):
                 saw_connect = True
-            elif (saw_connect and event[0] == "linked"
-                  and same_reflector_name(event[2], item["name"])):
+            elif saw_connect and (
+                event[0] == "reply"
+                or (event[0] == "linked"
+                    and same_reflector_name(event[2], item["name"]))
+            ):
                 return True
         time.sleep(0.2)
     return False
@@ -1598,8 +1606,10 @@ def self_test() -> None:
                 raise AssertionError("invalid custom YSF reflector was accepted")
         assert gateway_event('M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "') == ("connect", "23456", "US-TEST-WIDE")
         assert gateway_event("M: 2026-01-01 12:00:01.100 Linked to US-TEST-WIDE    ") == ("linked", "", "US-TEST-WIDE")
+        assert gateway_event("D: 2026-01-01 12:00:01.100 CONNECT Reply") == ("reply", "", "")
         assert same_reflector_name("US-Netoholics", "US-NETOHOLICS")
         assert gateway_event("M: 2026-01-01 12:10:00.000 Disconnect by remote command") == ("disconnect", "", "")
+        assert gateway_event("W: 2026-01-01 12:12:00.000 Link has failed, polls lost") == ("disconnect", "", "")
 
         gateway_log = tmp / "gateway.log"
         gateway_log.write_text(
@@ -1609,6 +1619,14 @@ def self_test() -> None:
         )
         state = gateway_link_state(gateway_log)
         assert state["linked"] and state["destination"] == "23456" and state["name"] == "US-TEST-WIDE"
+        reply_log = tmp / "reply-gateway.log"
+        reply_log.write_text(
+            'M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "\n'
+            "D: 2026-01-01 12:00:01.100 CONNECT Reply\n",
+            encoding="utf-8",
+        )
+        reply_state = gateway_link_state(reply_log)
+        assert reply_state["linked"] and reply_state["destination"] == "23456"
         mixed_case_log = tmp / "mixed-case-gateway.log"
         mixed_case_log.write_text(
             'M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-NETOHOLICS   "\n'

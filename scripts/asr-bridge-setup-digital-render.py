@@ -85,7 +85,11 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
         general.update({"Id": settings["digital_id"], "LocalAddress": "127.0.0.1", "Suffix": "ASR"})
     content = set_ini(content, "General", general)
     content = set_ini(content, "Log", {
-        "DisplayLevel": 1, "FileLevel": 2, "FilePath": "/var/log/mmdvm",
+        # YSFGateway records the reflector's CONNECT Reply at level 1. The
+        # control path tails this file to verify the requested link, so YSF
+        # must retain that level in its file log.
+        "DisplayLevel": 1, "FileLevel": 1 if mode == "ysf" else 2,
+        "FilePath": "/var/log/mmdvm",
         "FileRoot": f"{name}_{settings['bridge_id']}",
     })
     content = set_ini(content, "Remote Commands", {"Enable": 1, "Port": ports["remote"]})
@@ -115,8 +119,12 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
             network["RFHangTime"] = 0
         content = set_ini(content, "Network", network)
     else:
+        startup = (
+            "" if settings.get("bridge_role") == "net"
+            else str(settings.get("reflector_name") or f"{settings['callsign']}-ASR")
+        )
         content = set_ini(content, "Network", {
-            "Startup": f"{settings['callsign']}-ASR", "InactivityTimeout": 0,
+            "Startup": startup, "InactivityTimeout": 0,
         })
         content = set_ini(content, "YSF Network", {
             "Enable": 1, "Port": ports["network"],
@@ -186,7 +194,7 @@ def mmdvm_ini(plan: dict[str, Any], stage: Path) -> str:
         "LocalPort": ports["gateway_tx"],
     })
     if mode == "nxdn":
-        text = set_ini(text, "NXDN", {"Id": settings["destination"]})
+        text = set_ini(text, "NXDN", {"Id": settings["nxdn_id"]})
     return text
 
 
@@ -202,7 +210,7 @@ def dvswitch_ini(plan: dict[str, Any], stage: Path) -> str:
         # Analog_Bridge presents the local DMR identity in its TLV metadata.
         # When the DMR-to-NXDN database cannot translate it, md380-emu must
         # use the configured NXDN identity instead of the upstream sample ID.
-        values["nxdnFallbackID"] = settings["destination"]
+        values["nxdnFallbackID"] = settings["nxdn_id"]
     return set_ini(text, section, values)
 
 
@@ -211,8 +219,11 @@ def hosts_files(plan: dict[str, Any]) -> dict[str, str]:
     gateway = {"p25": "P25Gateway", "nxdn": "NXDNGateway", "ysf": "YSFGateway"}[mode]
     if mode == "ysf":
         host = settings["reflector_host"]
+        reflector_name = str(
+            settings.get("reflector_name") or f"US-{settings['callsign']}-YSF"
+        ).upper()
         return {f"/var/lib/mmdvm/ASR-{settings['bridge_id']}-YSFHosts.txt":
-                f"{settings['destination']:05d};US-{settings['callsign']}-YSF;ASR Bridge;{host};{settings['reflector_port']};0\n"}
+                f"{settings['destination']:05d};{reflector_name};ASR Bridge;{host};{settings['reflector_port']};000;\n"}
     row = {"designator": settings["destination"],
            "ipv4": settings["reflector_host"], "ipv6": None,
            "port": settings["reflector_port"]}

@@ -23,6 +23,8 @@ from asr_bridge_status import astapi_key_states, reconcile_keyed_source, watchdo
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-bridge-control")
 MANAGED_DMR_ROOT = Path("/opt/allscan-reimagined-bridges/urf")
+NATIVE_URF_EVENT_PATH = Path("/run/urf-wil/asr-live-events.jsonl")
+NATIVE_UNIT_DIR = Path("/etc/systemd/system")
 LIVE_STATUS_PATH = RUN_DIR / "bridge-live.json"
 AUDIT_LOG = Path("/var/log/allscan-reimagined-bridge-control.log")
 HOST_ROOT = Path("/proc/1/root")
@@ -367,38 +369,53 @@ def refresh_urf_activity(
     now: int,
     managed_root: Path = MANAGED_DMR_ROOT,
     expected_uid: int = 0,
+    native_event_path: Path | None = None,
 ) -> dict:
     bridge_id = str(bridge.get("id", ""))
     if not BRIDGE_ID_RE.fullmatch(bridge_id) or bridge.get("backendMode") != "managed":
         return state
-    path = managed_root / bridge_id / "data/asr-live-events.jsonl"
-    try:
-        details = path.stat()
-        if (not path.is_file() or details.st_nlink != 1
-                or details.st_uid != expected_uid or details.st_mode & 0o022):
-            return state
-        changed = (str(path) != str(state.get("urf_path", ""))
-                   or details.st_ino != int(state.get("urf_inode", 0) or 0)
-                   or details.st_size < int(state.get("urf_offset", 0) or 0))
-        offset = max(0, details.st_size - LIVE_STATUS_INITIAL_TAIL_BYTES) if changed else int(state.get("urf_offset", 0) or 0)
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            handle.seek(offset)
-            if changed and offset > 0:
-                handle.readline()
-            for line in handle:
-                if len(line) > URF_EVENT_MAX_LINE_BYTES:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(event, dict):
-                    apply_urf_activity_event(state, event, now)
-            state["urf_offset"] = handle.tell()
-        state["urf_path"] = str(path)
-        state["urf_inode"] = details.st_ino
-    except OSError:
-        pass
+    paths = [(managed_root / bridge_id / "data/asr-live-events.jsonl", {expected_uid})]
+    native_unit = NATIVE_UNIT_DIR / f"allscan-reimagined-urfd-{bridge_id}.service"
+    if native_event_path is None and managed_root == MANAGED_DMR_ROOT and native_unit.is_file():
+        native_event_path = NATIVE_URF_EVENT_PATH
+    if native_event_path is not None:
+        try:
+            parent = native_event_path.parent
+            parent_details = parent.stat()
+            if (parent.is_dir() and not parent.is_symlink()
+                    and not parent_details.st_mode & 0o022):
+                paths.append((native_event_path, {parent_details.st_uid}))
+        except OSError:
+            pass
+    for path, accepted_uids in paths:
+        try:
+            details = path.stat()
+            if (not path.is_file() or path.is_symlink() or details.st_nlink != 1
+                    or details.st_uid not in accepted_uids or details.st_mode & 0o022):
+                continue
+            changed = (str(path) != str(state.get("urf_path", ""))
+                       or details.st_ino != int(state.get("urf_inode", 0) or 0)
+                       or details.st_size < int(state.get("urf_offset", 0) or 0))
+            offset = max(0, details.st_size - LIVE_STATUS_INITIAL_TAIL_BYTES) if changed else int(state.get("urf_offset", 0) or 0)
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(offset)
+                if changed and offset > 0:
+                    handle.readline()
+                for line in handle:
+                    if len(line) > URF_EVENT_MAX_LINE_BYTES:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict):
+                        apply_urf_activity_event(state, event, now)
+                state["urf_offset"] = handle.tell()
+            state["urf_path"] = str(path)
+            state["urf_inode"] = details.st_ino
+            break
+        except OSError:
+            continue
     return state
 
 
@@ -1335,6 +1352,27 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             managed, activity, 1_784_835_094, managed_root, os.geteuid()
         )
         assert activity["role"] == "idle"
+        native_root = Path(directory) / "native-managed"
+        native_root.mkdir()
+        native_run = Path(directory) / "native-run"
+        native_run.mkdir(mode=0o755)
+        native_event = native_run / "asr-live-events.jsonl"
+        native_event.write_text(
+            json.dumps({"event": "tx_start", "mode": "USRP", "callsign": "N0CALL", "epoch": 1_784_835_100}) + "\n",
+            encoding="utf-8",
+        )
+        native_event.chmod(0o644)
+        native_activity = refresh_urf_activity(
+            managed, initial_live_state(), 1_784_835_101,
+            native_root, os.geteuid(), native_event,
+        )
+        assert native_activity["role"] == "relay"
+        native_run.chmod(0o777)
+        rejected = refresh_urf_activity(
+            managed, initial_live_state(), 1_784_835_101,
+            native_root, os.geteuid(), native_event,
+        )
+        assert rejected["role"] == "idle"
     print("DMR Net Bridge control self-test: ok")
 
 

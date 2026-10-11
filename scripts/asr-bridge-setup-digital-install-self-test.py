@@ -64,6 +64,34 @@ def exercise(stage_root):
             assert snapshot(root) == first
             print(f"offline {mode.upper()} apply/rollback/idempotency: PASS")
 
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        put(root, "/etc/os-release", "ID=debian\n")
+        put(root, install.planner.CONFIG, json.dumps({
+            "node": "641890", "netBridgeMode": "ysf", "bridges": [{
+                "id": "dmr_old", "mode": "dmr", "cardType": "dmr_net", "node": "1999",
+            }],
+        }) + "\n")
+        old_block = (
+            "[nodes]\n641890 = radio@127.0.0.1/641890,NONE\n"
+            "1999 = radio@127.0.0.1:4569/1999,NONE\n"
+            "; ASR MANAGED BEGIN dmr_old\n[1999]\nrxchannel = USRP/127.0.0.1:52000:52001\n"
+            "; ASR MANAGED END dmr_old\n[641890]\n"
+        )
+        put(root, install.planner.RPT, old_block)
+        put(root, install.planner.MODULES, "load = app_rpt.so\n")
+        settings = install.planner.DigitalSettings(
+            "ysf", "ysf_test", "KE7WIL", 1234567, 64189,
+            "127.0.0.1", 42000, bridge_role="net", reflector_name="TEST",
+        )
+        plan = install.planner.plan(root, settings)
+        outputs = {}
+        install.integration_files(root, plan, outputs)
+        rendered = outputs[install.planner.RPT][0].decode()
+        assert "ASR MANAGED BEGIN dmr_old" not in rendered
+        assert "ASR MANAGED BEGIN ysf_test" in rendered
+    print("digital Net Bridge managed-section replacement: PASS")
+
     calls = []
     real_run = install.subprocess.run
     def fake_run(argv, **kwargs):

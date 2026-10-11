@@ -40,13 +40,17 @@ def main() -> None:
         for mode in planner.MODES:
             stage = Path(sys.argv[1]) / mode
             source.verify(stage, mode)
-            settings = planner.DigitalSettings(mode, f"{mode}_test", "KE7WIL", 1234567,
-                                                15846, "127.0.0.1", 41400)
+            settings = planner.DigitalSettings(
+                mode, f"{mode}_test", "KE7WIL", 1234567,
+                15846, "127.0.0.1", 41400,
+                reflector_name="KE7WIL-ASR" if mode == "ysf" else "",
+            )
             plan = planner.plan(root, settings)
             gateway = renderer.gateway_ini(plan, stage, "test-user", "test-secret")
             assert f"Callsign=KE7WIL" in gateway
             assert f"Port={plan['ports']['remote']}" in gateway
             assert f"FileRoot={planner.MODES[mode]}_{mode}_test" in gateway
+            assert f"FileLevel={1 if mode == 'ysf' else 2}" in gateway
             if mode in ("p25", "nxdn"):
                 assert "Auth=1" in gateway and "Password=test-secret" in gateway
             else:
@@ -65,9 +69,21 @@ def main() -> None:
             if mode == "nxdn":
                 assert "nxdnFallbackID=15846" in dvswitch
                 assert "nxdnFallbackID  = 12345" not in dvswitch
+                split_settings = planner.DigitalSettings(
+                    mode, "nxdn_split", "KE7WIL", 1234567, 6749,
+                    "127.0.0.1", 41400, nxdn_id=15846,
+                    bridge_role="net",
+                )
+                split_plan = planner.plan(root, split_settings)
+                assert "Id=15846" in renderer.mmdvm_ini(split_plan, stage)
+                assert "nxdnFallbackID=15846" in renderer.dvswitch_ini(split_plan, stage)
             hosts = renderer.hosts_files(plan)
             assert len(hosts) in (1, 2)
             assert all("127.0.0.1" in text for text in hosts.values() if not text.startswith("#"))
+            if mode == "ysf":
+                ysf_hosts = next(iter(hosts.values()))
+                assert ";KE7WIL-ASR;ASR Bridge;" in ysf_hosts
+                assert ysf_hosts.endswith(";000;\n")
             units = renderer.service_units(plan)
             assert len(units) == (4 if mode in ("p25", "ysf") else 5)
             assert all("WantedBy=multi-user.target" in text for text in units.values())
@@ -87,6 +103,18 @@ def main() -> None:
                 )
                 assert "Static=0" in net_gateway
                 assert "RFHangTime=0" in net_gateway
+            if mode == "ysf":
+                net_settings = planner.DigitalSettings(
+                    mode, "ysf_net", "KE7WIL", 1234567, 64189,
+                    "127.0.0.1", 42000, bridge_role="net",
+                    reflector_name="KE7WIL-ASR",
+                )
+                net_gateway = renderer.gateway_ini(
+                    planner.plan(root, net_settings), stage,
+                    "test-user", "test-secret",
+                )
+                assert "Startup=\n" in net_gateway
+                assert "Startup=KE7WIL-ASR" not in net_gateway
     print("digital render source integration: PASS")
 
 if __name__ == "__main__":
