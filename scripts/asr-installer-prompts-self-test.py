@@ -55,6 +55,12 @@ def main() -> int:
         "installer must provision the upstream AllScan unzip dependency on clean nodes",
     )
     require(
+        "apt-get install -y libapache2-mod-php" in installer
+        and "php_web_runtime_ok" in installer
+        and "ensure_php_web_runtime\nSTOCK_ALLSCAN_DIR=" in installer,
+        "installer must verify and provision a web PHP runtime before exposing stock AllScan",
+    )
+    require(
         'if command -v node >/dev/null 2>&1; then' in installer,
         "target validation must not require Node.js on a clean ASL3 node",
     )
@@ -126,9 +132,9 @@ def main() -> int:
         "installer must stage, test, and use the loopback endpoint validator",
     )
     require(
-        installer.count("--expect json") == 2
+        installer.count("--expect json") == 3
         and installer.count("--expect html") == 1,
-        "installer endpoint validation must cover both JSON APIs and built HTML",
+        "installer endpoint validation must cover the PHP probe, both JSON APIs, and built HTML",
     )
     require(
         "curl -fsS http://127.0.0.1/asr" not in installer,

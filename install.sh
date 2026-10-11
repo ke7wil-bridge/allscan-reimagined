@@ -382,6 +382,37 @@ ask() {
   [[ "$answer" =~ ^[Yy]$ ]]
 }
 
+php_web_runtime_ok() {
+  local probe_name probe_path status=0
+  probe_name=".asr-php-runtime-probe.$$.$RANDOM.php"
+  probe_path="$WEB_ROOT/$probe_name"
+  printf '%s\n' '<?php header("Content-Type: application/json"); echo "{\"ok\":true}";' > "$probe_path"
+  chmod 644 "$probe_path"
+  python3 "$PAYLOAD_DIR/scripts/asr-loopback-validate.py" \
+    --expect json "http://127.0.0.1/$probe_name" >/dev/null 2>&1 || status=$?
+  rm -f "$probe_path"
+  [ "$status" -eq 0 ]
+}
+
+ensure_php_web_runtime() {
+  php_web_runtime_ok && return 0
+  if command -v apt-get >/dev/null 2>&1 \
+    && command -v apache2ctl >/dev/null 2>&1 \
+    && systemctl is-active --quiet apache2; then
+    echo "Installing required Apache PHP runtime: libapache2-mod-php"
+    DEBIAN_FRONTEND=noninteractive apt-get update \
+      || fail "Could not refresh package metadata required for the Apache PHP runtime"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libapache2-mod-php \
+      || fail "Could not install the required Apache PHP runtime"
+    systemctl restart apache2 \
+      || fail "Apache could not restart after installing the PHP runtime"
+  else
+    fail "The web server is not configured to execute PHP. Configure an Apache PHP module or PHP-FPM, then retry."
+  fi
+  php_web_runtime_ok \
+    || fail "The web server still does not execute PHP after installing the Apache PHP runtime"
+}
+
 prune_old_backups() {
   local backup_root="/root/allscan-reimagined-backups" removed=0 remove_count index
   local -a backups=()
@@ -428,6 +459,7 @@ elif [ -d /srv/http ]; then
 else
   fail "A supported web root was not found."
 fi
+ensure_php_web_runtime
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1
