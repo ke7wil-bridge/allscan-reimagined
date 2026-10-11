@@ -277,7 +277,7 @@ $managedDmr = postedBridge([
 	'bridgeCardType'=>['dmr_net'], 'bridgePermission'=>['self_owned'],
 	'bridgeApprovedDestinations'=>['86753'], 'bridgeFixedDestination'=>['86753'],
 ], [$managedDmrExisting]);
-check(!empty($managedDmr['managedNetControl']) && !isset($managedDmr['abinfoPath']),
+check(!empty($managedDmr['managedNetControl']) && ($managedDmr['abinfoPath'] ?? '') === '',
 	'Native managed DMR runtime could not round-trip Settings without legacy DVSwitch paths.');
 
 expectFailure(static function (): void {
