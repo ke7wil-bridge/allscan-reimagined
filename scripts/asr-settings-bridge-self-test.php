@@ -266,6 +266,20 @@ $dmr = postedBridge([
 ]);
 check(!isset($dmr['linkAlias']) && $dmr['approvedDestinations'] === [], 'DMR Net manual-entry card retained a non-routable link alias or required an approved TG list.');
 
+$managedDmrExisting = [
+	'id'=>'dmr_tgif_net', 'mode'=>'dmr', 'node'=>'1999', 'cardType'=>'dmr_net',
+	'backendMode'=>'managed', 'managedNetControl'=>true,
+	'managedTargetFile'=>'/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/tgif-run/net-target',
+	'bridgePermission'=>'self_owned', 'approvedDestinations'=>['86753'], 'fixedDestination'=>'86753',
+];
+$managedDmr = postedBridge([
+	'bridgeId'=>['dmr_tgif_net'], 'bridgeMode'=>['dmr'], 'bridgeNode'=>['1999'],
+	'bridgeCardType'=>['dmr_net'], 'bridgePermission'=>['self_owned'],
+	'bridgeApprovedDestinations'=>['86753'], 'bridgeFixedDestination'=>['86753'],
+], [$managedDmrExisting]);
+check(!empty($managedDmr['managedNetControl']) && !isset($managedDmr['abinfoPath']),
+	'Native managed DMR runtime could not round-trip Settings without legacy DVSwitch paths.');
+
 expectFailure(static function (): void {
 	postedBridge([
 		'bridgeMode' => ['dmr'], 'bridgeCardType' => ['net'], 'bridgePermission' => [''],

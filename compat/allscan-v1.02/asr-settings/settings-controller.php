@@ -678,24 +678,29 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			}
 			$approvedDestinations = asrSettingsApprovedDmrTalkgroups($rawApprovedDestinations, $error, "DMR Net Bridge \"$id\"");
 			if($error !== '') return [];
-			if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
-				$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
-				return [];
-			}
-			if(!preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', $rawDvswitchScript)) {
-				$error = "DMR Net Bridge \"$id\" needs its own dedicated /opt/MMDVM_Bridge.../dvswitch.sh path.";
-				return [];
-			}
-			if(!preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', $rawAnalogConfig)) {
-				$error = "DMR Net Bridge \"$id\" needs its own dedicated Analog_Bridge.ini path.";
-				return [];
-			}
-			foreach([$rawAbinfoPath, $rawDvswitchScript, $rawAnalogConfig] as $controlPath) {
-				if(isset($seenControlPaths[$controlPath])) {
-					$error = "DMR control path \"$controlPath\" is already used by bridge \"{$seenControlPaths[$controlPath]}\".";
+			$managedDmrRuntime = !empty($existingForMode['managedNetControl'])
+				&& ($existingForMode['backendMode'] ?? '') === 'managed'
+				&& ($existingForMode['managedTargetFile'] ?? '') === "/opt/allscan-reimagined-bridges/urf/$id/tgif-run/net-target";
+			if(!$managedDmrRuntime) {
+				if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
+					$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
 					return [];
 				}
-				$seenControlPaths[$controlPath] = $id;
+				if(!preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', $rawDvswitchScript)) {
+					$error = "DMR Net Bridge \"$id\" needs its own dedicated /opt/MMDVM_Bridge.../dvswitch.sh path.";
+					return [];
+				}
+				if(!preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', $rawAnalogConfig)) {
+					$error = "DMR Net Bridge \"$id\" needs its own dedicated Analog_Bridge.ini path.";
+					return [];
+				}
+				foreach([$rawAbinfoPath, $rawDvswitchScript, $rawAnalogConfig] as $controlPath) {
+					if(isset($seenControlPaths[$controlPath])) {
+						$error = "DMR control path \"$controlPath\" is already used by bridge \"{$seenControlPaths[$controlPath]}\".";
+						return [];
+					}
+					$seenControlPaths[$controlPath] = $id;
+				}
 			}
 		}
 		if($rawCardType === 'ysf_net') {
