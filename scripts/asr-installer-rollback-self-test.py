@@ -222,6 +222,15 @@ def assert_installer_order(installer: Path) -> None:
     assert "allscan-reimagined-tgif-user-sessions.timer" in remove_block
     assert "/etc/tmpfiles.d/allscan-reimagined.conf" in remove_block
     assert "/usr/local/sbin/asr_bridge_status.py" in remove_block
+    rollback_start = text.index("rollback_on_error()")
+    rollback_end = text.index("trap 'rollback_on_error $?' ERR", rollback_start)
+    rollback_block = text[rollback_start:rollback_end]
+    assert "allscan-reimagined-tgif-user-sessions.service" in rollback_block
+    assert "/etc/allscan-reimagined" in rollback_block
+    assert "/var/lib/allscan-reimagined" in rollback_block
+    assert "/var/log/allscan-reimagined" in rollback_block
+    assert "/run/allscan-reimagined" in rollback_block
+    assert "/opt/allscan-reimagined/releases" in rollback_block
     stop_start = text.index("CHANGES_STARTED=1")
     stop_end = text.index('echo "[2/8] Checking the official AllScan backend..."', stop_start)
     assert "allscan-reimagined-standard-bridge-status.service" in text[stop_start:stop_end]

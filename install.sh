@@ -344,7 +344,15 @@ rollback_on_error() {
         allscan-reimagined-fixed-bridge-recovery.service \
         allscan-reimagined-fixed-bridge-recovery.timer \
         allscan-reimagined-startup-bridge-summary.service \
-        allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
+        allscan-reimagined-standard-bridge-status.service \
+        allscan-reimagined-tgif-user-sessions.service \
+        allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
+      rm -rf \
+        /etc/allscan-reimagined \
+        /var/lib/allscan-reimagined \
+        /var/log/allscan-reimagined \
+        /run/allscan-reimagined
+      rmdir /opt/allscan-reimagined/releases /opt/allscan-reimagined >/dev/null 2>&1 || true
       if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
         systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
       fi
