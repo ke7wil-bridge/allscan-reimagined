@@ -46,6 +46,11 @@ $helperSource = file_get_contents($root . '/scripts/asr-bridge-setup-helper.py')
 check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"')
 	&& str_contains($helperSource, 'allscan-reimagined-net-bridge-mode-control'),
 	'Unified setup can bypass the constrained lifecycle controller.');
+$reapplySource = file_get_contents($root . '/scripts/asr-reapply.sh');
+check(is_string($reapplySource)
+	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-plan')
+	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-install'),
+	'Web provisioning lacks constrained sudo access to the unified Net Bridge helper.');
 
 $unified = [];
 foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
