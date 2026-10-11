@@ -52,6 +52,8 @@ class FakeRunner:
         if " ilink 11 1999" in command:
             self.linked = False
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[0] == control.SYSTEMCTL and argv[1:3] == ["is-active", "--quiet"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if "compose" in argv and "ps" in argv:
             return subprocess.CompletedProcess(argv, 0, "urfd\ntcd\ntgif\n", "")
         return subprocess.CompletedProcess(argv, 1, "", "unexpected command")
@@ -83,6 +85,8 @@ def main() -> None:
             }],
         }
         config_path.write_text(json.dumps(config))
+        assert not control.CONTAINERIZED
+        assert control.ASTERISK == Path("/usr/sbin/asterisk")
         loaded, bridge = control.bridge_config("dmr_tgif_net", config_path)
         assert control.target_path(bridge, root) == target
         original_root = control.ROOT

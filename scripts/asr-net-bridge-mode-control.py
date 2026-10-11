@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable
 
 HERE = Path(__file__).resolve().parent
@@ -133,10 +134,32 @@ def dmr_compose(bridge: dict) -> Path:
     return target.parent.parent / "compose.yml"
 
 
+def native_dmr_units(bridge: dict) -> list[str]:
+    bridge_id = str(bridge["id"])
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
+        raise ModeError("DMR Net Bridge ID is invalid")
+    return [
+        f"allscan-reimagined-urf-tgif-{bridge_id}.service",
+        f"allscan-reimagined-urfd-{bridge_id}.service",
+        f"allscan-reimagined-tcd-{bridge_id}.service",
+        f"allscan-reimagined-tgif-{bridge_id}.service",
+    ]
+
+
 def runtime_argv(mode: str, bridge: dict, verb: str) -> list[list[str]]:
     if verb not in {"start", "stop", "status"}:
         raise ModeError("invalid runtime operation")
     if mode == "dmr":
+        if not CONTAINERIZED:
+            parent, *workers = native_dmr_units(bridge)
+            if verb == "start":
+                return [[SYSTEMCTL, "enable", "--now", parent],
+                        *[[SYSTEMCTL, "start", unit] for unit in workers]]
+            if verb == "stop":
+                return [*[[SYSTEMCTL, "stop", unit] for unit in reversed(workers)],
+                        [SYSTEMCTL, "disable", "--now", parent]]
+            return [[SYSTEMCTL, "is-active", "--quiet", unit]
+                    for unit in (parent, *workers)]
         compose = dmr_compose(bridge)
         project = str(bridge["id"])
         unit = f"allscan-reimagined-urf-tgif-{bridge['id']}.service"
@@ -169,7 +192,7 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         checked(runner(argv, False), f"stopping {mode.upper()} runtime")
     for argv in runtime_argv(mode, bridge, "status"):
         result = runner(argv, False)
-        if mode == "dmr":
+        if mode == "dmr" and CONTAINERIZED:
             if result.returncode or result.stdout.strip():
                 raise ModeError("DMR runtime did not stop cleanly")
         elif result.returncode == 0:
@@ -183,7 +206,7 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         ready = True
         for argv in runtime_argv(mode, bridge, "status"):
             result = runner(argv, False)
-            if mode == "dmr":
+            if mode == "dmr" and CONTAINERIZED:
                 if result.returncode or len(result.stdout.splitlines()) < 3:
                     ready = False
             elif result.returncode:
@@ -222,7 +245,7 @@ def disconnect_backend(mode: str, bridge: dict, profile, runner: Runner = run) -
         ],
     }
     command = controls[mode]
-    if mode in {"p25", "nxdn"}:
+    if CONTAINERIZED and mode in {"p25", "nxdn"}:
         command = [
             "/usr/local/libexec/allscan-reimagined/asr-container-netns-exec.py",
             "--container", profile.asterisk_container,
@@ -272,6 +295,11 @@ def rewrite_usrp_ini(text: str, rx: int, tx: int, spaced: bool) -> str:
             raise ModeError(f"backend configuration has invalid {key}")
         block = pattern.sub(f"{key}{separator}{value}", block)
     return text[:section.start()] + block + text[section.end():]
+
+
+def refresh_watch_snapshots(profile) -> None:
+    if CONTAINERIZED:
+        backend.refresh_watch_snapshots(profile)
 
 
 def migrate_transport(profile, runner: Runner = run) -> dict:
@@ -328,7 +356,7 @@ def migrate_transport(profile, runner: Runner = run) -> dict:
             atomic(path, value)
         atomic(rpt_path, new_rpt)
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
     except Exception:
         if stopped:
             for path, value in originals.items():
@@ -339,7 +367,7 @@ def migrate_transport(profile, runner: Runner = run) -> dict:
             try:
                 atomic(rpt_path, original_rpt)
                 atomic(config_path, original_config)
-                backend.refresh_watch_snapshots(profile)
+                refresh_watch_snapshots(profile)
             except Exception:
                 pass
         raise
@@ -456,12 +484,12 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
             stop_backend(candidate, bridge, runner)
         atomic(rpt_path, new_rpt)
         atomic(config_path, staged_config)
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
         reload_and_verify(runner, expected_ports=selected_ports(mode, bridges[mode]))
         start_backend(mode, bridges[mode], runner)
         updated["netBridgeMode"] = mode
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
     except Exception as exc:
         for candidate, bridge in bridges.items():
             try:
@@ -472,7 +500,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
         try:
             atomic(rpt_path, original_rpt)
             atomic(config_path, original_config)
-            backend.refresh_watch_snapshots(profile)
+            refresh_watch_snapshots(profile)
             rollback_node = int(bridges[old_mode]["node"]) if old_mode else NODE
             rollback_ports = selected_ports(old_mode, bridges[old_mode]) if old_mode else None
             reload_and_verify(runner, rollback_node, rollback_ports)
@@ -492,17 +520,22 @@ def main() -> int:
     operation.add_argument("--migrate-transport", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    # Unlike broker-launched requests, the root-only administrative entry point
-    # does not inherit the broker's private environment.  Use the fixed host
-    # profile path; load_profile still enforces ownership, mode, symlink, shape,
-    # and provisioned-path validation.
-    profile = backend.load_profile(PROFILE)
-    if profile is None:
-        raise SystemExit("container profile unavailable")
-    backend.validate_active_profile(profile)
-    # Child helpers intentionally require the same validated profile marker.
-    # Broker launches already provide it; direct root administration does not.
-    os.environ[backend.PROFILE_ENV] = str(PROFILE)
+    if CONTAINERIZED:
+        # Unlike broker-launched requests, direct root administration does not
+        # inherit the broker marker.  The fixed profile remains fully validated.
+        profile = backend.load_profile(PROFILE)
+        if profile is None:
+            raise SystemExit("container profile unavailable")
+        backend.validate_active_profile(profile)
+        os.environ[backend.PROFILE_ENV] = str(PROFILE)
+    else:
+        for path in (Path("/etc/allscan-reimagined"), Path("/etc/asterisk")):
+            if path.is_symlink() or not path.is_dir():
+                raise SystemExit(f"native configuration directory is unsafe: {path}")
+        profile = SimpleNamespace(
+            asr_config=Path("/etc/allscan-reimagined"),
+            asterisk_config=Path("/etc/asterisk"),
+        )
     config = json.loads((profile.asr_config / "config.json").read_text())
     bridges = net_bridges(config)
     if args.mode is not None and args.mode not in bridges:

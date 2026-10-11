@@ -98,6 +98,12 @@ class FakeRunner:
                 return subprocess.CompletedProcess(argv, 0, "", "")
             output = "urfd\ntcd\ntgif\n" if self.active["dmr"] else ""
             return subprocess.CompletedProcess(argv, 0, output, "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "start":
+            self.active["dmr"] = True
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "stop":
+            self.active["dmr"] = False
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if "disable" in argv:
             if mode:
                 self.active[mode] = False
@@ -165,8 +171,12 @@ def main() -> None:
                 "--bridge", "dmr_net", "--disconnect",
             ]]
             dmr_commands = [" ".join(command) for command in runner.commands]
-            assert any("docker compose" in command and command.endswith(" stop")
-                       for command in dmr_commands)
+            if control.CONTAINERIZED:
+                assert any("docker compose" in command and command.endswith(" stop")
+                           for command in dmr_commands)
+            else:
+                assert any("systemctl stop allscan-reimagined-tgif-dmr_net.service" in command
+                           for command in dmr_commands)
             assert not any("channel request hangup" in " ".join(command)
                            for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
@@ -200,11 +210,15 @@ def main() -> None:
             restored = json.loads((profile.asr_config / "config.json").read_text())
             assert restored["netBridgeMode"] == "dmr"
             assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
-            assert any(
-                "docker compose" in " ".join(command)
-                and " ".join(command).endswith(" up -d")
-                for command in runner.commands
-            )
+            if control.CONTAINERIZED:
+                assert any(
+                    "docker compose" in " ".join(command)
+                    and " ".join(command).endswith(" up -d")
+                    for command in runner.commands
+                )
+            else:
+                assert any("systemctl start allscan-reimagined-tgif-dmr_net.service"
+                           in " ".join(command) for command in runner.commands)
 
         rejected(control.switch_mode, "shell", SimpleNamespace())
         bad = bridge("ysf", "64189")
