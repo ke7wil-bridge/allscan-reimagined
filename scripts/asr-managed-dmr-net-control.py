@@ -161,7 +161,8 @@ def parse_lstats(output: str) -> set[tuple[str, str]]:
     ):
         raise ControlError("Asterisk direct-link status was not recognized")
     return set(re.findall(
-        r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)[ \t]+",
+        r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)"
+        r"[ \t]+\S+[ \t]+ESTABLISHED[ \t]*$",
         output, re.MULTILINE,
     ))
 

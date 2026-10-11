@@ -154,7 +154,8 @@ def find_existing_bridge(config: dict[str, Any], bridge_id: str) -> dict[str, An
 
 
 def insert_nodes_mapping(text: str, node: int) -> str:
-    line = f"{node} = radio@127.0.0.1:4572/{node},NONE"
+    iax_port = 4572 if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else 4569
+    line = f"{node} = radio@127.0.0.1:{iax_port}/{node},NONE"
     if re.search(rf"(?m)^\s*{node}\s*=", text):
         return text
     match = re.search(r"(?m)^\[nodes\]\s*$", text)

@@ -187,7 +187,7 @@ def main() -> None:
             ]
             rpt = (profile.asterisk_config / "rpt.conf").read_text()
             assert rpt.count("[1999]") == 1
-            assert rpt.count("1999 = radio@127.0.0.1:4572/1999,NONE") == 1
+            assert rpt.count("1999 = radio@127.0.0.1:4569/1999,NONE") == 1
             assert all(f"[{node}]" not in rpt for node in range(1004, 1009))
             assert "controlstates = asr-bridge-controlstates" in rpt
             assert "0 = rptena,lnkena,apdis,totena,ufdis,noicd" in rpt

@@ -395,7 +395,7 @@ def unified_rpt(text: str, bridges: dict[str, dict], selected_mode: str) -> str:
     for node in old_nodes | {str(NODE)}:
         if node.isdigit():
             text = re.sub(
-                rf"(?m)^\s*{re.escape(node)}\s*=\s*radio@127\.0\.0\.1(?::4572)?/{re.escape(node)},NONE\s*$\n?",
+                rf"(?m)^\s*{re.escape(node)}\s*=\s*radio@127\.0\.0\.1(?::(?:4569|4572))?/{re.escape(node)},NONE\s*$\n?",
                 "", text,
             )
     text = m17.insert_nodes_mapping(text, NODE)

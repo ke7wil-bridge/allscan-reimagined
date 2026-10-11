@@ -87,6 +87,12 @@ def main() -> None:
         config_path.write_text(json.dumps(config))
         assert not control.CONTAINERIZED
         assert control.ASTERISK == Path("/usr/sbin/asterisk")
+        connecting = (
+            "NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT STATE\n"
+            "----      ----                ----------  ---------  ------------        -------------\n"
+            "1999      127.0.0.1           0           OUT        00:00:01:000        CONNECTING\n"
+        )
+        assert ("1999", "OUT") not in control.parse_lstats(connecting)
         loaded, bridge = control.bridge_config("dmr_tgif_net", config_path)
         assert control.target_path(bridge, root) == target
         original_root = control.ROOT
