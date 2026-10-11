@@ -4020,6 +4020,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	if(setupPath) setupPath.addEventListener('change', updateSetupMode);
 	if(setupButton && setupPanel) {
 		setupButton.addEventListener('click', function () {
+			updateSetupMode();
 			setupPanel.hidden = false;
 			if(setupMode) setupMode.focus();
 		});

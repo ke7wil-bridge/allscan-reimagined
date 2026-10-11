@@ -31,6 +31,8 @@ foreach(['v1.02', 'v1.03'] as $compatVersion) {
 		check(substr_count($controllerSource, $declaration) === 1, "$compatVersion Settings does not declare $variable exactly once.");
 		check(strpos($controllerSource, $declaration) < strpos($controllerSource, "if(updateRecoveryCheck)"), "$compatVersion Settings uses $variable before declaration.");
 	}
+	$wizardOpen = "setupButton.addEventListener('click', function () {\n\t\t\tupdateSetupMode();\n\t\t\tsetupPanel.hidden = false;";
+	check(strpos($controllerSource, $wizardOpen) !== false, "$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
 }
 
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
