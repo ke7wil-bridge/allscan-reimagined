@@ -23,6 +23,16 @@ function check(bool $condition, string $message): void {
 	if(!$condition) throw new RuntimeException($message);
 }
 
+foreach(['v1.02', 'v1.03'] as $compatVersion) {
+	$controllerSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/asr-settings/settings-controller.php');
+	check(is_string($controllerSource), "Unable to read $compatVersion Settings controller.");
+	foreach(['updateRecoveryCheck' => 'asrUpdateRecoveryCheck', 'updateRecoveryStatus' => 'asrUpdateRecoveryStatus'] as $variable => $elementId) {
+		$declaration = "var $variable = document.getElementById('$elementId');";
+		check(substr_count($controllerSource, $declaration) === 1, "$compatVersion Settings does not declare $variable exactly once.");
+		check(strpos($controllerSource, $declaration) < strpos($controllerSource, "if(updateRecoveryCheck)"), "$compatVersion Settings uses $variable before declaration.");
+	}
+}
+
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
 	'Add Bridge does not expose exactly one unified Net Bridge choice.');
 check(!str_contains($settingsSource, '<option value="net">Net Bridge</option>'),
