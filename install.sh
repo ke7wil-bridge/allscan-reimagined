@@ -181,7 +181,8 @@ remove_asr_managed_wiring() {
     allscan-reimagined-ysf-hosts-refresh.service \
     allscan-reimagined-ysf-hosts-refresh.timer \
     allscan-reimagined-bridge-clients.timer \
-    allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
+    allscan-reimagined-connected-clients-maintenance.timer \
+    allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
   systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
   for m17_unit_link in /etc/systemd/system/multi-user.target.wants/allscan-reimagined-m17-bridge@*.service; do
     [ -L "$m17_unit_link" ] || continue
@@ -197,6 +198,7 @@ remove_asr_managed_wiring() {
     /etc/systemd/system/allscan-reimagined-*.path \
     /etc/systemd/system/allscan-reimagined-*.timer \
     /etc/cron.d/allscan-reimagined-* \
+    /etc/tmpfiles.d/allscan-reimagined.conf \
     /etc/sudoers.d/allscan-reimagined \
     /etc/apache2/conf-available/allscan-reimagined.conf \
     /etc/systemd/system/asl3-update-astdb.service.d/allscan-reimagined-friendly-names.conf
