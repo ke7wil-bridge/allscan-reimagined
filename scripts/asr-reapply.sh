@@ -1212,7 +1212,10 @@ EOF
   a2enmod headers deflate >/dev/null
   a2enconf allscan-reimagined >/dev/null
   apache2ctl configtest
-  systemctl reload apache2
+  # A graceful reload leaves long-lived PHP/SSE workers running with the
+  # previous release code and shared-cache schema. Fully replace those
+  # workers after the new web tree and Apache policy are in place.
+  systemctl restart apache2
 fi
 
 if [ "$BRIDGE_LIFECYCLE_FAILED" = "1" ]; then

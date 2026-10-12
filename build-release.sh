@@ -123,6 +123,7 @@ python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
+python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
 python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-urf-native-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
@@ -207,6 +208,7 @@ install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"
 install -m 755 scripts/asr-cpu-temperature-self-test.php "$STAGE/payload/scripts/asr-cpu-temperature-self-test.php"
 install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scripts/asr-installer-rollback-self-test.py"
+install -m 755 scripts/asr-reapply-apache-self-test.py "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
 for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
@@ -303,6 +305,7 @@ fi
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test
 python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
+python3 "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
