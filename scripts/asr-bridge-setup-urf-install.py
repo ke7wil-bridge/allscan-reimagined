@@ -643,14 +643,31 @@ def verify_container_runtime(plan: dict[str, Any]) -> None:
     raise InstallError(f"Asterisk did not register URF transport node {node}{detail}")
 
 
+def wait_for_active_units(
+    units: tuple[str, ...], *, attempts: int = 20, interval: float = 0.25
+) -> tuple[str, ...]:
+    remaining = list(units)
+    for attempt in range(attempts):
+        remaining = [
+            unit for unit in remaining
+            if subprocess.run(
+                ["systemctl", "is-active", "--quiet", unit], check=False
+            ).returncode
+        ]
+        if not remaining:
+            return ()
+        if attempt + 1 < attempts:
+            time.sleep(interval)
+    return tuple(remaining)
+
+
 def verify_native_runtime(plan: dict[str, Any]) -> None:
     identity = plan["settings"]["bridge_id"]
     units = (service_name(identity), *native_service_names(identity))
-    for unit in units:
-        result = subprocess.run(["systemctl", "is-active", "--quiet", unit])
-        if result.returncode:
-            capture_runtime_diagnostics(plan)
-            raise InstallError(f"native runtime unit {unit} did not start")
+    inactive = wait_for_active_units(units)
+    if inactive:
+        capture_runtime_diagnostics(plan)
+        raise InstallError(f"native runtime unit {inactive[0]} did not start")
     urfd, tcd, _tgif = native_service_names(identity)
     for unit in (urfd, tcd):
         result = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", unit],

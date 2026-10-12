@@ -222,6 +222,27 @@ def main() -> None:
         assert ready and not error and state == "authenticated" and not sleeper.called
 
     affected = ("wrapper.service", "urfd.service", "tcd.service", "tgif.service")
+    active_results = [
+        SimpleNamespace(returncode=0),
+        SimpleNamespace(returncode=3),
+        SimpleNamespace(returncode=0),
+        SimpleNamespace(returncode=0),
+        SimpleNamespace(returncode=0),
+    ]
+    with mock.patch.object(
+        installer.subprocess, "run", side_effect=active_results
+    ) as systemctl, mock.patch.object(installer.time, "sleep") as sleeper:
+        assert installer.wait_for_active_units(affected, attempts=2, interval=0) == ()
+    assert systemctl.call_count == 5 and sleeper.call_count == 1
+
+    with mock.patch.object(
+        installer.subprocess, "run", return_value=SimpleNamespace(returncode=3)
+    ), mock.patch.object(installer.time, "sleep") as sleeper:
+        assert installer.wait_for_active_units(
+            ("missing.service",), attempts=2, interval=0
+        ) == ("missing.service",)
+    assert sleeper.call_count == 1
+
     with mock.patch.object(installer.subprocess, "run") as systemctl:
         installer.reload_and_reset_failed(affected)
     commands = [call.args[0] for call in systemctl.call_args_list]
