@@ -467,6 +467,14 @@ ensure_php_web_runtime() {
       || fail "Could not refresh package metadata required for the Apache PHP runtime"
     DEBIAN_FRONTEND=noninteractive apt-get install -y libapache2-mod-php \
       || fail "Could not install the required Apache PHP runtime"
+    # Debian may install the generic package without enabling the versioned
+    # Apache module on an existing ASL3 configuration. Enable the installed
+    # module explicitly before restarting Apache.
+    php_module=$(find /etc/apache2/mods-available -maxdepth 1 -type f -name 'php*.load' -printf '%f\n' 2>/dev/null \
+      | sed 's/\.load$//' | sort -V | tail -1)
+    [ -n "$php_module" ] || fail "The Apache PHP module was installed but no module definition was found"
+    a2enmod "$php_module" >/dev/null \
+      || fail "Could not enable the Apache PHP module: $php_module"
     systemctl restart apache2 \
       || fail "Apache could not restart after installing the PHP runtime"
   else
