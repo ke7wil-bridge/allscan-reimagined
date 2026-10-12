@@ -1,6 +1,27 @@
 <?php
 declare(strict_types=1);
 
+function asrRecentUrfEvents(array $lines, callable $isServiceIdentity, int $perMode = 100): array {
+    $supportedModes = ['DMR'=>true, 'YSF'=>true, 'P25'=>true, 'NXDN'=>true, 'M17'=>true, 'USRP'=>true];
+    $limit = max(1, min(500, $perMode));
+    $counts = [];
+    $events = [];
+    foreach (array_reverse($lines) as $line) {
+        $event = json_decode((string) $line, true);
+        if (!is_array($event) || (int) ($event['epoch'] ?? 0) <= 0) continue;
+        $mode = strtoupper(trim((string) ($event['mode'] ?? '')));
+        if (str_starts_with($mode, 'DMR')) $mode = 'DMR';
+        if (!isset($supportedModes[$mode]) || (int) ($counts[$mode] ?? 0) >= $limit) continue;
+        $event['mode'] = $mode;
+        $callsign = (string) ($event['callsign'] ?? $event['client'] ?? '');
+        if ($isServiceIdentity($callsign, $mode)) continue;
+        $events[] = $event;
+        $counts[$mode] = (int) ($counts[$mode] ?? 0) + 1;
+        if (count($counts) === count($supportedModes) && min($counts) >= $limit) break;
+    }
+    return array_reverse($events);
+}
+
 function asrPublicBridgeControls(array $controls): array {
     $public = [];
     $booleanKeys = ['ready', 'linked', 'digitalLinked', 'allstarLinked'];

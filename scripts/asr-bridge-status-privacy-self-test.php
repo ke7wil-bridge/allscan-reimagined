@@ -48,4 +48,19 @@ assertPrivacy(
 );
 assertPrivacy(($live['ysf_net']['warning'] ?? 'unexpected') === '', 'empty Net Bridge warning was not normalized');
 
+$eventLines = [
+    json_encode(['event'=>'tx_start', 'mode'=>'DMR2', 'callsign'=>'W2HAZ', 'epoch'=>100]),
+    json_encode(['event'=>'tx_stop', 'mode'=>'DMR2', 'callsign'=>'W2HAZ', 'epoch'=>101]),
+];
+for ($index = 0; $index < 140; $index++) {
+    $eventLines[] = json_encode(['event'=>'tx_stop', 'mode'=>'USRP', 'callsign'=>'KE7WIL', 'epoch'=>200 + $index]);
+}
+$eventLines[] = json_encode(['event'=>'tx_stop', 'mode'=>'YSF', 'callsign'=>'YSF-LIVE', 'epoch'=>400]);
+$window = asrRecentUrfEvents($eventLines, static fn(string $callsign, string $mode): bool => $callsign === 'YSF-LIVE');
+$dmrEvents = array_values(array_filter($window, static fn(array $event): bool => ($event['mode'] ?? '') === 'DMR'));
+$usrpEvents = array_values(array_filter($window, static fn(array $event): bool => ($event['mode'] ?? '') === 'USRP'));
+assertPrivacy(count($dmrEvents) === 2 && ($dmrEvents[1]['callsign'] ?? '') === 'W2HAZ', 'noisy USRP traffic evicted DMR talker history');
+assertPrivacy(count($usrpEvents) === 100, 'per-mode URF event history was not bounded');
+assertPrivacy(count(array_filter($window, static fn(array $event): bool => ($event['mode'] ?? '') === 'YSF')) === 0, 'filtered service identity consumed bridge history');
+
 echo "ASR bridge-status privacy self-test: ok\n";
