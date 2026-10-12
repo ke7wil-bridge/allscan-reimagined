@@ -237,6 +237,11 @@ try {
       && asrApiSource.includes(". ' is not active.'"),
     'authoritative P25, NXDN, or M17 readiness failures are not exposed as card health',
   )
+  assert(
+    asrApiSource.includes('function asr_standard_urf_runtime_paths()')
+      && asrApiSource.includes("'/opt/allscan-reimagined-bridges/urf/' . $id . '/data'"),
+    'managed Standard URF cards still depend on the legacy global runtime path',
+  )
   const dmrControls = appSource.match(
     /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
   )?.[0] || ''

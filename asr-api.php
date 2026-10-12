@@ -1090,9 +1090,35 @@ function asr_standalone_kick_command(string $bridgeId, string $callsign): array 
     return $payload;
 }
 
+function asr_standard_urf_runtime_paths(): array {
+    $legacy = '/run/urf-wil';
+    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge)
+            || (string) ($bridge['cardType'] ?? 'standard') !== 'standard'
+            || empty($bridge['urfReflector'])
+            || (string) ($bridge['backendMode'] ?? '') !== 'managed') continue;
+        $id = (string) ($bridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
+        $base = '/opt/allscan-reimagined-bridges/urf/' . $id . '/data';
+        if (is_readable($base . '/urfd.xml')) {
+            return [
+                'status' => $base . '/urfd.xml',
+                'events' => $base . '/asr-live-events.jsonl',
+                'ptt' => $base . '/asr-live-state.json',
+            ];
+        }
+    }
+    return [
+        'status' => $legacy . '/urfd.xml',
+        'events' => $legacy . '/asr-live-events.jsonl',
+        'ptt' => $legacy . '/asr-live-state.json',
+    ];
+}
+
 function asr_urf_status_payload(): array {
-    $path = '/run/urf-wil/urfd.xml';
-    $eventPath = '/run/urf-wil/asr-live-events.jsonl';
+    $runtimePaths = asr_standard_urf_runtime_paths();
+    $path = $runtimePaths['status'];
+    $eventPath = $runtimePaths['events'];
     $stat = @stat($path);
     if (!is_array($stat) || !is_readable($path)) {
         return ['ok' => false, 'online' => false, 'stale' => true, 'error' => 'URF status source unavailable.', 'modes' => [], 'clients' => [], 'recent' => [], 'events' => []];
@@ -1440,7 +1466,8 @@ function asr_fast_standard_activity_payload(): array {
     $urfActive = false;
     // Fast path: only the newest URF lifecycle event matters. This makes tx_stop
     // authoritative immediately instead of rebuilding a five-minute event history.
-    $eventPath = '/run/urf-wil/asr-live-events.jsonl';
+    $urfRuntimePaths = asr_standard_urf_runtime_paths();
+    $eventPath = $urfRuntimePaths['events'];
     if (is_readable($eventPath)) {
         $handle = @fopen($eventPath, 'rb');
         if ($handle) {
@@ -1469,7 +1496,7 @@ function asr_fast_standard_activity_payload(): array {
     }
     // Protocol handlers publish the authoritative live PTT edge here. Use both
     // key and unkey; the lifecycle file is only a fallback if this edge is stale.
-    $pttPath = '/run/urf-wil/asr-live-state.json';
+    $pttPath = $urfRuntimePaths['ptt'];
     if (is_readable($pttPath)) {
         $ptt = json_decode((string) @file_get_contents($pttPath), true);
         $updated = (int) ($ptt['updated_epoch_ms'] ?? 0);
