@@ -232,6 +232,11 @@ try {
     !allscanLiveSource.includes("healthSeverity: entry?.health_severity\n        || (entry?.online === false"),
     'unknown DMR/YSF link state still creates a false bridge warning',
   )
+  assert(
+    asrApiSource.includes("'health_severity' => $ready ? null : 'offline'")
+      && asrApiSource.includes(". ' is not active.'"),
+    'authoritative P25, NXDN, or M17 readiness failures are not exposed as card health',
+  )
   const dmrControls = appSource.match(
     /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
   )?.[0] || ''

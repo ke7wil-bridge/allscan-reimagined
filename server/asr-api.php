@@ -812,6 +812,7 @@ function asr_next_mode_statuses(): array {
         }
         $recentTalkers = [];
         $inboundStartEpoch = 0;
+        $serviceState = [];
         if ($mode === 'm17') {
             $confirmed = is_array($status['confirmedTarget'] ?? null) ? $status['confirmedTarget'] : [];
             $reflector = substr((string) ($confirmed['reflector'] ?? ''), 0, 16);
@@ -864,6 +865,19 @@ function asr_next_mode_statuses(): array {
         $allstarLinked = !empty($status['allstarLinked']);
         if ($mode !== 'm17') $linked = $digitalLinked && $allstarLinked;
         $role = $talker !== '' ? 'source' : ($outboundActive ? 'relay' : 'idle');
+        $healthIssues = [];
+        if (!$ready) {
+            foreach ((array) (($serviceState['services'] ?? [])) as $unit => $service) {
+                if (!is_array($service) || empty($service['active'])) {
+                    $healthIssues[] = substr((string) $unit, 0, 96) . ' is not active.';
+                }
+            }
+            if ($healthIssues === []) {
+                $healthIssues[] = $warning !== ''
+                    ? $warning
+                    : strtoupper($mode) . ' backend readiness checks have not passed.';
+            }
+        }
         $persistedActivityEpoch = max(
             0,
             (int) ($activity['eventEpoch'] ?? 0),
@@ -891,6 +905,8 @@ function asr_next_mode_statuses(): array {
             'last_time_epoch' => $persistedActivityEpoch,
             'last_user' => (string) ($recentTalkers[0]['callsign'] ?? '-'),
             'warning' => $warning,
+            'health_severity' => $ready ? null : 'offline',
+            'health_issues' => $healthIssues,
             'recent_users' => array_map(static fn($row) => ['callsign'=>$row['callsign'], 'last_tx_epoch'=>$row['epoch']], $recentTalkers),
             'tx_events' => $recentTalkers,
         ];
