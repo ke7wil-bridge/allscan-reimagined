@@ -163,6 +163,7 @@ if command -v php >/dev/null 2>&1; then
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"
   php "$ROOT/scripts/asr-echolink-self-test.php"
+  php "$ROOT/scripts/asr-talker-identity-self-test.php"
   php "$ROOT/scripts/asr-favorites-discovery-self-test.php"
   php "$ROOT/scripts/asr-runtime-source-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
@@ -234,6 +235,7 @@ install -m 755 scripts/asr-startup-bridge-summary.py "$STAGE/payload/scripts/asr
 install -m 755 scripts/asr-settings-bridge-self-test.php "$STAGE/payload/scripts/asr-settings-bridge-self-test.php"
 install -m 755 scripts/asr-bridge-status-privacy-self-test.php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
 install -m 755 scripts/asr-echolink-self-test.php "$STAGE/payload/scripts/asr-echolink-self-test.php"
+install -m 755 scripts/asr-talker-identity-self-test.php "$STAGE/payload/scripts/asr-talker-identity-self-test.php"
 install -m 755 scripts/asr-ami-guard-self-test.php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 install -m 755 scripts/asr-side-by-side-self-test.sh "$STAGE/payload/scripts/asr-side-by-side-self-test.sh"
 install -m 755 scripts/asr-favorites-update.py "$STAGE/payload/scripts/asr-favorites-update.py"
@@ -300,6 +302,7 @@ if command -v php >/dev/null 2>&1; then
   php -l "$STAGE/payload/compat/allscan-v1.03/include/asrPerformanceContract.php" >/dev/null
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
+  php "$STAGE/payload/scripts/asr-talker-identity-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
 fi
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"

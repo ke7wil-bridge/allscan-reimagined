@@ -13,7 +13,7 @@ $events = [
 	['event'=>'tx_stop','mode'=>'YSF','callsign'=>'KQ6K','module'=>'A','epoch'=>1791322068],
 ];
 $astdb = tempnam(sys_get_temp_dir(), 'asr-talker-astdb-');
-file_put_contents($astdb, "497170|KQ6K|145.585|Moorpark, CA\n497171|KQ6K|446.02|Moorpark, CA\n");
+file_put_contents($astdb, "497170|KQ6K|145.585|Moorpark, CA\n497171|KQ6K|446.02|Moorpark, CA\n3100001|KO6LUZ|DMR|Mesa, Arizona\n3100002|SRVPROBA|YSF|Belgrade, Serbia\n");
 
 $nodeDatabase = [
 	'63916' => ['63916', 'NY7S', '147.300', 'Sun City West, Arizona'],
@@ -89,6 +89,76 @@ $netLatched = asrEnrichBridgeTalker([
 check($netLatched['info'] === 'KQ6K' && $netLatched['source'] === 'YSF', 'node 1999 real identity regressed after refresh');
 check($netLatched['transport'] === 'Net Bridge', 'node 1999 transport context was not restored after refresh');
 check($netLatched['location'] === 'Moorpark, CA', 'node 1999 latched metadata was not restored after refresh');
+
+$bridgeEvidence = asrBridgeTalkerEvidenceFromPayloads([
+	'bridges' => [
+		['id'=>'dmr', 'mode'=>'dmr', 'node'=>'1883', 'title'=>'DMR Bridge'],
+		['id'=>'ysf', 'mode'=>'ysf', 'node'=>'1889', 'title'=>'YSF Bridge'],
+		['id'=>'p25', 'mode'=>'p25', 'node'=>'1887', 'title'=>'P25 Bridge'],
+		['id'=>'zello', 'mode'=>'zello', 'node'=>'1001', 'title'=>'Zello Bridge'],
+	],
+], [[
+	'bridges' => [
+		'dmr' => ['node'=>'1883', 'role'=>'idle', 'tx_events'=>[
+			['callsign'=>'KO6LUZ', 'start_epoch'=>1791834557, 'epoch'=>1791834559, 'duration_seconds'=>2],
+		]],
+		'ysf' => ['node'=>'1889', 'role'=>'source', 'current_user'=>'SRVPROBA', 'active_start_epoch'=>1791834600],
+		'p25' => ['node'=>'1887', 'recentTalkers'=>[
+			['callsign'=>'N0CALL', 'startEpoch'=>1791834700, 'eventEpoch'=>1791834704, 'duration'=>4],
+		]],
+	],
+]], [
+	'active'=>false,
+	'recent_users'=>[['name'=>'ny2us', 'last_seen_epoch'=>1791834800]],
+]);
+check(count($bridgeEvidence['nodes']) === 4, 'configured bridge transport map is incomplete');
+
+$dmrHistory = asrEnrichBridgeTalker([
+	'node'=>'1883', 'info'=>'DMR Bridge', 'description'=>'Bridge', 'source'=>'AllStar',
+	'duration'=>1, 'started_epoch'=>1791834558, 'event_epoch'=>1791834559,
+], [], $astdb, $bridgeEvidence);
+check($dmrHistory['info'] === 'KO6LUZ', 'DMR transport did not resolve to its evidence-backed callsign');
+check($dmrHistory['source'] === 'DMR', 'DMR protocol provenance was not retained');
+check($dmrHistory['description'] === 'DMR Bridge', 'DMR transport description was not normalized');
+check($dmrHistory['location'] === 'Mesa, Arizona', 'DMR callsign location was not resolved');
+check($dmrHistory['duration'] === 1 && $dmrHistory['started_epoch'] === 1791834558 && $dmrHistory['event_epoch'] === 1791834559, 'DMR card timing fields regressed');
+check($dmrHistory['identity_provenance'] === 'bridge_runtime', 'DMR runtime provenance was not recorded');
+
+$ysfCurrent = asrEnrichBridgeTalker([
+	'node'=>'1889', 'info'=>'YSF Bridge', 'source'=>'AllStar', 'started_epoch'=>1791834600,
+], [], $astdb, $bridgeEvidence);
+check($ysfCurrent['info'] === 'SRVPROBA' && $ysfCurrent['source'] === 'YSF', 'active YSF transport did not resolve to its caller');
+check($ysfCurrent['description'] === 'YSF Bridge' && $ysfCurrent['location'] === 'Belgrade, Serbia', 'active YSF card metadata regressed');
+
+$p25History = asrEnrichBridgeTalker([
+	'node'=>'1887', 'info'=>'P25 Bridge', 'source'=>'AllStar',
+	'started_epoch'=>1791834700, 'event_epoch'=>1791834704, 'duration'=>4,
+], [], $astdb, $bridgeEvidence);
+check($p25History['info'] === 'N0CALL' && $p25History['source'] === 'P25', 'P25 recent-talker evidence was not applied');
+
+$zelloHistory = asrEnrichBridgeTalker([
+	'node'=>'1001', 'info'=>'Zello Bridge', 'source'=>'AllStar',
+	'started_epoch'=>1791834800, 'event_epoch'=>1791834800, 'duration'=>0,
+], [], $astdb, $bridgeEvidence);
+check($zelloHistory['info'] === 'NY2US' && $zelloHistory['source'] === 'ZELLO', 'Zello recent-talker evidence was not applied');
+
+$unprovenConfigured = asrEnrichBridgeTalker([
+	'node'=>'1883', 'info'=>'DMR Bridge', 'source'=>'AllStar',
+	'started_epoch'=>1791834900, 'event_epoch'=>1791834902,
+], [], $astdb, $bridgeEvidence);
+check($unprovenConfigured === null, 'unproven configured bridge transport leaked into Talker history');
+
+$cardFeed = asrSanitizeTalkerFeed(['674982'=>[
+	'current_talker'=>['node'=>'1889', 'info'=>'YSF Bridge', 'source'=>'AllStar', 'started_epoch'=>1791834600],
+	'last_talkers'=>[
+		['node'=>'1883', 'info'=>'DMR Bridge', 'description'=>'Bridge', 'source'=>'AllStar', 'duration'=>1, 'started_epoch'=>1791834558, 'event_epoch'=>1791834559],
+		['node'=>'63916', 'info'=>'NY7S', 'description'=>'147.300', 'location'=>'Sun City West, Arizona', 'source'=>'AllStar', 'duration'=>5, 'started_epoch'=>1791834500, 'event_epoch'=>1791834505],
+	],
+]], [], $astdb, $bridgeEvidence);
+check($cardFeed['674982']['current_talker']['info'] === 'SRVPROBA', 'current card lost the bridge callsign');
+check(count($cardFeed['674982']['last_talkers']) === 2, 'valid bridge or AllStar card history was lost');
+check($cardFeed['674982']['last_talkers'][0]['info'] === 'KO6LUZ', 'last card lost the DMR callsign');
+check($cardFeed['674982']['last_talkers'][1]['location'] === 'Sun City West, Arizona', 'ordinary AllStar location regressed while enriching bridges');
 
 $staleFeed = asrSanitizeTalkerFeed(['641890' => [
 	'current_talker' => ['node'=>'1999', 'info'=>'Unified Net Bridge', 'source'=>'AllStar'],

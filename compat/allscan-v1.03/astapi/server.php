@@ -109,8 +109,9 @@ $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
 $urfTalkerEvents = asrUrfTalkerEvents();
+$bridgeTalkerEvidence = asrBridgeTalkerEvidence();
 $enrichedTalkerHistory = asrEnrichAllStarTalkers($asrTalkerHistory, $astdb);
-$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -185,7 +186,7 @@ while(!empty($fp[$node])) {
 		$finished['event_epoch'] = time();
 		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
 		$urfTalkerEvents = asrUrfTalkerEvents();
-		$finished = asrEnrichBridgeTalker($finished, $urfTalkerEvents);
+		$finished = asrEnrichBridgeTalker($finished, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 		// History is transmission-event history, not unique-station history.
 		// If the same node keys three separate times, keep all three events.
 		if(is_array($finished)) array_unshift($asrTalkerHistory, $finished);
@@ -201,7 +202,7 @@ while(!empty($fp[$node])) {
 	$asrCurrentTalker = $nextCurrentTalker;
 	if($asrCurrentTalker !== null) {
 		$urfTalkerEvents = asrUrfTalkerEvents();
-		$asrCurrentTalker = asrEnrichBridgeTalker($asrCurrentTalker, $urfTalkerEvents);
+		$asrCurrentTalker = asrEnrichBridgeTalker($asrCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
 	$current[$node]['current_talker'] = $asrCurrentTalker;
 	$current[$node]['last_talkers'] = $asrTalkerHistory;
@@ -412,7 +413,7 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		}
 		$updated = isset($payload['updated']) ? (string) $payload['updated'] : '';
 		if($updated !== '' && $updated !== $lastUpdate) {
-			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents());
+			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents(), '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {
 				sendData($cleanCurrent, 'nodes');
