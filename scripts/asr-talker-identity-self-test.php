@@ -15,6 +15,31 @@ $events = [
 $astdb = tempnam(sys_get_temp_dir(), 'asr-talker-astdb-');
 file_put_contents($astdb, "497170|KQ6K|145.585|Moorpark, CA\n497171|KQ6K|446.02|Moorpark, CA\n");
 
+$nodeDatabase = [
+	'63916' => ['63916', 'NY7S', '147.300', 'Sun City West, Arizona'],
+	'53430' => ['53430', 'KE7WIL', 'Full-Duplex 4 Life', 'Phoenix, Arizona'],
+];
+$ordinaryCurrent = asrEnrichAllStarTalker([
+	'node'=>'63916', 'info'=>'NY7S 147.300 Sun City West, Arizona',
+	'source'=>'AllStar', 'started_epoch'=>1791322064,
+], $nodeDatabase);
+check($ordinaryCurrent['info'] === 'NY7S', 'ordinary AllStar callsign was not separated from its node metadata');
+check($ordinaryCurrent['description'] === '147.300', 'ordinary AllStar description was not restored from ASTDB');
+check($ordinaryCurrent['location'] === 'Sun City West, Arizona', 'ordinary AllStar location was not restored from ASTDB');
+
+$ordinaryHistory = asrEnrichAllStarTalkers(json_decode(json_encode([
+	['node'=>'63916', 'info'=>'NY7S 147.300 Sun City West, Arizona', 'source'=>'AllStar', 'event_epoch'=>1791322067],
+	['node'=>'53430', 'info'=>'KE7WIL Full-Duplex 4 Life  Phoenix, Arizona', 'source'=>'AllStar', 'event_epoch'=>1791322050],
+]), true), $nodeDatabase);
+check(count($ordinaryHistory) === 2, 'ordinary AllStar history events were lost or deduplicated');
+check($ordinaryHistory[0]['description'] === '147.300' && $ordinaryHistory[0]['location'] === 'Sun City West, Arizona', 'persisted 63916 history metadata was not repaired');
+check($ordinaryHistory[1]['description'] === 'Full-Duplex 4 Life' && $ordinaryHistory[1]['location'] === 'Phoenix, Arizona', 'persisted 53430 history metadata was not repaired');
+
+$unknown = ['node'=>'7654321', 'info'=>'UNKNOWN Mixed Metadata', 'source'=>'AllStar'];
+check(asrEnrichAllStarTalker($unknown, $nodeDatabase) === $unknown, 'unknown-node fallback metadata was modified without an exact ASTDB match');
+$privateTransport = ['node'=>'1999', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'Net Bridge'];
+check(asrEnrichAllStarTalker($privateTransport, $nodeDatabase) === $privateTransport, 'Net Bridge identity was modified by ordinary AllStar enrichment');
+
 $persisted = asrEnrichUrfTalker([
 	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
 	'started_epoch'=>1791322064, 'event_epoch'=>1791322067, 'duration'=>3,

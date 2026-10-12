@@ -109,7 +109,8 @@ $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
 $urfTalkerEvents = asrUrfTalkerEvents();
-$enrichedTalkerHistory = asrEnrichBridgeTalkers($asrTalkerHistory, $urfTalkerEvents);
+$enrichedTalkerHistory = asrEnrichAllStarTalkers($asrTalkerHistory, $astdb);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -172,6 +173,7 @@ while(!empty($fp[$node])) {
 				'duration' => (string)($talkerRow['last_keyed'] ?? ''),
 				'started_epoch' => time(),
 			];
+			$nextCurrentTalker = asrEnrichAllStarTalker($nextCurrentTalker, $astdb);
 			break;
 		}
 	}
