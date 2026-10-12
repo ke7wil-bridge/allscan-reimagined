@@ -1145,19 +1145,11 @@ function asr_urf_status_payload(): array {
     $events = [];
     if (is_readable($eventPath)) {
         $lines = @file($eventPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-        foreach (array_reverse($lines) as $line) {
-            $event = json_decode($line, true);
-            if (!is_array($event) || (int)($event['epoch'] ?? 0) <= 0) continue;
-            $eventMode = strtoupper(trim((string)($event['mode'] ?? '')));
-            if (str_starts_with($eventMode, 'DMR')) $event['mode'] = 'DMR';
-            $eventCallsign = (string) ($event['callsign'] ?? $event['client'] ?? '');
-            if (asr_urf_is_service_identity($eventCallsign, (string) ($event['mode'] ?? $eventMode))) continue;
-            $events[] = $event;
-            if (count($events) >= 100) break;
-        }
-        // Probe traffic can be much noisier than human activity. Limit only
-        // after filtering so probes cannot evict meaningful lifecycle history.
-        $events = array_reverse($events);
+        // Noisy traffic in one protocol must not evict another bridge's most
+        // recent talker after a browser or web-container restart.
+        $events = asrRecentUrfEvents($lines, static fn(string $callsign, string $mode): bool =>
+            asr_urf_is_service_identity($callsign, $mode)
+        );
     }
     $modes = [];
     foreach (['DMR','YSF','P25','NXDN','M17','USRP'] as $mode) $modes[$mode] = ['clients'=>0,'active'=>false];
