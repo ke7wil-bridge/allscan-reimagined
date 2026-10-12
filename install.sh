@@ -447,7 +447,10 @@ ask() {
 
 php_web_runtime_ok() {
   local probe_name probe_path status=0
-  probe_name=".asr-php-runtime-probe.$$.$RANDOM.php"
+  # Stock AllScan's Apache hardening rejects every dot-prefixed file. Keep the
+  # randomized probe visible to Apache so this checks PHP execution instead of
+  # tripping the unrelated hidden-file access rule.
+  probe_name="asr-php-runtime-probe.$$.$RANDOM.php"
   probe_path="$WEB_ROOT/$probe_name"
   printf '%s\n' '<?php header("Content-Type: application/json"); echo "{\"ok\":true}";' > "$probe_path"
   chmod 644 "$probe_path"

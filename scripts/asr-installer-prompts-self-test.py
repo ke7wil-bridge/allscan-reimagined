@@ -61,6 +61,11 @@ def main() -> int:
         "installer must verify and provision a web PHP runtime before exposing stock AllScan",
     )
     require(
+        'probe_name="asr-php-runtime-probe.$$.$RANDOM.php"' in installer
+        and 'probe_name=".asr-php-runtime-probe.' not in installer,
+        "PHP runtime probe must remain reachable through stock AllScan hidden-file hardening",
+    )
+    require(
         'if command -v node >/dev/null 2>&1; then' in installer,
         "target validation must not require Node.js on a clean ASL3 node",
     )
