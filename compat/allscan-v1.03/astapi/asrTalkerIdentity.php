@@ -91,6 +91,31 @@ function asrTalkerCallsignLocation($callsign, $path = '/var/lib/asterisk/astdb.t
 	return $cache[$key] = count($locations) === 1 ? (string)reset($locations) : '';
 }
 
+function asrEnrichAllStarTalker($row, $astdb) {
+	if(!is_array($row) || !is_array($astdb)) return $row;
+	$node = trim((string)($row['node'] ?? ''));
+	// These private transport nodes have a separate evidence-based identity
+	// path. Never replace their real digital caller with an ASTDB label.
+	if($node === '' || in_array($node, ['1001', '1999'], true)) return $row;
+	$record = $astdb[$node] ?? null;
+	if(!is_array($record) || count($record) < 4) return $row;
+
+	$callsign = trim((string)($record[1] ?? ''));
+	$description = trim((string)($record[2] ?? ''));
+	$location = trim((string)($record[3] ?? ''));
+	if($callsign !== '') $row['info'] = $callsign;
+	if($description !== '') $row['description'] = $description;
+	if($location !== '') $row['location'] = $location;
+	if(trim((string)($row['source'] ?? '')) === '') $row['source'] = 'AllStar';
+	if($callsign !== '' || $description !== '' || $location !== '')
+		$row['identity_provenance'] = 'asl_node_database';
+	return $row;
+}
+
+function asrEnrichAllStarTalkers($rows, $astdb) {
+	return array_map(static fn($row) => asrEnrichAllStarTalker($row, $astdb), (array)$rows);
+}
+
 function asrEnrichBridgeTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
 	if(!is_array($row)) return $row;
 	$transportNode = (string)($row['node'] ?? '');
