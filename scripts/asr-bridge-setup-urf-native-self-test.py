@@ -116,6 +116,9 @@ def main() -> None:
         assert len(component_units) == 3
         assert all("ProtectSystem=strict" in text and "NoNewPrivileges=true" in text
                    and "CapabilityBoundingSet=" in text for text in component_units)
+        tgif_unit = next(text for text in component_units
+                         if "TGIF adapter and MMDVM bridge" in text)
+        assert "SuccessExitStatus=143" in tgif_unit
         assert not any("docker" in text.lower() for text in units.values())
 
         original = snapshot(root)

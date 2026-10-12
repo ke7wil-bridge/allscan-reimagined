@@ -281,7 +281,9 @@ WantedBy=multi-user.target
     tgif_text = component(
         f"ASR TGIF adapter and MMDVM bridge ({identity})", f"network-online.target {urfd}",
         f"{shared}/tgif/run.sh", run,
-    ).replace("ExecStart=", env_lines + "ExecStart=", 1)
+    ).replace("[Service]\n", "[Service]\nSuccessExitStatus=143\n", 1).replace(
+        "ExecStart=", env_lines + "ExecStart=", 1
+    )
     return {
         unit_path(identity): (wrapper_text.encode(), 0o644),
         f"/etc/systemd/system/{urfd}": (component(
