@@ -270,6 +270,7 @@ $managedDmrExisting = [
 	'id'=>'dmr_tgif_net', 'mode'=>'dmr', 'node'=>'1999', 'cardType'=>'dmr_net',
 	'backendMode'=>'managed', 'managedNetControl'=>true,
 	'managedTargetFile'=>'/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/tgif-run/net-target',
+	'urfReflector'=>true, 'urfGroupId'=>'urf',
 	'bridgePermission'=>'self_owned', 'approvedDestinations'=>['86753'], 'fixedDestination'=>'86753',
 ];
 $managedDmr = postedBridge([
@@ -517,6 +518,18 @@ check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') 
 check(strpos($settingsSource, "urfOption.disabled = mode === 'zello'") !== false, 'Zello URF selection is not blocked.');
 check(strpos($settingsSource, "var isUnifiedNet = mode === 'net_bridge'") !== false, 'Unified Net Bridge mode handling is missing.');
 check(strpos($settingsSource, 'DMR / TGIF via URF') === false, 'DMR is still mislabeled as URF-only.');
+check(strpos($settingsSource, 'in_array(($bridge[\'cardType\'] ?? \'\'), $netCardTypes, true)') !== false,
+	'Unified Net Bridge rows marked with URF provenance are excluded from Settings round-trip validation.');
+check(strpos($settingsSource, '$isBridgeSave = !$modernSettings || $modernSettingsSection === \'bridges\'') !== false,
+	'Modern Settings saves do not isolate bridge reconstruction to the Bridges category.');
+check(strpos($settingsSource, "\t\$saveError = '';") !== false,
+	'Modern non-bridge Settings saves do not initialize their validation result.');
+check(strpos($settingsSource, '$next = is_array($storedConfig) ? $storedConfig : $config;') !== false,
+	'Settings saves do not preserve the exact stored config before applying category changes.');
+check(strpos($settingsSource, 'if(!$modernSettings || $modernSettingsSection === \'appearance\')') !== false,
+	'Modern Settings saves do not isolate Appearance fields from unrelated categories.');
+check(strpos($settingsSource, 'if(!$modernSettings || $modernSettingsSection === \'lookup\')') !== false,
+	'Modern Settings saves do not isolate Lookup secrets from unrelated categories.');
 check(strpos($settingsSource, 'data-bridge-setup-zello-private-key') !== false, 'Zello private-key input is missing.');
 check(strpos($settingsSource, 'data-bridge-setup-tgif-password') !== false, 'TGIF password input is missing from the guided wizard.');
 check(strpos($settingsSource, "p25: {port: '41000'") !== false, 'P25 setup defaults are missing.');

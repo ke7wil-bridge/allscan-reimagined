@@ -2610,7 +2610,9 @@ if($urfAdminAction !== '') {
 		}
 	}
 } elseif($settingsSaveRequested) {
-	$next = $config;
+	$storedConfig = is_readable(ASR_SETTINGS_FILE) ? json_decode((string)file_get_contents(ASR_SETTINGS_FILE), true) : null;
+	$next = is_array($storedConfig) ? $storedConfig : $config;
+	$saveError = '';
 	$uploadError = '';
 	$uploadedLogo = '';
 	$postedSaveToken = (string)($_POST['settingsSaveCsrf'] ?? '');
@@ -2646,24 +2648,32 @@ if($urfAdminAction !== '') {
 		$saveError = 'Header logo must be a local ASR path or an http/https URL.';
 	} else {
 		$bridgeError = '';
-		$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
-		$bridges = asrSettingsBridgeRowsFromPost(
-			$bridgeError,
-			$existingNonUrf,
-			$config['node'] ?? ''
-		);
-
-		$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError, $config) : [];
-		$urfBridges = $bridgeError === '' ? asrSettingsUrfBridgesForSave($config, $urf) : [];
+		$isBridgeSave = !$modernSettings || $modernSettingsSection === 'bridges';
+		if($isBridgeSave) {
+			$netCardTypes = ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'];
+			$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge)
+				|| empty($bridge['urfReflector']) || in_array(($bridge['cardType'] ?? ''), $netCardTypes, true)));
+			$bridges = asrSettingsBridgeRowsFromPost(
+				$bridgeError,
+				$existingNonUrf,
+				$config['node'] ?? ''
+			);
+			$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError, $config) : [];
+			$urfBridges = $bridgeError === '' ? asrSettingsUrfBridgesForSave($config, $urf) : [];
+		} else {
+			$existingNonUrf = [];
+			$bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+			$urfBridges = [];
+		}
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
 			$postedBridgeIds = is_array($_POST['bridgeId'] ?? null) ? $_POST['bridgeId'] : [];
-			asrSettingsValidateOwnedBridgeMutations(
+			if($isBridgeSave) asrSettingsValidateOwnedBridgeMutations(
 				$existingNonUrf, $bridges, $postedBridgeIds,
 				$bridgeLifecyclePreviews, $saveError
 			);
-			$deletionPlan = $saveError === '' ? asrSettingsValidateDeletionPlan(
+			$deletionPlan = $isBridgeSave && $saveError === '' ? asrSettingsValidateDeletionPlan(
 				$existingNonUrf, $bridges,
 				(string)($_POST['bridgeDeletionConfirmations'] ?? ''),
 				$bridgeLifecyclePreviews, $saveError
@@ -2680,60 +2690,69 @@ if($urfAdminAction !== '') {
 			if($saveError !== '') {
 				$config = asrSettingsReadConfig();
 			} else {
-			$next['headerTitle'] = $headerTitle;
-				$next['headerLogo'] = $logo;
-				$next['brandByline'] = 'by KE7WIL';
-				$next['footerLogo'] = asrSettingsWebPath('asr-logo-bright-r-tight.png');
-				$next['requireLogin'] = $requireLogin;
-				$next['maintainFriendlyNames'] = $maintainFriendlyNames;
-			$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
-			$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
-			$next['lowPowerMode'] = $lowPowerMode;
-			$next['filterServiceStations'] = $filterServiceStations;
-			$next['filteredStations'] = $filteredStations;
-			if((int)($config['dmrId'] ?? 0) > 0) $next['dmrId'] = (int)$config['dmrId'];
-			$bridges = array_merge($bridges, $urfBridges);
-			$next['bridges'] = $bridges;
-			$saveError = '';
-			$nextSecrets = $secrets;
-			$nextSecrets['bridgeClientPasswords'] = is_array($nextSecrets['bridgeClientPasswords'] ?? null) ? $nextSecrets['bridgeClientPasswords'] : [];
-			$postedPasswords = $_POST['bridgeClientPassword'] ?? [];
-			$allowedSecretIds = [];
-			foreach($bridges as $bridge) {
-				if(($bridge['cardType'] ?? 'standard') === 'standard')
-					$allowedSecretIds[$bridge['id']] = true;
-			}
-			// Unsaved/external rows may intentionally receive a new internal ID.
-			// ASR-owned managed rows are locked by the mutation validator above.
-			foreach($bridges as $index => $bridge) {
-				if(($bridge['cardType'] ?? 'standard') !== 'standard') continue;
-				$newSecretId = asrSettingsCleanBridgeId($bridge['id'] ?? '');
-				$oldSecretId = asrSettingsCleanBridgeId($postedBridgeIds[$index] ?? '');
-				$password = (string) ($postedPasswords[$index] ?? '');
-				if($password === '' && $newSecretId !== '' && $oldSecretId !== ''
-					&& $newSecretId !== $oldSecretId
-					&& isset($nextSecrets['bridgeClientPasswords'][$oldSecretId]))
-					$nextSecrets['bridgeClientPasswords'][$newSecretId] = $nextSecrets['bridgeClientPasswords'][$oldSecretId];
-			}
-			foreach(array_keys($nextSecrets['bridgeClientPasswords']) as $secretId) {
-				if(!isset($allowedSecretIds[$secretId]))
-					unset($nextSecrets['bridgeClientPasswords'][$secretId]);
-			}
-			$passwordCount = max(count($postedBridgeIds), count($postedPasswords));
-			for($i = 0; $i < $passwordCount; $i++) {
-				$secretId = asrSettingsCleanBridgeId($bridges[$i]['id'] ?? ($postedBridgeIds[$i] ?? ''));
-				$password = (string) ($postedPasswords[$i] ?? '');
-				if($secretId !== '' && isset($allowedSecretIds[$secretId]) && $password !== '')
-					$nextSecrets['bridgeClientPasswords'][$secretId] = $password;
-			}
-			$nextSecrets['qrz'] = is_array($nextSecrets['qrz'] ?? null) ? $nextSecrets['qrz'] : [];
-			$qrzUsername = asrSettingsCleanText($_POST['qrzUsername'] ?? '', 80);
-			$qrzPassword = asrSettingsCleanText($_POST['qrzPassword'] ?? '', 160);
-			if($qrzUsername !== '')
-				$nextSecrets['qrz']['username'] = $qrzUsername;
-			if($qrzPassword !== '')
-				$nextSecrets['qrz']['password'] = $qrzPassword;
-				if(!$cfgModel->setStockRequireLogin($requireAllScanLogin))
+				if(!$modernSettings || $modernSettingsSection === 'appearance') {
+					$next['headerTitle'] = $headerTitle;
+					$next['headerLogo'] = $logo;
+					$next['brandByline'] = 'by KE7WIL';
+					$next['footerLogo'] = asrSettingsWebPath('asr-logo-bright-r-tight.png');
+					$next['lowPowerMode'] = $lowPowerMode;
+					$next['filterServiceStations'] = $filterServiceStations;
+					$next['filteredStations'] = $filteredStations;
+				}
+				if(!$modernSettings || $modernSettingsSection === 'access')
+					$next['requireLogin'] = $requireLogin;
+				if($isBridgeSave) {
+					$next['maintainFriendlyNames'] = $maintainFriendlyNames;
+					$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
+					$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
+					if((int)($config['dmrId'] ?? 0) > 0) $next['dmrId'] = (int)$config['dmrId'];
+					$bridges = array_merge($bridges, $urfBridges);
+					$next['bridges'] = $bridges;
+				}
+				$saveError = '';
+				$nextSecrets = $secrets;
+				$nextSecrets['bridgeClientPasswords'] = is_array($nextSecrets['bridgeClientPasswords'] ?? null) ? $nextSecrets['bridgeClientPasswords'] : [];
+				$postedPasswords = $_POST['bridgeClientPassword'] ?? [];
+				$allowedSecretIds = [];
+				if($isBridgeSave) {
+					foreach($bridges as $bridge) {
+						if(($bridge['cardType'] ?? 'standard') === 'standard')
+							$allowedSecretIds[$bridge['id']] = true;
+					}
+					// Unsaved/external rows may intentionally receive a new internal ID.
+					// ASR-owned managed rows are locked by the mutation validator above.
+					foreach($bridges as $index => $bridge) {
+						if(($bridge['cardType'] ?? 'standard') !== 'standard') continue;
+						$newSecretId = asrSettingsCleanBridgeId($bridge['id'] ?? '');
+						$oldSecretId = asrSettingsCleanBridgeId($postedBridgeIds[$index] ?? '');
+						$password = (string) ($postedPasswords[$index] ?? '');
+						if($password === '' && $newSecretId !== '' && $oldSecretId !== ''
+							&& $newSecretId !== $oldSecretId
+							&& isset($nextSecrets['bridgeClientPasswords'][$oldSecretId]))
+							$nextSecrets['bridgeClientPasswords'][$newSecretId] = $nextSecrets['bridgeClientPasswords'][$oldSecretId];
+					}
+					foreach(array_keys($nextSecrets['bridgeClientPasswords']) as $secretId) {
+						if(!isset($allowedSecretIds[$secretId]))
+							unset($nextSecrets['bridgeClientPasswords'][$secretId]);
+					}
+					$passwordCount = max(count($postedBridgeIds), count($postedPasswords));
+					for($i = 0; $i < $passwordCount; $i++) {
+						$secretId = asrSettingsCleanBridgeId($bridges[$i]['id'] ?? ($postedBridgeIds[$i] ?? ''));
+						$password = (string) ($postedPasswords[$i] ?? '');
+						if($secretId !== '' && isset($allowedSecretIds[$secretId]) && $password !== '')
+							$nextSecrets['bridgeClientPasswords'][$secretId] = $password;
+					}
+				}
+				if(!$modernSettings || $modernSettingsSection === 'lookup') {
+					$nextSecrets['qrz'] = is_array($nextSecrets['qrz'] ?? null) ? $nextSecrets['qrz'] : [];
+					$qrzUsername = asrSettingsCleanText($_POST['qrzUsername'] ?? '', 80);
+					$qrzPassword = asrSettingsCleanText($_POST['qrzPassword'] ?? '', 160);
+					if($qrzUsername !== '')
+						$nextSecrets['qrz']['username'] = $qrzUsername;
+					if($qrzPassword !== '')
+						$nextSecrets['qrz']['password'] = $qrzPassword;
+				}
+				if((!$modernSettings || $modernSettingsSection === 'access') && !$cfgModel->setStockRequireLogin($requireAllScanLogin))
 					$saveError = 'The AllScan login policy could not be saved.';
 				if($saveError === '' && asrSettingsWriteConfig($next, $saveError) && asrSettingsWriteSecrets($nextSecrets, $saveError)) {
 					if($saveError === '') {

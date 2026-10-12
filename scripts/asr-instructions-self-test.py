@@ -296,6 +296,11 @@ def main() -> int:
         "reapply does not synchronize the managed custom YSF catalog",
     )
     require(
+        "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *"
+        in reapply,
+        "Favorites manager is missing its web-user sudo policy",
+    )
+    require(
         "--refresh-public-hosts" not in ysf_helper
         and "hostfiles.refcheck.radio/YSFHosts.txt" not in ysf_helper
         and "cat > /etc/systemd/system/allscan-reimagined-ysf-hosts-refresh" not in reapply
