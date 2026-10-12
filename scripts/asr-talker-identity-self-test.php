@@ -44,6 +44,41 @@ $latched = asrEnrichUrfTalker([
 check($latched['info'] === 'KQ6K' && $latched['source'] === 'YSF', 'real identity regressed without ephemeral event data');
 check($latched['description'] === 'Multi-Mode Bridge' && $latched['location'] === 'Moorpark, CA', 'latched identity metadata was not restored after refresh');
 
+
+
+$genericUrf = asrEnrichBridgeTalker([
+	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
+	'started_epoch'=>1791500000, 'event_epoch'=>1791500002,
+], [], $astdb);
+check($genericUrf === null, 'unproven node 1001 transport leaked into Talker history');
+$genericNet = asrEnrichBridgeTalker([
+	'node'=>'1999', 'info'=>'Unified Net Bridge', 'source'=>'AllStar',
+	'started_epoch'=>1791500000, 'event_epoch'=>1791500002,
+], [], $astdb);
+check($genericNet === null, 'unproven node 1999 transport leaked into Talker history');
+
+$netLatched = asrEnrichBridgeTalker([
+	'node'=>'1999', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'Net Bridge',
+	'started_epoch'=>1791322064, 'event_epoch'=>1791322067,
+], [], $astdb);
+check($netLatched['info'] === 'KQ6K' && $netLatched['source'] === 'YSF', 'node 1999 real identity regressed after refresh');
+check($netLatched['transport'] === 'Net Bridge', 'node 1999 transport context was not restored after refresh');
+check($netLatched['location'] === 'Moorpark, CA', 'node 1999 latched metadata was not restored after refresh');
+
+$staleFeed = asrSanitizeTalkerFeed(['641890' => [
+	'current_talker' => ['node'=>'1999', 'info'=>'Unified Net Bridge', 'source'=>'AllStar'],
+	'last_talkers' => [
+		['node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar'],
+		['node'=>'1999', 'info'=>'Unified Net Bridge', 'source'=>'AllStar'],
+		['node'=>'1999', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'Net Bridge'],
+	],
+]], [], $astdb);
+check($staleFeed['641890']['current_talker'] === null, 'stale ASTAPI cache revived the active node 1999 transport');
+check(count($staleFeed['641890']['last_talkers']) === 1, 'stale ASTAPI history revived a generic private transport');
+check($staleFeed['641890']['last_talkers'][0]['info'] === 'KQ6K', 'cache sanitization discarded proven digital identity');
+check($staleFeed['641890']['last_talkers'][0]['source'] === 'YSF', 'cache sanitization discarded protocol provenance');
+check($staleFeed['641890']['last_talkers'][0]['location'] === 'Moorpark, CA', 'cache sanitization discarded known location');
+
 unlink($astdb);
 
-echo "PASS: persisted URFWIL talker identity\n";
+echo "PASS: persisted bridge talker identity\n";

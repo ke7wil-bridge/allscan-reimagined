@@ -476,6 +476,8 @@ type BridgeEntry = {
   role?: string
   state?: string
   active_start_epoch?: number
+  activity_epoch?: number
+  last_time_epoch?: number
   warning?: string
   health_severity?: 'warning' | 'unhealthy' | 'offline' | null
   health_issues?: string[]
@@ -493,6 +495,19 @@ type BridgeEntry = {
   module?: string
   link_protocol?: string
   linked_clients?: Array<Record<string, unknown>>
+}
+
+export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number {
+  if (!entry) return 0
+  return Math.max(
+    0,
+    Number(entry.activity_epoch || 0),
+    Number(entry.last_time_epoch || 0),
+    Number(entry.last_source_epoch || 0),
+    Number(entry.active_start_epoch || 0),
+    ...(Array.isArray(entry.tx_events) ? entry.tx_events.map((event) => Number(event.epoch || event.event_epoch || event.start_epoch || 0)) : []),
+    ...(Array.isArray(entry.client_events) ? entry.client_events.map((event) => Number(event.epoch || event.event_epoch || 0)) : []),
+  )
 }
 
 type ConnectedClientsResponse = {
@@ -1518,13 +1533,7 @@ export async function fetchBridgeCards(
     const value = bridge[bridgeConfig.id]
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const entry = value as BridgeEntry
-    latestActivityEpoch = Math.max(
-      latestActivityEpoch,
-      Number(entry.last_source_epoch || 0),
-      Number(entry.active_start_epoch || 0),
-      ...(Array.isArray(entry.tx_events) ? entry.tx_events.map((event) => Number(event.epoch || event.event_epoch || event.start_epoch || 0)) : []),
-      ...(Array.isArray(entry.client_events) ? entry.client_events.map((event) => Number(event.epoch || event.event_epoch || 0)) : []),
-    )
+    latestActivityEpoch = Math.max(latestActivityEpoch, bridgeLastActivityEpoch(entry))
   }
   const updatedLabel = latestActivityEpoch > 0
     ? new Date(latestActivityEpoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })

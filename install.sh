@@ -154,6 +154,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-startup-bridge-summary.service \
+    allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
@@ -165,6 +166,55 @@ restore_prior_reapply_units() {
   done
 }
 
+backup_bridge_owned_units() {
+  local unit_path unit_name
+  install -d -o root -g root -m 700 "$BACKUP_DIR/runtime/bridge-systemd"
+  while IFS= read -r unit_path; do
+    [ -f "$unit_path" ] && [ ! -L "$unit_path" ] || continue
+    unit_name=${unit_path##*/}
+    cp -p "$unit_path" "$BACKUP_DIR/runtime/bridge-systemd/$unit_name"
+  done < <(python3 - /var/lib/allscan-reimagined/bridge-setup/installations <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+manifest_dir = Path(sys.argv[1])
+unit_dir = Path("/etc/systemd/system")
+unit_name = re.compile(r"[A-Za-z0-9_.@-]+\.service")
+owned_units = set()
+if manifest_dir.is_dir():
+    for manifest in manifest_dir.glob("*.json"):
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        for owned_file in payload.get("ownedFiles", []):
+            if not isinstance(owned_file, str):
+                continue
+            path = Path(owned_file)
+            if path.parent == unit_dir and unit_name.fullmatch(path.name):
+                owned_units.add(str(path))
+for path in sorted(owned_units):
+    print(path)
+PY
+  )
+}
+
+restore_bridge_owned_units() {
+  local backup unit_name
+  for backup in "$BACKUP_DIR"/runtime/bridge-systemd/*.service; do
+    [ -f "$backup" ] && [ ! -L "$backup" ] || continue
+    unit_name=${backup##*/}
+    case "$unit_name" in
+      *[!A-Za-z0-9_.@-]*) continue ;;
+      *.service) ;;
+      *) continue ;;
+    esac
+    install -o root -g root -m 644 "$backup" "/etc/systemd/system/$unit_name"
+  done
+}
+
 remove_asr_managed_wiring() {
   systemctl disable --now \
     allscan-reimagined-reapply.path \
@@ -172,6 +222,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-startup-bridge-summary.service \
+    allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-dmr-net-live.service \
@@ -181,7 +232,8 @@ remove_asr_managed_wiring() {
     allscan-reimagined-ysf-hosts-refresh.service \
     allscan-reimagined-ysf-hosts-refresh.timer \
     allscan-reimagined-bridge-clients.timer \
-    allscan-reimagined-connected-clients-maintenance.timer >/dev/null 2>&1 || true
+    allscan-reimagined-connected-clients-maintenance.timer \
+    allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
   systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
   for m17_unit_link in /etc/systemd/system/multi-user.target.wants/allscan-reimagined-m17-bridge@*.service; do
     [ -L "$m17_unit_link" ] || continue
@@ -197,6 +249,7 @@ remove_asr_managed_wiring() {
     /etc/systemd/system/allscan-reimagined-*.path \
     /etc/systemd/system/allscan-reimagined-*.timer \
     /etc/cron.d/allscan-reimagined-* \
+    /etc/tmpfiles.d/allscan-reimagined.conf \
     /etc/sudoers.d/allscan-reimagined \
     /etc/apache2/conf-available/allscan-reimagined.conf \
     /etc/systemd/system/asl3-update-astdb.service.d/allscan-reimagined-friendly-names.conf
@@ -332,6 +385,7 @@ rollback_on_error() {
     fi
     if [ "$PRIOR_ASR_WIRING_VALID" -eq 1 ]; then
       restore_prior_reapply_units
+      restore_bridge_owned_units
       systemctl daemon-reload 2>/dev/null || true
       [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && restore_reapply_unit_states
     else
@@ -342,7 +396,16 @@ rollback_on_error() {
         allscan-reimagined-fixed-bridge-recovery.service \
         allscan-reimagined-fixed-bridge-recovery.timer \
         allscan-reimagined-startup-bridge-summary.service \
-        allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
+        allscan-reimagined-net-bridge-recovery.service \
+        allscan-reimagined-standard-bridge-status.service \
+        allscan-reimagined-tgif-user-sessions.service \
+        allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
+      rm -rf \
+        /etc/allscan-reimagined \
+        /var/lib/allscan-reimagined \
+        /var/log/allscan-reimagined \
+        /run/allscan-reimagined
+      rmdir /opt/allscan-reimagined/releases /opt/allscan-reimagined >/dev/null 2>&1 || true
       if [ "$ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT" -eq 1 ]; then
         systemctl reset-failed asl3-update-astdb.service >/dev/null 2>&1 || true
       fi
@@ -380,6 +443,37 @@ ask() {
     ASK_WAS_DEFAULT=1
   fi
   [[ "$answer" =~ ^[Yy]$ ]]
+}
+
+php_web_runtime_ok() {
+  local probe_name probe_path status=0
+  probe_name=".asr-php-runtime-probe.$$.$RANDOM.php"
+  probe_path="$WEB_ROOT/$probe_name"
+  printf '%s\n' '<?php header("Content-Type: application/json"); echo "{\"ok\":true}";' > "$probe_path"
+  chmod 644 "$probe_path"
+  python3 "$PAYLOAD_DIR/scripts/asr-loopback-validate.py" \
+    --expect json "http://127.0.0.1/$probe_name" >/dev/null 2>&1 || status=$?
+  rm -f "$probe_path"
+  [ "$status" -eq 0 ]
+}
+
+ensure_php_web_runtime() {
+  php_web_runtime_ok && return 0
+  if command -v apt-get >/dev/null 2>&1 \
+    && command -v apache2ctl >/dev/null 2>&1 \
+    && systemctl is-active --quiet apache2; then
+    echo "Installing required Apache PHP runtime: libapache2-mod-php"
+    DEBIAN_FRONTEND=noninteractive apt-get update \
+      || fail "Could not refresh package metadata required for the Apache PHP runtime"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libapache2-mod-php \
+      || fail "Could not install the required Apache PHP runtime"
+    systemctl restart apache2 \
+      || fail "Apache could not restart after installing the PHP runtime"
+  else
+    fail "The web server is not configured to execute PHP. Configure an Apache PHP module or PHP-FPM, then retry."
+  fi
+  php_web_runtime_ok \
+    || fail "The web server still does not execute PHP after installing the Apache PHP runtime"
 }
 
 prune_old_backups() {
@@ -428,6 +522,7 @@ elif [ -d /srv/http ]; then
 else
   fail "A supported web root was not found."
 fi
+ensure_php_web_runtime
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1
@@ -521,6 +616,7 @@ for unit in \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
@@ -529,6 +625,7 @@ for unit in \
     : > "$BACKUP_DIR/runtime/systemd/$unit.absent"
   fi
 done
+backup_bridge_owned_units
 for protected in config.json secrets.json station-map-cache.json; do
   if [ -f "/etc/allscan-reimagined/$protected" ]; then
     cp -p "/etc/allscan-reimagined/$protected" "$BACKUP_DIR/runtime/protected/$protected"
@@ -646,6 +743,7 @@ systemctl stop \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-startup-bridge-summary.service \
+  allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service >/dev/null 2>&1 || true
 systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
 

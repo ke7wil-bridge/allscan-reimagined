@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable
 
 HERE = Path(__file__).resolve().parent
@@ -21,8 +22,13 @@ NET_CARD_TYPES = {f"{mode}_net" for mode in MODES}
 NODE = 1999
 LOCK = Path("/run/lock/allscan-reimagined-net-bridge-mode.lock")
 PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
-SYSTEMCTL = "/usr/local/libexec/allscan-reimagined/asr-container-systemctl.py"
-ASTERISK = "/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
+# Direct root administration does not inherit the broker marker.  The fixed
+# profile is still ownership/shape validated in main() before any helper runs.
+CONTAINERIZED = bool(os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")) or PROFILE.is_file()
+SYSTEMCTL = ("/usr/local/libexec/allscan-reimagined/asr-container-systemctl.py"
+             if CONTAINERIZED else "/usr/bin/systemctl")
+ASTERISK = ("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
+            if CONTAINERIZED else "/usr/sbin/asterisk")
 Runner = Callable[[list[str], bool], subprocess.CompletedProcess[str]]
 
 
@@ -128,21 +134,51 @@ def dmr_compose(bridge: dict) -> Path:
     return target.parent.parent / "compose.yml"
 
 
+def native_dmr_units(bridge: dict) -> list[str]:
+    bridge_id = str(bridge["id"])
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
+        raise ModeError("DMR Net Bridge ID is invalid")
+    return [
+        f"allscan-reimagined-urf-tgif-{bridge_id}.service",
+        f"allscan-reimagined-urfd-{bridge_id}.service",
+        f"allscan-reimagined-tcd-{bridge_id}.service",
+        f"allscan-reimagined-tgif-{bridge_id}.service",
+    ]
+
+
 def runtime_argv(mode: str, bridge: dict, verb: str) -> list[list[str]]:
     if verb not in {"start", "stop", "status"}:
         raise ModeError("invalid runtime operation")
     if mode == "dmr":
+        if not CONTAINERIZED:
+            parent, *workers = native_dmr_units(bridge)
+            if verb == "start":
+                return [[SYSTEMCTL, "enable", "--now", parent],
+                        *[[SYSTEMCTL, "start", unit] for unit in workers]]
+            if verb == "stop":
+                return [*[[SYSTEMCTL, "stop", unit] for unit in reversed(workers)],
+                        [SYSTEMCTL, "disable", "--now", parent]]
+            return [[SYSTEMCTL, "is-active", "--quiet", unit]
+                    for unit in (parent, *workers)]
         compose = dmr_compose(bridge)
         project = str(bridge["id"])
         unit = f"allscan-reimagined-urf-tgif-{bridge['id']}.service"
         if verb == "start":
-            return [[SYSTEMCTL, "enable", unit],
-                    ["docker", "compose", "-f", str(compose), "-p", project, "up", "-d"]]
+            return [
+                [SYSTEMCTL, "enable", unit],
+                ["docker", "compose", "-f", str(compose), "-p", project,
+                 "up", "-d"],
+            ]
         if verb == "stop":
-            return [["docker", "compose", "-f", str(compose), "-p", project, "stop"],
-                    [SYSTEMCTL, "disable", unit]]
-        return [["docker", "compose", "-f", str(compose), "-p", project,
-                 "ps", "--services", "--filter", "status=running"]]
+            return [
+                ["docker", "compose", "-f", str(compose), "-p", project,
+                 "stop"],
+                [SYSTEMCTL, "disable", unit],
+            ]
+        return [[
+            "docker", "compose", "-f", str(compose), "-p", project,
+            "ps", "--services", "--filter", "status=running",
+        ]]
     units = service_units(mode, bridge)
     if verb == "start":
         return [[SYSTEMCTL, "enable", "--now", unit] for unit in units]
@@ -156,11 +192,14 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         checked(runner(argv, False), f"stopping {mode.upper()} runtime")
     for argv in runtime_argv(mode, bridge, "status"):
         result = runner(argv, False)
-        if mode == "dmr":
+        if mode == "dmr" and CONTAINERIZED:
             if result.returncode or result.stdout.strip():
                 raise ModeError("DMR runtime did not stop cleanly")
         elif result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
+        elif mode == "dmr" and not CONTAINERIZED:
+            checked(runner([SYSTEMCTL, "reset-failed", argv[-1]], False),
+                    "clearing stopped DMR runtime state")
 
 
 def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
@@ -170,7 +209,7 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         ready = True
         for argv in runtime_argv(mode, bridge, "status"):
             result = runner(argv, False)
-            if mode == "dmr":
+            if mode == "dmr" and CONTAINERIZED:
                 if result.returncode or len(result.stdout.splitlines()) < 3:
                     ready = False
             elif result.returncode:
@@ -180,6 +219,46 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         if attempt < 19:
             time.sleep(0.5)
     raise ModeError(f"{mode.upper()} runtime readiness was not confirmed")
+
+
+def disconnect_backend(mode: str, bridge: dict, profile, runner: Runner = run) -> None:
+    """End both halves of the selected session before its runtime is stopped."""
+    bridge_id = str(bridge["id"])
+    user = "mode-switch"
+    controls = {
+        "dmr": [
+            "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+            "--bridge", bridge_id, "--disconnect",
+        ],
+        "ysf": [
+            "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
+            "--disconnect", bridge_id, "--user", user,
+        ],
+        "p25": [
+            "/usr/local/sbin/allscan-reimagined-p25-bridge-control",
+            "disconnect", bridge_id, "--user", user,
+        ],
+        "nxdn": [
+            "/usr/local/sbin/allscan-reimagined-nxdn-bridge-control",
+            "disconnect", bridge_id, "--user", user,
+        ],
+        "m17": [
+            "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+            "--bridge", bridge_id, "--user", user, "disconnect",
+        ],
+    }
+    command = controls[mode]
+    if CONTAINERIZED and mode in {"p25", "nxdn"}:
+        command = [
+            "/usr/local/libexec/allscan-reimagined/asr-container-netns-exec.py",
+            "--container", profile.asterisk_container,
+            "--proc-root", str(profile.host_proc), "--",
+            "/usr/bin/env",
+            "ASR_CONTAINER_WATCH_CONFIG=/run/allscan-reimagined-bridge-rpc/config.json",
+            "ASR_CONTAINER_WATCH_SECRETS=/run/allscan-reimagined-bridge-rpc/bridge-mqtt-secrets.json",
+            *command,
+        ]
+    checked(runner(command, False), f"disconnecting {mode.upper()} session")
 
 
 def configured_ports(mode: str, bridge: dict) -> tuple[int, int]:
@@ -219,6 +298,11 @@ def rewrite_usrp_ini(text: str, rx: int, tx: int, spaced: bool) -> str:
             raise ModeError(f"backend configuration has invalid {key}")
         block = pattern.sub(f"{key}{separator}{value}", block)
     return text[:section.start()] + block + text[section.end():]
+
+
+def refresh_watch_snapshots(profile) -> None:
+    if CONTAINERIZED:
+        backend.refresh_watch_snapshots(profile)
 
 
 def migrate_transport(profile, runner: Runner = run) -> dict:
@@ -275,7 +359,7 @@ def migrate_transport(profile, runner: Runner = run) -> dict:
             atomic(path, value)
         atomic(rpt_path, new_rpt)
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
     except Exception:
         if stopped:
             for path, value in originals.items():
@@ -286,7 +370,7 @@ def migrate_transport(profile, runner: Runner = run) -> dict:
             try:
                 atomic(rpt_path, original_rpt)
                 atomic(config_path, original_config)
-                backend.refresh_watch_snapshots(profile)
+                refresh_watch_snapshots(profile)
             except Exception:
                 pass
         raise
@@ -314,7 +398,7 @@ def unified_rpt(text: str, bridges: dict[str, dict], selected_mode: str) -> str:
     for node in old_nodes | {str(NODE)}:
         if node.isdigit():
             text = re.sub(
-                rf"(?m)^\s*{re.escape(node)}\s*=\s*radio@127\.0\.0\.1(?::4572)?/{re.escape(node)},NONE\s*$\n?",
+                rf"(?m)^\s*{re.escape(node)}\s*=\s*radio@127\.0\.0\.1(?::(?:4569|4572))?/{re.escape(node)},NONE\s*$\n?",
                 "", text,
             )
     text = m17.insert_nodes_mapping(text, NODE)
@@ -332,6 +416,59 @@ def disconnect_transport(config: dict, bridge_node: str, runner: Runner = run) -
         raise ModeError("configured Net Bridge node is invalid")
     for node in sorted(nodes):
         runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 11 {node}"], False)
+
+
+def parse_lstats_links(output: str) -> set[tuple[str, str]]:
+    if not re.search(
+        r"^NODE\s+PEER\s+RECONNECTS\s+DIRECTION\s+CONNECT TIME\s+CONNECT STATE\s*$",
+        output,
+        re.MULTILINE,
+    ):
+        raise ModeError("Asterisk direct-link status was not recognized")
+    return set(
+        re.findall(
+            r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)[ \t]+",
+            output,
+            re.MULTILINE,
+        )
+    )
+
+
+def transport_linked(main_node: str, runner: Runner = run) -> bool:
+    result = runner([ASTERISK, "-rx", f"rpt lstats {main_node}"], False)
+    checked(result, "reading permanent Net Bridge link state")
+    return (str(NODE), "OUT") in parse_lstats_links(result.stdout)
+
+
+def ensure_transport_link(main_node: str, runner: Runner = run) -> None:
+    if not transport_linked(main_node, runner):
+        checked(
+            runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 3 {NODE}"], False),
+            "restoring permanent Net Bridge link",
+        )
+        for attempt in range(40):
+            if transport_linked(main_node, runner):
+                return
+            if attempt < 39:
+                time.sleep(0.25)
+        raise ModeError("Asterisk did not restore the permanent Net Bridge link")
+
+
+def restore_transport(profile, runner: Runner = run) -> dict:
+    config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
+    bridges = net_bridges(config)
+    mode = str(config.get("netBridgeMode", "")).lower()
+    if mode not in bridges:
+        raise ModeError("selected Net Bridge mode is not provisioned")
+    main_node = str(config.get("node", ""))
+    if not re.fullmatch(r"[0-9]{3,10}", main_node):
+        raise ModeError("main AllStar node is invalid")
+    ports = selected_ports(mode, bridges[mode])
+    reload_and_verify(runner, expected_ports=ports)
+    start_backend(mode, bridges[mode], runner)
+    ensure_transport_link(main_node, runner)
+    return {"ok": True, "mode": mode, "node": NODE,
+            "bridgeId": bridges[mode]["id"], "transportLinked": True}
 
 
 def reload_and_verify(
@@ -396,17 +533,20 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     staged_config = json.dumps(updated, sort_keys=True, indent=2) + "\n"
     try:
         old_node = str(bridges[old_mode].get("node", NODE)) if old_mode else str(NODE)
+        if old_mode:
+            disconnect_backend(old_mode, bridges[old_mode], profile, runner)
         disconnect_transport(config, old_node, runner)
         for candidate, bridge in bridges.items():
             stop_backend(candidate, bridge, runner)
         atomic(rpt_path, new_rpt)
         atomic(config_path, staged_config)
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
         reload_and_verify(runner, expected_ports=selected_ports(mode, bridges[mode]))
         start_backend(mode, bridges[mode], runner)
+        ensure_transport_link(str(updated.get("node", "")), runner)
         updated["netBridgeMode"] = mode
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
-        backend.refresh_watch_snapshots(profile)
+        refresh_watch_snapshots(profile)
     except Exception as exc:
         for candidate, bridge in bridges.items():
             try:
@@ -417,7 +557,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
         try:
             atomic(rpt_path, original_rpt)
             atomic(config_path, original_config)
-            backend.refresh_watch_snapshots(profile)
+            refresh_watch_snapshots(profile)
             rollback_node = int(bridges[old_mode]["node"]) if old_mode else NODE
             rollback_ports = selected_ports(old_mode, bridges[old_mode]) if old_mode else None
             reload_and_verify(runner, rollback_node, rollback_ports)
@@ -435,19 +575,25 @@ def main() -> int:
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--mode", choices=MODES)
     operation.add_argument("--migrate-transport", action="store_true")
+    operation.add_argument("--restore-transport", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    # Unlike broker-launched requests, the root-only administrative entry point
-    # does not inherit the broker's private environment.  Use the fixed host
-    # profile path; load_profile still enforces ownership, mode, symlink, shape,
-    # and provisioned-path validation.
-    profile = backend.load_profile(PROFILE)
-    if profile is None:
-        raise SystemExit("container profile unavailable")
-    backend.validate_active_profile(profile)
-    # Child helpers intentionally require the same validated profile marker.
-    # Broker launches already provide it; direct root administration does not.
-    os.environ[backend.PROFILE_ENV] = str(PROFILE)
+    if CONTAINERIZED:
+        # Unlike broker-launched requests, direct root administration does not
+        # inherit the broker marker.  The fixed profile remains fully validated.
+        profile = backend.load_profile(PROFILE)
+        if profile is None:
+            raise SystemExit("container profile unavailable")
+        backend.validate_active_profile(profile)
+        os.environ[backend.PROFILE_ENV] = str(PROFILE)
+    else:
+        for path in (Path("/etc/allscan-reimagined"), Path("/etc/asterisk")):
+            if path.is_symlink() or not path.is_dir():
+                raise SystemExit(f"native configuration directory is unsafe: {path}")
+        profile = SimpleNamespace(
+            asr_config=Path("/etc/allscan-reimagined"),
+            asterisk_config=Path("/etc/asterisk"),
+        )
     config = json.loads((profile.asr_config / "config.json").read_text())
     bridges = net_bridges(config)
     if args.mode is not None and args.mode not in bridges:
@@ -457,6 +603,15 @@ def main() -> int:
             rx, tx = core.unified_net_usrp_ports()
             print(json.dumps({"ok": True, "migrate": True, "usrpRx": rx,
                               "usrpTx": tx}))
+            return 0
+        if args.restore_transport:
+            mode = str(config.get("netBridgeMode", "")).lower()
+            if mode not in bridges:
+                raise SystemExit("selected Net Bridge mode is not provisioned")
+            rx, tx = selected_ports(mode, bridges[mode])
+            print(json.dumps({"ok": True, "restore": True, "mode": mode,
+                              "node": NODE, "bridgeId": bridges[mode]["id"],
+                              "usrpRx": rx, "usrpTx": tx}))
             return 0
         rx, tx = selected_ports(args.mode, bridges[args.mode])
         print(json.dumps({"ok": True, "mode": args.mode, "node": NODE,
@@ -472,8 +627,12 @@ def main() -> int:
     with os.fdopen(descriptor, "a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            result = (migrate_transport(profile) if args.migrate_transport
-                      else switch_mode(args.mode, profile))
+            if args.migrate_transport:
+                result = migrate_transport(profile)
+            elif args.restore_transport:
+                result = restore_transport(profile)
+            else:
+                result = switch_mode(args.mode, profile)
         except (ModeError, OSError, ValueError, subprocess.SubprocessError) as exc:
             print(json.dumps({"ok": False, "error": str(exc)}))
             return 1

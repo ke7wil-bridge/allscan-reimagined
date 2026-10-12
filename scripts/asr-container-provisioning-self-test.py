@@ -731,6 +731,9 @@ def test_adapter_allowlists(systemctl) -> None:
 
 def main() -> int:
     installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
+    compose_source = (HERE.parent / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
+    assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
     m17_exec = "--proc-root {profile.host_proc} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector"
     assert m17_exec in installer_source
     assert "--user {SERVICE_USER} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector" not in installer_source
@@ -738,6 +741,14 @@ def main() -> int:
     assert 'm17_audit_directory = Path("/var/log/allscan-reimagined/m17")' in installer_source
     assert '"asr-m17-hosts-update.py"' in installer_source
     assert "ReadWritePaths=/run/allscan-reimagined-m17 /var/log/allscan-reimagined /var/lib/allscan-reimagined/m17" in installer_source
+    assert 'watch_prefix = "+"' in installer_source
+    assert "ExecStart={watch_prefix}{watch_command}" in installer_source
+    assert "Group={watch_group}" in installer_source
+    assert "SupplementaryGroups={SERVICE_USER}" in installer_source
+    assert "RuntimeDirectoryMode=2750" in installer_source
+    assert "RuntimeDirectoryPreserve=yes" in installer_source
+    m17_runtime = "RuntimeDirectory=allscan-reimagined-m17\nRuntimeDirectoryMode=0755\nRuntimeDirectoryPreserve=yes"
+    assert m17_runtime in installer_source
     assert "allscan-reimagined-m17-hosts-update.timer" in installer_source
     backend = load("asr_container_test_backend", "asr-provisioning-backend.py")
     detect = load("asr_container_test_detect", "asr-provisioning-detect.py")

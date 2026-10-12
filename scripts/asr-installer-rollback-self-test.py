@@ -145,6 +145,11 @@ def assert_installer_order(installer: Path) -> None:
     assert '--exclude="$BACKUP_WEB_NAME/astdb.txt"' in text
     assert "restore_reapply_unit_states" in text
     assert "restore_prior_reapply_units" in text
+    assert "backup_bridge_owned_units" in text
+    assert "restore_bridge_owned_units" in text
+    assert "/var/lib/allscan-reimagined/bridge-setup/installations" in text
+    assert 'payload.get("ownedFiles", [])' in text
+    assert 'path.parent == unit_dir and unit_name.fullmatch(path.name)' in text
     assert "PRIOR_ASR_CAN_REAPPLY=1" in text
     assert "PRIOR_ASR_WIRING_VALID=1" in text
     assert '"$BACKUP_DIR/runtime/systemd"' in text
@@ -219,7 +224,25 @@ def assert_installer_order(installer: Path) -> None:
     remove_end = text.index("restore_reapply_unit_states()", remove_start)
     remove_block = text[remove_start:remove_end]
     assert "allscan-reimagined-standard-bridge-status.service" in remove_block
+    assert "allscan-reimagined-tgif-user-sessions.timer" in remove_block
+    assert "/etc/tmpfiles.d/allscan-reimagined.conf" in remove_block
     assert "/usr/local/sbin/asr_bridge_status.py" in remove_block
+    rollback_start = text.index("rollback_on_error()")
+    rollback_end = text.index("trap 'rollback_on_error $?' ERR", rollback_start)
+    rollback_block = text[rollback_start:rollback_end]
+    backup_units = text.index("backup_bridge_owned_units\n", backup_creation)
+    changes_started = text.index("CHANGES_STARTED=1", backup_creation)
+    assert backup_creation < backup_units < changes_started
+    restore_units = rollback_block.index("restore_bridge_owned_units")
+    remove_wiring = rollback_block.index("remove_asr_managed_wiring")
+    reload_units = rollback_block.index("systemctl daemon-reload", restore_units)
+    assert remove_wiring < restore_units < reload_units
+    assert "allscan-reimagined-tgif-user-sessions.service" in rollback_block
+    assert "/etc/allscan-reimagined" in rollback_block
+    assert "/var/lib/allscan-reimagined" in rollback_block
+    assert "/var/log/allscan-reimagined" in rollback_block
+    assert "/run/allscan-reimagined" in rollback_block
+    assert "/opt/allscan-reimagined/releases" in rollback_block
     stop_start = text.index("CHANGES_STARTED=1")
     stop_end = text.index('echo "[2/8] Checking the official AllScan backend..."', stop_start)
     assert "allscan-reimagined-standard-bridge-status.service" in text[stop_start:stop_end]

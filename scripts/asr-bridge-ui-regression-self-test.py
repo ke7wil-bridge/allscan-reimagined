@@ -53,6 +53,8 @@ if "isCurrentTalker && sourceCard && sourceCard.cardType !== 'p25_net' && source
     errors.append("generic node metadata can overwrite authoritative P25/NXDN identity")
 if "persistedUrfIdentity" not in talker_enrichment or "talker.source" not in talker_enrichment or "node: 'URFWIL'" not in talker_enrichment:
     errors.append("persisted URFWIL caller identity/provenance is not rendered after refresh")
+if "transportNode !== '1001' && transportNode !== '1999'" not in talker_enrichment:
+    errors.append("Talker Cards no longer guard both private transport nodes 1001 and 1999")
 if "String(entry.description || '').trim() || parts.description" not in live or "String(entry.location || '').trim() || parts.location" not in live:
     errors.append("persisted Talker Card description/location metadata is discarded")
 if "if (!isCurrentTalker) return null" not in talker_enrichment or "info: 'Identifying…'" not in talker_enrichment:

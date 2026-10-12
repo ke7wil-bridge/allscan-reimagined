@@ -154,7 +154,8 @@ def find_existing_bridge(config: dict[str, Any], bridge_id: str) -> dict[str, An
 
 
 def insert_nodes_mapping(text: str, node: int) -> str:
-    line = f"{node} = radio@127.0.0.1:4572/{node},NONE"
+    iax_port = 4572 if os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE") else 4569
+    line = f"{node} = radio@127.0.0.1:{iax_port}/{node},NONE"
     if re.search(rf"(?m)^\s*{node}\s*=", text):
         return text
     match = re.search(r"(?m)^\[nodes\]\s*$", text)
@@ -230,7 +231,7 @@ def ensure_usrp_module(text: str) -> str:
 
 def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) -> dict[str, Any]:
     m17_port, usrp_rx, usrp_tx = ports
-    return {
+    entry = {
         "id": settings.bridge_id, "mode": "m17", "cardType": settings.card_type,
         "node": str(node), "title": settings.title, "backendMode": "managed",
         "bridgePermission": "self_owned", "m17Callsign": settings.callsign,
@@ -246,6 +247,9 @@ def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) 
         "m17Encrypted": False, "approvedDestinations": ([{"reflector": settings.reflector, "host": settings.host, "port": settings.port, "module": settings.module, "encrypted": False}] if settings.card_type == "m17_net" else []), "allowTune": settings.card_type == "m17_net",
         "clientSource": "m17",
     }
+    if settings.card_type == "standard":
+        entry.update({"urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL"})
+    return entry
 
 
 def update_config(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:

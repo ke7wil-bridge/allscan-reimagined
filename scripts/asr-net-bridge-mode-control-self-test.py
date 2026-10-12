@@ -63,6 +63,7 @@ class FakeRunner:
         self.fail_mode = fail_mode
         self.commands: list[list[str]] = []
         self.reload_count = 0
+        self.transport_linked = False
         self.channel_ports = control.selected_ports(old_mode, bridge(old_mode, "1"))
 
     def __call__(self, argv: list[str], _check: bool) -> subprocess.CompletedProcess[str]:
@@ -72,6 +73,13 @@ class FakeRunner:
         if argv[0] == control.ASTERISK and argv[-1].startswith("rpt stats "):
             node = argv[-1].rsplit(" ", 1)[-1]
             return subprocess.CompletedProcess(argv, 0, f"NODE {node} STATISTICS\n", "")
+        if argv[0] == control.ASTERISK and argv[-1].startswith("rpt lstats "):
+            row = "1999 1999 0 OUT 00:00:02 ESTABLISHED\n" if self.transport_linked else ""
+            output = ("NODE PEER RECONNECTS DIRECTION CONNECT TIME CONNECT STATE\n" + row)
+            return subprocess.CompletedProcess(argv, 0, output, "")
+        if argv[0] == control.ASTERISK and argv[-1].endswith(" ilink 3 1999"):
+            self.transport_linked = True
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK and argv[-1].startswith("rpt show channels "):
             rx, tx = self.channel_ports
             return subprocess.CompletedProcess(
@@ -84,6 +92,9 @@ class FakeRunner:
             return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK or argv[-2:] == ["restart", "asterisk.service"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if (argv[0].startswith("/usr/local/sbin/allscan-reimagined-")
+                or argv[0].endswith("asr-container-netns-exec.py")):
+            return subprocess.CompletedProcess(argv, 0, '{"ok":true}\n', "")
         if "docker compose" in joined:
             if " up -d" in joined:
                 if self.fail_mode == "dmr":
@@ -95,6 +106,14 @@ class FakeRunner:
                 return subprocess.CompletedProcess(argv, 0, "", "")
             output = "urfd\ntcd\ntgif\n" if self.active["dmr"] else ""
             return subprocess.CompletedProcess(argv, 0, output, "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "start":
+            self.active["dmr"] = True
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "stop":
+            self.active["dmr"] = False
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "reset-failed":
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if "disable" in argv:
             if mode:
                 self.active[mode] = False
@@ -133,10 +152,17 @@ def fixture(root: Path) -> tuple[SimpleNamespace, dict]:
             *control.selected_ports(item["mode"], item),
         )
     (asterisk / "rpt.conf").write_text(rpt)
-    return SimpleNamespace(asr_config=asr, asterisk_config=asterisk), config
+    return SimpleNamespace(
+        asr_config=asr, asterisk_config=asterisk,
+        asterisk_container="allstarlink3", host_proc=Path("/proc"),
+    ), config
 
 
 def main() -> None:
+    if control.PROFILE.is_file():
+        assert control.CONTAINERIZED
+        assert "asr-container-systemctl.py" in control.SYSTEMCTL
+        assert "asr-container-asterisk.py" in control.ASTERISK
     original_refresh = control.backend.refresh_watch_snapshots
     control.backend.refresh_watch_snapshots = lambda _profile: None
     try:
@@ -145,7 +171,25 @@ def main() -> None:
             runner = FakeRunner()
             result = control.switch_mode("ysf", profile, runner)
             assert result["ok"] and result["mode"] == "ysf" and result["node"] == 1999
+            assert runner.transport_linked is True
             assert runner.active == {mode: mode == "ysf" for mode in control.MODES}
+            disconnect = [
+                command for command in runner.commands
+                if command and command[0].endswith("managed-dmr-net-control")
+            ]
+            assert disconnect == [[
+                "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+                "--bridge", "dmr_net", "--disconnect",
+            ]]
+            dmr_commands = [" ".join(command) for command in runner.commands]
+            if control.CONTAINERIZED:
+                assert any("docker compose" in command and command.endswith(" stop")
+                           for command in dmr_commands)
+            else:
+                assert any("systemctl stop allscan-reimagined-tgif-dmr_net.service" in command
+                           for command in dmr_commands)
+                assert sum("systemctl reset-failed allscan-reimagined-" in command
+                           for command in dmr_commands) == 4
             assert not any("channel request hangup" in " ".join(command)
                            for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
@@ -156,7 +200,7 @@ def main() -> None:
             ]
             rpt = (profile.asterisk_config / "rpt.conf").read_text()
             assert rpt.count("[1999]") == 1
-            assert rpt.count("1999 = radio@127.0.0.1:4572/1999,NONE") == 1
+            assert rpt.count("1999 = radio@127.0.0.1:4569/1999,NONE") == 1
             assert all(f"[{node}]" not in rpt for node in range(1004, 1009))
             assert "controlstates = asr-bridge-controlstates" in rpt
             assert "0 = rptena,lnkena,apdis,totena,ufdis,noicd" in rpt
@@ -174,11 +218,30 @@ def main() -> None:
 
         with tempfile.TemporaryDirectory() as temporary:
             profile, _original = fixture(Path(temporary))
+            runner = FakeRunner()
+            restored = control.restore_transport(profile, runner)
+            assert restored["ok"] and restored["mode"] == "dmr"
+            assert restored["transportLinked"] is True
+            assert runner.transport_linked is True
+            assert any(command[-1] == "rpt cmd 641890 ilink 3 1999"
+                       for command in runner.commands)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, _original = fixture(Path(temporary))
             runner = FakeRunner(fail_mode="p25")
             rejected(control.switch_mode, "p25", profile, runner)
             restored = json.loads((profile.asr_config / "config.json").read_text())
             assert restored["netBridgeMode"] == "dmr"
             assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
+            if control.CONTAINERIZED:
+                assert any(
+                    "docker compose" in " ".join(command)
+                    and " ".join(command).endswith(" up -d")
+                    for command in runner.commands
+                )
+            else:
+                assert any("systemctl start allscan-reimagined-tgif-dmr_net.service"
+                           in " ".join(command) for command in runner.commands)
 
         rejected(control.switch_mode, "shell", SimpleNamespace())
         bad = bridge("ysf", "64189")

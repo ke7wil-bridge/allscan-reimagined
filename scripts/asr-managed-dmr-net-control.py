@@ -16,8 +16,16 @@ import time
 from pathlib import Path
 from typing import Callable
 
-ASTERISK = Path("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py")
+PROFILE_ENV = "ASR_CONTAINER_PROVISIONING_PROFILE"
+DEFAULT_PROVISIONING_PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
+if (not os.environ.get(PROFILE_ENV) and os.geteuid() == 0
+        and DEFAULT_PROVISIONING_PROFILE.is_file()):
+    os.environ[PROFILE_ENV] = str(DEFAULT_PROVISIONING_PROFILE)
+CONTAINERIZED = bool(os.environ.get(PROFILE_ENV))
+ASTERISK = Path("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
+                 if CONTAINERIZED else "/usr/sbin/asterisk")
 DOCKER = "/usr/bin/docker"
+SYSTEMCTL = "/usr/bin/systemctl"
 LOCK = Path("/run/lock/allscan-reimagined-managed-dmr-net-control.lock")
 UNIFIED_NODE = "1999"
 UNIFIED_USRP = (52000, 52001)
@@ -153,7 +161,8 @@ def parse_lstats(output: str) -> set[tuple[str, str]]:
     ):
         raise ControlError("Asterisk direct-link status was not recognized")
     return set(re.findall(
-        r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)[ \t]+",
+        r"^([A-Za-z0-9_][A-Za-z0-9_-]*)[ \t]+\S+[ \t]+\d+[ \t]+(IN|OUT)"
+        r"[ \t]+\S+[ \t]+ESTABLISHED[ \t]*$",
         output, re.MULTILINE,
     ))
 
@@ -206,6 +215,17 @@ def verify_owner(config: dict, bridge: dict, runner: Runner = run) -> None:
     match = re.search(r"(?mi)^rxchannel\s*:\s*(usrp/\S+)\s*$", channels)
     if not match or match.group(1).lower() != expected:
         raise ControlError("Asterisk node 1999 does not own the unified DMR USRP endpoint")
+    if not CONTAINERIZED:
+        bridge_id = str(bridge["id"])
+        units = (
+            f"allscan-reimagined-urf-tgif-{bridge_id}.service",
+            f"allscan-reimagined-urfd-{bridge_id}.service",
+            f"allscan-reimagined-tcd-{bridge_id}.service",
+            f"allscan-reimagined-tgif-{bridge_id}.service",
+        )
+        if any(runner([SYSTEMCTL, "is-active", "--quiet", unit]).returncode for unit in units):
+            raise ControlError("managed native DMR runtime is not ready")
+        return
     compose = ROOT / str(bridge["id"]) / "compose.yml"
     output = checked_output(
         [DOCKER, "compose", "-f", str(compose), "-p", str(bridge["id"]),

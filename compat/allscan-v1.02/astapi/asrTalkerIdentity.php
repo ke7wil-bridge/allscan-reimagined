@@ -91,20 +91,26 @@ function asrTalkerCallsignLocation($callsign, $path = '/var/lib/asterisk/astdb.t
 	return $cache[$key] = count($locations) === 1 ? (string)reset($locations) : '';
 }
 
-function asrEnrichUrfTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
-	if(!is_array($row) || (string)($row['node'] ?? '') !== '1001') return $row;
+function asrEnrichBridgeTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
+	if(!is_array($row)) return $row;
+	$transportNode = (string)($row['node'] ?? '');
+	if(!in_array($transportNode, ['1001', '1999'], true)) return $row;
 	$source = strtoupper(trim((string)($row['source'] ?? '')));
 	$info = strtoupper(trim((string)($row['info'] ?? '')));
 	$hasRealIdentity = $source !== '' && $source !== 'ALLSTAR'
 		&& $info !== '' && !str_starts_with($info, 'URFWIL');
 	$best = $hasRealIdentity ? ['callsign'=>$info, 'mode'=>$source] : null;
 	$originalDescription = '';
+	// URFWIL owns the reflector lifecycle journal. Node 1999 is a separate
+	// Net Bridge transport, so never guess its caller from URFWIL events.
+	// A verified 1999 identity may still be persisted by a mode-specific source.
+	if(!$hasRealIdentity && $transportNode === '1999') return null;
 	if(!$hasRealIdentity) {
 		$originalInfo = trim((string)($row['info'] ?? ''));
 		$originalDescription = trim((string)preg_replace('/^[A-Z0-9]{3,10}\s*/i', '', $originalInfo));
 		$rowStart = (int)($row['started_epoch'] ?? 0);
 		$rowEnd = (int)($row['event_epoch'] ?? $rowStart);
-		if($rowStart <= 0) return $row;
+		if($rowStart <= 0) return null;
 		if($rowEnd <= 0) $rowEnd = $rowStart;
 		$bestDistance = PHP_INT_MAX;
 		$bestOverlap = -1;
@@ -123,10 +129,13 @@ function asrEnrichUrfTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb
 			}
 		}
 	}
-	if(!is_array($best)) return $row;
+	// A private transport is never a station identity. If we cannot prove the
+	// actual caller, suppress the transport row instead of persisting a fake
+	// URFWIL/Unified talker into Last Talkers.
+	if(!is_array($best)) return null;
 	$row['info'] = (string)$best['callsign'];
 	$row['source'] = (string)$best['mode'];
-	$row['transport'] = 'URFWIL';
+	$row['transport'] = $transportNode === '1999' ? 'Net Bridge' : 'URFWIL';
 	$row['identity_provenance'] = 'urf_lifecycle';
 	if(trim((string)($row['description'] ?? '')) === '') {
 		$row['description'] = $originalDescription !== '' ? $originalDescription : 'Multi-Mode Bridge';
@@ -138,6 +147,28 @@ function asrEnrichUrfTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb
 	return $row;
 }
 
+function asrEnrichBridgeTalkers($rows, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
+	$enriched = array_map(static fn($row) => asrEnrichBridgeTalker($row, $events, $astdbPath), (array)$rows);
+	return array_values(array_filter($enriched, static fn($row) => is_array($row)));
+}
+
+function asrSanitizeTalkerFeed($current, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
+	if(!is_array($current)) return [];
+	foreach($current as $node => $entry) {
+		if(!is_array($entry)) continue;
+		if(array_key_exists('current_talker', $entry))
+			$entry['current_talker'] = asrEnrichBridgeTalker($entry['current_talker'], $events, $astdbPath);
+		if(array_key_exists('last_talkers', $entry))
+			$entry['last_talkers'] = asrEnrichBridgeTalkers($entry['last_talkers'], $events, $astdbPath);
+		$current[$node] = $entry;
+	}
+	return $current;
+}
+
+// Backward-compatible names for older callers and installer payloads.
+function asrEnrichUrfTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
+	return asrEnrichBridgeTalker($row, $events, $astdbPath);
+}
 function asrEnrichUrfTalkers($rows, $events, $astdbPath = '/var/lib/asterisk/astdb.txt') {
-	return array_map(static fn($row) => asrEnrichUrfTalker($row, $events, $astdbPath), (array)$rows);
+	return asrEnrichBridgeTalkers($rows, $events, $astdbPath);
 }

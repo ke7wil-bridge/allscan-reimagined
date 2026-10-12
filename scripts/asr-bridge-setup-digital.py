@@ -39,6 +39,7 @@ class DigitalSettings:
     bridge_node: int | None = None
     bridge_role: str = "standard"
     reflector_name: str = ""
+    nxdn_id: int | None = None
 
 
 def load(name: str, filename: str):
@@ -70,6 +71,13 @@ def validate(value: DigitalSettings) -> DigitalSettings:
         raise PlanError("destination is reserved")
     if value.mode == "ysf" and value.destination < 10000:
         raise PlanError("YSF destination must have five digits")
+    nxdn_id = value.nxdn_id
+    if value.mode == "nxdn":
+        nxdn_id = nxdn_id if nxdn_id is not None else value.destination
+        if not isinstance(nxdn_id, int) or not 1 <= nxdn_id <= 65535:
+            raise PlanError("NXDN identity is outside the supported range")
+    elif nxdn_id is not None:
+        raise PlanError("NXDN identity is only valid for NXDN bridges")
     if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?", value.reflector_host):
         raise PlanError("invalid reflector host")
     if not isinstance(value.reflector_port, int) or not 1 <= value.reflector_port <= 65535:
@@ -83,7 +91,10 @@ def validate(value: DigitalSettings) -> DigitalSettings:
         raise PlanError("bridge role must be standard or net")
     if value.bridge_node is not None and (not isinstance(value.bridge_node, int) or not 1001 <= value.bridge_node <= 1999):
         raise PlanError("private bridge node must be in 1001-1999")
-    return DigitalSettings(**{**asdict(value), "callsign": callsign, "reflector_name": reflector_name})
+    return DigitalSettings(**{
+        **asdict(value), "callsign": callsign, "nxdn_id": nxdn_id,
+        "reflector_name": reflector_name,
+    })
 
 
 def rooted(root: Path, logical: str) -> Path:

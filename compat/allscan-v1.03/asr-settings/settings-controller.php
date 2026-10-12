@@ -678,24 +678,29 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			}
 			$approvedDestinations = asrSettingsApprovedDmrTalkgroups($rawApprovedDestinations, $error, "DMR Net Bridge \"$id\"");
 			if($error !== '') return [];
-			if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
-				$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
-				return [];
-			}
-			if(!preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', $rawDvswitchScript)) {
-				$error = "DMR Net Bridge \"$id\" needs its own dedicated /opt/MMDVM_Bridge.../dvswitch.sh path.";
-				return [];
-			}
-			if(!preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', $rawAnalogConfig)) {
-				$error = "DMR Net Bridge \"$id\" needs its own dedicated Analog_Bridge.ini path.";
-				return [];
-			}
-			foreach([$rawAbinfoPath, $rawDvswitchScript, $rawAnalogConfig] as $controlPath) {
-				if(isset($seenControlPaths[$controlPath])) {
-					$error = "DMR control path \"$controlPath\" is already used by bridge \"{$seenControlPaths[$controlPath]}\".";
+			$managedDmrRuntime = !empty($existingForMode['managedNetControl'])
+				&& ($existingForMode['backendMode'] ?? '') === 'managed'
+				&& ($existingForMode['managedTargetFile'] ?? '') === "/opt/allscan-reimagined-bridges/urf/$id/tgif-run/net-target";
+			if(!$managedDmrRuntime) {
+				if(!preg_match('#^/tmp/ABInfo_[0-9]{2,5}\.json$#D', $rawAbinfoPath)) {
+					$error = "DMR Net Bridge \"$id\" needs an ABInfo path such as /tmp/ABInfo_12345.json.";
 					return [];
 				}
-				$seenControlPaths[$controlPath] = $id;
+				if(!preg_match('#^/opt/MMDVM_Bridge[A-Za-z0-9_-]+/dvswitch\.sh$#D', $rawDvswitchScript)) {
+					$error = "DMR Net Bridge \"$id\" needs its own dedicated /opt/MMDVM_Bridge.../dvswitch.sh path.";
+					return [];
+				}
+				if(!preg_match('#^/opt/Analog_Bridge[A-Za-z0-9_-]+/Analog_Bridge\.ini$#D', $rawAnalogConfig)) {
+					$error = "DMR Net Bridge \"$id\" needs its own dedicated Analog_Bridge.ini path.";
+					return [];
+				}
+				foreach([$rawAbinfoPath, $rawDvswitchScript, $rawAnalogConfig] as $controlPath) {
+					if(isset($seenControlPaths[$controlPath])) {
+						$error = "DMR control path \"$controlPath\" is already used by bridge \"{$seenControlPaths[$controlPath]}\".";
+						return [];
+					}
+					$seenControlPaths[$controlPath] = $id;
+				}
 			}
 		}
 		if($rawCardType === 'ysf_net') {
@@ -1670,6 +1675,9 @@ function asrSettingsRenderUrfMode($mode, $label, $values, $enabled) {
 					<?php $field($mode,'module','Module',$values['module'] ?? '', 'One letter identifying the reflector room, commonly A.', 'Required', 'placeholder="A" maxlength="1"'); ?>
 				<?php endif; ?>
 				</div>
+				<?php if(array_key_exists('fixedBridgeRecovery', $values)): ?>
+				<label class="asr-settings-check"><input name="urfFixedRecovery[<?php echo asrSettingsH($mode); ?>]" type="checkbox" value="1"<?php echo !empty($values['fixedBridgeRecovery']) ? ' checked' : ''; ?>><span><strong>Fixed Bridge Recovery</strong><small>Automatically restore this Standard URFWIL mode link if it drops.</small></span></label>
+				<?php endif; ?>
 				<?php if($mode === 'dmr'): ?>
 					<p class="asr-bridge-section-note">The destination talkgroup controls bridge traffic. It is separate from the TGIF web account used to view authenticated session information.</p>
 					<?php asrSettingsRenderTgifAccount('TGIF Account / Session Authentication'); ?>
@@ -2050,6 +2058,7 @@ function asrSettingsDigitalSetupPayload($mode, &$error) {
 function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	$error = '';
 	$authMode = strtolower(asrSettingsCleanText($_POST['setupTgifAuthMode'] ?? 'legacy', 12));
+	$hotspotEssid = trim((string)($_POST['setupTgifEssid'] ?? ''));
 	$stationCallsign = (string) (asrSettingsReadConfig()['callsign'] ?? '');
 	if($stationCallsign === 'SCRATCH')
 		$stationCallsign = (string) ($_POST['setupCallsign'] ?? '');
@@ -2063,6 +2072,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'destination' => (int)($_POST['setupDestination'] ?? 0),
 		'network' => strtolower(asrSettingsCleanText($_POST['setupDmrNetwork'] ?? 'tgif', 24)),
 		'authMode' => $authMode,
+		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
 	];
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
@@ -2073,6 +2083,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	elseif(!in_array($authMode, ['legacy', 'secured'], true)) $error = 'Select a valid TGIF DMR connection method.';
 	elseif($payload['callsign'] === '') $error = 'The node callsign is not configured.';
 	elseif($payload['digitalId'] < 1 || $payload['digitalId'] > 9999999) $error = 'Enter a valid 1-7 digit DMR ID.';
+	elseif($hotspotEssid !== '' && (!ctype_digit($hotspotEssid) || (int)$hotspotEssid < 1 || (int)$hotspotEssid > 99)) $error = 'Enter a TGIF hotspot ESSID from 1 to 99.';
 	elseif($payload['destination'] < 1 || $payload['destination'] > 16777215 || $payload['destination'] === 4000) $error = 'Enter a valid TGIF talkgroup other than 4000.';
 	elseif($requireSecret && $authMode === 'secured' && ($password === '' || strlen($password) > 128 || preg_match('/[\x00-\x1F\x7F]/', $password))) $error = 'Enter a valid TGIF hotspot key (1-128 characters; control characters are not allowed).';
 	$planDigest = strtolower(asrSettingsCleanText($_POST['setupPlanDigest'] ?? '', 64));
@@ -2249,16 +2260,16 @@ function asrSettingsUrfFieldAliases($mode, $field) {
 			'urfTalkgroup' => [['urfTalkgroup','urfTg'], ['urfTalkgroup','urfTg']],
 		],
 		'ysf' => [
-			'reflector' => [['reflector','ysfReflector'], ['ysfReflector']],
-			'reflectorId' => [['reflectorId','ysfReflectorId'], ['ysfReflectorId']],
-			'host' => [['host','ysfHost'], ['ysfHost']], 'port' => [['port','ysfPort'], ['ysfPort']],
+			'reflector' => [['reflector','ysfReflector'], ['ysfReflector','ysfReflectorName']],
+			'reflectorId' => [['reflectorId','ysfReflectorId'], ['ysfReflectorId','fixedDestination']],
+			'host' => [['host','ysfHost'], ['ysfHost','reflectorHost']], 'port' => [['port','ysfPort'], ['ysfPort','reflectorPort']],
 			'module' => [['module','ysfModule'], ['ysfModule']],
 		],
 		'p25' => [
-			'destination' => [['destination','fixedDestination','reflectorId'], ['p25Destination','p25ReflectorId']],
+			'destination' => [['destination','fixedDestination','reflectorId'], ['p25Destination','p25ReflectorId','fixedDestination']],
 		],
 		'nxdn' => [
-			'destination' => [['destination','fixedDestination','reflectorId'], ['nxdnDestination','nxdnReflectorId']],
+			'destination' => [['destination','fixedDestination','reflectorId'], ['nxdnDestination','nxdnReflectorId','fixedDestination']],
 		],
 		'm17' => [
 			'reflector' => [['reflector','m17Reflector'], ['m17Reflector']],
@@ -2349,9 +2360,10 @@ function asrSettingsUrfValidateModeField($mode, $field, $value, &$error) {
 	return $error === '';
 }
 
-function asrSettingsUrfApplyModePost($record, &$error) {
+function asrSettingsUrfApplyModePost($record, &$error, $onlyMode = '') {
 	$posted = is_array($_POST['urfConfig'] ?? null) ? $_POST['urfConfig'] : [];
 	foreach(asrSettingsUrfModeFields() as $mode => $fields) foreach($fields as $field) {
+		if($onlyMode !== '' && $mode !== $onlyMode) continue;
 		if(!array_key_exists($field, (array)($posted[$mode] ?? []))) continue;
 		$value = asrSettingsCleanText($posted[$mode][$field], in_array($field, ['host'], true) ? 253 : 80);
 		if(in_array($field, ['module','callsign'], true) || ($mode === 'm17' && $field === 'reflector')) $value = strtoupper($value);
@@ -2393,6 +2405,7 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	}
 	$existingUrf = asrSettingsExistingUrfConfig($config);
 	$record = is_array($existingUrf['record'] ?? null) ? $existingUrf['record'] : [];
+	$records = is_array($existingUrf['records'] ?? null) ? $existingUrf['records'] : [];
 	if(!$record && empty($existingUrf['enabled'])) $record = [
 		'id'=>'urf', 'mode'=>'urf', 'node'=>$node, 'title'=>'URFWIL Reflector',
 		'detailTitle'=>'URF Clients & Activity', 'friendlyName'=>'URFWIL Multi-Mode Bridge',
@@ -2404,7 +2417,19 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		$record = asrSettingsUrfApplyModePost($record, $error);
 		if($error !== '') return [];
 	}
-	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record];
+	if(!$record) foreach($modes as $mode) {
+		$modeRecord = is_array($records[$mode] ?? null) ? $records[$mode] : [];
+		if(!$modeRecord) {
+			$generated = asrSettingsUrfModeBridges(['enabled'=>true,'node'=>$node,'modes'=>[$mode]]);
+			$modeRecord = $generated[0] ?? [];
+		}
+		$modeRecord = asrSettingsUrfApplyModePost($modeRecord, $error, $mode);
+		if($error !== '') return [];
+		$fixedRecovery = is_array($_POST['urfFixedRecovery'] ?? null) ? $_POST['urfFixedRecovery'] : [];
+		$modeRecord['fixedBridgeRecovery'] = !empty($fixedRecovery[$mode]);
+		$records[$mode] = $modeRecord;
+	}
+	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record, 'records' => $records];
 }
 
 function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
@@ -2445,8 +2470,10 @@ function asrSettingsExistingUrfConfig($config) {
 	$node = '';
 	$modes = [];
 	$aggregate = false;
+	$records = [];
 	foreach((array)($config['bridges'] ?? []) as $bridge) {
-		if(!is_array($bridge) || empty($bridge['urfReflector'])) continue;
+		if(!is_array($bridge) || empty($bridge['urfReflector'])
+			|| (string)($bridge['cardType'] ?? 'standard') !== 'standard') continue;
 		if($node === '') $node = (string)($bridge['node'] ?? '');
 		$mode = strtolower((string)($bridge['mode'] ?? ''));
 
@@ -2457,22 +2484,37 @@ function asrSettingsExistingUrfConfig($config) {
 				$configuredMode = strtolower((string)$configuredMode);
 				if(in_array($configuredMode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $configuredMode;
 			}
-		} elseif(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $mode;
+		} elseif(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) {
+			$modes[] = $mode;
+			$records[$mode] = $bridge;
+		}
 
 	}
 	$record = $aggregate ? asrSettingsUrfAggregateRecord($config) : [];
 	$modeConfig = [];
-	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) $modeConfig[$mode] = asrSettingsUrfModeConfig($record, $mode);
-	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'aggregate' => $aggregate, 'record' => $record, 'modeConfig' => $modeConfig];
+	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) {
+		$modeRecord = $aggregate ? $record : ($records[$mode] ?? []);
+		$modeConfig[$mode] = asrSettingsUrfModeConfig($modeRecord, $mode);
+		if(!$aggregate && is_array($modeRecord)) $modeConfig[$mode]['fixedBridgeRecovery'] = !empty($modeRecord['fixedBridgeRecovery']);
+	}
+	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'aggregate' => $aggregate, 'record' => $record, 'records' => $records, 'modeConfig' => $modeConfig];
 }
 
 function asrSettingsUrfBridgesForSave($config, $urf) {
 	$generated = asrSettingsUrfModeBridges($urf);
 	if(empty($urf['enabled'])) return $generated;
 	$existing = asrSettingsExistingUrfConfig($config);
-	if(empty($existing['aggregate'])) return $generated;
+	if(empty($existing['aggregate'])) {
+		$records = is_array($urf['records'] ?? null) ? $urf['records'] : [];
+		$result = [];
+		foreach((array)($urf['modes'] ?? []) as $mode)
+			if(is_array($records[$mode] ?? null)) $result[] = $records[$mode];
+		return $result ?: $generated;
+	}
 	foreach((array)($config['bridges'] ?? []) as $candidate) {
-		if(!is_array($candidate) || empty($candidate['urfReflector']) || strtolower((string)($candidate['mode'] ?? '')) !== 'urf') continue;
+		if(!is_array($candidate) || empty($candidate['urfReflector'])
+			|| (string)($candidate['cardType'] ?? 'standard') !== 'standard'
+			|| strtolower((string)($candidate['mode'] ?? '')) !== 'urf') continue;
 		$candidate = is_array($urf['record'] ?? null) && !empty($urf['record']) ? $urf['record'] : $candidate;
 		$candidate['node'] = $urf['node'];
 		$allUrfModes = ['dmr','ysf','p25','nxdn','m17'];
@@ -2602,7 +2644,9 @@ if($urfAdminAction !== '') {
 		}
 	}
 } elseif($settingsSaveRequested) {
-	$next = $config;
+	$storedConfig = is_readable(ASR_SETTINGS_FILE) ? json_decode((string)file_get_contents(ASR_SETTINGS_FILE), true) : null;
+	$next = is_array($storedConfig) ? $storedConfig : $config;
+	$saveError = '';
 	$uploadError = '';
 	$uploadedLogo = '';
 	$postedSaveToken = (string)($_POST['settingsSaveCsrf'] ?? '');
@@ -2638,24 +2682,32 @@ if($urfAdminAction !== '') {
 		$saveError = 'Header logo must be a local ASR path or an http/https URL.';
 	} else {
 		$bridgeError = '';
-		$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector'])));
-		$bridges = asrSettingsBridgeRowsFromPost(
-			$bridgeError,
-			$existingNonUrf,
-			$config['node'] ?? ''
-		);
-
-		$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError, $config) : [];
-		$urfBridges = $bridgeError === '' ? asrSettingsUrfBridgesForSave($config, $urf) : [];
+		$isBridgeSave = !$modernSettings || $modernSettingsSection === 'bridges';
+		if($isBridgeSave) {
+			$netCardTypes = ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'];
+			$existingNonUrf = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge)
+				|| empty($bridge['urfReflector']) || in_array(($bridge['cardType'] ?? ''), $netCardTypes, true)));
+			$bridges = asrSettingsBridgeRowsFromPost(
+				$bridgeError,
+				$existingNonUrf,
+				$config['node'] ?? ''
+			);
+			$urf = $bridgeError === '' ? asrSettingsUrfConfigFromPost($bridgeError, $config) : [];
+			$urfBridges = $bridgeError === '' ? asrSettingsUrfBridgesForSave($config, $urf) : [];
+		} else {
+			$existingNonUrf = [];
+			$bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+			$urfBridges = [];
+		}
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
 			$postedBridgeIds = is_array($_POST['bridgeId'] ?? null) ? $_POST['bridgeId'] : [];
-			asrSettingsValidateOwnedBridgeMutations(
+			if($isBridgeSave) asrSettingsValidateOwnedBridgeMutations(
 				$existingNonUrf, $bridges, $postedBridgeIds,
 				$bridgeLifecyclePreviews, $saveError
 			);
-			$deletionPlan = $saveError === '' ? asrSettingsValidateDeletionPlan(
+			$deletionPlan = $isBridgeSave && $saveError === '' ? asrSettingsValidateDeletionPlan(
 				$existingNonUrf, $bridges,
 				(string)($_POST['bridgeDeletionConfirmations'] ?? ''),
 				$bridgeLifecyclePreviews, $saveError
@@ -2672,60 +2724,69 @@ if($urfAdminAction !== '') {
 			if($saveError !== '') {
 				$config = asrSettingsReadConfig();
 			} else {
-			$next['headerTitle'] = $headerTitle;
-				$next['headerLogo'] = $logo;
-				$next['brandByline'] = 'by KE7WIL';
-				$next['footerLogo'] = asrSettingsWebPath('asr-logo-bright-r-tight.png');
-				$next['requireLogin'] = $requireLogin;
-				$next['maintainFriendlyNames'] = $maintainFriendlyNames;
-			$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
-			$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
-			$next['lowPowerMode'] = $lowPowerMode;
-			$next['filterServiceStations'] = $filterServiceStations;
-			$next['filteredStations'] = $filteredStations;
-			if((int)($config['dmrId'] ?? 0) > 0) $next['dmrId'] = (int)$config['dmrId'];
-			$bridges = array_merge($bridges, $urfBridges);
-			$next['bridges'] = $bridges;
-			$saveError = '';
-			$nextSecrets = $secrets;
-			$nextSecrets['bridgeClientPasswords'] = is_array($nextSecrets['bridgeClientPasswords'] ?? null) ? $nextSecrets['bridgeClientPasswords'] : [];
-			$postedPasswords = $_POST['bridgeClientPassword'] ?? [];
-			$allowedSecretIds = [];
-			foreach($bridges as $bridge) {
-				if(($bridge['cardType'] ?? 'standard') === 'standard')
-					$allowedSecretIds[$bridge['id']] = true;
-			}
-			// Unsaved/external rows may intentionally receive a new internal ID.
-			// ASR-owned managed rows are locked by the mutation validator above.
-			foreach($bridges as $index => $bridge) {
-				if(($bridge['cardType'] ?? 'standard') !== 'standard') continue;
-				$newSecretId = asrSettingsCleanBridgeId($bridge['id'] ?? '');
-				$oldSecretId = asrSettingsCleanBridgeId($postedBridgeIds[$index] ?? '');
-				$password = (string) ($postedPasswords[$index] ?? '');
-				if($password === '' && $newSecretId !== '' && $oldSecretId !== ''
-					&& $newSecretId !== $oldSecretId
-					&& isset($nextSecrets['bridgeClientPasswords'][$oldSecretId]))
-					$nextSecrets['bridgeClientPasswords'][$newSecretId] = $nextSecrets['bridgeClientPasswords'][$oldSecretId];
-			}
-			foreach(array_keys($nextSecrets['bridgeClientPasswords']) as $secretId) {
-				if(!isset($allowedSecretIds[$secretId]))
-					unset($nextSecrets['bridgeClientPasswords'][$secretId]);
-			}
-			$passwordCount = max(count($postedBridgeIds), count($postedPasswords));
-			for($i = 0; $i < $passwordCount; $i++) {
-				$secretId = asrSettingsCleanBridgeId($bridges[$i]['id'] ?? ($postedBridgeIds[$i] ?? ''));
-				$password = (string) ($postedPasswords[$i] ?? '');
-				if($secretId !== '' && isset($allowedSecretIds[$secretId]) && $password !== '')
-					$nextSecrets['bridgeClientPasswords'][$secretId] = $password;
-			}
-			$nextSecrets['qrz'] = is_array($nextSecrets['qrz'] ?? null) ? $nextSecrets['qrz'] : [];
-			$qrzUsername = asrSettingsCleanText($_POST['qrzUsername'] ?? '', 80);
-			$qrzPassword = asrSettingsCleanText($_POST['qrzPassword'] ?? '', 160);
-			if($qrzUsername !== '')
-				$nextSecrets['qrz']['username'] = $qrzUsername;
-			if($qrzPassword !== '')
-				$nextSecrets['qrz']['password'] = $qrzPassword;
-				if(!$cfgModel->setStockRequireLogin($requireAllScanLogin))
+				if(!$modernSettings || $modernSettingsSection === 'appearance') {
+					$next['headerTitle'] = $headerTitle;
+					$next['headerLogo'] = $logo;
+					$next['brandByline'] = 'by KE7WIL';
+					$next['footerLogo'] = asrSettingsWebPath('asr-logo-bright-r-tight.png');
+					$next['lowPowerMode'] = $lowPowerMode;
+					$next['filterServiceStations'] = $filterServiceStations;
+					$next['filteredStations'] = $filteredStations;
+				}
+				if(!$modernSettings || $modernSettingsSection === 'access')
+					$next['requireLogin'] = $requireLogin;
+				if($isBridgeSave) {
+					$next['maintainFriendlyNames'] = $maintainFriendlyNames;
+					$next['announceStartupBridgeSummary'] = $announceStartupBridgeSummary;
+					$next['announceNoConnectedBridges'] = $announceNoConnectedBridges;
+					if((int)($config['dmrId'] ?? 0) > 0) $next['dmrId'] = (int)$config['dmrId'];
+					$bridges = array_merge($bridges, $urfBridges);
+					$next['bridges'] = $bridges;
+				}
+				$saveError = '';
+				$nextSecrets = $secrets;
+				$nextSecrets['bridgeClientPasswords'] = is_array($nextSecrets['bridgeClientPasswords'] ?? null) ? $nextSecrets['bridgeClientPasswords'] : [];
+				$postedPasswords = $_POST['bridgeClientPassword'] ?? [];
+				$allowedSecretIds = [];
+				if($isBridgeSave) {
+					foreach($bridges as $bridge) {
+						if(($bridge['cardType'] ?? 'standard') === 'standard')
+							$allowedSecretIds[$bridge['id']] = true;
+					}
+					// Unsaved/external rows may intentionally receive a new internal ID.
+					// ASR-owned managed rows are locked by the mutation validator above.
+					foreach($bridges as $index => $bridge) {
+						if(($bridge['cardType'] ?? 'standard') !== 'standard') continue;
+						$newSecretId = asrSettingsCleanBridgeId($bridge['id'] ?? '');
+						$oldSecretId = asrSettingsCleanBridgeId($postedBridgeIds[$index] ?? '');
+						$password = (string) ($postedPasswords[$index] ?? '');
+						if($password === '' && $newSecretId !== '' && $oldSecretId !== ''
+							&& $newSecretId !== $oldSecretId
+							&& isset($nextSecrets['bridgeClientPasswords'][$oldSecretId]))
+							$nextSecrets['bridgeClientPasswords'][$newSecretId] = $nextSecrets['bridgeClientPasswords'][$oldSecretId];
+					}
+					foreach(array_keys($nextSecrets['bridgeClientPasswords']) as $secretId) {
+						if(!isset($allowedSecretIds[$secretId]))
+							unset($nextSecrets['bridgeClientPasswords'][$secretId]);
+					}
+					$passwordCount = max(count($postedBridgeIds), count($postedPasswords));
+					for($i = 0; $i < $passwordCount; $i++) {
+						$secretId = asrSettingsCleanBridgeId($bridges[$i]['id'] ?? ($postedBridgeIds[$i] ?? ''));
+						$password = (string) ($postedPasswords[$i] ?? '');
+						if($secretId !== '' && isset($allowedSecretIds[$secretId]) && $password !== '')
+							$nextSecrets['bridgeClientPasswords'][$secretId] = $password;
+					}
+				}
+				if(!$modernSettings || $modernSettingsSection === 'lookup') {
+					$nextSecrets['qrz'] = is_array($nextSecrets['qrz'] ?? null) ? $nextSecrets['qrz'] : [];
+					$qrzUsername = asrSettingsCleanText($_POST['qrzUsername'] ?? '', 80);
+					$qrzPassword = asrSettingsCleanText($_POST['qrzPassword'] ?? '', 160);
+					if($qrzUsername !== '')
+						$nextSecrets['qrz']['username'] = $qrzUsername;
+					if($qrzPassword !== '')
+						$nextSecrets['qrz']['password'] = $qrzPassword;
+				}
+				if((!$modernSettings || $modernSettingsSection === 'access') && !$cfgModel->setStockRequireLogin($requireAllScanLogin))
 					$saveError = 'The AllScan login policy could not be saved.';
 				if($saveError === '' && asrSettingsWriteConfig($next, $saveError) && asrSettingsWriteSecrets($nextSecrets, $saveError)) {
 					if($saveError === '') {
@@ -2968,6 +3029,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-digital-label>DMR ID</span><input data-bridge-setup-digital-id type="number" min="1" max="9999999" placeholder="1234567" value="<?php echo $setupDmrIdDefault > 0 ? (int)$setupDmrIdDefault : ''; ?>"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-destination-label>Talkgroup</span><input data-bridge-setup-destination type="text" inputmode="numeric" pattern="[0-9]+" maxlength="8" placeholder="64189"></label>
 				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-tgif-auth hidden><span>TGIF DMR Connection</span><select data-bridge-setup-tgif-auth-mode><option value="legacy">Legacy (no personal key)</option><option value="secured">Secured (hotspot key)</option></select><small>Your TGIF website callsign/password are separate from the DMR connection. Legacy uses your DMR ID without a personal key.</small></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-tgif-auth hidden><span>TGIF Hotspot ESSID <small>(optional)</small></span><input data-bridge-setup-tgif-essid type="number" min="1" max="99" placeholder="Automatic"><small>Use a unique 1-99 suffix when another hotspot for this DMR ID may be online.</small></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-dmr-username-field hidden><span>Network Username / Callsign</span><input data-bridge-setup-dmr-username type="text" maxlength="80" autocomplete="username" placeholder="Callsign or network username"></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-tgif-key hidden><span>TGIF Hotspot Key <small>(not the website password)</small></span><input data-bridge-setup-tgif-password type="password" maxlength="128" autocomplete="new-password"></label>
 				<label data-bridge-setup-zello hidden><span>Zello Username</span><input data-bridge-setup-zello-username type="text" maxlength="80" autocomplete="username"></label>
@@ -3217,6 +3279,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupDigitalId: document.querySelector('[data-bridge-setup-digital-id]'),
 		setupDestination: document.querySelector('[data-bridge-setup-destination]'),
 		setupTgifAuthMode: document.querySelector('[data-bridge-setup-tgif-auth-mode]'),
+		setupTgifEssid: document.querySelector('[data-bridge-setup-tgif-essid]'),
 		setupDmrUsername: document.querySelector('[data-bridge-setup-dmr-username]'),
 		setupTgifPassword: document.querySelector('[data-bridge-setup-tgif-password]'),
 		setupZelloUsername: document.querySelector('[data-bridge-setup-zello-username]'),
@@ -3269,6 +3332,8 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var rollbackCompleteDialog = document.getElementById('asrRollbackCompleteDialog');
 	var rollbackCompleteOk = document.getElementById('asrRollbackCompleteOk');
 	var rollbackCompletedVersion = document.getElementById('asrRollbackCompletedVersion');
+	var updateRecoveryCheck = document.getElementById('asrUpdateRecoveryCheck');
+	var updateRecoveryStatus = document.getElementById('asrUpdateRecoveryStatus');
 	var rollbackFocusReturn = null;
 	var pendingRollbackId = '';
 	var rollbackJobId = <?php echo json_encode((string) ($rollbackQueuedJobId ?? ''), JSON_UNESCAPED_SLASHES); ?>;
@@ -4013,6 +4078,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	if(setupPath) setupPath.addEventListener('change', updateSetupMode);
 	if(setupButton && setupPanel) {
 		setupButton.addEventListener('click', function () {
+			updateSetupMode();
 			setupPanel.hidden = false;
 			if(setupMode) setupMode.focus();
 		});
@@ -4072,6 +4138,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx;
 		} else if(mode === 'dmr') {
 			details = 'Managed URF/TGIF runtime: yes\n' +
+				'TGIF hotspot/network ID: ' + (result.dmrNetworkId || 'automatic') + '\n' +
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +
 				'URF DMR port: ' + ports.dmr + '\n' +
 				'TGIF local ports: ' + ports.tgif_local + ' / ' + ports.tgif_mmdvm;

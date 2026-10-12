@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import platform
 import re
 import sys
 import zlib
@@ -32,15 +33,31 @@ def port_block(bridge_id: str) -> dict[str, int]:
              "dvswitch_tx", "dvswitch_rx", "dcs", "dextra", "dplus", "urf")
     return dict(zip(names, range(base, base + len(names))))
 
-def tgif_network_id(dmr_id: int, bridge_node: int) -> int:
+def tgif_network_id(dmr_id: int, bridge_node: int, essid: int | None = None) -> int:
     """Return a stable TGIF hotspot ESSID distinct for each private node."""
     # The qualified managed Net Bridge identity is intentionally independent
     # of its consolidated AllStar transport node and the URFWIL ESSID 01 peer.
-    suffix = 4 if bridge_node == 1999 else (bridge_node % 100 or 99)
+    suffix = essid if essid is not None else (4 if bridge_node == 1999 else (bridge_node % 100 or 99))
     return dmr_id * 100 + suffix
 
 class PlanError(RuntimeError):
     pass
+
+def validate_runtime_requirements(facts, containerized: bool, asterisk_available: bool,
+                                  release: dict[str, str], machine: str) -> None:
+    if not facts.systemd:
+        raise PlanError("URF/TGIF setup requires systemd")
+    if containerized:
+        if not facts.docker or not facts.docker_compose:
+            raise PlanError("container-host URF/TGIF setup requires Docker with the Compose plugin")
+    else:
+        if (release.get("ID") != "debian"
+                or release.get("VERSION_ID", "").split(".")[0] not in {"12", "13"}):
+            raise PlanError("native URF/TGIF setup requires Debian 12 or 13")
+        if machine.lower() not in {"x86_64", "aarch64", "armv7l"}:
+            raise PlanError("native URF/TGIF setup is unsupported on this architecture")
+    if not asterisk_available:
+        raise PlanError("Asterisk chan_usrp module is not installed")
 
 @dataclass(frozen=True)
 class UrfSettings:
@@ -52,6 +69,7 @@ class UrfSettings:
     title: str = "DMR Bridge"
     bridge_node: int | None = None
     bridge_role: str = "standard"
+    tgif_essid: int | None = None
 def load(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
     if not spec or not spec.loader:
@@ -78,12 +96,15 @@ def validate(value: UrfSettings) -> UrfSettings:
         raise PlanError("enter a valid TGIF talkgroup")
     if value.bridge_role not in {"standard", "net"}:
         raise PlanError("bridge role must be standard or net")
+    if value.tgif_essid is not None and (
+            not isinstance(value.tgif_essid, int) or not 1 <= value.tgif_essid <= 99):
+        raise PlanError("TGIF hotspot ESSID must be 1-99")
     if not isinstance(value.title, str) or not value.title.strip() or len(value.title) > 80 or any(ch in value.title for ch in "\r\n\0"):
         raise PlanError("invalid bridge title")
     if value.bridge_node is not None and not 1001 <= value.bridge_node <= 1999:
         raise PlanError("private bridge node must be in 1001-1999")
     return UrfSettings(bridge_id, callsign, value.dmr_id, value.tgif_tg, reflector,
-                       value.title.strip(), value.bridge_node, value.bridge_role)
+                       value.title.strip(), value.bridge_node, value.bridge_role, value.tgif_essid)
 def rooted(root: Path, logical: str) -> Path:
     return load("asr_backend_urf", "asr-provisioning-backend.py").map_path(root, logical)
 
@@ -111,13 +132,13 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         raise PlanError("ASR bridges are invalid")
     core = load("asr_setup_core_urf", "asr-bridge-setup-core.py")
     facts = core.ASL3Adapter(root).detect()
+    backend_module = load("asr_backend_urf_module", "asr-provisioning-backend.py")
+    containerized = root == Path("/") and backend_module.load_profile() is not None
     if root == Path("/"):
-        if not facts.systemd:
-            raise PlanError("URF/TGIF setup requires systemd")
-        if not facts.docker or not facts.docker_compose:
-            raise PlanError("URF/TGIF setup requires Docker with the Compose plugin")
-        if not load("asr_backend_urf_module", "asr-provisioning-backend.py").asterisk_module_available():
-            raise PlanError("Asterisk chan_usrp module is not installed")
+        validate_runtime_requirements(
+            facts, containerized, backend_module.asterisk_module_available(),
+            platform.freedesktop_os_release(), platform.machine(),
+        )
     try:
         main_node = int(config["node"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -157,11 +178,32 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         "root": runtime, "compose": f"{runtime}/compose.yml", "urfConfig": f"{runtime}/config/urfd.ini",
         "tcdConfig": f"{runtime}/config/tcd.ini", "blacklist": f"{runtime}/config/urfd.blacklist",
         "tgifSecret": f"{runtime}/secrets/tgif-password", "config": CONFIG, "rpt": RPT, "modules": MODULES,
+        "data": f"{runtime}/data", "tgifRun": f"{runtime}/tgif-run",
     }
+    backend = "container" if containerized else "native"
+    native_provenance = None
+    if not containerized:
+        native_source = load("asr_native_urf_plan_source", "asr-bridge-urf-native-runtime.py")
+        digital_source = load("asr_native_urf_plan_digital_source", "asr-bridge-runtime-sources.py")
+        native_provenance = native_source.describe(digital_source)
+    services = ([f"allscan-reimagined-urf-tgif-{settings.bridge_id}.service"] if containerized else [
+        f"allscan-reimagined-urfd-{settings.bridge_id}.service",
+        f"allscan-reimagined-tcd-{settings.bridge_id}.service",
+        f"allscan-reimagined-tgif-{settings.bridge_id}.service",
+    ])
     result = {
-        "schema": 1, "bridgeType": "dmr", "runtime": "urf-tgif", "settings": asdict(settings),
-        "mainNode": main_node, "bridgeNode": node, "ports": ports, "resources": resources,
-        "images": {"urf": "allscan-reimagined/urf:managed", "tcd": "allscan-reimagined/urf-tcd:managed"},
+        "schema": 2, "bridgeType": "dmr", "runtime": "urf-tgif", "backend": backend,
+        "settings": asdict(settings),
+        "mainNode": main_node, "bridgeNode": node,
+        "dmrNetworkId": tgif_network_id(settings.dmr_id, node, settings.tgif_essid),
+        "ports": ports, "resources": resources,
+        "services": services,
+        "runtimeRequirements": ({"dockerCompose": True} if containerized else {
+            "os": "debian-12-or-13", "architectures": ["amd64", "arm64", "armhf"],
+            "systemd": True, "account": "asr-bridge", "provenance": native_provenance,
+        }),
+        "images": ({"urf": "allscan-reimagined/urf:managed", "tcd": "allscan-reimagined/urf-tcd:managed"}
+                   if containerized else {}),
         "hostState": {
             "configSha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
             "rptSha256": hashlib.sha256(rpt_path.read_bytes()).hexdigest(),
@@ -174,7 +216,10 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
 def urfd_ini(plan: dict) -> str:
     s, p = plan["settings"], plan["ports"]
     reflector_id = max(1, (int(plan["mainNode"]) // 10) % 100000)
-    return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nPort = {p['dcs']}\n[DExtra]\nPort = {p['dextra']}\n[DPlus]\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nPort = {p['dmrplus']}\n[M17]\nPort = {p['m17']}\n[MMDVM]\nPort = {p['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nPort = {p['nxdn']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[P25]\nPort = {p['p25']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[URF]\nPort = {p['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nPort = {p['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {reflector_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = /data/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = /data/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = /data/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = /data/urfd.pid\nXmlPath = /data/urfd.xml\nWhitelistPath = /config/urfd.whitelist\nBlacklistPath = /config/urfd.blacklist\nInterlinkPath = /config/urfd.interlink\nG3TerminalPath = /config/urfd.terminal\n"""
+    native = plan.get("backend") == "native"
+    data = plan["resources"]["data"] if native else "/data"
+    config = f"{plan['resources']['root']}/config" if native else "/config"
+    return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nPort = {p['dcs']}\n[DExtra]\nPort = {p['dextra']}\n[DPlus]\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nPort = {p['dmrplus']}\n[M17]\nPort = {p['m17']}\n[MMDVM]\nPort = {p['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nPort = {p['nxdn']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[P25]\nPort = {p['p25']}\nAutoLinkModule = A\nReflectorID = {reflector_id}\n[URF]\nPort = {p['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nPort = {p['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {reflector_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = {data}/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = {data}/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = {data}/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = {data}/urfd.pid\nXmlPath = {data}/urfd.xml\nWhitelistPath = {config}/urfd.whitelist\nBlacklistPath = {config}/urfd.blacklist\nInterlinkPath = {config}/urfd.interlink\nG3TerminalPath = {config}/urfd.terminal\n"""
 
 def tcd_ini(plan: dict) -> str:
     return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 0\nDStarGainOut = 0\nDmrYsfGainIn = 0\nDmrYsfGainOut = 0\nUsrpTxGain = 0\nUsrpRxGain = 0\n"""
@@ -182,16 +227,20 @@ def tcd_ini(plan: dict) -> str:
 def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
     config_path=safe_regular(root, CONFIG); rpt_path=safe_regular(root, RPT); modules_path=safe_regular(root, MODULES)
     config=json.loads(config_path.read_text(encoding="utf-8")); s=plan["settings"]; node=plan["bridgeNode"]; p=plan["ports"]
-    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(tgif_network_id(s["dmr_id"], node)),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
+    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(plan["dmrNetworkId"]),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
     bridges=config.setdefault("bridges",[]); matches=[i for i,b in enumerate(bridges) if isinstance(b,dict) and b.get("id")==s["bridge_id"]]
     if len(matches)>1: raise PlanError("duplicate bridge identity")
-    if matches: bridges[matches[0]]=entry
+    if matches:
+        previous = bridges[matches[0]]
+        if isinstance(previous.get("fixedBridgeRecovery"), bool):
+            entry["fixedBridgeRecovery"] = previous["fixedBridgeRecovery"]
+        bridges[matches[0]]=entry
     else: bridges.append(entry)
     if role == "net" and str(config.get("netBridgeMode", "")).lower() not in {"dmr", "ysf", "p25", "nxdn", "m17"}:
         config["netBridgeMode"] = "dmr"
     m17=load("asr_setup_m17_urf","asr-bridge-setup-m17.py")
     rpt=rpt_path.read_text()
-    if role != "net" or config.get("netBridgeMode") == "dmr":
+    if role == "net" and config.get("netBridgeMode") == "dmr":
         for other in bridges:
             if not isinstance(other, dict) or other.get("id") == s["bridge_id"] or other.get("cardType") not in {"dmr_net","ysf_net","p25_net","nxdn_net","m17_net"}:
                 continue
@@ -199,6 +248,7 @@ def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
             if old_id:
                 begin=f"{m17.MANAGED_PREFIX}BEGIN {old_id}"; end=f"{m17.MANAGED_PREFIX}END {old_id}"
                 rpt=re.sub(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*\n?","",rpt)
+    if role != "net" or config.get("netBridgeMode") == "dmr":
         rpt=m17.insert_nodes_mapping(rpt,node); rpt=m17.upsert_node_section(rpt,s["bridge_id"],node,p["usrp_rx"],p["usrp_tx"]).replace(f"[{node}] ; M17 Bridge ({s['bridge_id']})",f"[{node}] ; DMR/URF Bridge ({s['bridge_id']})")
     modules=m17.ensure_usrp_module(modules_path.read_text()).replace("ASR M17 bridge","ASR managed bridge")
     return {

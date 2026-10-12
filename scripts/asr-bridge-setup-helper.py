@@ -248,7 +248,7 @@ def load_module(name: str, path: Path):
 def digital_settings(module, mode: str, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "host", "port",
-        "title", "bridgeNode", "bridgeRole", "planDigest", "name",
+        "title", "bridgeNode", "bridgeRole", "planDigest", "name", "identity",
     }
     if set(payload) - allowed:
         raise HelperError(f"{mode.upper()} request contains unsupported fields")
@@ -259,7 +259,10 @@ def digital_settings(module, mode: str, payload: dict[str, Any]):
         mode=mode, bridge_id=str(payload["bridgeId"]),
         callsign=str(payload["callsign"]), digital_id=int(payload["digitalId"]),
         destination=int(payload["destination"]), reflector_host=str(payload["host"]),
-        reflector_port=int(payload["port"]), title=str(payload.get("title") or ""),
+        reflector_port=int(payload["port"]),
+        nxdn_id=(int(payload["identity"]) if mode == "nxdn"
+                 and payload.get("identity") not in (None, "") else None),
+        title=str(payload.get("title") or ""),
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
         reflector_name=str(payload.get("name") or ""),
@@ -364,7 +367,8 @@ def digital_command(payload: dict[str, Any], mode: str, apply: bool) -> dict[str
         if not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise HelperError(f"{mode.upper()} installation requires a current preview digest")
         # Reject stale previews before package installation or runtime staging mutates the host.
-        if planner.plan(Path("/"), settings)["digest"] != expected:
+        current_plan = planner.plan(Path("/"), settings)
+        if current_plan["digest"] != expected:
             raise HelperError("preview is stale; preview again")
         source = load_module(f"asr_setup_{mode}_source", DIGITAL_SOURCE_PATH)
         packages_before = installed_packages()
@@ -395,6 +399,7 @@ def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "title",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
+        "hotspotEssid",
     }
     if set(payload) - allowed:
         raise HelperError("DMR request contains unsupported fields")
@@ -415,6 +420,7 @@ def dmr_settings(module, payload: dict[str, Any]):
         reflector=reflector, title=str(payload.get("title") or "DMR Bridge"),
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
+        tgif_essid=int(payload["hotspotEssid"]) if payload.get("hotspotEssid") else None,
     )
 
 
@@ -428,7 +434,8 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         expected = str(payload.get("planDigest", ""))
         if not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise HelperError("DMR installation requires a current preview digest")
-        if planner.plan(Path("/"), settings)["digest"] != expected:
+        current_plan = planner.plan(Path("/"), settings)
+        if current_plan["digest"] != expected:
             raise HelperError("preview is stale; preview again")
         auth_mode = payload.get("authMode", "secured" if payload.get("tgifPassword") else "legacy")
         if auth_mode == "legacy":
@@ -440,10 +447,21 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
             if not password:
                 raise HelperError("TGIF secured connection requires a hotspot key")
         installer = load_module("asr_setup_dmr_install", URF_INSTALL_PATH)
-        result = installer.install(
-            Path("/"), settings, password,
-            expected_digest=expected, manage_services=True,
-        )
+        packages_before = installed_packages() if current_plan.get("backend") == "native" else set()
+        try:
+            result = installer.install(
+                Path("/"), settings, password,
+                expected_digest=expected, manage_services=True,
+            )
+        except Exception as original:
+            if current_plan.get("backend") == "native":
+                try:
+                    rollback_packages(packages_before)
+                except Exception as rollback:
+                    raise HelperError(
+                        f"installation failed ({original}); package rollback failed ({rollback})"
+                    ) from rollback
+            raise
     append_audit({
         "action": "dmr-install" if apply else "dmr-plan",
         "bridgeId": settings.bridge_id, "result": "ok",
@@ -520,7 +538,7 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
         "dmr": {"destination", "authMode", "tgifPassword"},
         "ysf": {"destination", "name", "host", "port"},
         "p25": {"destination", "host", "port"},
-        "nxdn": {"destination", "host", "port"},
+        "nxdn": {"destination", "identity", "host", "port"},
         "m17": {"reflector", "host", "port", "module"},
     }
     for mode, value in modes.items():
@@ -536,8 +554,12 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
                 "port": str(modes["ysf"].get("port", "")), "title": "YSF Net Bridge"},
         "p25": {**common, "bridgeId": NET_MODE_IDS["p25"], "destination": str(modes["p25"].get("destination", "")),
                 "host": str(modes["p25"].get("host", "")), "port": str(modes["p25"].get("port", "")), "title": "P25 Net Bridge"},
-        "nxdn": {**common, "bridgeId": NET_MODE_IDS["nxdn"], "destination": str(modes["nxdn"].get("destination", "")),
-                 "host": str(modes["nxdn"].get("host", "")), "port": str(modes["nxdn"].get("port", "")), "title": "NXDN Net Bridge"},
+        "nxdn": {**common, "bridgeId": NET_MODE_IDS["nxdn"],
+                 "destination": str(modes["nxdn"].get("destination", "")),
+                 "identity": str(modes["nxdn"].get("identity", "")),
+                 "host": str(modes["nxdn"].get("host", "")),
+                 "port": str(modes["nxdn"].get("port", "")),
+                 "title": "NXDN Net Bridge"},
         "m17": {"bridgeId": NET_MODE_IDS["m17"], "callsign": callsign,
                 "reflector": str(modes["m17"].get("reflector", "")), "host": str(modes["m17"].get("host", "")),
                 "port": str(modes["m17"].get("port", "")), "module": str(modes["m17"].get("module", "")),
@@ -577,6 +599,17 @@ def net_bridge_plan(payload: dict[str, Any]) -> dict[str, Any]:
             "modes": list(NET_MODE_IDS), "activeMode": active_mode, "digest": digest}
 
 
+def sync_net_ysf_custom_hosts(runner=subprocess.run) -> None:
+    controller = "/usr/local/sbin/allscan-reimagined-ysf-bridge-control"
+    synced = runner(
+        [controller, "--sync-custom-hosts"],
+        capture_output=True, text=True,
+    )
+    if synced.returncode:
+        detail = (synced.stderr or synced.stdout).strip()[-500:]
+        raise HelperError(f"Net Bridge YSF catalog activation failed: {detail}")
+
+
 def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
     preview = net_bridge_plan(payload)
     if not apply:
@@ -600,6 +633,7 @@ def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
             module = load_module(f"asr_net_{mode}_apply_plan", DIGITAL_PLAN_PATH)
             request["planDigest"] = module.plan(Path("/"), digital_settings(module, mode, request))["digest"]
             results[mode] = digital_command(request, mode, True)
+    sync_net_ysf_custom_hosts()
     controller = Path("/usr/local/sbin/allscan-reimagined-net-bridge-mode-control")
     if not controller.is_file() or controller.is_symlink():
         raise HelperError("Net Bridge lifecycle controller is unavailable")

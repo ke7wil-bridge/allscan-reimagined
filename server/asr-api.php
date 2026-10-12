@@ -797,8 +797,22 @@ function asr_next_mode_statuses(): array {
             $controls[$id] = ['ready' => false, 'linked' => false, 'digitalLinked' => false, 'allstarLinked' => false, 'currentDestination' => '', 'currentDestinationLabel' => '', 'reason' => strtoupper($mode) . ' backend not ready: ' . $reason, 'missing' => array_values(array_unique($missing))];
             continue;
         }
+        $activity = [];
+        if (in_array($mode, ['p25', 'nxdn'], true)) {
+            $runtimeDirectory = '/run/allscan-reimagined-' . $mode . '-bridge-control';
+            $candidate = asr_secure_service_runtime_json($runtimeDirectory . '/' . $id . '.activity.json', $runtimeDirectory);
+            $eventEpoch = max(0, (int) ($candidate['eventEpoch'] ?? 0));
+            if (is_array($candidate)
+                && !empty($candidate['ok'])
+                && (string) ($candidate['mode'] ?? '') === $mode
+                && (string) ($candidate['bridgeId'] ?? '') === $id
+                && $eventEpoch <= time() + 300) {
+                $activity = $candidate;
+            }
+        }
         $recentTalkers = [];
         $inboundStartEpoch = 0;
+        $serviceState = [];
         if ($mode === 'm17') {
             $confirmed = is_array($status['confirmedTarget'] ?? null) ? $status['confirmedTarget'] : [];
             $reflector = substr((string) ($confirmed['reflector'] ?? ''), 0, 16);
@@ -833,7 +847,7 @@ function asr_next_mode_statuses(): array {
             $connectionState = (string) ($status['connectionState'] ?? '');
             $digitalLinked = $destination !== ''
                 && !empty($status['digitalSelected'])
-                && in_array($connectionState, ['selected-unverified', 'connected-unverified', 'partial-digital-only'], true);
+                && in_array($connectionState, ['connected', 'selected-unverified', 'connected-unverified', 'partial-digital-only'], true);
             $serviceState = is_array($status['serviceState'] ?? null) ? $status['serviceState'] : [];
             $ready = !empty($status['ok']) && !empty($serviceState['ready']);
             $talker = !empty($status['talkerEvidenceAvailable'])
@@ -851,6 +865,26 @@ function asr_next_mode_statuses(): array {
         $allstarLinked = !empty($status['allstarLinked']);
         if ($mode !== 'm17') $linked = $digitalLinked && $allstarLinked;
         $role = $talker !== '' ? 'source' : ($outboundActive ? 'relay' : 'idle');
+        $healthIssues = [];
+        if (!$ready) {
+            foreach ((array) (($serviceState['services'] ?? [])) as $unit => $service) {
+                if (!is_array($service) || empty($service['active'])) {
+                    $healthIssues[] = substr((string) $unit, 0, 96) . ' is not active.';
+                }
+            }
+            if ($healthIssues === []) {
+                $healthIssues[] = $warning !== ''
+                    ? $warning
+                    : strtoupper($mode) . ' backend readiness checks have not passed.';
+            }
+        }
+        $persistedActivityEpoch = max(
+            0,
+            (int) ($activity['eventEpoch'] ?? 0),
+            (int) ($status['outboundActivityEpoch'] ?? 0),
+            $inboundStartEpoch,
+            ...array_map(static fn($row): int => max(0, (int) ($row['epoch'] ?? 0)), $recentTalkers)
+        );
         $live[$id] = [
             'active' => $role !== 'idle',
             'role' => $role,
@@ -867,9 +901,12 @@ function asr_next_mode_statuses(): array {
             'current_user' => $talker,
             'caller' => $talker,
             'active_start_epoch' => $role === 'source' ? $inboundStartEpoch : ($role === 'relay' ? max(0, (int) ($status['outboundStartEpoch'] ?? 0)) : 0),
-            'activity_epoch' => $role === 'source' ? $inboundStartEpoch : ($role === 'relay' ? max(0, (int) ($status['outboundActivityEpoch'] ?? 0)) : 0),
+            'activity_epoch' => $persistedActivityEpoch,
+            'last_time_epoch' => $persistedActivityEpoch,
             'last_user' => (string) ($recentTalkers[0]['callsign'] ?? '-'),
             'warning' => $warning,
+            'health_severity' => $ready ? null : 'offline',
+            'health_issues' => $healthIssues,
             'recent_users' => array_map(static fn($row) => ['callsign'=>$row['callsign'], 'last_tx_epoch'=>$row['epoch']], $recentTalkers),
             'tx_events' => $recentTalkers,
         ];
@@ -1053,9 +1090,35 @@ function asr_standalone_kick_command(string $bridgeId, string $callsign): array 
     return $payload;
 }
 
+function asr_standard_urf_runtime_paths(): array {
+    $legacy = '/run/urf-wil';
+    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridge) {
+        if (!is_array($bridge)
+            || (string) ($bridge['cardType'] ?? 'standard') !== 'standard'
+            || empty($bridge['urfReflector'])
+            || (string) ($bridge['backendMode'] ?? '') !== 'managed') continue;
+        $id = (string) ($bridge['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
+        $base = '/opt/allscan-reimagined-bridges/urf/' . $id . '/data';
+        if (is_readable($base . '/urfd.xml')) {
+            return [
+                'status' => $base . '/urfd.xml',
+                'events' => $base . '/asr-live-events.jsonl',
+                'ptt' => $base . '/asr-live-state.json',
+            ];
+        }
+    }
+    return [
+        'status' => $legacy . '/urfd.xml',
+        'events' => $legacy . '/asr-live-events.jsonl',
+        'ptt' => $legacy . '/asr-live-state.json',
+    ];
+}
+
 function asr_urf_status_payload(): array {
-    $path = '/run/urf-wil/urfd.xml';
-    $eventPath = '/run/urf-wil/asr-live-events.jsonl';
+    $runtimePaths = asr_standard_urf_runtime_paths();
+    $path = $runtimePaths['status'];
+    $eventPath = $runtimePaths['events'];
     $stat = @stat($path);
     if (!is_array($stat) || !is_readable($path)) {
         return ['ok' => false, 'online' => false, 'stale' => true, 'error' => 'URF status source unavailable.', 'modes' => [], 'clients' => [], 'recent' => [], 'events' => []];
@@ -1313,6 +1376,48 @@ function asr_bridge_status_payload(): array {
             ]);
         }
     }
+    // Outbound AllStar->Zello activity is produced by the live bridge's USRP
+    // receiver, independently of the inbound Zello talker roster. Preserve
+    // that authoritative PTT/EOT timestamp in the same bridge-status payload
+    // consumed by the dashboard, including after a web-container recreation.
+    $zelloConfigured = false;
+    foreach ($configuredBridges as $configuredBridge) {
+        if (is_array($configuredBridge)
+            && (string) ($configuredBridge['id'] ?? '') === 'zello'
+            && strtolower((string) ($configuredBridge['mode'] ?? '')) === 'zello') {
+            $zelloConfigured = true;
+            break;
+        }
+    }
+    if ($zelloConfigured) {
+        $relayPath = asrRuntimeFilePath('zello-relay.json');
+        $relayPayload = is_readable($relayPath) ? json_decode((string) @file_get_contents($relayPath), true) : [];
+        $relayEpochMs = max(0, (int) ($relayPayload['updated_epoch_ms'] ?? 0));
+        if ($relayEpochMs > (int) floor((microtime(true) + 300) * 1000)) $relayEpochMs = 0;
+        $relayEpoch = intdiv($relayEpochMs, 1000);
+        $relayActive = is_array($relayPayload) && !empty($relayPayload['active']);
+        $zelloEntry = is_array($bridge['zello'] ?? null) ? $bridge['zello'] : [];
+        $sourceActive = strtolower((string) ($zelloEntry['role'] ?? '')) === 'source';
+        $role = $sourceActive ? 'source' : ($relayActive ? 'relay' : 'idle');
+        $activityEpoch = max(
+            $relayEpoch,
+            (int) ($zelloEntry['activity_epoch'] ?? 0),
+            (int) ($zelloEntry['last_time_epoch'] ?? 0),
+            (int) ($zelloEntry['last_source_epoch'] ?? 0)
+        );
+        $bridge['zello'] = array_merge([
+            'active' => false, 'role' => 'idle', 'state' => 'Idle',
+            'current_user' => '', 'caller' => '', 'last_user' => '-',
+            'last_source_user' => '', 'last_source_epoch' => 0,
+            'recent_users' => [], 'tx_events' => [], 'client_events' => [],
+        ], $zelloEntry, [
+            'active' => $role !== 'idle',
+            'role' => $role,
+            'state' => $role === 'source' ? 'TX ACTIVE' : ($role === 'relay' ? 'RELAY' : 'Idle'),
+            'activity_epoch' => $activityEpoch,
+            'last_time_epoch' => $activityEpoch,
+        ]);
+    }
     return [
         'ok' => true,
         'bridge' => $bridge,
@@ -1361,7 +1466,8 @@ function asr_fast_standard_activity_payload(): array {
     $urfActive = false;
     // Fast path: only the newest URF lifecycle event matters. This makes tx_stop
     // authoritative immediately instead of rebuilding a five-minute event history.
-    $eventPath = '/run/urf-wil/asr-live-events.jsonl';
+    $urfRuntimePaths = asr_standard_urf_runtime_paths();
+    $eventPath = $urfRuntimePaths['events'];
     if (is_readable($eventPath)) {
         $handle = @fopen($eventPath, 'rb');
         if ($handle) {
@@ -1390,7 +1496,7 @@ function asr_fast_standard_activity_payload(): array {
     }
     // Protocol handlers publish the authoritative live PTT edge here. Use both
     // key and unkey; the lifecycle file is only a fallback if this edge is stale.
-    $pttPath = '/run/urf-wil/asr-live-state.json';
+    $pttPath = $urfRuntimePaths['ptt'];
     if (is_readable($pttPath)) {
         $ptt = json_decode((string) @file_get_contents($pttPath), true);
         $updated = (int) ($ptt['updated_epoch_ms'] ?? 0);
@@ -3848,6 +3954,15 @@ function asr_save_custom_commands(string $raw, string $enabled): array {
 }
 
 $action = (string) ($_GET['action'] ?? $_POST['action'] ?? '');
+// Root-run acceptance uses the exact read-only producers consumed by the UI.
+// Keep this unavailable to HTTP and deliberately narrower than the public API.
+if (PHP_SAPI === 'cli' && getenv('ASR_ACCEPTANCE_READ_ONLY') === '1') {
+    if ($action === 'bridge-status') asr_json(asr_bridge_status_payload());
+    if ($action === 'zello-fast-relay') asr_json(asr_zello_fast_relay_payload());
+    if ($action === 'fast-ysf-net-activity') asr_json(asr_fast_ysf_net_activity_payload());
+    if ($action === 'fast-next-mode-activity') asr_json(asr_fast_next_mode_activity_payload());
+    asr_error('Unsupported acceptance read.', 400);
+}
 
 if ($action === 'auth-status') asr_json(asr_auth_payload());
 if ($action === 'custom-commands') {

@@ -255,7 +255,14 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+if ! getent passwd asr-bridge >/dev/null 2>&1; then
+  if getent group asr-bridge >/dev/null 2>&1; then
+    useradd --system --gid asr-bridge --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
+  else
+    useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
+  fi
+fi
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
@@ -279,6 +286,8 @@ fi
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-fixed-bridge-recovery.py" /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
 [ -f "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-lifecycle.py" /usr/local/sbin/allscan-reimagined-bridge-lifecycle
+[ -f "$MASTER_DIR/scripts/asr-net-bridge-mode-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-net-bridge-mode-control.py" /usr/local/sbin/allscan-reimagined-net-bridge-mode-control
 [ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
 if getent passwd asr-bridge >/dev/null 2>&1; then
@@ -413,6 +422,9 @@ TasksMax=16
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-bridge-control
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-bridge-control
 
 [Install]
@@ -456,6 +468,9 @@ TasksMax=16
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-ysf-bridge-control
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-ysf-bridge-control /var/lib/allscan-reimagined/ysf-hosts
 
 [Install]
@@ -514,6 +529,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-${digital_mode}-bridge-control
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-${digital_mode}-bridge-control /var/log/allscan-reimagined
 
 [Install]
@@ -559,6 +577,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+RuntimeDirectory=allscan-reimagined-m17
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-m17
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
@@ -674,6 +695,46 @@ then
   echo "The pre-existing startup bridge summary sound directory is not ASR-owned; it was preserved." >&2
   STARTUP_SUMMARY_SOUND_READY=0
 fi
+cat > /etc/systemd/system/allscan-reimagined-net-bridge-recovery.service <<'EOF'
+[Unit]
+Description=Restore the permanent AllScan Reimagined Unified Net Bridge transport
+After=network-online.target asterisk.service
+Wants=network-online.target
+ConditionPathExists=/etc/allscan-reimagined/config.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-net-bridge-mode-control --restore-transport
+TimeoutStartSec=90s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+net_bridge_recovery_enabled=$(python3 - "$CONFIG_DIR/config.json" <<'PY'
+import json
+import sys
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+mode = str(payload.get("netBridgeMode", "")).lower()
+expected = f"{mode}_net"
+ready = mode in {"dmr", "ysf", "p25", "nxdn", "m17"} and any(
+    isinstance(item, dict)
+    and item.get("cardType") == expected
+    and str(item.get("node", "")) == "1999"
+    for item in payload.get("bridges", [])
+)
+print("1" if ready else "0")
+PY
+)
+systemctl daemon-reload
+if [ "$net_bridge_recovery_enabled" = "1" ]; then
+  systemctl enable allscan-reimagined-net-bridge-recovery.service >/dev/null
+else
+  systemctl disable allscan-reimagined-net-bridge-recovery.service >/dev/null 2>&1 || true
+fi
+
 cat > /etc/systemd/system/allscan-reimagined-startup-bridge-summary.service <<'EOF'
 [Unit]
 Description=Announce established Standard ASR digital bridges once after startup
@@ -979,6 +1040,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-ses
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-control --disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-managed-dmr-net-control --bridge [a-zA-Z0-9_-]* --connect [0-9]*
@@ -1012,6 +1074,8 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-plan
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py net-bridge-plan
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py net-bridge-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion

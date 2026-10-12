@@ -28,3 +28,10 @@ The Setup Wizard does not commit or redistribute those firmware images: the loca
 Docker build retrieves them, verifies their hashes, and compiles the software
 vocoder in place. A fresh installer builds these inputs and never copies recovery
 binaries.
+
+For native ASL3, `asr-bridge-urf-native-runtime.py` consumes this same source
+context and patch set. It downloads checksum-pinned archives for all four
+revisions, recreates TCD's audited sibling-URFD source links without extracting
+escaping archive symlinks, builds the qualified software-AMBE ARMv7 transcoder,
+and writes a complete provenance/file manifest before atomic promotion. Docker
+is used only by the explicit container-host provisioning backend.

@@ -11,8 +11,8 @@ static inline void AsrPttState(bool active, const char *mode)
     std::lock_guard<std::mutex> lock(mutex);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    const char *tmp = "/data/asr-live-state.json.tmp";
-    const char *dst = "/data/asr-live-state.json";
+    const char *tmp = "/run/urf-wil/asr-live-state.json.tmp";
+    const char *dst = "/run/urf-wil/asr-live-state.json";
     std::ofstream out(tmp, std::ios::trunc);
     if (!out) return;
     out << "{\"active\":" << (active ? "true" : "false")

@@ -5,9 +5,9 @@ header('Cache-Control: no-cache');
 header('X-Accel-Buffering: no');
 date_default_timezone_set('America/New_York');
 
-require_once('../include/apiInit.php');
-require_once('AMI.php');
-require_once('nodeInfo.php');
+require_once(__DIR__ . '/../include/apiInit.php');
+require_once(__DIR__ . '/AMI.php');
+require_once(__DIR__ . '/nodeInfo.php');
 require_once(__DIR__ . '/asrEchoLink.php');
 require_once(__DIR__ . '/asrAmiGuard.php');
 require_once(__DIR__ . '/asrTalkerIdentity.php');
@@ -109,7 +109,7 @@ $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
 $urfTalkerEvents = asrUrfTalkerEvents();
-$enrichedTalkerHistory = asrEnrichUrfTalkers($asrTalkerHistory, $urfTalkerEvents);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($asrTalkerHistory, $urfTalkerEvents);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -183,10 +183,10 @@ while(!empty($fp[$node])) {
 		$finished['event_epoch'] = time();
 		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
 		$urfTalkerEvents = asrUrfTalkerEvents();
-		$finished = asrEnrichUrfTalker($finished, $urfTalkerEvents);
+		$finished = asrEnrichBridgeTalker($finished, $urfTalkerEvents);
 		// History is transmission-event history, not unique-station history.
 		// If the same node keys three separate times, keep all three events.
-		array_unshift($asrTalkerHistory, $finished);
+		if(is_array($finished)) array_unshift($asrTalkerHistory, $finished);
 		$asrTalkerHistory = array_slice($asrTalkerHistory, 0, 4);
 		writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
 	}
@@ -199,7 +199,7 @@ while(!empty($fp[$node])) {
 	$asrCurrentTalker = $nextCurrentTalker;
 	if($asrCurrentTalker !== null) {
 		$urfTalkerEvents = asrUrfTalkerEvents();
-		$asrCurrentTalker = asrEnrichUrfTalker($asrCurrentTalker, $urfTalkerEvents);
+		$asrCurrentTalker = asrEnrichBridgeTalker($asrCurrentTalker, $urfTalkerEvents);
 	}
 	$current[$node]['current_talker'] = $asrCurrentTalker;
 	$current[$node]['last_talkers'] = $asrTalkerHistory;
@@ -410,9 +410,10 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		}
 		$updated = isset($payload['updated']) ? (string) $payload['updated'] : '';
 		if($updated !== '' && $updated !== $lastUpdate) {
-			$currentHash = md5(json_encode($payload['current'] ?? []));
+			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents());
+			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {
-				sendData($payload['current'] ?? [], 'nodes');
+				sendData($cleanCurrent, 'nodes');
 				$lastCurrent = $currentHash;
 			}
 			sendData($payload['nodeTime'] ?? [], 'nodetimes');

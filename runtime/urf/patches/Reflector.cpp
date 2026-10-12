@@ -27,7 +27,7 @@ static void AsrLiveEvent(const std::string &json)
 {
 	static std::mutex mutex;
 	std::lock_guard<std::mutex> lock(mutex);
-	std::ofstream out("/data/asr-live-events.jsonl", std::ios::app);
+	std::ofstream out("/run/urf-wil/asr-live-events.jsonl", std::ios::app);
 	if (out) out << json << std::endl;
 }
 
