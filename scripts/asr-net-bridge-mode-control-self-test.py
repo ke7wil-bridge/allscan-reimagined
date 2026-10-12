@@ -171,6 +171,7 @@ def main() -> None:
             runner = FakeRunner()
             result = control.switch_mode("ysf", profile, runner)
             assert result["ok"] and result["mode"] == "ysf" and result["node"] == 1999
+            assert runner.transport_linked is True
             assert runner.active == {mode: mode == "ysf" for mode in control.MODES}
             disconnect = [
                 command for command in runner.commands

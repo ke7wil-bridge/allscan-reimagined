@@ -440,6 +440,20 @@ def transport_linked(main_node: str, runner: Runner = run) -> bool:
     return (str(NODE), "OUT") in parse_lstats_links(result.stdout)
 
 
+def ensure_transport_link(main_node: str, runner: Runner = run) -> None:
+    if not transport_linked(main_node, runner):
+        checked(
+            runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 3 {NODE}"], False),
+            "restoring permanent Net Bridge link",
+        )
+        for attempt in range(40):
+            if transport_linked(main_node, runner):
+                return
+            if attempt < 39:
+                time.sleep(0.25)
+        raise ModeError("Asterisk did not restore the permanent Net Bridge link")
+
+
 def restore_transport(profile, runner: Runner = run) -> dict:
     config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
     bridges = net_bridges(config)
@@ -452,18 +466,7 @@ def restore_transport(profile, runner: Runner = run) -> dict:
     ports = selected_ports(mode, bridges[mode])
     reload_and_verify(runner, expected_ports=ports)
     start_backend(mode, bridges[mode], runner)
-    if not transport_linked(main_node, runner):
-        checked(
-            runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 3 {NODE}"], False),
-            "restoring permanent Net Bridge link",
-        )
-        for attempt in range(40):
-            if transport_linked(main_node, runner):
-                break
-            if attempt < 39:
-                time.sleep(0.25)
-        else:
-            raise ModeError("Asterisk did not restore the permanent Net Bridge link")
+    ensure_transport_link(main_node, runner)
     return {"ok": True, "mode": mode, "node": NODE,
             "bridgeId": bridges[mode]["id"], "transportLinked": True}
 
@@ -540,6 +543,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
         refresh_watch_snapshots(profile)
         reload_and_verify(runner, expected_ports=selected_ports(mode, bridges[mode]))
         start_backend(mode, bridges[mode], runner)
+        ensure_transport_link(str(updated.get("node", "")), runner)
         updated["netBridgeMode"] = mode
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
         refresh_watch_snapshots(profile)
