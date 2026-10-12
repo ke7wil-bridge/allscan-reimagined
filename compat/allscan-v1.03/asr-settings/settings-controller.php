@@ -2454,7 +2454,8 @@ function asrSettingsExistingUrfConfig($config) {
 	$modes = [];
 	$aggregate = false;
 	foreach((array)($config['bridges'] ?? []) as $bridge) {
-		if(!is_array($bridge) || empty($bridge['urfReflector'])) continue;
+		if(!is_array($bridge) || empty($bridge['urfReflector'])
+			|| (string)($bridge['cardType'] ?? 'standard') !== 'standard') continue;
 		if($node === '') $node = (string)($bridge['node'] ?? '');
 		$mode = strtolower((string)($bridge['mode'] ?? ''));
 
@@ -2480,7 +2481,9 @@ function asrSettingsUrfBridgesForSave($config, $urf) {
 	$existing = asrSettingsExistingUrfConfig($config);
 	if(empty($existing['aggregate'])) return $generated;
 	foreach((array)($config['bridges'] ?? []) as $candidate) {
-		if(!is_array($candidate) || empty($candidate['urfReflector']) || strtolower((string)($candidate['mode'] ?? '')) !== 'urf') continue;
+		if(!is_array($candidate) || empty($candidate['urfReflector'])
+			|| (string)($candidate['cardType'] ?? 'standard') !== 'standard'
+			|| strtolower((string)($candidate['mode'] ?? '')) !== 'urf') continue;
 		$candidate = is_array($urf['record'] ?? null) && !empty($urf['record']) ? $urf['record'] : $candidate;
 		$candidate['node'] = $urf['node'];
 		$allUrfModes = ['dmr','ysf','p25','nxdn','m17'];

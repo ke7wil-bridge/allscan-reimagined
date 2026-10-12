@@ -122,6 +122,12 @@ $aggregateUrf = [
 $urfConfig = asrSettingsExistingUrfConfig($aggregateUrf);
 check($urfConfig['enabled'] && $urfConfig['aggregate'] && $urfConfig['node'] === '1001', 'Aggregate URF bridge was not discovered.');
 check($urfConfig['modes'] === ['dmr','ysf','p25','nxdn','m17'], 'Aggregate URF defaults were not represented.');
+$coexistingUrf = asrSettingsExistingUrfConfig(['bridges' => [
+	['id'=>'dmr_tgif_net','mode'=>'dmr','node'=>'1999','cardType'=>'dmr_net','urfReflector'=>true,'urfGroupId'=>'urf'],
+	['id'=>'tgif-dmr','mode'=>'dmr','node'=>'1001','cardType'=>'standard','urfReflector'=>true,'urfGroupId'=>'urf'],
+]]);
+check($coexistingUrf['enabled'] && $coexistingUrf['node'] === '1001' && $coexistingUrf['modes'] === ['dmr'],
+	'Unified DMR was incorrectly merged into the Standard URF Settings summary.');
 $savedAggregateUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
 	'enabled' => true, 'node' => '1002', 'modes' => ['dmr','ysf','p25','nxdn','m17'],
 ]);
