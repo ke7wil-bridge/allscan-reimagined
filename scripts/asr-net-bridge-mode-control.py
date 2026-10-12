@@ -197,6 +197,9 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
                 raise ModeError("DMR runtime did not stop cleanly")
         elif result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
+        elif mode == "dmr" and not CONTAINERIZED:
+            checked(runner([SYSTEMCTL, "reset-failed", argv[-1]], False),
+                    "clearing stopped DMR runtime state")
 
 
 def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:

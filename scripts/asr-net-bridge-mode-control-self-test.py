@@ -112,6 +112,8 @@ class FakeRunner:
         if argv[0] == control.SYSTEMCTL and argv[1] == "stop":
             self.active["dmr"] = False
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[0] == control.SYSTEMCTL and argv[1] == "reset-failed":
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if "disable" in argv:
             if mode:
                 self.active[mode] = False
@@ -185,6 +187,8 @@ def main() -> None:
             else:
                 assert any("systemctl stop allscan-reimagined-tgif-dmr_net.service" in command
                            for command in dmr_commands)
+                assert sum("systemctl reset-failed allscan-reimagined-" in command
+                           for command in dmr_commands) == 4
             assert not any("channel request hangup" in " ".join(command)
                            for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
