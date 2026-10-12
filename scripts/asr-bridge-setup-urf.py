@@ -236,7 +236,7 @@ def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
         config["netBridgeMode"] = "dmr"
     m17=load("asr_setup_m17_urf","asr-bridge-setup-m17.py")
     rpt=rpt_path.read_text()
-    if role != "net" or config.get("netBridgeMode") == "dmr":
+    if role == "net" and config.get("netBridgeMode") == "dmr":
         for other in bridges:
             if not isinstance(other, dict) or other.get("id") == s["bridge_id"] or other.get("cardType") not in {"dmr_net","ysf_net","p25_net","nxdn_net","m17_net"}:
                 continue
@@ -244,6 +244,7 @@ def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
             if old_id:
                 begin=f"{m17.MANAGED_PREFIX}BEGIN {old_id}"; end=f"{m17.MANAGED_PREFIX}END {old_id}"
                 rpt=re.sub(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*\n?","",rpt)
+    if role != "net" or config.get("netBridgeMode") == "dmr":
         rpt=m17.insert_nodes_mapping(rpt,node); rpt=m17.upsert_node_section(rpt,s["bridge_id"],node,p["usrp_rx"],p["usrp_tx"]).replace(f"[{node}] ; M17 Bridge ({s['bridge_id']})",f"[{node}] ; DMR/URF Bridge ({s['bridge_id']})")
     modules=m17.ensure_usrp_module(modules_path.read_text()).replace("ASR M17 bridge","ASR managed bridge")
     return {

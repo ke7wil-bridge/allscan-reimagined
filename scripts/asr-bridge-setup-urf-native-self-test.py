@@ -42,8 +42,21 @@ def snapshot(root: Path) -> dict[str, bytes]:
 
 def fixture(root: Path):
     put(root, "/etc/os-release", "ID=debian\nVERSION_ID=12\n")
-    put(root, planner.CONFIG, json.dumps({"node": "1999", "bridges": []}) + "\n")
-    put(root, planner.RPT, "[nodes]\n1999 = radio@127.0.0.1/1999,NONE\n[1999]\n")
+    put(root, planner.CONFIG, json.dumps({
+        "node": "1999",
+        "netBridgeMode": "dmr",
+        "bridges": [{
+            "id": "dmr_net", "mode": "dmr", "node": "1999",
+            "cardType": "dmr_net",
+        }],
+    }) + "\n")
+    put(root, planner.RPT, (
+        "[nodes]\n1999 = radio@127.0.0.1/1999,NONE\n"
+        "; ASR BRIDGE SETUP BEGIN dmr_net\n"
+        "[1999] ; DMR/URF Bridge (dmr_net)\n"
+        "rxchannel = USRP/127.0.0.1:52001:52000\n"
+        "; ASR BRIDGE SETUP END dmr_net\n"
+    ))
     put(root, planner.MODULES, "load = app_rpt.so\n")
     return planner.UrfSettings("qa_dmr", "NODE1999", 1234567, 9990,
                                "URF199", "QA DMR", 1002, "standard")
@@ -91,6 +104,7 @@ def main() -> None:
         assert provenance["sources"]["urfd"]["commit"] == installer.native_sources.URFD[1]
         assert "FilePath = /data/" not in planner.urfd_ini(plan)
         outputs = installer.file_spec(root, plan, "never-log-this-secret")
+        assert b"ASR BRIDGE SETUP BEGIN dmr_net" in outputs[planner.RPT][0]
         secret = plan["resources"]["tgifSecret"]
         assert outputs[secret][1] == 0o640
         assert all(b"never-log-this-secret" not in data
