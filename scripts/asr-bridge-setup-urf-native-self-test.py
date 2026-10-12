@@ -160,6 +160,19 @@ def main() -> None:
         assert all(b"container-secret" not in data
                    for path, (data, _mode) in container_outputs.items() if path != secret)
 
+    with tempfile.TemporaryDirectory(prefix="asr-native-paths-test-") as temporary:
+        root = Path(temporary)
+        (root / "secret").write_text("not-a-real-secret\n", encoding="utf-8")
+        path_plan = {"resources": {"data": "/data", "tgifRun": "/run", "tgifSecret": "/secret"}}
+        with mock.patch.object(installer, "rooted", side_effect=lambda _root, logical: root / logical.lstrip("/")), \
+                mock.patch.object(installer.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=1001, pw_gid=1001)), \
+                mock.patch.object(installer.grp, "getgrnam", return_value=SimpleNamespace(gr_gid=33)), \
+                mock.patch.object(installer.os, "chown") as chown:
+            installer.ensure_native_runtime_paths(path_plan)
+        assert chown.call_args_list[:2] == [mock.call(root / "data", 1001, 33), mock.call(root / "run", 1001, 1001)]
+        assert stat.S_IMODE((root / "data").stat().st_mode) == 0o750
+        assert stat.S_IMODE((root / "run").stat().st_mode) == 0o750
+
     with tempfile.TemporaryDirectory(prefix="asr-native-startup-test-") as temporary:
         run = Path(temporary)
         for name in ("adapter.pid", "mmdvm.pid"):

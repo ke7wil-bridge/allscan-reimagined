@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import platform
+import grp
 import pwd
 import re
 import shutil
@@ -496,14 +497,16 @@ def restore_native_runtime(transaction: dict[str, Any]) -> None:
 def ensure_native_runtime_paths(plan: dict[str, Any]) -> None:
     try:
         account = pwd.getpwnam("asr-bridge")
+        web_group = grp.getgrnam("www-data")
     except KeyError as exc:
-        raise InstallError("native bridge service account asr-bridge is unavailable") from exc
+        raise InstallError("native bridge service or web account is unavailable") from exc
     for logical in (plan["resources"]["data"], plan["resources"]["tgifRun"]):
         path = rooted(Path("/"), logical)
         if path.is_symlink() or (path.exists() and not path.is_dir()):
             raise InstallError(f"native runtime writable path is unsafe: {logical}")
         path.mkdir(parents=True, exist_ok=True, mode=0o750)
-        os.chown(path, account.pw_uid, account.pw_gid)
+        group = web_group.gr_gid if logical == plan["resources"]["data"] else account.pw_gid
+        os.chown(path, account.pw_uid, group)
         os.chmod(path, 0o750)
     secret = rooted(Path("/"), plan["resources"]["tgifSecret"])
     os.chown(secret, 0, account.pw_gid)
