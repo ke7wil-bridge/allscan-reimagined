@@ -142,11 +142,25 @@ def main() -> None:
         secret_path = root / secret.lstrip("/")
         assert stat.S_IMODE(secret_path.stat().st_mode) == 0o640
         assert "never-log-this-secret" not in json.dumps(first_result)
+        config_path = root / planner.CONFIG.lstrip("/")
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        installed_bridge = next(
+            item for item in config["bridges"] if item.get("id") == settings.bridge_id
+        )
+        installed_bridge["fixedBridgeRecovery"] = True
+        config_path.write_text(
+            json.dumps(config, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
         first = snapshot(root)
         plan = planner.plan(root, settings)
         second = installer.install(
             root, settings, "never-log-this-secret", expected_digest=plan["digest"])
         assert second["changedFiles"] == 0 and snapshot(root) == first
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        installed_bridge = next(
+            item for item in config["bridges"] if item.get("id") == settings.bridge_id
+        )
+        assert installed_bridge["fixedBridgeRecovery"] is True
 
         container_plan = dict(plan)
         container_plan["backend"] = "container"

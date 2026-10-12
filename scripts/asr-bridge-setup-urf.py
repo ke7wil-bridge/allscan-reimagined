@@ -230,7 +230,11 @@ def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
     role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(plan["dmrNetworkId"]),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
     bridges=config.setdefault("bridges",[]); matches=[i for i,b in enumerate(bridges) if isinstance(b,dict) and b.get("id")==s["bridge_id"]]
     if len(matches)>1: raise PlanError("duplicate bridge identity")
-    if matches: bridges[matches[0]]=entry
+    if matches:
+        previous = bridges[matches[0]]
+        if isinstance(previous.get("fixedBridgeRecovery"), bool):
+            entry["fixedBridgeRecovery"] = previous["fixedBridgeRecovery"]
+        bridges[matches[0]]=entry
     else: bridges.append(entry)
     if role == "net" and str(config.get("netBridgeMode", "")).lower() not in {"dmr", "ysf", "p25", "nxdn", "m17"}:
         config["netBridgeMode"] = "dmr"
