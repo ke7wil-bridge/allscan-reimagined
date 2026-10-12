@@ -164,46 +164,19 @@ while(!empty($fp[$node])) {
 	}
 	// Maintain a small, process-local talker history so ASR can render a
 	// stable Current + 4 Last Talkers strip without another Asterisk poller.
-	$nextCurrentTalker = null;
-	foreach($current[$node]['remote_nodes'] as $talkerRow) {
-		if(($talkerRow['keyed'] ?? '') === 'yes') {
-			$nextCurrentTalker = [
-				'node' => (string)($talkerRow['node'] ?? ''),
-				'info' => (string)($talkerRow['info'] ?? ''),
-				'source' => 'AllStar',
-				'duration' => (string)($talkerRow['last_keyed'] ?? ''),
-				'started_epoch' => time(),
-			];
-			$nextCurrentTalker = asrEnrichAllStarTalker($nextCurrentTalker, $astdb);
-			break;
-		}
-	}
-	$previousNode = (string)($asrCurrentTalker['node'] ?? '');
-	$nextNode = (string)($nextCurrentTalker['node'] ?? '');
-	$talkerChanged = $asrCurrentTalker !== null && $previousNode !== '' && $previousNode !== $nextNode;
-	if($talkerChanged) {
-		$finished = $asrCurrentTalker;
-		$finished['event_epoch'] = time();
-		$finished['duration'] = max(0, time() - (int)($finished['started_epoch'] ?? time()));
-		$urfTalkerEvents = asrUrfTalkerEvents();
-		$finished = asrEnrichBridgeTalker($finished, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
-		// History is transmission-event history, not unique-station history.
-		// If the same node keys three separate times, keep all three events.
-		if(is_array($finished)) array_unshift($asrTalkerHistory, $finished);
-		$asrTalkerHistory = array_slice($asrTalkerHistory, 0, 4);
-		writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
-	}
+	$nextCurrentTalker = asrSelectCurrentTalker(
+		$current[$node]['remote_nodes'], $node, $info, $astdb
+	);
 	if($nextCurrentTalker !== null) {
-		if($asrCurrentTalker === null || $previousNode !== $nextNode)
-			$nextCurrentTalker['started_epoch'] = time();
-		else
-			$nextCurrentTalker['started_epoch'] = $asrCurrentTalker['started_epoch'] ?? time();
-	}
-	$asrCurrentTalker = $nextCurrentTalker;
-	if($asrCurrentTalker !== null) {
 		$urfTalkerEvents = asrUrfTalkerEvents();
-		$asrCurrentTalker = asrEnrichBridgeTalker($asrCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
+	// History is transmission-event history, not unique-station history.
+	// If the same node keys three separate times, keep all three events.
+	$talkerState = asrAdvanceTalkerState($asrCurrentTalker, $nextCurrentTalker, $asrTalkerHistory);
+	$asrCurrentTalker = $talkerState['current'];
+	$asrTalkerHistory = $talkerState['history'];
+	if($talkerState['history_changed']) writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
 	$current[$node]['current_talker'] = $asrCurrentTalker;
 	$current[$node]['last_talkers'] = $asrTalkerHistory;
 
