@@ -225,6 +225,59 @@ function asrEnrichAllStarTalkers($rows, $astdb) {
 	return array_map(static fn($row) => asrEnrichAllStarTalker($row, $astdb), (array)$rows);
 }
 
+function asrSelectCurrentTalker($rows, $localNode, $localInfo, $astdb, $now = null) {
+	$now = is_int($now) ? $now : time();
+	$localCos = false;
+	foreach((array)$rows as $row) {
+		if(!is_array($row)) continue;
+		if(($row['keyed'] ?? '') === 'yes') {
+			return asrEnrichAllStarTalker([
+				'node' => (string)($row['node'] ?? ''),
+				'info' => (string)($row['info'] ?? ''),
+				'source' => 'AllStar',
+				'duration' => (string)($row['last_keyed'] ?? ''),
+				'started_epoch' => $now,
+			], $astdb);
+		}
+		if(!empty($row['cos_keyed'])) $localCos = true;
+	}
+
+	// rpt stats reports the local receiver as COS on a synthetic status row.
+	// It has no remote-node identity, so represent it with the configured local
+	// node. TX alone is intentionally insufficient: link audio and telemetry can
+	// key the transmitter without a local RF station talking.
+	if(!$localCos || trim((string)$localNode) === '') return null;
+	return asrEnrichAllStarTalker([
+		'node' => (string)$localNode,
+		'info' => (string)$localInfo,
+		'source' => 'AllStar',
+		'duration' => '',
+		'started_epoch' => $now,
+	], $astdb);
+}
+
+function asrAdvanceTalkerState($current, $next, $history, $now = null, $historyLimit = 4) {
+	$now = is_int($now) ? $now : time();
+	$history = array_values(array_filter((array)$history, 'is_array'));
+	$previousNode = (string)($current['node'] ?? '');
+	$nextNode = (string)($next['node'] ?? '');
+	$changed = is_array($current) && $previousNode !== '' && $previousNode !== $nextNode;
+	if($changed) {
+		$finished = $current;
+		$finished['event_epoch'] = $now;
+		$finished['duration'] = max(0, $now - (int)($finished['started_epoch'] ?? $now));
+		array_unshift($history, $finished);
+		$history = array_slice($history, 0, max(0, (int)$historyLimit));
+	}
+	if(is_array($next)) {
+		if(!is_array($current) || $previousNode !== $nextNode)
+			$next['started_epoch'] = $now;
+		else
+			$next['started_epoch'] = $current['started_epoch'] ?? $now;
+	}
+	return ['current'=>$next, 'history'=>$history, 'history_changed'=>$changed];
+}
+
 function asrEnrichBridgeTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt', $bridgeEvidence = []) {
 	if(!is_array($row)) return $row;
 	$transportNode = (string)($row['node'] ?? '');

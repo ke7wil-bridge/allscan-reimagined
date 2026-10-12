@@ -40,6 +40,56 @@ check(asrEnrichAllStarTalker($unknown, $nodeDatabase) === $unknown, 'unknown-nod
 $privateTransport = ['node'=>'1999', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'Net Bridge'];
 check(asrEnrichAllStarTalker($privateTransport, $nodeDatabase) === $privateTransport, 'Net Bridge identity was modified by ordinary AllStar enrichment');
 
+$localCos = asrSelectCurrentTalker([
+	['node'=>'1', 'info'=>'COS-Detected', 'keyed'=>'', 'cos_keyed'=>1, 'tx_keyed'=>1],
+	['node'=>'53430', 'info'=>'KE7WIL Full-Duplex 4 Life Phoenix, Arizona', 'keyed'=>'no', 'cos_keyed'=>0, 'tx_keyed'=>0],
+], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, 1791834000);
+check($localCos['node'] === '63916', 'local COS was not attributed to the configured local node');
+check($localCos['info'] === 'NY7S', 'local COS did not resolve the repeater callsign');
+check($localCos['description'] === '147.300' && $localCos['location'] === 'Sun City West, Arizona', 'local COS card metadata was not separated');
+check($localCos['started_epoch'] === 1791834000, 'local COS talker start time was not retained');
+
+$txOnly = asrSelectCurrentTalker([
+	['node'=>'1', 'info'=>'TX-Detected', 'keyed'=>'', 'cos_keyed'=>0, 'tx_keyed'=>1],
+], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, 1791834001);
+check($txOnly === null, 'transmitter-only activity was incorrectly shown as a local RF talker');
+
+$remoteWins = asrSelectCurrentTalker([
+	['node'=>'1', 'info'=>'COS-Detected', 'keyed'=>'', 'cos_keyed'=>1, 'tx_keyed'=>1],
+	['node'=>'53430', 'info'=>'KE7WIL Full-Duplex 4 Life Phoenix, Arizona', 'keyed'=>'yes', 'last_keyed'=>'00:00:03'],
+], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, 1791834002);
+check($remoteWins['node'] === '53430' && $remoteWins['info'] === 'KE7WIL', 'a keyed linked node did not retain priority over the local COS fallback');
+check($remoteWins['description'] === 'Full-Duplex 4 Life' && $remoteWins['location'] === 'Phoenix, Arizona', 'linked AllStar metadata regressed during talker selection');
+
+$idle = asrSelectCurrentTalker([
+	['node'=>'1', 'info'=>'NO CONNECTION', 'keyed'=>'', 'cos_keyed'=>0, 'tx_keyed'=>0],
+	['node'=>'53430', 'info'=>'KE7WIL Full-Duplex 4 Life Phoenix, Arizona', 'keyed'=>'no'],
+], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, 1791834003);
+check($idle === null, 'idle status produced a false talker');
+
+$state = asrAdvanceTalkerState(null, $localCos, [], 1791834000);
+check($state['current']['started_epoch'] === 1791834000 && !$state['history_changed'], 'local COS did not start a new current-talker event');
+$steadyLocal = asrSelectCurrentTalker([
+	['node'=>'1', 'info'=>'COS-Detected', 'cos_keyed'=>1, 'tx_keyed'=>1],
+], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, 1791834004);
+$state = asrAdvanceTalkerState($state['current'], $steadyLocal, $state['history'], 1791834004);
+check($state['current']['started_epoch'] === 1791834000 && count($state['history']) === 0, 'steady local COS reset duration or created duplicate history');
+$state = asrAdvanceTalkerState($state['current'], null, $state['history'], 1791834007);
+check($state['current'] === null && $state['history_changed'], 'local COS release did not close the current-talker event');
+check($state['history'][0]['node'] === '63916' && $state['history'][0]['duration'] === 7 && $state['history'][0]['event_epoch'] === 1791834007, 'local COS history lost node, duration, or event time');
+
+for($event = 1; $event <= 5; $event++) {
+	$start = 1791834010 + ($event * 10);
+	$next = asrSelectCurrentTalker([
+		['node'=>'1', 'info'=>'COS-Detected', 'cos_keyed'=>1, 'tx_keyed'=>1],
+	], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, $start);
+	$state = asrAdvanceTalkerState($state['current'], $next, $state['history'], $start);
+	$state = asrAdvanceTalkerState($state['current'], null, $state['history'], $start + $event);
+}
+check(count($state['history']) === 4, 'talker history did not remain capped at four transmission events');
+check(array_column($state['history'], 'duration') === [5, 4, 3, 2], 'repeated local transmissions were lost, deduplicated, or misordered');
+check(count(array_unique(array_column($state['history'], 'info'))) === 1 && $state['history'][0]['info'] === 'NY7S', 'local callsign did not survive repeated talker history events');
+
 $persisted = asrEnrichUrfTalker([
 	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
 	'started_epoch'=>1791322064, 'event_epoch'=>1791322067, 'duration'=>3,
