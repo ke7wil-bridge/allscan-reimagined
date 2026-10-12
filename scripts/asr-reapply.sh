@@ -613,9 +613,17 @@ for bridge in payload.get("bridges", []):
     if not isinstance(bridge, dict):
         continue
     bridge_id = str(bridge.get("id", ""))
+    card_type = bridge.get("cardType")
+    backend_mode = bridge.get("backendMode")
+    managed = (
+        card_type == "m17_net"
+        or backend_mode == "managed"
+        or (backend_mode is None and "bridgePermission" in bridge)
+    )
     if (
         bridge.get("mode") == "m17"
-        and bridge.get("cardType") in {"standard", "m17_net"}
+        and card_type in {"standard", "m17_net"}
+        and managed
         and re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id)
     ):
         print(bridge_id)
