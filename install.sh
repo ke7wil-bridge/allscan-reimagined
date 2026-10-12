@@ -166,6 +166,55 @@ restore_prior_reapply_units() {
   done
 }
 
+backup_bridge_owned_units() {
+  local unit_path unit_name
+  install -d -o root -g root -m 700 "$BACKUP_DIR/runtime/bridge-systemd"
+  while IFS= read -r unit_path; do
+    [ -f "$unit_path" ] && [ ! -L "$unit_path" ] || continue
+    unit_name=${unit_path##*/}
+    cp -p "$unit_path" "$BACKUP_DIR/runtime/bridge-systemd/$unit_name"
+  done < <(python3 - /var/lib/allscan-reimagined/bridge-setup/installations <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+manifest_dir = Path(sys.argv[1])
+unit_dir = Path("/etc/systemd/system")
+unit_name = re.compile(r"[A-Za-z0-9_.@-]+\.service")
+owned_units = set()
+if manifest_dir.is_dir():
+    for manifest in manifest_dir.glob("*.json"):
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        for owned_file in payload.get("ownedFiles", []):
+            if not isinstance(owned_file, str):
+                continue
+            path = Path(owned_file)
+            if path.parent == unit_dir and unit_name.fullmatch(path.name):
+                owned_units.add(str(path))
+for path in sorted(owned_units):
+    print(path)
+PY
+  )
+}
+
+restore_bridge_owned_units() {
+  local backup unit_name
+  for backup in "$BACKUP_DIR"/runtime/bridge-systemd/*.service; do
+    [ -f "$backup" ] && [ ! -L "$backup" ] || continue
+    unit_name=${backup##*/}
+    case "$unit_name" in
+      *[!A-Za-z0-9_.@-]*) continue ;;
+      *.service) ;;
+      *) continue ;;
+    esac
+    install -o root -g root -m 644 "$backup" "/etc/systemd/system/$unit_name"
+  done
+}
+
 remove_asr_managed_wiring() {
   systemctl disable --now \
     allscan-reimagined-reapply.path \
@@ -336,6 +385,7 @@ rollback_on_error() {
     fi
     if [ "$PRIOR_ASR_WIRING_VALID" -eq 1 ]; then
       restore_prior_reapply_units
+      restore_bridge_owned_units
       systemctl daemon-reload 2>/dev/null || true
       [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && restore_reapply_unit_states
     else
@@ -575,6 +625,7 @@ for unit in \
     : > "$BACKUP_DIR/runtime/systemd/$unit.absent"
   fi
 done
+backup_bridge_owned_units
 for protected in config.json secrets.json station-map-cache.json; do
   if [ -f "/etc/allscan-reimagined/$protected" ]; then
     cp -p "/etc/allscan-reimagined/$protected" "$BACKUP_DIR/runtime/protected/$protected"
