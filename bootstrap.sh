@@ -33,6 +33,7 @@ import re
 import shutil
 import sys
 import tarfile
+import urllib.error
 import urllib.request
 
 stage = Path(sys.argv[1])
@@ -50,7 +51,17 @@ def version_key(version):
 def open_url(url, accept, limit):
     request = urllib.request.Request(url, headers={
         "Accept": accept, "User-Agent": "AllScan-Reimagined/bootstrap"})
-    response = urllib.request.urlopen(request, timeout=20)
+    try:
+        response = urllib.request.urlopen(request, timeout=20)
+    except urllib.error.HTTPError as error:
+        # GitHub's API can intermittently return 5xx responses even while the
+        # release download endpoints are healthy. Retry transient server errors
+        # before failing the one-command bootstrap.
+        if 500 <= error.code <= 599:
+            error.close()
+            response = urllib.request.urlopen(request, timeout=20)
+        else:
+            raise
     if int(response.headers.get("Content-Length", "0")) > limit:
         response.close()
         raise ValueError("Release asset exceeds size limit")
