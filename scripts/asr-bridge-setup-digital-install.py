@@ -154,6 +154,8 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         "setupPorts": ports, "gatewayService": units[0],
         "mmdvmService": units[1], "analogBridgeService": units[2],
     }
+    if role == "standard":
+        entry.update({"urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL"})
     if mode != "p25":
         entry["emulatorService"] = units[3]
     if mode in {"p25", "nxdn"}:

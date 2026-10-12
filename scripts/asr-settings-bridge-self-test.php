@@ -128,6 +128,22 @@ $coexistingUrf = asrSettingsExistingUrfConfig(['bridges' => [
 ]]);
 check($coexistingUrf['enabled'] && $coexistingUrf['node'] === '1001' && $coexistingUrf['modes'] === ['dmr'],
 	'Unified DMR was incorrectly merged into the Standard URF Settings summary.');
+$managedUrfModes = ['bridges' => [
+	['id'=>'tgif-dmr','mode'=>'dmr','node'=>'1001','cardType'=>'standard','backendMode'=>'managed','urfReflector'=>true,'urfGroupId'=>'urf','fixedDestination'=>'86753'],
+	['id'=>'p25','mode'=>'p25','node'=>'1002','cardType'=>'standard','backendMode'=>'managed','urfReflector'=>true,'urfGroupId'=>'urf','fixedDestination'=>'64189','installerMetadata'=>'preserve-p25'],
+]];
+$managedUrfConfig = asrSettingsExistingUrfConfig($managedUrfModes);
+check($managedUrfConfig['modes'] === ['dmr','p25'] && ($managedUrfConfig['modeConfig']['p25']['destination'] ?? '') === '64189',
+	'Managed per-mode URFWIL records were not summarized by mode.');
+$_POST = ['urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','p25'],'urfFixedRecovery'=>['p25'=>'1'],'urfConfig'=>['dmr'=>['talkgroup'=>'86753'],'p25'=>['destination'=>'64189']]];
+$managedUrfError = '';
+$postedManagedUrf = asrSettingsUrfConfigFromPost($managedUrfError, $managedUrfModes);
+$savedManagedUrf = asrSettingsUrfBridgesForSave($managedUrfModes, $postedManagedUrf);
+check($managedUrfError === '' && count($savedManagedUrf) === 2, 'Managed per-mode URFWIL rows did not survive a Settings save.');
+check(($savedManagedUrf[1]['node'] ?? '') === '1002' && ($savedManagedUrf[1]['installerMetadata'] ?? '') === 'preserve-p25',
+	'Managed per-mode URFWIL runtime metadata was not preserved.');
+check(empty($savedManagedUrf[0]['fixedBridgeRecovery']) && !empty($savedManagedUrf[1]['fixedBridgeRecovery']),
+	'Managed per-mode URFWIL recovery choices did not round trip independently.');
 $savedAggregateUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
 	'enabled' => true, 'node' => '1002', 'modes' => ['dmr','ysf','p25','nxdn','m17'],
 ]);

@@ -231,7 +231,7 @@ def ensure_usrp_module(text: str) -> str:
 
 def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) -> dict[str, Any]:
     m17_port, usrp_rx, usrp_tx = ports
-    return {
+    entry = {
         "id": settings.bridge_id, "mode": "m17", "cardType": settings.card_type,
         "node": str(node), "title": settings.title, "backendMode": "managed",
         "bridgePermission": "self_owned", "m17Callsign": settings.callsign,
@@ -247,6 +247,9 @@ def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) 
         "m17Encrypted": False, "approvedDestinations": ([{"reflector": settings.reflector, "host": settings.host, "port": settings.port, "module": settings.module, "encrypted": False}] if settings.card_type == "m17_net" else []), "allowTune": settings.card_type == "m17_net",
         "clientSource": "m17",
     }
+    if settings.card_type == "standard":
+        entry.update({"urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL"})
+    return entry
 
 
 def update_config(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:

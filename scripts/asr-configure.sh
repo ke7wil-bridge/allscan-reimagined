@@ -30,6 +30,30 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || { echo "Web-server group not found." >&2; exit 1; }
 
 if [ -s "$CONFIG_FILE" ] && [ "$FORCE" -eq 0 ]; then
+  php -r '
+    $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+    $changed = false;
+    if (!isset($data["bridges"]) || !is_array($data["bridges"])) $data["bridges"] = [];
+    foreach ($data["bridges"] as &$bridge) {
+      if (!is_array($bridge)
+          || ($bridge["cardType"] ?? "standard") !== "standard"
+          || ($bridge["backendMode"] ?? "") !== "managed"
+          || ($bridge["bridgePermission"] ?? "") !== "self_owned"
+          || !in_array(strtolower((string)($bridge["mode"] ?? "")), ["dmr","ysf","p25","nxdn","m17","zello"], true)
+          || !empty($bridge["urfReflector"])) continue;
+      $bridge["urfReflector"] = true;
+      $bridge["urfGroupId"] = "urf";
+      $bridge["urfName"] = "URFWIL";
+      $changed = true;
+    }
+    unset($bridge);
+    if ($changed) echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+  ' "$CONFIG_FILE" > "$CONFIG_FILE.urf-group.tmp"
+  if [ -s "$CONFIG_FILE.urf-group.tmp" ]; then
+    install -o root -g "$WEB_GROUP" -m 664 "$CONFIG_FILE.urf-group.tmp" "$CONFIG_FILE"
+    echo "Grouped installer-managed Standard Bridges under URFWIL in $CONFIG_FILE"
+  fi
+  rm -f "$CONFIG_FILE.urf-group.tmp"
   if ! php -r '
     $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
     exit(array_key_exists("requireLogin", $data) ? 0 : 1);

@@ -1675,6 +1675,9 @@ function asrSettingsRenderUrfMode($mode, $label, $values, $enabled) {
 					<?php $field($mode,'module','Module',$values['module'] ?? '', 'One letter identifying the reflector room, commonly A.', 'Required', 'placeholder="A" maxlength="1"'); ?>
 				<?php endif; ?>
 				</div>
+				<?php if(array_key_exists('fixedBridgeRecovery', $values)): ?>
+				<label class="asr-settings-check"><input name="urfFixedRecovery[<?php echo asrSettingsH($mode); ?>]" type="checkbox" value="1"<?php echo !empty($values['fixedBridgeRecovery']) ? ' checked' : ''; ?>><span><strong>Fixed Bridge Recovery</strong><small>Automatically restore this Standard URFWIL mode link if it drops.</small></span></label>
+				<?php endif; ?>
 				<?php if($mode === 'dmr'): ?>
 					<p class="asr-bridge-section-note">The destination talkgroup controls bridge traffic. It is separate from the TGIF web account used to view authenticated session information.</p>
 					<?php asrSettingsRenderTgifAccount('TGIF Account / Session Authentication'); ?>
@@ -2257,16 +2260,16 @@ function asrSettingsUrfFieldAliases($mode, $field) {
 			'urfTalkgroup' => [['urfTalkgroup','urfTg'], ['urfTalkgroup','urfTg']],
 		],
 		'ysf' => [
-			'reflector' => [['reflector','ysfReflector'], ['ysfReflector']],
-			'reflectorId' => [['reflectorId','ysfReflectorId'], ['ysfReflectorId']],
-			'host' => [['host','ysfHost'], ['ysfHost']], 'port' => [['port','ysfPort'], ['ysfPort']],
+			'reflector' => [['reflector','ysfReflector'], ['ysfReflector','ysfReflectorName']],
+			'reflectorId' => [['reflectorId','ysfReflectorId'], ['ysfReflectorId','fixedDestination']],
+			'host' => [['host','ysfHost'], ['ysfHost','reflectorHost']], 'port' => [['port','ysfPort'], ['ysfPort','reflectorPort']],
 			'module' => [['module','ysfModule'], ['ysfModule']],
 		],
 		'p25' => [
-			'destination' => [['destination','fixedDestination','reflectorId'], ['p25Destination','p25ReflectorId']],
+			'destination' => [['destination','fixedDestination','reflectorId'], ['p25Destination','p25ReflectorId','fixedDestination']],
 		],
 		'nxdn' => [
-			'destination' => [['destination','fixedDestination','reflectorId'], ['nxdnDestination','nxdnReflectorId']],
+			'destination' => [['destination','fixedDestination','reflectorId'], ['nxdnDestination','nxdnReflectorId','fixedDestination']],
 		],
 		'm17' => [
 			'reflector' => [['reflector','m17Reflector'], ['m17Reflector']],
@@ -2357,9 +2360,10 @@ function asrSettingsUrfValidateModeField($mode, $field, $value, &$error) {
 	return $error === '';
 }
 
-function asrSettingsUrfApplyModePost($record, &$error) {
+function asrSettingsUrfApplyModePost($record, &$error, $onlyMode = '') {
 	$posted = is_array($_POST['urfConfig'] ?? null) ? $_POST['urfConfig'] : [];
 	foreach(asrSettingsUrfModeFields() as $mode => $fields) foreach($fields as $field) {
+		if($onlyMode !== '' && $mode !== $onlyMode) continue;
 		if(!array_key_exists($field, (array)($posted[$mode] ?? []))) continue;
 		$value = asrSettingsCleanText($posted[$mode][$field], in_array($field, ['host'], true) ? 253 : 80);
 		if(in_array($field, ['module','callsign'], true) || ($mode === 'm17' && $field === 'reflector')) $value = strtoupper($value);
@@ -2401,6 +2405,7 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	}
 	$existingUrf = asrSettingsExistingUrfConfig($config);
 	$record = is_array($existingUrf['record'] ?? null) ? $existingUrf['record'] : [];
+	$records = is_array($existingUrf['records'] ?? null) ? $existingUrf['records'] : [];
 	if(!$record && empty($existingUrf['enabled'])) $record = [
 		'id'=>'urf', 'mode'=>'urf', 'node'=>$node, 'title'=>'URFWIL Reflector',
 		'detailTitle'=>'URF Clients & Activity', 'friendlyName'=>'URFWIL Multi-Mode Bridge',
@@ -2412,7 +2417,19 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		$record = asrSettingsUrfApplyModePost($record, $error);
 		if($error !== '') return [];
 	}
-	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record];
+	if(!$record) foreach($modes as $mode) {
+		$modeRecord = is_array($records[$mode] ?? null) ? $records[$mode] : [];
+		if(!$modeRecord) {
+			$generated = asrSettingsUrfModeBridges(['enabled'=>true,'node'=>$node,'modes'=>[$mode]]);
+			$modeRecord = $generated[0] ?? [];
+		}
+		$modeRecord = asrSettingsUrfApplyModePost($modeRecord, $error, $mode);
+		if($error !== '') return [];
+		$fixedRecovery = is_array($_POST['urfFixedRecovery'] ?? null) ? $_POST['urfFixedRecovery'] : [];
+		$modeRecord['fixedBridgeRecovery'] = !empty($fixedRecovery[$mode]);
+		$records[$mode] = $modeRecord;
+	}
+	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record, 'records' => $records];
 }
 
 function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
@@ -2453,6 +2470,7 @@ function asrSettingsExistingUrfConfig($config) {
 	$node = '';
 	$modes = [];
 	$aggregate = false;
+	$records = [];
 	foreach((array)($config['bridges'] ?? []) as $bridge) {
 		if(!is_array($bridge) || empty($bridge['urfReflector'])
 			|| (string)($bridge['cardType'] ?? 'standard') !== 'standard') continue;
@@ -2466,20 +2484,33 @@ function asrSettingsExistingUrfConfig($config) {
 				$configuredMode = strtolower((string)$configuredMode);
 				if(in_array($configuredMode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $configuredMode;
 			}
-		} elseif(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $mode;
+		} elseif(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) {
+			$modes[] = $mode;
+			$records[$mode] = $bridge;
+		}
 
 	}
 	$record = $aggregate ? asrSettingsUrfAggregateRecord($config) : [];
 	$modeConfig = [];
-	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) $modeConfig[$mode] = asrSettingsUrfModeConfig($record, $mode);
-	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'aggregate' => $aggregate, 'record' => $record, 'modeConfig' => $modeConfig];
+	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) {
+		$modeRecord = $aggregate ? $record : ($records[$mode] ?? []);
+		$modeConfig[$mode] = asrSettingsUrfModeConfig($modeRecord, $mode);
+		if(!$aggregate && is_array($modeRecord)) $modeConfig[$mode]['fixedBridgeRecovery'] = !empty($modeRecord['fixedBridgeRecovery']);
+	}
+	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'aggregate' => $aggregate, 'record' => $record, 'records' => $records, 'modeConfig' => $modeConfig];
 }
 
 function asrSettingsUrfBridgesForSave($config, $urf) {
 	$generated = asrSettingsUrfModeBridges($urf);
 	if(empty($urf['enabled'])) return $generated;
 	$existing = asrSettingsExistingUrfConfig($config);
-	if(empty($existing['aggregate'])) return $generated;
+	if(empty($existing['aggregate'])) {
+		$records = is_array($urf['records'] ?? null) ? $urf['records'] : [];
+		$result = [];
+		foreach((array)($urf['modes'] ?? []) as $mode)
+			if(is_array($records[$mode] ?? null)) $result[] = $records[$mode];
+		return $result ?: $generated;
+	}
 	foreach((array)($config['bridges'] ?? []) as $candidate) {
 		if(!is_array($candidate) || empty($candidate['urfReflector'])
 			|| (string)($candidate['cardType'] ?? 'standard') !== 'standard'
