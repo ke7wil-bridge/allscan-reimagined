@@ -34,6 +34,14 @@ Required base fields:
 }
 ```
 
+For the `asr-native-udp-proxy` adapter, the reflector sees every forwarded
+session as loopback traffic. The connected-client collector therefore treats
+the verified, fresh capability manifest as the authority that loopback is the
+transport path, removes one session matching the configured node callsign for
+the node-owned bridge connection, and keeps the remaining current identities.
+Client network addresses remain private and are never copied into the public
+dashboard feed.
+
 Kick may be advertised only with every field below:
 
 ```json
