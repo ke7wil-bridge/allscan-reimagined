@@ -546,17 +546,20 @@ function htmlToText(html: string) {
     .trim()
 }
 
-function talkerInfoParts(html: string, node: string) {
+export function talkerInfoParts(html: string, node: string) {
   const doc = parser.parseFromString(html, 'text/html')
   const raw = (doc.body.textContent || '')
     .replace(/\u00a0/g, ' ')
     .trim()
   const chunks = raw.split(/\s{2,}/).map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const identity = chunks.shift() || ''
-  const callsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || node
+  const parsedCallsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || ''
+  const iaxClient = /^(?:IAX(?:RPT)?|WEB\s*TRANSCEIVER)(?:\s|\/|$)/i.test(identity)
+  const nodeCallsign = /^(?=[A-Z0-9]{3,10}$)(?=.*\d)[A-Z0-9]+$/i.test(node) ? node.toUpperCase() : ''
+  const callsign = iaxClient && nodeCallsign ? nodeCallsign : (parsedCallsign || node)
   const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim().replace(/^\/\s*/, '')
   const location = chunks.join(' ').trim().replace(/^\/\s*/, '')
-  return { callsign, description, location }
+  return { callsign, description, location, sourceOverride: iaxClient ? 'VoIP App' : '' }
 }
 
 function htmlToMessageText(html: string) {
@@ -714,7 +717,7 @@ function buildSnapshot(
       info: parts.callsign,
       description: parts.description,
       location: parts.location,
-      source: bridge?.mode?.toUpperCase() || 'AllStar',
+      source: parts.sourceOverride || bridge?.mode?.toUpperCase() || 'AllStar',
       duration: row.received || '',
       eventEpoch: Math.max(0, Number(sourceRow?.event_epoch || 0)),
       startedEpoch: Math.max(0, Number(sourceRow?.keyed_started_epoch || 0)),
@@ -728,7 +731,7 @@ function buildSnapshot(
     info: parts.callsign,
     description: String(entry.description || '').trim() || parts.description,
     location: String(entry.location || '').trim() || parts.location,
-    source: String(entry.source || 'AllStar'),
+    source: parts.sourceOverride || String(entry.source || 'AllStar'),
     duration: String(entry.duration ?? ''),
     eventEpoch: historical ? Math.max(0, Number((entry as { event_epoch?: number }).event_epoch || 0)) : 0,
     startedEpoch: Math.max(0, Number(entry.started_epoch || 0)),

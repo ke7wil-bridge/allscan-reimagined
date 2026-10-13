@@ -32,7 +32,24 @@ try {
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
     summarizeConnectionTotal,
+    talkerInfoParts,
   } = await server.ssrLoadModule('/src/lib/allscanLive.ts')
+
+  const iaxTalker = talkerInfoParts('IaxRpt / Web Transceiver client\u00a0\u00a0Goodyear, AZ', 'KM7GHS')
+  assert(iaxTalker.callsign === 'KM7GHS', 'IaxRpt transport label replaced the Web Transceiver callsign')
+  assert(iaxTalker.sourceOverride === 'VoIP App', 'Web Transceiver source label was not normalized')
+  assert(
+    iaxTalker.description === 'Web Transceiver client' && iaxTalker.location === 'Goodyear, AZ',
+    'Web Transceiver description or location ordering regressed',
+  )
+  const allstarTalker = talkerInfoParts('NY7S Full-Duplex 4 Life\u00a0\u00a0Phoenix, Arizona', '53430')
+  assert(
+    allstarTalker.callsign === 'NY7S'
+      && allstarTalker.description === 'Full-Duplex 4 Life'
+      && allstarTalker.location === 'Phoenix, Arizona'
+      && allstarTalker.sourceOverride === '',
+    'ordinary AllStar talker identity regressed',
+  )
 
   const netBridgeTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net']
   const netBridges = netBridgeTypes.map((cardType, index) => ({
