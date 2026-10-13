@@ -2800,7 +2800,7 @@ if($urfAdminAction !== '') {
 						$dockerReapplyAvailable = is_executable($dockerReapply);
 						$reapplyCommand = $dockerReapplyAvailable
 							? 'sudo -n ' . escapeshellarg($dockerReapply) . ' 2>&1'
-							: 'sudo -n /usr/bin/systemctl start allscan-reimagined-reapply.service 2>&1';
+							: 'sudo -n /usr/bin/systemctl restart allscan-reimagined-reapply-delayed.timer 2>&1';
 						exec($reapplyCommand, $reapplyOutput, $reapplyStatus);
 						$config = $next;
 						$secrets = $nextSecrets;

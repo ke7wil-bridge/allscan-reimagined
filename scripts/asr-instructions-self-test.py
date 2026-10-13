@@ -175,7 +175,7 @@ def main() -> int:
         "https://hostfiles.refcheck.radio/",
         "YSF Plain Text",
         "Re-import after RefCheck adds a reflector",
-        "systemctl start allscan-reimagined-reapply.service",
+        "systemctl restart allscan-reimagined-reapply-delayed.timer",
     ):
         require(requirement in settings, f"YSF Net Bridge Settings support is missing: {requirement}")
     for requirement in (

@@ -155,6 +155,12 @@ def assert_installer_order(installer: Path) -> None:
     assert '"$BACKUP_DIR/runtime/systemd"' in text
     assert "allscan-reimagined-reapply.path" in text
     assert "allscan-reimagined-reapply.timer" in text
+    assert "allscan-reimagined-reapply-delayed.timer" in text
+    assert "OnActiveSec=3s" in text
+    rollback = (installer.parent / "scripts" / "asr-rollback.py").read_text(
+        encoding="utf-8"
+    )
+    assert "allscan-reimagined-reapply-delayed.timer" in rollback
     assert "allscan-reimagined-ysf-net-live.service" in text
     assert "allscan-reimagined-ysf-bridge-control" in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-clients.php" --self-test' in text
@@ -490,6 +496,17 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "User=asterisk" in text and "Group=asterisk" in text
     assert "Wants=network-online.target allscan-reimagined-fixed-bridge-recovery.service" in text
     assert "ReadWritePaths=/usr/share/asterisk/sounds/en/custom/allscan-reimagined" in text
+    assert text.count("RuntimeDirectoryMode=2750") >= 2
+    assert text.count("Group=$WEB_GROUP") >= 2
+    assert "d /run/allscan-reimagined-ysf-bridge-control 2750 root $WEB_GROUP -" in text
+    assert "d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -" in text
+    assert "d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -" in text
+    assert "allscan-reimagined-reapply-delayed.timer" in text
+    assert "OnActiveSec=3s" in text
+    assert (
+        "$WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl restart "
+        "allscan-reimagined-reapply-delayed.timer"
+    ) in text
     integrity_text = integrity.read_text(encoding="utf-8")
     assert "bridge-deletion-queue/*.json" in integrity_text
     assert "ASR_ROLLBACK_MODE" in integrity_text
@@ -530,6 +547,19 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "[ ! -L /etc/sudoers.d/allscan-reimagined ]" in integrity_text
     assert "stat -c '%U:%G:%a:%h' /etc/sudoers.d/allscan-reimagined" in integrity_text
     assert '"root:root:440:1"' in integrity_text
+    assert '"root:$WEB_GROUP:2750"' in integrity_text
+    assert "allscan-reimagined-reapply-delayed.timer" in integrity_text
+    project_root = reapply.parents[1]
+    for backend_version in ("v1.02", "v1.03"):
+        settings = (
+            project_root
+            / "compat"
+            / f"allscan-{backend_version}"
+            / "asr-settings"
+            / "settings-controller.php"
+        ).read_text(encoding="utf-8")
+        assert "systemctl restart allscan-reimagined-reapply-delayed.timer" in settings
+        assert "systemctl start allscan-reimagined-reapply.service" not in settings
 
 
 def exercise_migration_failure(root: Path) -> None:
