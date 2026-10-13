@@ -11,6 +11,8 @@ IDENTITY = (ROOT / "src/lib/participantIdentity.ts").read_text(encoding="utf-8")
 URF = (ROOT / "scripts/asr-urf-admin.py").read_text(encoding="utf-8")
 STANDALONE = (ROOT / "scripts/asr-standalone-admin.py").read_text(encoding="utf-8")
 REAPPLY = (ROOT / "docker/layered-reapply.sh").read_text(encoding="utf-8")
+NATIVE_REAPPLY = (ROOT / "scripts/asr-reapply.sh").read_text(encoding="utf-8")
+BUILD_RELEASE = (ROOT / "build-release.sh").read_text(encoding="utf-8")
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 LIFECYCLE = (ROOT / "scripts/asr-bridge-lifecycle.py").read_text(encoding="utf-8")
 ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
@@ -68,6 +70,12 @@ check("standalone-client-kick" in LIVE and "bridgeId" in LIVE, "standalone Kick 
 check("reconcile_standalone_bans" in URF and "reconcile-all" in STANDALONE, "global Ban is not reconciled to standalone adapters")
 check("disconnect-until-reconnect" in STANDALONE and "appliedPolicyDigest" in STANDALONE, "standalone acknowledgment contracts are incomplete")
 check("allscan-reimagined-standalone-admin" in REAPPLY, "standalone administration helper is not installed")
+check("asr-standalone-admin.py" in NATIVE_REAPPLY and "asr-urf-admin.py" in NATIVE_REAPPLY,
+      "native installer does not install bridge administration helpers")
+check("allscan-reimagined-standalone-admin kick" in NATIVE_REAPPLY,
+      "native sudo policy does not authorize capability-gated standalone Kick")
+check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD_RELEASE,
+      "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
 check("Find connected client" in APP and "urfClientFilter" in APP, "URF client search missing")
 check("BANNED" in APP and "Unban" in APP, "URF ban-state workflow missing")

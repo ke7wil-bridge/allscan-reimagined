@@ -199,6 +199,8 @@ install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friend
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
 install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
+install -m 755 scripts/asr-urf-admin.py "$STAGE/payload/scripts/asr-urf-admin.py"
+install -m 755 scripts/asr-standalone-admin.py "$STAGE/payload/scripts/asr-standalone-admin.py"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
 install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
