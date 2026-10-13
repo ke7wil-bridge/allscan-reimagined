@@ -515,6 +515,7 @@ function App({ config }: { config: RuntimeConfig }) {
       recentRows: [],
     })),
   }))
+  const [bridgeStatusLoaded, setBridgeStatusLoaded] = useState(false)
   const [dmrTalkgroupInputs, setDmrTalkgroupInputs] = useState<Record<string, string>>({})
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
   const [m17ModuleInputs, setM17ModuleInputs] = useState<Record<string, string>>({})
@@ -616,6 +617,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const ysfNetOwnsUrfRef = useRef(false)
   const ysfNetReleasedUrfRef = useRef(false)
   const zelloFastRelayRef = useRef(false)
+  const zelloFastRelayReadyRef = useRef(false)
   const nodeInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const reportBugParamHandled = useRef(false)
@@ -933,7 +935,9 @@ function App({ config }: { config: RuntimeConfig }) {
           // Once the fast producer has observed Zello USRP activity it is
           // authoritative for both key and unkey.  Falling back to ASTAPI after
           // the fast unkey reintroduces its ~1.5-2s release lag.
-          const relayActive = zelloFastRelayRef.current
+          const relayActive = zelloFastRelayReadyRef.current
+            ? zelloFastRelayRef.current
+            : Boolean(row && localIsTransmitting)
           return withStatus(card, relayActive ? 'Relay' : 'Idle')
         }
         const fastYsfNet = fastYsfNetActivityRef.current[card.id]
@@ -1436,6 +1440,7 @@ function App({ config }: { config: RuntimeConfig }) {
         const next = await fetchBridgeCards(config, controller.signal)
         if (!cancelled) {
           setBridgeState(applyBridgeConnectionOverrides(next))
+          setBridgeStatusLoaded(true)
           failureNotified = false
         }
       } catch (error) {
@@ -1557,7 +1562,9 @@ function App({ config }: { config: RuntimeConfig }) {
         // legitimate opposite edges that happen within the same millisecond.
         if (cancelled || relay.updatedEpochMs <= 0 || relay.updatedEpochMs < appliedEpochMs) return
         appliedEpochMs = relay.updatedEpochMs
-        if (relay.active === previous) return
+        const wasReady = zelloFastRelayReadyRef.current
+        zelloFastRelayReadyRef.current = true
+        if (relay.active === previous && wasReady) return
         previous = relay.active
         zelloFastRelayRef.current = relay.active
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
@@ -3640,7 +3647,7 @@ function App({ config }: { config: RuntimeConfig }) {
                       </div>
                       <div className="allscan-bridge-detail-wrap">
                         <button type="button" className="allscan-bridge-detail-title allscan-bridge-detail-toggle" aria-expanded={clientsOpen} onClick={() => setBridgeClientsOpen((value) => { const next = new Set(value); if (next.has(card.id)) next.delete(card.id); else next.add(card.id); localStorage.setItem('asr.bridge.clientsOpen', JSON.stringify([...next])); return next })}>
-                          <span>Connected Clients</span><b>{card.detailAvailable ? card.detailCount : '–'}</b><ChevronDown className={clientsOpen ? 'is-open' : ''} aria-hidden="true" />
+                          <span>Connected Clients</span><b>{!bridgeStatusLoaded ? '…' : card.detailAvailable ? card.detailCount : '–'}</b><ChevronDown className={clientsOpen ? 'is-open' : ''} aria-hidden="true" />
                         </button>
                         {clientsOpen ? <div className="allscan-bridge-detail-box">{card.detailRows.map((detail) => {
                           const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase()
@@ -3939,7 +3946,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {bridgeCardShowsClientDetails(card.cardType) ? (
                     <div className="allscan-bridge-detail-wrap">
                       <button type="button" className="allscan-bridge-detail-title allscan-bridge-detail-toggle" aria-expanded={bridgeClientsOpen.has(card.id)} onClick={() => setBridgeClientsOpen((value) => { const next = new Set(value); if (next.has(card.id)) next.delete(card.id); else next.add(card.id); localStorage.setItem('asr.bridge.clientsOpen', JSON.stringify([...next])); return next })}>
-                        <span>{compactBridgeDetailTitle(card.detailTitle)}</span><b>{card.detailAvailable ? card.detailCount : '–'}</b><ChevronDown className={bridgeClientsOpen.has(card.id) ? 'is-open' : ''} aria-hidden="true" />
+                        <span>{compactBridgeDetailTitle(card.detailTitle)}</span><b>{!bridgeStatusLoaded ? '…' : card.detailAvailable ? card.detailCount : '–'}</b><ChevronDown className={bridgeClientsOpen.has(card.id) ? 'is-open' : ''} aria-hidden="true" />
                       </button>
                       {bridgeClientsOpen.has(card.id) ? <div className="allscan-bridge-detail-box">
                         {card.detailRows.map((detail) => {
