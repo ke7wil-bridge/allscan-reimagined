@@ -433,8 +433,22 @@ try {
     'Settings unified rendering/provisioning wiring is incomplete or retains the fake M17 host',
   )
 
-  assert(appSource.includes('const relayActive = zelloFastRelayRef.current'), 'Zello fast relay must be authoritative for key/unkey')
-  assert(!appSource.includes('zelloFastRelayRef.current || Boolean(row && localIsTransmitting)'), 'Zello relay must not fall back to lagging ASTAPI state')
+  assert(
+    appSource.includes('const relayActive = zelloFastRelayReadyRef.current')
+      && appSource.includes('? zelloFastRelayRef.current')
+      && appSource.includes(': Boolean(row && localIsTransmitting)'),
+    'Zello relay must use the fast producer when present and retain legacy Asterisk fallback when absent',
+  )
+  assert(
+    appSource.includes('const wasReady = zelloFastRelayReadyRef.current')
+      && appSource.includes('zelloFastRelayReadyRef.current = true')
+      && appSource.includes('relay.active === previous && wasReady'),
+    'Zello fast relay readiness must be established before equal idle samples may suppress the legacy fallback',
+  )
+  assert(
+    appSource.includes("!bridgeStatusLoaded ? '…' : card.detailAvailable ? card.detailCount : '–'"),
+    'Bridge client counts must not display a false zero before the first live bridge response',
+  )
   assert(allscanLiveSource.includes('action=zello-fast-relay'), 'Zello fast relay endpoint fetch missing')
   assert(
     asrApiSource.includes("'updatedEpochMs' => max(0, (int) ($payload['updated_epoch_ms'] ?? 0))"),
