@@ -157,10 +157,6 @@ def assert_installer_order(installer: Path) -> None:
     assert "allscan-reimagined-reapply.timer" in text
     assert "allscan-reimagined-reapply-delayed.timer" in text
     assert "OnActiveSec=3s" in text
-    rollback = (installer.parent / "scripts" / "asr-rollback.py").read_text(
-        encoding="utf-8"
-    )
-    assert "allscan-reimagined-reapply-delayed.timer" in rollback
     assert "allscan-reimagined-ysf-net-live.service" in text
     assert "allscan-reimagined-ysf-bridge-control" in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-clients.php" --self-test' in text
@@ -490,6 +486,7 @@ def exercise_existing_shared_baseline(root: Path) -> None:
 
 def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     text = reapply.read_text(encoding="utf-8")
+    rollback = (reapply.parent / "asr-rollback.py").read_text(encoding="utf-8")
     assert '[ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ]' in text
     assert "bridge-deletion-queue" in text and "bridge-creation-intents" in text
     assert "allscan-reimagined-bridge-lifecycle queue-deletion" in text
@@ -503,6 +500,7 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert "d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -" in text
     assert "allscan-reimagined-reapply-delayed.timer" in text
     assert "OnActiveSec=3s" in text
+    assert "allscan-reimagined-reapply-delayed.timer" in rollback
     assert (
         "$WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl restart "
         "allscan-reimagined-reapply-delayed.timer"
