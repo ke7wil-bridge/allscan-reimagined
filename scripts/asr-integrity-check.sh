@@ -67,11 +67,7 @@ if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then
   [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-standard-bridge-status 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 fi
 [ -d /run/allscan-reimagined-ysf-bridge-control ] || needs_reapply=1
-if getent passwd asr-bridge >/dev/null 2>&1; then
-  [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "asr-bridge:$WEB_GROUP:2750" ] || needs_reapply=1
-else
-  [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:$WEB_GROUP:2750" ] || needs_reapply=1
-fi
+[ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-ysf-bridge-control 2>/dev/null)" = "root:$WEB_GROUP:2750" ] || needs_reapply=1
 [ -d /var/log/allscan-reimagined ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /var/log/allscan-reimagined 2>/dev/null)" = "root:root:750" ] || needs_reapply=1
 for lifecycle_dir in bridge-ownership bridge-tombstones bridge-deletion-queue bridge-creation-intents; do
@@ -115,6 +111,7 @@ if [ -e /etc/allscan-reimagined/secrets.json ] || [ -L /etc/allscan-reimagined/s
     || needs_reapply=1
 fi
 [ -f /etc/systemd/system/allscan-reimagined-rollback@.service ] || needs_reapply=1
+[ -f /etc/systemd/system/allscan-reimagined-reapply-delayed.timer ] || needs_reapply=1
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
 import json
 import sys

@@ -151,6 +151,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-reapply.service \
     allscan-reimagined-reapply.path \
     allscan-reimagined-reapply.timer \
+    allscan-reimagined-reapply-delayed.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-startup-bridge-summary.service \
@@ -219,6 +220,7 @@ remove_asr_managed_wiring() {
   systemctl disable --now \
     allscan-reimagined-reapply.path \
     allscan-reimagined-reapply.timer \
+    allscan-reimagined-reapply-delayed.timer \
     allscan-reimagined-fixed-bridge-recovery.timer \
     allscan-reimagined-fixed-bridge-recovery.service \
     allscan-reimagined-startup-bridge-summary.service \
@@ -393,6 +395,7 @@ rollback_on_error() {
         allscan-reimagined-reapply.service \
         allscan-reimagined-reapply.path \
         allscan-reimagined-reapply.timer \
+        allscan-reimagined-reapply-delayed.timer \
         allscan-reimagined-fixed-bridge-recovery.service \
         allscan-reimagined-fixed-bridge-recovery.timer \
         allscan-reimagined-startup-bridge-summary.service \
@@ -624,6 +627,7 @@ for unit in \
   allscan-reimagined-reapply.service \
   allscan-reimagined-reapply.path \
   allscan-reimagined-reapply.timer \
+  allscan-reimagined-reapply-delayed.timer \
   allscan-reimagined-fixed-bridge-recovery.service \
   allscan-reimagined-fixed-bridge-recovery.timer \
   allscan-reimagined-startup-bridge-summary.service \
@@ -748,6 +752,7 @@ fi
 systemctl stop \
   allscan-reimagined-reapply.path \
   allscan-reimagined-reapply.timer \
+  allscan-reimagined-reapply-delayed.timer \
   allscan-reimagined-reapply.service \
   allscan-reimagined-p25-bridge-status.service \
   allscan-reimagined-nxdn-bridge-status.service \
@@ -1087,6 +1092,15 @@ Unit=allscan-reimagined-reapply.service
 
 [Install]
 WantedBy=timers.target
+EOF
+cat > /etc/systemd/system/allscan-reimagined-reapply-delayed.timer <<'EOF'
+[Unit]
+Description=Apply saved AllScan Reimagined settings after the web response completes
+
+[Timer]
+OnActiveSec=3s
+AccuracySec=250ms
+Unit=allscan-reimagined-reapply.service
 EOF
 systemctl daemon-reload
 

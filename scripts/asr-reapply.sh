@@ -290,15 +290,13 @@ fi
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-net-bridge-mode-control.py" /usr/local/sbin/allscan-reimagined-net-bridge-mode-control
 [ -f "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-startup-bridge-summary.py" /usr/local/sbin/allscan-reimagined-startup-bridge-summary
-if getent passwd asr-bridge >/dev/null 2>&1; then
-  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-control
-  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
-  install -d -o asr-bridge -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
-else
-  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-control
-  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
-  install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
-fi
+# These native status collectors run as root even though the restricted
+# asr-bridge account also exists for provisioned bridge processes. Keep their
+# web-readable runtime directories aligned with the unit User/Group instead of
+# inferring ownership from the mere existence of that separate account.
+install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-control
+install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
+install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
 install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
@@ -331,19 +329,11 @@ d /run/allscan-reimagined-standard-bridge-status 0755 root root -
 d /run/allscan-reimagined-bridge-control 0755 root root -
 d /run/allscan-reimagined-m17 0755 root root -
 EOF
-if getent passwd asr-bridge >/dev/null 2>&1; then
-  cat >> /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
-d /run/allscan-reimagined-ysf-bridge-control 2750 asr-bridge $WEB_GROUP -
-d /run/allscan-reimagined-p25-bridge-control 2750 asr-bridge $WEB_GROUP -
-d /run/allscan-reimagined-nxdn-bridge-control 2750 asr-bridge $WEB_GROUP -
-EOF
-else
-  cat >> /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
+cat >> /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined-ysf-bridge-control 2750 root $WEB_GROUP -
 d /run/allscan-reimagined-p25-bridge-control 2750 root $WEB_GROUP -
 d /run/allscan-reimagined-nxdn-bridge-control 2750 root $WEB_GROUP -
 EOF
-fi
 systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
@@ -452,7 +442,7 @@ else
   systemctl disable --now allscan-reimagined-dmr-net-live.service >/dev/null 2>&1 || true
   rm -f /run/allscan-reimagined-bridge-control/bridge-live.json
 fi
-cat > /etc/systemd/system/allscan-reimagined-ysf-net-live.service <<'EOF'
+cat > /etc/systemd/system/allscan-reimagined-ysf-net-live.service <<EOF
 [Unit]
 Description=Collect live activity for configured ASR YSF Net Bridges
 After=network.target asterisk.service
@@ -465,11 +455,12 @@ RestartSec=2s
 Nice=10
 MemoryMax=64M
 TasksMax=16
+Group=$WEB_GROUP
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict
 RuntimeDirectory=allscan-reimagined-ysf-bridge-control
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=2750
 RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-ysf-bridge-control /var/lib/allscan-reimagined/ysf-hosts
 
@@ -525,12 +516,13 @@ Type=simple
 ExecStart=$digital_helper watch --interval 2
 Restart=on-failure
 RestartSec=3s
+Group=$WEB_GROUP
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 RuntimeDirectory=allscan-reimagined-${digital_mode}-bridge-control
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=2750
 RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/allscan-reimagined-${digital_mode}-bridge-control /var/log/allscan-reimagined
 
@@ -1034,6 +1026,20 @@ EOF
   systemctl daemon-reload
 fi
 
+# Settings must not synchronously start a reapply that restarts the Apache
+# worker serving the save request. The one-shot timer gives PHP enough time to
+# return the completed page before the normal reapply service refreshes Apache.
+cat > /etc/systemd/system/allscan-reimagined-reapply-delayed.timer <<'EOF'
+[Unit]
+Description=Apply saved AllScan Reimagined settings after the web response completes
+
+[Timer]
+OnActiveSec=3s
+AccuracySec=250ms
+Unit=allscan-reimagined-reapply.service
+EOF
+systemctl daemon-reload
+
 cat > /etc/sudoers.d/allscan-reimagined <<EOF
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
@@ -1087,7 +1093,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl start allscan-reimagined-reapply.service
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/bin/systemctl restart allscan-reimagined-reapply-delayed.timer
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --list-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --queue-rollback [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-rollback --status-json [0-9]*

@@ -1140,6 +1140,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                     "stop",
                     "allscan-reimagined-reapply.path",
                     "allscan-reimagined-reapply.timer",
+                    "allscan-reimagined-reapply-delayed.timer",
                     "allscan-reimagined-reapply.service",
                 ],
                 check=False,
