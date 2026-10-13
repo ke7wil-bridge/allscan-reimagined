@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8 is built on the current official AllScan v1.02 backend at
+Gleason's AllScan. Beta 8 is built on the current official AllScan v1.03 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
@@ -38,6 +38,26 @@ SHA-256 asset, and starts the installer. Complete its prompts, including those
 from the official AllScan installer if stock AllScan needs an update. After
 installation, use the browser for routine ASR updates and recovery. See the
 [browser installation and update guide](docs/browser-install-update.md).
+
+## Update an existing installation
+
+For a normal update to a newer published ASR version, open `/asr/`, then choose
+**Admin → Update ASR → Check for Update** and follow the preflight and
+confirmation steps.
+
+If the node already says **v1.0.0 Beta 8** and you are applying a corrected
+Beta 8 package, the version number has not changed, so the browser may report
+that no newer version is available. Run the same verified bootstrap command
+once from an interactive terminal:
+
+```bash
+curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
+```
+
+This is also the supported recovery path when the browser updater cannot start.
+The installer creates a rollback backup and preserves the existing AllScan
+accounts, Favorites, node configuration, ASR settings, branding, and bridge
+configuration. Do not copy files from a Git checkout into the live web root.
 
 ## Setup Prompts
 
@@ -103,6 +123,11 @@ then confirm installation. The root-owned updater verifies the release and
 checksum, creates a rollback backup, runs the existing installer, checks the
 served application, and restores the previous version on failure. No update
 starts automatically. The latest ten rollback backups are retained by default.
+
+For a corrected rebuild with the same displayed version, use the one-line
+terminal command under [Update an existing installation](#update-an-existing-installation).
+The browser updater compares version numbers and may not offer a same-version
+package again.
 
 For rollback or interrupted-update recovery, open **Settings → System & Recovery**.
 A stopped, interrupted update can also be checked from the Update ASR dialog.

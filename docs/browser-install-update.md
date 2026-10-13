@@ -27,6 +27,22 @@ The browser can request only fixed updater operations. The helper selects releas
 
 If stock AllScan needs its own interactive upstream update, ASR preflight stops before changing files. It does not silently run or bypass the official installer's prompts.
 
+### Corrected package with the same version number
+
+The browser updater compares the installed and published version numbers. If a
+node already displays **v1.0.0 Beta 8**, it may not offer a corrected Beta 8
+package whose version label is still Beta 8. In that case, run this once from
+an interactive terminal on the node:
+
+```bash
+curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
+```
+
+The bootstrap still downloads the published archive and checksum, verifies
+them, creates the normal rollback backup, and runs the supported installer. It
+does not replace preserved AllScan accounts, Favorites, node configuration,
+ASR settings, branding, or bridge configuration.
+
 ## Backups and recovery
 
 Open **Admin → Reimagined Settings → Backups & Rollback** to review available backups and choose a prior ASR version. This action has its own confirmation. Ordinary Settings **Save** does not start a rollback.
