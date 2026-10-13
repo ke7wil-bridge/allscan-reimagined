@@ -66,7 +66,10 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
     def adapter():
         while not stop.is_set():
             for request_path in bridge_dir.glob("request-*.json"):
-                request = json.loads(request_path.read_text(encoding="utf-8"))
+                try:
+                    request = json.loads(request_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    continue
                 result = {
                     "schema": 1, "nonce": request["nonce"],
                     "bridgeId": request["bridgeId"], "mode": request["mode"],
