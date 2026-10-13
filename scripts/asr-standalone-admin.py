@@ -142,6 +142,21 @@ def policy_payload() -> dict[str, Any]:
     return {"rules": sorted(set(rules)), "timedBans": timed, "digest": digest}
 
 
+def supports_policy_reconcile(manifest: dict[str, Any]) -> bool:
+    """Accept a declared ban contract before its first policy sync.
+
+    An adapter cannot truthfully advertise active Ban/Unban support until it
+    has applied the current policy digest.  The contract itself is enough to
+    bootstrap that first reconciliation; the public API still requires the
+    matching applied digest before it exposes the controls.
+    """
+    return (
+        manifest.get("banContract") == "global-timed-v1"
+        and all(isinstance(manifest.get(field), bool)
+                for field in ("banClient", "unbanClient", "listBans"))
+    )
+
+
 def append_audit(action: str, actor: str, **details: Any) -> None:
     record = {"timestamp": int(time.time()), "action": action, "actor": actor, **details}
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
@@ -161,10 +176,7 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
             and manifest.get("kickAllowsImmediateReconnect") is True
         ),
         "reconcile": (
-            manifest.get("banClient") is True
-            and manifest.get("unbanClient") is True
-            and manifest.get("listBans") is True
-            and manifest.get("banContract") == "global-timed-v1"
+            supports_policy_reconcile(manifest)
         ),
     }
     if not required.get(action, False):
@@ -252,10 +264,8 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
             # adapter is installed. Unsupported bridges remain visible but do
             # not falsely advertise or block global administration.
             continue
-        if not all(manifest.get(field) is True for field in ("banClient", "unbanClient", "listBans")):
+        if not supports_policy_reconcile(manifest):
             continue
-        if manifest.get("banContract") != "global-timed-v1":
-            raise AdminError(f"Configured bridge {bridge_id} has an incompatible Global Ban contract.")
         applied.append(reconcile(bridge_id, actor))
     return {"ok": True, "verified": True, "action": "reconcile-all",
             "applied": applied, "skipped": sorted(set(bridge_ids) - {item["bridgeId"] for item in applied}),

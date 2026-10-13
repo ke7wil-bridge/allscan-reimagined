@@ -1146,6 +1146,10 @@ if [ "$ROLLBACK_MODE" != "1" ]; then
   else
     printf '%s\n' '{}' > "$ALLSCAN_DIR/asr-connected-clients.json"
   fi
+  # Existing standalone adapters may start before ASR's persistent Global Ban
+  # policy is available.  Bootstrap the current policy now so their verified
+  # Kick/Ban capabilities become available without requiring a policy edit.
+  /usr/local/sbin/allscan-reimagined-standalone-admin reconcile-all --actor installer >/dev/null 2>&1 || true
 fi
 [ -f "$ALLSCAN_DIR/connected-clients.json" ] && chown "root:$WEB_GROUP" "$ALLSCAN_DIR/connected-clients.json"
 [ -f "$ALLSCAN_DIR/connected-clients.json" ] && chmod 664 "$ALLSCAN_DIR/connected-clients.json"

@@ -99,6 +99,17 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
         current = json.loads(manifest_path.read_text(encoding="utf-8"))
         check(current["appliedPolicyDigest"] == digest, "adapter manifest did not publish applied digest")
 
+        # A fresh adapter must be able to receive its first policy before it
+        # advertises Ban/Unban as active to the web UI.
+        current.update({
+            "banClient": False, "unbanClient": False, "listBans": False,
+            "appliedPolicyDigest": "", "heartbeatEpoch": int(time.time()),
+        })
+        write_json(manifest_path, current)
+        bootstrapped = admin.reconcile_all("installer")
+        check(bootstrapped["applied"][0]["appliedPolicyDigest"] == digest,
+              "initial policy reconciliation was blocked by inactive capability flags")
+
         current["heartbeatEpoch"] = now - 120
         write_json(manifest_path, current)
         try:
