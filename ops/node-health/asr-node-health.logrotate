@@ -1,0 +1,10 @@
+/var/log/asr-node-health.log {
+    daily
+    rotate 14
+    size 1M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
