@@ -87,7 +87,7 @@ $guardState = asrAmiGuardLoad($guardPath);
 if(asrAmiGuardBlocks($guardState, $asteriskBootId)) {
 	@fclose($fp[$node]);
 	streamGuardedStatus($sharedCache, $guardPath, $asteriskBootId,
-		$host, $port, $amicfg->user, $amicfg->pass);
+		$host, $port, $amicfg->user, $amicfg->pass, '', $node);
 	exit();
 }
 if(!empty($guardState))
@@ -125,7 +125,7 @@ while(!empty($fp[$node])) {
 		asrAmiGuardOpen($guardPath, $asteriskBootId, $reason);
 		@fclose($fp[$node]);
 		streamGuardedStatus($sharedCache, $guardPath, $asteriskBootId,
-			$host, $port, $amicfg->user, $amicfg->pass, $reason);
+			$host, $port, $amicfg->user, $amicfg->pass, $reason, $node);
 		exit();
 	}
 	$connectedNodes = $nodeResult['nodes'];
@@ -241,34 +241,37 @@ function checkRxStatsSupport($ami, $fp) {
 }
 
 // Get status for this $node
-function getNode($fp, $node) {
+function getNode($fp, $node, $amiClient=null, $parse=true) {
 	global $ami;
+	$amiClient = $amiClient ?? $ami;
 	$rptStatus = [];
 	$sawStatus = [];
 	$actionRand = mt_rand(); // AMI actionID
 	$actionID = 'xstat' . $actionRand;
 	if(fwrite($fp, "ACTION: RptStatus\r\nCOMMAND: XStat\r\nNODE: $node\r\nActionID: $actionID\r\n\r\n") !== false) {
-		$rptStatus = $ami->getResponse($fp, $actionID);
+		$rptStatus = $amiClient->getResponse($fp, $actionID);
 	} else {
 		return ['ok' => false, 'error' => 'XStat write failed'];
 	}
-	if(!is_array($rptStatus) || !in_array("ActionID: $actionID", $rptStatus, true))
+	if(!asrAmiGuardResponseOk($rptStatus, $actionID))
 		return ['ok' => false, 'error' => 'XStat response timed out'];
 	// format of Conn lines: Node# isKeyed lastKeySecAgo lastUnkeySecAgo
 	$actionID = 'sawstat' . $actionRand;
 	if(fwrite($fp, "ACTION: RptStatus\r\nCOMMAND: SawStat\r\nNODE: $node\r\nActionID: $actionID\r\n\r\n") !== false) {
-		$sawStatus = $ami->getResponse($fp, $actionID);
+		$sawStatus = $amiClient->getResponse($fp, $actionID);
 	} else {
 		return ['ok' => false, 'error' => 'SawStat write failed'];
 	}
-	if(!is_array($sawStatus) || !in_array("ActionID: $actionID", $sawStatus, true))
+	if(!asrAmiGuardResponseOk($sawStatus, $actionID))
 		return ['ok' => false, 'error' => 'SawStat response timed out'];
+	if(!$parse)
+		return ['ok' => true, 'nodes' => []];
 	// Returns an array of currently connected nodes
 	$current = parseNode($fp, $rptStatus, $sawStatus);
 	return ['ok' => true, 'nodes' => $current];
 }
 
-function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $user, $pass, $reason='') {
+function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $user, $pass, $reason='', $node='') {
 	if($reason === '') {
 		$state = asrAmiGuardLoad($guardPath);
 		$reason = (string) ($state['reason'] ?? 'Asterisk status request timed out');
@@ -285,6 +288,7 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 	if(!empty($payload['nodeTime']))
 		sendData($payload['nodeTime'], 'nodetimes');
 	$lastProbe = 0;
+	$recoverySuccesses = 0;
 	while(!connection_aborted()) {
 		$now = time();
 		if($now - $lastProbe >= 15) {
@@ -292,13 +296,37 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 			$probe = new AMI();
 			$probeFp = $probe->connect($host, $port);
 			$currentBootId = '';
-			if($probeFp !== false && $probe->login($probeFp, $user, $pass, false) !== false)
+			$probeLoggedIn = $probeFp !== false && $probe->login($probeFp, $user, $pass, false) !== false;
+			if($probeLoggedIn)
 				$currentBootId = $probe->coreStartupId($probeFp);
-			if(is_resource($probeFp))
-				@fclose($probeFp);
 			if($currentBootId !== '' && $bootId !== '' && !hash_equals($bootId, $currentBootId)) {
-				asrAmiGuardClear($guardPath);
-				return;
+				if(is_resource($probeFp)) @fclose($probeFp);
+				if(asrAmiGuardClear($guardPath))
+					return;
+				continue;
+			}
+			$state = asrAmiGuardLoad($guardPath);
+			$probeOk = false;
+			$probeAttempted = false;
+			$probeError = '';
+			if($probeLoggedIn && $node !== '' && $currentBootId !== '' &&
+				$bootId !== '' && hash_equals($bootId, $currentBootId) &&
+				asrAmiGuardRecoveryDue($state)) {
+				$probeAttempted = true;
+				$result = getNode($probeFp, $node, $probe, false);
+				$probeOk = !empty($result['ok']);
+				$probeError = (string) ($result['error'] ?? 'Asterisk status recovery probe failed');
+			}
+			if(is_resource($probeFp)) @fclose($probeFp);
+			if($probeAttempted && !$probeOk)
+				asrAmiGuardRecordProbeFailure($guardPath, $state, $probeError);
+			$recoverySuccesses = asrAmiGuardRecoveryAdvance($recoverySuccesses, $probeOk);
+			if(asrAmiGuardRecoveryReady($recoverySuccesses)) {
+				if(asrAmiGuardClear($guardPath)) {
+					statMsg('Asterisk status recovered; resuming live connection status.');
+					return;
+				}
+				$recoverySuccesses = 0;
 			}
 		}
 		echo ": status polling circuit breaker active\n\n";
