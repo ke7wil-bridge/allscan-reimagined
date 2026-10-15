@@ -7,7 +7,7 @@ on:
       - codex/doug-bug-fixes
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-test:
@@ -51,3 +51,11 @@ jobs:
             release/*.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish the test-only GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload doug-qa-2026-10-15 \
+            release/*.tar.gz release/*.tar.gz.sha256 --clobber
+          gh release edit doug-qa-2026-10-15 --draft=false --prerelease
