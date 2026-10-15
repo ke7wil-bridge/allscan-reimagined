@@ -357,22 +357,24 @@ try {
       && indexCssSource.includes('.allscan-controls-lower-row'),
     'current Node Controls management layout regressed',
   )
-  const narrowPortraitStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet-portrait Node Controls: reuse')
-  const narrowPortraitEnd = indexCssSource.indexOf('/* Beta 8 locked mobile-landscape Node Controls geometry. */', narrowPortraitStart)
-  const narrowPortraitControls = indexCssSource.slice(narrowPortraitStart, narrowPortraitEnd)
-  const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet-portrait Node Controls: qualified')
+  const narrowControlsStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: keep')
+  const narrowControlsEnd = indexCssSource.indexOf('/* Beta 8 locked mobile-landscape Node Controls geometry. */', narrowControlsStart)
+  const narrowControls = indexCssSource.slice(narrowControlsStart, narrowControlsEnd)
+  const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: qualified')
   const authoritativeNarrowEnd = indexCssSource.indexOf('/* Beta 8 locked non-desktop Connection Status readability. */', authoritativeNarrowStart)
   const authoritativeNarrowControls = indexCssSource.slice(authoritativeNarrowStart, authoritativeNarrowEnd)
   assert(
-    narrowPortraitStart >= 0
+    narrowControlsStart >= 0
       && authoritativeNarrowStart >= 0
-      && narrowPortraitControls.includes('@media (min-width: 521px) and (max-width: 1199px) and (orientation: portrait)')
-      && narrowPortraitControls.includes('display: flex !important;')
-      && narrowPortraitControls.includes('flex-wrap: nowrap;')
-      && authoritativeNarrowControls.includes('@media (min-width: 521px) and (max-width: 1199px) and (orientation: portrait)')
+      && narrowControls.includes('@media (min-width: 521px) and (max-width: 1199px)')
+      && !narrowControls.includes('(orientation: portrait)')
+      && narrowControls.includes('display: flex !important;')
+      && narrowControls.includes('flex-wrap: nowrap;')
+      && authoritativeNarrowControls.includes('@media (min-width: 521px) and (max-width: 1199px)')
+      && !authoritativeNarrowControls.includes('(orientation: portrait)')
       && authoritativeNarrowControls.includes('width: 407px !important;')
       && authoritativeNarrowControls.includes('padding-right: 102px;'),
-    'Node Controls does not preserve its compact accepted geometry across the 521-700px portrait range',
+    'Node Controls does not preserve its compact accepted geometry across the 521-1199px resize range',
   )
   assert(
     !appSource.includes('fetchBridgeDestinations')
