@@ -357,6 +357,23 @@ try {
       && indexCssSource.includes('.allscan-controls-lower-row'),
     'current Node Controls management layout regressed',
   )
+  const narrowPortraitStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet-portrait Node Controls: reuse')
+  const narrowPortraitEnd = indexCssSource.indexOf('/* Beta 8 locked mobile-landscape Node Controls geometry. */', narrowPortraitStart)
+  const narrowPortraitControls = indexCssSource.slice(narrowPortraitStart, narrowPortraitEnd)
+  const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet-portrait Node Controls: qualified')
+  const authoritativeNarrowEnd = indexCssSource.indexOf('/* Beta 8 locked non-desktop Connection Status readability. */', authoritativeNarrowStart)
+  const authoritativeNarrowControls = indexCssSource.slice(authoritativeNarrowStart, authoritativeNarrowEnd)
+  assert(
+    narrowPortraitStart >= 0
+      && authoritativeNarrowStart >= 0
+      && narrowPortraitControls.includes('@media (min-width: 521px) and (max-width: 1199px) and (orientation: portrait)')
+      && narrowPortraitControls.includes('display: flex !important;')
+      && narrowPortraitControls.includes('flex-wrap: nowrap;')
+      && authoritativeNarrowControls.includes('@media (min-width: 521px) and (max-width: 1199px) and (orientation: portrait)')
+      && authoritativeNarrowControls.includes('width: 407px !important;')
+      && authoritativeNarrowControls.includes('padding-right: 102px;'),
+    'Node Controls does not preserve its compact accepted geometry across the 521-700px portrait range',
+  )
   assert(
     !appSource.includes('fetchBridgeDestinations')
       && !appSource.includes('approvedDestinations')
