@@ -8839,9 +8839,9 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   }
 }
 
-/* Beta 8 locked tablet-portrait Node Controls: reuse the accepted compact landscape
-   inner geometry while preserving the tablet dashboard module frame. */
-@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+/* Beta 8 locked narrow/tablet Node Controls: keep the accepted compact geometry
+   across window resizing instead of stretching the module in landscape transitions. */
+@media (min-width: 521px) and (max-width: 1199px) {
   .allscan-controls-section {
     box-sizing: border-box !important;
     width: 412px !important;
@@ -9088,9 +9088,9 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app { padding-top: 130px; }
 }
 
-/* Beta 8 locked tablet-portrait Node Controls: qualified landscape geometry,
-   with the accepted 407px shell and Commands shifted 2px right. */
-@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+/* Beta 8 locked narrow/tablet Node Controls: qualified compact geometry in either
+   orientation, with the accepted 407px shell and Commands shifted 2px right. */
+@media (min-width: 521px) and (max-width: 1199px) {
   .allscan-controls-section {
     width: 407px !important;
     max-width: min(407px, calc(100vw - 32px)) !important;

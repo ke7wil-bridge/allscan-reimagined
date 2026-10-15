@@ -13,6 +13,7 @@ const serverApi = readFileSync(new URL('../server/asr-api.php', import.meta.url)
 const cfg = readFileSync(new URL('../compat/allscan-v1.02/include/CfgModel.php', import.meta.url), 'utf8')
 const adminJs = readFileSync(new URL('../compat/allscan-v1.02/js/asr-cmd-buttons-config.js', import.meta.url), 'utf8')
 const common = readFileSync(new URL('../compat/allscan-v1.02/include/common.php', import.meta.url), 'utf8')
+const cmd = readFileSync(new URL('../compat/allscan-v1.02/astapi/cmd.php', import.meta.url), 'utf8')
 
 assert(api === serverApi, 'Duplicated ASR API files differ')
 assert(
@@ -43,12 +44,28 @@ assert(
   'Frontend Custom Cmd transport is missing',
 )
 assert(
+  live.includes('signal: AbortSignal.timeout(NODE_COMMAND_TIMEOUT_MS)')
+    && live.includes("credentials: 'same-origin'")
+    && live.includes("button: 'dtmf'")
+    && live.includes('cmd: node')
+    && live.includes('The controls have been released; check Asterisk/AMI and try again.'),
+  'Custom command execution is not protected by a bounded request deadline',
+)
+assert(
   app.includes('Commands <ChevronDown')
     && app.includes('Manage Custom Cmd Buttons')
     && app.includes('Manage Commands…')
     && app.includes("runCommandForNode('dtmf', item.command")
-    && app.includes('disabled={busy || !authStatus.canWrite}'),
+    && app.includes('disabled={busy || !authStatus.canModify}'),
   'Node Controls Custom Cmd dropdown or permission guard is missing',
+)
+assert(
+  cmd.includes("case 'dtmf':")
+    && cmd.includes('if(!modifyOk())')
+    && cmd.includes("case 'restart':")
+    && cmd.includes('if(!writeOk())')
+    && cmd.includes("http_response_code(504)"),
+  'Custom command endpoint does not preserve node-control permissions and bounded AMI failures',
 )
 assert(
   app.includes('Delete ${name}? The change takes effect when you save.')

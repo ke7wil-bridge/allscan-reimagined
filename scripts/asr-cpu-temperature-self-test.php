@@ -19,6 +19,9 @@ if(is_file($clientPath) && is_file($appPath)) {
     $client = (string) file_get_contents($clientPath);
     $app = (string) file_get_contents($appPath);
     check(str_contains($client, '?action=cpu-temp') && str_contains($app, 'setCpuValue(next.value)'), 'React dashboard is not rendering the CPU API value.');
+    check(str_contains($app, "useState('--°F / --°C')") && !str_contains($app, "useState('131°F / 55°C')"), 'React dashboard still shows a fabricated CPU temperature before the API responds.');
+    check(str_contains($app, "setCpuValue('--°F / --°C')") && str_contains($app, 'if (!failureNotified)'), 'React dashboard does not clear a stale CPU reading or suppress repeated notices when refresh fails.');
+    check(str_contains($client, '!response.ok || payload.ok === false') && str_contains($client, "if (!payload.value)"), 'React CPU client does not reject failed or incomplete API responses.');
 }
 
 function putSensor(string $root, string $relative, string $value): void {

@@ -357,6 +357,25 @@ try {
       && indexCssSource.includes('.allscan-controls-lower-row'),
     'current Node Controls management layout regressed',
   )
+  const narrowControlsStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: keep')
+  const narrowControlsEnd = indexCssSource.indexOf('/* Beta 8 locked mobile-landscape Node Controls geometry. */', narrowControlsStart)
+  const narrowControls = indexCssSource.slice(narrowControlsStart, narrowControlsEnd)
+  const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: qualified')
+  const authoritativeNarrowEnd = indexCssSource.indexOf('/* Beta 8 locked non-desktop Connection Status readability. */', authoritativeNarrowStart)
+  const authoritativeNarrowControls = indexCssSource.slice(authoritativeNarrowStart, authoritativeNarrowEnd)
+  assert(
+    narrowControlsStart >= 0
+      && authoritativeNarrowStart >= 0
+      && narrowControls.includes('@media (min-width: 521px) and (max-width: 1199px)')
+      && !narrowControls.includes('(orientation: portrait)')
+      && narrowControls.includes('display: flex !important;')
+      && narrowControls.includes('flex-wrap: nowrap;')
+      && authoritativeNarrowControls.includes('@media (min-width: 521px) and (max-width: 1199px)')
+      && !authoritativeNarrowControls.includes('(orientation: portrait)')
+      && authoritativeNarrowControls.includes('width: 407px !important;')
+      && authoritativeNarrowControls.includes('padding-right: 102px;'),
+    'Node Controls does not preserve its compact accepted geometry across the 521-1199px resize range',
+  )
   assert(
     !appSource.includes('fetchBridgeDestinations')
       && !appSource.includes('approvedDestinations')

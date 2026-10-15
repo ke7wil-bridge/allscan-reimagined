@@ -296,6 +296,11 @@ def main() -> int:
         "reapply does not synchronize the managed custom YSF catalog",
     )
     require(
+        'install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-manager.py" /usr/local/sbin/allscan-reimagined-favorites-manager'
+        in reapply,
+        "reapply does not install the Favorites manager helper",
+    )
+    require(
         "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *"
         in reapply,
         "Favorites manager is missing its web-user sudo policy",
