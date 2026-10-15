@@ -31,11 +31,11 @@ fi
 
 if [ ! -d "$UPSTREAM_CACHE/.git" ]; then
   rm -rf "$UPSTREAM_CACHE"
-  git clone --depth 1 --branch "$ALLSCAN_REPO_REF" "$ALLSCAN_REPO_URL" "$UPSTREAM_CACHE"
-else
-  git -C "$UPSTREAM_CACHE" fetch --depth 1 origin "$ALLSCAN_REPO_REF"
-  git -C "$UPSTREAM_CACHE" checkout --force FETCH_HEAD
+  git init -q "$UPSTREAM_CACHE"
+  git -C "$UPSTREAM_CACHE" remote add origin "$ALLSCAN_REPO_URL"
 fi
+git -C "$UPSTREAM_CACHE" fetch --depth 1 origin "$ALLSCAN_REPO_REF"
+git -C "$UPSTREAM_CACHE" checkout --detach --force FETCH_HEAD
 
 mkdir -p "$STOCK_DIR" "$ASR_DIR"
 RUNTIME_EXCLUDES="--exclude=bridge-live.json --exclude=connected-clients.json --exclude=asr-connected-clients.json --exclude=zello-talkers.json --exclude=zello-relay.json --exclude=zello-status-data.json"

@@ -47,6 +47,10 @@ def static_checks() -> None:
         raise RuntimeError("layered entrypoint does not select an exact detected compatibility version")
     if "compat/allscan-v1.02/\" \"$ASR_DIR" in entrypoint:
         raise RuntimeError("layered entrypoint can still hard-code the v1.02 compatibility tree")
+    if 'git -C "$UPSTREAM_CACHE" fetch --depth 1 origin "$ALLSCAN_REPO_REF"' not in entrypoint:
+        raise RuntimeError("layered entrypoint cannot fetch an immutable upstream AllScan commit")
+    if 'git clone --depth 1 --branch "$ALLSCAN_REPO_REF"' in entrypoint:
+        raise RuntimeError("layered entrypoint still treats every upstream ref as a branch name")
     for runtime_name in ("bridge-live.json", "zello-talkers.json", "zello-relay.json"):
         if f"--exclude={runtime_name}" not in entrypoint:
             raise RuntimeError(f"layered recreation can delete persistent runtime state: {runtime_name}")
