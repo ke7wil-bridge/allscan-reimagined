@@ -231,6 +231,8 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-manager-perms.sh" /usr/l
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh" /usr/local/sbin/allscan-reimagined-favorites-permissions
 [ -f "$MASTER_DIR/scripts/asr-favorites-update.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-update.py" /usr/local/sbin/allscan-reimagined-favorites-update
+[ -f "$MASTER_DIR/scripts/asr-favorites-manager.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-manager.py" /usr/local/sbin/allscan-reimagined-favorites-manager
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /usr/local/sbin/allscan-reimagined-tgif-user-session

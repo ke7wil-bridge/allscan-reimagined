@@ -57,6 +57,7 @@ fi
 [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-startup-bridge-summary ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-favorites-update ] || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-favorites-manager ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-tgif-user-session ] || needs_reapply=1
 [ -f /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer ] || needs_reapply=1
 systemctl is-enabled --quiet allscan-reimagined-tgif-user-sessions.timer || needs_reapply=1
@@ -102,6 +103,7 @@ grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-br
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 [ ! -L /etc/allscan-reimagined/config.json ] \
   && [ "$(stat -c '%U:%G:%a:%h' /etc/allscan-reimagined/config.json 2>/dev/null)" = "root:$WEB_GROUP:664:1" ] \
   || needs_reapply=1
