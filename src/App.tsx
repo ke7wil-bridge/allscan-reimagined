@@ -478,8 +478,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const [adjacentCount, setAdjacentCount] = useState(0)
   const [linkedNodes, setLinkedNodes] = useState<string[]>([])
   const [linkedNodeCounts, setLinkedNodeCounts] = useState<Record<string, number>>({})
-  const [cpuValue, setCpuValue] = useState('131°F / 55°C')
-  const [cpuBgColor, setCpuBgColor] = useState('#660')
+  const [cpuValue, setCpuValue] = useState('--°F / --°C')
+  const [cpuBgColor, setCpuBgColor] = useState('#59461c')
   const [bridgeState, setBridgeState] = useState<{ updatedLabel: string; cards: BridgeCardView[] }>(() => ({
     updatedLabel: '--:--:--',
     cards: config.bridges.map((bridge): BridgeCardView => ({
@@ -1399,6 +1399,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     let cancelled = false
+    let failureNotified = false
 
     const refreshCpu = async () => {
       try {
@@ -1406,9 +1407,15 @@ function App({ config }: { config: RuntimeConfig }) {
         if (!cancelled && next) {
           setCpuValue(next.value)
           setCpuBgColor(next.bgColor)
+          failureNotified = false
         }
       } catch {
-        if (!cancelled) appendNodeMessage('CPU temperature request failed.')
+        if (!cancelled) {
+          setCpuValue('--°F / --°C')
+          setCpuBgColor('#59461c')
+          if (!failureNotified) appendNodeMessage('CPU temperature request failed.')
+          failureNotified = true
+        }
       }
     }
 

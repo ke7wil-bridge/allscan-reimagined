@@ -1042,9 +1042,13 @@ export async function manageFavorite(args: {
 
 export async function fetchCpuTemp() {
   const response = await fetch(`${ASR_API}?action=cpu-temp`, { credentials: 'same-origin', cache: 'no-store' })
-  const payload = (await response.json()) as { value?: string; bgColor?: string }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; value?: string; bgColor?: string }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `CPU temperature request failed (${response.status}).`)
+  }
+  if (!payload.value) throw new Error('CPU temperature response was incomplete.')
   return {
-    value: payload.value || '',
+    value: payload.value,
     bgColor: payload.bgColor || '#59461c',
   }
 }
