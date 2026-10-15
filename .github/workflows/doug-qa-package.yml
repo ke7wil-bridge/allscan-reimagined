@@ -2,6 +2,9 @@ name: Doug QA Linux package
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/doug-bug-fixes
 
 permissions:
   contents: read
