@@ -3391,7 +3391,7 @@ function App({ config }: { config: RuntimeConfig }) {
                                 <button
                                   type="button"
                                   key={item.id || `${item.command}-${index}`}
-                                  disabled={busy || !authStatus.canWrite}
+                                  disabled={busy || !authStatus.canModify}
                                   onClick={() => {
                                     setCustomCommandsOpen(false)
                                     void runCommandForNode('dtmf', item.command, false, false)

@@ -165,6 +165,7 @@ def assert_installer_order(installer: Path) -> None:
     assert 'php "$RELEASE_DIR/scripts/asr-echolink-self-test.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/AMI.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/asrAmiGuard.php"' in text
+    assert 'php -l "$ASR_WEB_DIR/astapi/cmd.php"' in text
     assert 'php -l "$ASR_WEB_DIR/astapi/asrEchoLink.php"' in text
     assert 'php -l "$ASR_WEB_DIR/include/asrBridgeStatus.php"' in text
     assert 'php "$RELEASE_DIR/scripts/asr-bridge-status-privacy-self-test.php"' in text

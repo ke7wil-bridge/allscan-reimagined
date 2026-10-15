@@ -8,6 +8,7 @@ export function asrPath(path = '') {
 const ASR_API = asrPath('asr-api.php')
 const CONNECTION_RECONNECT_INITIAL_MS = 2000
 const CONNECTION_RECONNECT_MAX_MS = 30000
+const NODE_COMMAND_TIMEOUT_MS = 20_000
 
 export type BridgeId = string
 export type BridgeCardType = 'standard' | 'dmr_net' | 'ysf_net' | 'p25_net' | 'nxdn_net' | 'm17_net'
@@ -1798,18 +1799,31 @@ export async function sendNodeCommand(args: {
   }
 
   if (args.action === 'dtmf') {
-    const response = await fetch(asrPath('astapi/cmd.php'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        button: 'dtmf',
-        cmd: node,
-        localnode: args.localNode,
-      }).toString(),
-    })
-
-    if (!response.ok) throw new Error(`DTMF request failed (${response.status}).`)
-    return (await response.text()).trim()
+    try {
+      const response = await fetch(asrPath('astapi/cmd.php'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          button: 'dtmf',
+          cmd: node,
+          localnode: args.localNode,
+        }).toString(),
+        signal: AbortSignal.timeout(NODE_COMMAND_TIMEOUT_MS),
+      })
+      const message = (await response.text()).trim()
+      if (!response.ok) throw new Error(message || `DTMF request failed (${response.status}).`)
+      return message
+    } catch (error) {
+      if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+        throw new Error(
+          'Command timed out. The controls have been released; check Asterisk/AMI and try again.',
+          { cause: error },
+        )
+      }
+      throw error
+    }
   }
 
   const response = await fetch(asrPath('astapi/connect.php'), {

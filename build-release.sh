@@ -25,6 +25,7 @@ astapi/AMI.php
 astapi/asrAmiGuard.php
 astapi/asrEchoLink.php
 astapi/asrTalkerIdentity.php
+astapi/cmd.php
 astapi/server.php
 css/asr-admin.css
 echolink-lookup/index.php
@@ -135,7 +136,7 @@ node "$ROOT/scripts/asr-support-self-test.mjs"
 node "$ROOT/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
-		for compat_file in AMI.php asrAmiGuard.php server.php asrEchoLink.php asrTalkerIdentity.php; do
+		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do
 			php -l "$ROOT/compat/allscan-$compat_version/astapi/$compat_file" >/dev/null
 		done
 	done
@@ -266,7 +267,7 @@ install -m 644 "release-notes/v${VERSION}.md" "$STAGE/release-notes/v${VERSION}.
 if command -v php >/dev/null 2>&1; then
   for compat_version in $COMPAT_VERSIONS; do
     for compat_file in \
-      astapi/AMI.php astapi/asrAmiGuard.php astapi/server.php \
+      astapi/AMI.php astapi/asrAmiGuard.php astapi/cmd.php astapi/server.php \
       astapi/asrEchoLink.php astapi/asrTalkerIdentity.php \
       include/asrBridgeStatus.php include/asrCpuTemperature.php \
       include/asrLinkState.php include/asrPerformanceContract.php; do
