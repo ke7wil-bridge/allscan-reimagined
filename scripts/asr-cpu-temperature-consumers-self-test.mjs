@@ -70,7 +70,8 @@ check(selector.includes("'k10temp'") && selector.includes("'zenpower'"), 'AMD se
 check(selector.includes("'bcm2835_thermal'"), 'SBC selection is missing.')
 if (sourceTree) {
   const build = read('build-release.sh')
-  check(build.includes('allscan-v1.02/include/asrCpuTemperature.php'), 'Shared selector is absent from the release compatibility manifest.')
+  check(build.includes('include/asrCpuTemperature.php') && build.includes('COMPAT_VERSIONS="v1.02 v1.03 v1.04"'),
+    'Shared selector or supported backend versions are absent from the release compatibility manifest.')
   check(build.includes('asr-cpu-temperature-consumers-self-test.mjs'), 'ASR-wide consumer regression is not run and packaged.')
 }
 
