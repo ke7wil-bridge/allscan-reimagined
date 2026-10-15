@@ -13,6 +13,8 @@ RESTART_COOLDOWN_SECONDS="${RESTART_COOLDOWN_SECONDS:-1800}"
 SNAPSHOT_INTERVAL_SECONDS="${SNAPSHOT_INTERVAL_SECONDS:-300}"
 STATE_DIR="${STATE_DIR:-/var/lib/asr-node-health}"
 LOG_FILE="${LOG_FILE:-/var/log/asr-node-health.log}"
+LOG_MAX_BYTES="${LOG_MAX_BYTES:-1048576}"
+LOG_ROTATIONS="${LOG_ROTATIONS:-14}"
 
 if [ "${1:-}" = "--self-test" ]; then
   [ "$FAILURES_BEFORE_RESTART" -ge 3 ]
@@ -24,12 +26,35 @@ fi
 [ "$#" -eq 0 ] || exit 2
 [ -n "$NODE_NUMBER" ] || { echo "NODE_NUMBER is required" >&2; exit 1; }
 
-install -d -o root -g root -m 755 "$STATE_DIR"
-touch "$LOG_FILE"
-chown root:adm "$LOG_FILE" 2>/dev/null || chown root:root "$LOG_FILE"
-chmod 640 "$LOG_FILE"
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+  install -d -o root -g root -m 755 "$STATE_DIR"
+  touch "$LOG_FILE"
+  chown root:adm "$LOG_FILE" 2>/dev/null || chown root:root "$LOG_FILE"
+  chmod 640 "$LOG_FILE"
+else
+  mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")"
+  touch "$LOG_FILE"
+  chmod 600 "$LOG_FILE"
+fi
 exec 9>"$STATE_DIR/lock"
 flock -n 9 || exit 0
+
+rotate_unprivileged_log() {
+  [ "${EUID:-$(id -u)}" -ne 0 ] || return 0
+  local size index
+  size=$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)
+  [ "$size" -lt "$LOG_MAX_BYTES" ] && return 0
+  index="$LOG_ROTATIONS"
+  while [ "$index" -gt 1 ]; do
+    [ -f "$LOG_FILE.$((index - 1))" ] && mv -f "$LOG_FILE.$((index - 1))" "$LOG_FILE.$index"
+    index=$((index - 1))
+  done
+  mv -f "$LOG_FILE" "$LOG_FILE.1"
+  : >"$LOG_FILE"
+  chmod 600 "$LOG_FILE"
+}
+
+rotate_unprivileged_log
 
 log_event() {
   local level="$1" message="$2" line
