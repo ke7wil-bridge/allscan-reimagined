@@ -1,15 +1,24 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8 is built on the current official AllScan v1.03 backend at
+Gleason's AllScan. Beta 8.1 is built on the current official AllScan v1.03 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8** and remains a prerelease. Beta 7.5 is the previous
-published prerelease; the development line advances directly to Beta 8.
+This archive is **Beta 8.1** and remains a prerelease. Beta 8 is the previous
+published prerelease.
+
+## What's New in Beta 8.1
+
+- Connection Status can now recover safely from a transient Asterisk Manager
+  XStat/SawStat timeout without requiring an Asterisk or node restart. Recovery
+  waits through a cooldown, backs off failed recovery attempts, and requires
+  three consecutive successful bounded probes before normal polling resumes.
+- The circuit breaker still fails closed and continues showing the last
+  confirmed connection state while Asterisk remains unhealthy.
 
 ## What's New in Beta 8
 
@@ -22,11 +31,11 @@ published prerelease; the development line advances directly to Beta 8.
   bridges retain immutable ownership recorded at creation, with
   retire/recreate required for managed mode or role changes.
 
-[Read the Beta 8 development notes](release-notes/v1.0.0-beta.8.md).
+[Read the Beta 8.1 release notes](release-notes/v1.0.0-beta.8.1.md).
 
 ## Install
 
-After a Beta 8 release is published, run this one-time command from an
+After a Beta 8.1 release is published, run this one-time command from an
 interactive terminal on the ASL3 node:
 
 ```bash
@@ -45,10 +54,8 @@ For a normal update to a newer published ASR version, open `/asr/`, then choose
 **Admin → Update ASR → Check for Update** and follow the preflight and
 confirmation steps.
 
-If the node already says **v1.0.0 Beta 8** and you are applying a corrected
-Beta 8 package, the version number has not changed, so the browser may report
-that no newer version is available. Run the same verified bootstrap command
-once from an interactive terminal:
+If the node cannot use the browser updater, run the same verified bootstrap
+command once from an interactive terminal:
 
 ```bash
 curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
@@ -204,7 +211,8 @@ docker compose up --build
 - [Browser installation, updates, backups, and recovery](docs/browser-install-update.md)
 - [Updater user-state preservation inventory](docs/browser-updater-state-inventory.md)
 - [Lookup page and station origin map](docs/lookup-map.md)
-- [Beta 8 development notes](release-notes/v1.0.0-beta.8.md)
+- [Beta 8.1 release notes](release-notes/v1.0.0-beta.8.1.md)
+- [Beta 8 release notes](release-notes/v1.0.0-beta.8.md)
 - [Beta 7.5 release notes](release-notes/v1.0.0-beta.7.5.md)
 - [Beta 7.3 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.3.md)
 - [Beta 7.1 release notes](https://github.com/ke7wil-bridge/allscan-reimagined/blob/main/release-notes/v1.0.0-beta.7.1.md)

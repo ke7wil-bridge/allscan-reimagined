@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CRITICAL_COMPAT = (
+	"astapi/asrAmiGuard.php",
     "astapi/server.php",
     "astapi/asrTalkerIdentity.php",
     "include/asrRuntime.php",
