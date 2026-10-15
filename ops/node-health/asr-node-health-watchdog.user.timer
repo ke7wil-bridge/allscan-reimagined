@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ASR container Asterisk responsiveness watchdog every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+RandomizedDelaySec=5s
+AccuracySec=10s
+Unit=asr-node-health-watchdog.service
+
+[Install]
+WantedBy=timers.target

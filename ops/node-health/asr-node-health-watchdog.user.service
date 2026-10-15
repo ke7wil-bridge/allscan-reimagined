@@ -1,0 +1,9 @@
+[Unit]
+Description=ASR container Asterisk responsiveness watchdog and health snapshot
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=ASR_NODE_HEALTH_ENV=%h/.config/asr-node-health.env
+ExecStart=%h/.local/bin/asr-node-health-watchdog
+TimeoutStartSec=150
