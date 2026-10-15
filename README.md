@@ -1,19 +1,19 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.1 is built on the current official AllScan v1.03 backend at
+Gleason's AllScan. Beta 8.1.2 supports the current official AllScan v1.04 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
 copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.1** and remains a prerelease. Beta 8.1 is the previous
+This archive is **Beta 8.1.2** and remains a prerelease. Beta 8.1.1 is the previous
 published prerelease.
 
-Beta 8.1.1 also lets layered/container installations pin upstream AllScan to an
-immutable commit. This prevents an upstream branch change from silently moving
-a recreated ASR container to an unsupported AllScan backend.
+Beta 8.1.2 adds an exact compatibility layer for AllScan v1.04 while preserving
+the immutable upstream pinning and bounded Asterisk Manager recovery introduced
+in the previous Beta 8.1 patch releases.
 
 ## What's New in Beta 8.1
 
@@ -39,7 +39,7 @@ a recreated ASR container to an unsupported AllScan backend.
 
 ## Install
 
-After a Beta 8.1.1 release is published, run this one-time command from an
+After a Beta 8.1.2 release is published, run this one-time command from an
 interactive terminal on the ASL3 node:
 
 ```bash
