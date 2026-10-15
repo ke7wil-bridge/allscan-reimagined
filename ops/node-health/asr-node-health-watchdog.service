@@ -1,0 +1,8 @@
+[Unit]
+Description=ASR Asterisk responsiveness watchdog and health snapshot
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asr-node-health-watchdog
+TimeoutStartSec=150
