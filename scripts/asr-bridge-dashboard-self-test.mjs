@@ -267,10 +267,9 @@ try {
   assert(dmrControls.includes('placeholder=""'), 'empty DMR Net input shows placeholder text')
   assert(dmrControls.includes('id={`net-mode-${card.id}`}'), 'unified Net Bridge mode selector is missing')
   assert(
-    appSource.includes("['dmr','ysf','p25','nxdn','m17'].map")
-      && appSource.includes('disabled={!availableNetBridgeModes.has(mode)}')
+    appSource.includes("['dmr','ysf','p25','nxdn','m17'].filter((mode) => availableNetBridgeModes.has(mode)).map")
       && appSource.includes("card.mode.toLowerCase() === (selectedModeAvailable ? netBridgeMode : fallbackMode)"),
-    'the dashboard does not constrain the five modes to one visible Net Bridge card',
+    'the dashboard does not constrain installed modes to one visible Net Bridge card',
   )
   assert(
     appSource.includes('void selectNetBridgeMode(event.target.value)')

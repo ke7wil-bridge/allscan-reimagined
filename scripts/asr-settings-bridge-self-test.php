@@ -46,6 +46,18 @@ $helperSource = file_get_contents($root . '/scripts/asr-bridge-setup-helper.py')
 check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"')
 	&& str_contains($helperSource, 'allscan-reimagined-net-bridge-mode-control'),
 	'Unified setup can bypass the constrained lifecycle controller.');
+$savedPost = $_POST;
+$_POST = [
+	'setupNetModes' => ['dmr','ysf'], 'setupCallsign' => 'KE7WIL', 'setupDigitalId' => '3224939',
+	'setupMainNode' => '641890', 'setupNetDmrDestination' => '86753', 'setupTgifAuthMode' => 'legacy',
+	'setupNetYsfDestination' => '64189', 'setupNetYsfName' => 'US-KE7WIL-YSF',
+	'setupNetYsfHost' => '127.0.0.1', 'setupNetYsfPort' => '42000',
+];
+$selectiveError = '';
+$selectivePayload = asrSettingsNetBridgeSetupPayload(false, $selectiveError);
+check($selectiveError === '' && array_keys($selectivePayload['modes']) === ['dmr','ysf'],
+	'DMR/YSF-only Net Bridge setup did not ignore unselected mode fields.');
+$_POST = $savedPost;
 $reapplySource = file_get_contents($root . '/scripts/asr-reapply.sh');
 check(is_string($reapplySource)
 	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-plan')
@@ -539,6 +551,12 @@ check(strpos($settingsSource, '<option value="standard">Standard Bridge</option>
 check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') !== false, 'Unified Net Bridge choice is missing.');
 check(strpos($settingsSource, "urfOption.disabled = mode === 'zello'") !== false, 'Zello URF selection is not blocked.');
 check(strpos($settingsSource, "var isUnifiedNet = mode === 'net_bridge'") !== false, 'Unified Net Bridge mode handling is missing.');
+check(strpos($settingsSource, 'data-net-mode-choice="<?php echo $mode; ?>"') !== false
+	&& strpos($settingsSource, "values.append('setupNetModes[]', mode)") !== false
+	&& strpos($settingsSource, 'Select at least one Net Bridge mode.') !== false,
+	'Unified Net Bridge mode selection is not carried through browser and server validation.');
+check(strpos($settingsSource, 'Rerun Standard DMR/TGIF setup to change it; Session Talkgroup changes only the displayed TGIF roster.') !== false,
+	'Standard TGIF talkgroup change guidance is missing from Settings help.');
 check(strpos($settingsSource, 'DMR / TGIF via URF') === false, 'DMR is still mislabeled as URF-only.');
 check(strpos($settingsSource, 'in_array(($bridge[\'cardType\'] ?? \'\'), $netCardTypes, true)') !== false,
 	'Unified Net Bridge rows marked with URF provenance are excluded from Settings round-trip validation.');

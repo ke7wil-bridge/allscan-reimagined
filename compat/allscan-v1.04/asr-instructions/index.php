@@ -86,9 +86,17 @@ pageInit();
 
 	<section id="bridge-setup" class="asr-instructions-section">
 		<h2>Bridge Setup Wizard &amp; Safety</h2>
-		<p>Open <strong>Settings → Bridges → + Add Bridge</strong>. The wizard supports Net Bridge, M17, P25, NXDN, YSF, DMR, and Zello. It detects the ASL3 system, validates the plan, previews what will change, installs/configures supported managed resources, and performs health checks before the bridge is treated as ready.</p>
+		<p>Open <strong>Settings → Bridges → + Add Bridge</strong>. Choose <strong>Standard Bridge</strong> for one fixed digital destination, or <strong>Net Bridge</strong> when operators need to switch among the digital modes you install. The wizard detects the ASL3 system, previews its plan, makes a backup, applies the change, verifies startup, and rolls back a failed installation.</p>
+		<ol class="asr-instructions-steps">
+			<li>Select the bridge and its type. For Net Bridge, check only the modes the node will use; for example, check DMR and YSF and leave P25, NXDN, and M17 unchecked.</li>
+			<li>Complete the visible fields. Station callsign is the node owner’s callsign. DMR ID is the registered numeric radio ID used by DMR and the other digital gateway modes. Destination means the starting talkgroup or reflector for that mode. Host and port identify that mode’s network endpoint.</li>
+			<li>For TGIF, choose Legacy when no personal hotspot key is used, or Secured when TGIF issued a hotspot key. A hotspot key is not the TGIF website password. Use a unique ESSID when the same DMR ID has another hotspot online.</li>
+			<li>Select <strong>Check Setup</strong>. This validates and previews; it does not install the bridge. Correct any named field before continuing.</li>
+			<li>Select <strong>Install Bridge</strong> and keep the page open until completion. The install button applies the previewed plan, so a separate <strong>Save All Bridge Changes</strong> click is not required for the managed installation.</li>
+			<li>Reload the dashboard, confirm the expected card and modes appear, then make a short two-way audio test. Use Bridge Diagnostics if the card is not ready or audio works in only one direction.</li>
+		</ol>
 		<ul class="asr-instructions-list">
-			<li>Use the unified <strong>Net Bridge</strong> choice for the Beta 8 outbound multi-mode bridge. Its private AllStar transport node is managed internally rather than chosen during normal operation.</li>
+			<li>Use the unified <strong>Net Bridge</strong> choice for the outbound selectable bridge. Its private AllStar transport node is managed internally rather than chosen during normal operation.</li>
 			<li>Standard bridges normally stay on one destination. Display-only cards monitor externally installed services without operating them.</li>
 			<li>Do not share USRP, TLV, DMR-network, MQTT, emulator, or vocoder ports between active bridge instances.</li>
 			<li>ASR never adopts a pre-existing bridge resource merely because a path, unit name, node, or port matches. Ownership is recorded only when ASR creates a dedicated managed resource.</li>
@@ -98,9 +106,9 @@ pageInit();
 
 	<section id="net-bridge" class="asr-instructions-section">
 		<h2>Unified Net Bridge</h2>
-		<p>Beta 8 uses one general-purpose Net Bridge on the private AllStar transport node <strong>1999</strong>. It is separate from fixed/home reflector infrastructure. Only one Net Bridge mode is active at a time, and each mode keeps its own last-used destination so switching modes does not overwrite another mode's destination.</p>
+		<p>The general-purpose Net Bridge uses private AllStar transport node <strong>1999</strong> and is separate from fixed/home reflector infrastructure. Install one or more of DMR, YSF, P25, NXDN, and M17; you do not have to install all five. For a DMR-and-YSF-only bridge, check only <strong>DMR</strong> and <strong>YSF</strong>. Only one installed mode is active at a time, and each installed mode keeps its own last-used destination.</p>
 		<div class="asr-instructions-compare">
-			<article><h3>Supported Modes</h3><p><strong>DMR</strong> uses a talkgroup. <strong>YSF</strong> uses a reflector. <strong>P25</strong> and <strong>NXDN</strong> use numeric destinations. <strong>M17</strong> uses a reflector and module.</p></article>
+			<article><h3>Selectable Modes</h3><p><strong>DMR</strong> uses a talkgroup. <strong>YSF</strong> uses a five-digit reflector ID plus its published name, host, and port. <strong>P25</strong> and <strong>NXDN</strong> use numeric destinations plus host and port. <strong>M17</strong> uses a reflector, module, host, and port. The dashboard lists only modes that are installed.</p></article>
 			<article><h3>Mode Switching</h3><p>Selecting a mode safely stops the previous backend, reconfigures node 1999 for the selected mode, starts the selected backend, restores that mode's destination, and verifies readiness. If a switch fails, ASR rolls back or leaves the Net Bridge safely disconnected.</p></article>
 		</div>
 		<ol class="asr-instructions-steps">
@@ -115,6 +123,16 @@ pageInit();
 	<section id="standard-bridges" class="asr-instructions-section">
 		<h2>Standard Digital Bridges</h2>
 		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, Zello, and the shared URF reflector can be represented when their backend is installed and provides the required evidence.</p>
+		<h3>Change a Standard TGIF DMR talkgroup</h3>
+		<p>Changing the fixed talkgroup on an ASR-managed Standard DMR bridge is a normal reconfiguration. You do not need to delete the bridge or edit Linux files.</p>
+		<ol class="asr-instructions-steps">
+			<li>Open <strong>Settings → Bridges → + Add Bridge</strong>.</li>
+			<li>Select <strong>DMR</strong>, <strong>Standard Bridge</strong>, and <strong>TGIF</strong>.</li>
+			<li>Enter the new <strong>TGIF Talkgroup</strong>. Keep the same callsign, DMR ID, connection method, ESSID, and hotspot key unless those items also changed. Leave the private bridge node on Automatic.</li>
+			<li>Select <strong>Check Setup</strong>, review the plan, then select <strong>Install Bridge</strong>. ASR recognizes its existing managed TGIF bridge, reuses it, updates the destination, and restarts the managed runtime.</li>
+			<li>Reload the dashboard and make a short inbound and outbound audio test on the new talkgroup.</li>
+		</ol>
+		<p class="asr-instructions-callout"><strong>Important:</strong> The <strong>Session Talkgroup</strong> under TGIF website sign-in changes only the talkgroup whose connected-station roster is displayed. It does not change where bridge audio is sent. Use the guided Standard DMR procedure above to change the actual bridge talkgroup.</p>
 		<ul class="asr-instructions-list">
 			<li><strong>URF:</strong> one shared reflector transport can expose separate DMR, YSF, P25, NXDN, and M17 mode cards. Configure only the modes actually used.</li>
 			<li><strong>DMR/TGIF:</strong> TGIF website session authentication and the DMR network connection are separate. Secured DMR uses the configured hotspot key; legacy operation can use the DMR identity without a personal key.</li>

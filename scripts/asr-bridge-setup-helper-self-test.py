@@ -123,6 +123,17 @@ def main() -> None:
     assert net_modes["dmr"]["destination"] == "86753"
     assert net_modes["nxdn"]["destination"] == "6749"
     assert net_modes["nxdn"]["identity"] == "15846"
+    dmr_ysf_request = {**net_request, "modes": {
+        "dmr": net_request["modes"]["dmr"],
+        "ysf": net_request["modes"]["ysf"],
+    }}
+    dmr_ysf_modes = helper.net_bridge_mode_payloads(dmr_ysf_request)
+    assert list(dmr_ysf_modes) == ["dmr", "ysf"]
+    try:
+        helper.net_bridge_mode_payloads({**net_request, "modes": {}})
+        raise AssertionError("empty Net Bridge mode selection accepted")
+    except helper.HelperError:
+        pass
     try:
         helper.net_bridge_mode_payloads({**net_request, "command": "systemctl restart anything"})
         raise AssertionError("unrestricted Net Bridge command field accepted")

@@ -3804,7 +3804,7 @@ function App({ config }: { config: RuntimeConfig }) {
                       <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
                         <label htmlFor={`net-mode-${card.id}`}>Mode</label>
                         <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy || bridgeActionBusy || connectPending} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
-                          {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
+                          {['dmr','ysf','p25','nxdn','m17'].filter((mode) => availableNetBridgeModes.has(mode)).map((mode) => <option key={mode} value={mode}>{mode.toUpperCase()}</option>)}
                         </select>
                         <div className="allscan-bridge-link-buttons">
                           <button
@@ -3850,7 +3850,7 @@ function App({ config }: { config: RuntimeConfig }) {
                       <div className="allscan-bridge-tune allscan-net-bridge-mode-row">
                         <label htmlFor={`net-mode-${card.id}`}>Mode</label>
                         <select id={`net-mode-${card.id}`} value={netBridgeMode} disabled={busy || bridgeActionBusy || connectPending} onChange={(event) => void selectNetBridgeMode(event.target.value)}>
-                          {['dmr','ysf','p25','nxdn','m17'].map((mode) => <option key={mode} value={mode} disabled={!availableNetBridgeModes.has(mode)}>{mode.toUpperCase()}</option>)}
+                          {['dmr','ysf','p25','nxdn','m17'].filter((mode) => availableNetBridgeModes.has(mode)).map((mode) => <option key={mode} value={mode}>{mode.toUpperCase()}</option>)}
                         </select>
                         {card.cardType !== 'm17_net' ? <div className="allscan-bridge-link-buttons">
                           <button

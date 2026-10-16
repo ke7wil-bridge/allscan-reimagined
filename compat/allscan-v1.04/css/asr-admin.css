@@ -4819,6 +4819,26 @@ body.asr-admin-page-settings-modern .asr-reimagined-settings-form .asr-settings-
 }
 .asr-net-bridge-setup-fields[hidden] { display: none; }
 .asr-net-bridge-setup-fields > p { grid-column: 1 / -1; margin: 0; }
+.asr-net-mode-choices {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: .55rem 1rem;
+	align-items: center;
+}
+.asr-net-mode-choices > strong,
+.asr-net-mode-choices > small { flex-basis: 100%; }
+.asr-net-mode-choices label { display: inline-flex; gap: .35rem; align-items: center; }
+.asr-net-bridge-setup-fields fieldset {
+	min-width: 0;
+	margin: 0;
+	padding: .75rem;
+	border: 1px solid var(--asr-border, #64748b);
+	border-radius: .45rem;
+}
+.asr-net-bridge-setup-fields fieldset[hidden] { display: none; }
+.asr-net-bridge-setup-fields fieldset label { display: block; margin-top: .55rem; }
+.asr-net-bridge-setup-fields fieldset label:first-of-type { margin-top: 0; }
 
 .asr-bridge-settings-row {
 	display:grid;

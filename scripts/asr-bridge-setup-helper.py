@@ -526,12 +526,15 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
     allowed = {"callsign", "digitalId", "mainNode", "modes", "planDigest"}
     if set(payload) - allowed or not isinstance(payload.get("modes"), dict):
         raise HelperError("Net Bridge request contains unsupported fields")
-    if set(payload["modes"]) != set(NET_MODE_IDS):
-        raise HelperError("Net Bridge requires DMR, YSF, P25, NXDN, and M17 configuration")
+    selected_modes = [mode for mode in NET_MODE_IDS if mode in payload["modes"]]
+    if not selected_modes or set(payload["modes"]) - set(NET_MODE_IDS):
+        raise HelperError("Net Bridge requires at least one supported mode")
     callsign = str(payload.get("callsign") or "").strip().upper()
     digital_id = str(payload.get("digitalId") or "")
     main_node = str(payload.get("mainNode") or "")
-    if not re.fullmatch(r"[A-Z0-9]{3,10}", callsign) or not digital_id.isdigit() or not main_node.isdigit():
+    needs_digital_id = any(mode != "m17" for mode in selected_modes)
+    if (not re.fullmatch(r"[A-Z0-9]{3,10}", callsign)
+            or (needs_digital_id and not digital_id.isdigit()) or not main_node.isdigit()):
         raise HelperError("Net Bridge common configuration is incomplete")
     modes = payload["modes"]
     schemas = {
@@ -545,32 +548,36 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
         if not isinstance(value, dict) or set(value) - schemas[mode]:
             raise HelperError(f"Net Bridge {mode.upper()} configuration is invalid")
     common = {"callsign": callsign, "digitalId": digital_id, "bridgeRole": "net", "bridgeNode": "1999"}
-    result = {
-        "dmr": {**common, "bridgeId": NET_MODE_IDS["dmr"], "destination": str(modes["dmr"].get("destination", "")),
-                "network": "tgif", "authMode": str(modes["dmr"].get("authMode") or "legacy"),
-                "tgifPassword": str(modes["dmr"].get("tgifPassword") or ""), "title": "DMR Net Bridge"},
-        "ysf": {**common, "bridgeId": NET_MODE_IDS["ysf"], "destination": str(modes["ysf"].get("destination", "")),
-                "name": str(modes["ysf"].get("name", "")), "host": str(modes["ysf"].get("host", "")),
-                "port": str(modes["ysf"].get("port", "")), "title": "YSF Net Bridge"},
-        "p25": {**common, "bridgeId": NET_MODE_IDS["p25"], "destination": str(modes["p25"].get("destination", "")),
-                "host": str(modes["p25"].get("host", "")), "port": str(modes["p25"].get("port", "")), "title": "P25 Net Bridge"},
+    candidates = {
+        "dmr": {**common, "bridgeId": NET_MODE_IDS["dmr"], "destination": str(modes.get("dmr", {}).get("destination", "")),
+                "network": "tgif", "authMode": str(modes.get("dmr", {}).get("authMode") or "legacy"),
+                "tgifPassword": str(modes.get("dmr", {}).get("tgifPassword") or ""), "title": "DMR Net Bridge"},
+        "ysf": {**common, "bridgeId": NET_MODE_IDS["ysf"], "destination": str(modes.get("ysf", {}).get("destination", "")),
+                "name": str(modes.get("ysf", {}).get("name", "")), "host": str(modes.get("ysf", {}).get("host", "")),
+                "port": str(modes.get("ysf", {}).get("port", "")), "title": "YSF Net Bridge"},
+        "p25": {**common, "bridgeId": NET_MODE_IDS["p25"], "destination": str(modes.get("p25", {}).get("destination", "")),
+                "host": str(modes.get("p25", {}).get("host", "")), "port": str(modes.get("p25", {}).get("port", "")), "title": "P25 Net Bridge"},
         "nxdn": {**common, "bridgeId": NET_MODE_IDS["nxdn"],
-                 "destination": str(modes["nxdn"].get("destination", "")),
-                 "identity": str(modes["nxdn"].get("identity", "")),
-                 "host": str(modes["nxdn"].get("host", "")),
-                 "port": str(modes["nxdn"].get("port", "")),
+                 "destination": str(modes.get("nxdn", {}).get("destination", "")),
+                 "identity": str(modes.get("nxdn", {}).get("identity", "")),
+                 "host": str(modes.get("nxdn", {}).get("host", "")),
+                 "port": str(modes.get("nxdn", {}).get("port", "")),
                  "title": "NXDN Net Bridge"},
         "m17": {"bridgeId": NET_MODE_IDS["m17"], "callsign": callsign,
-                "reflector": str(modes["m17"].get("reflector", "")), "host": str(modes["m17"].get("host", "")),
-                "port": str(modes["m17"].get("port", "")), "module": str(modes["m17"].get("module", "")),
+                "reflector": str(modes.get("m17", {}).get("reflector", "")), "host": str(modes.get("m17", {}).get("host", "")),
+                "port": str(modes.get("m17", {}).get("port", "")), "module": str(modes.get("m17", {}).get("module", "")),
                 "mainNode": main_node, "bridgeRole": "net", "bridgeNode": "1999", "title": "M17 Net Bridge"},
     }
+    result = {mode: candidates[mode] for mode in selected_modes}
     # Constructor validation is part of the narrow allowlist boundary.
-    dmr_settings(load_module("asr_net_dmr_validate", URF_PLAN_PATH), result["dmr"])
+    if "dmr" in result:
+        dmr_settings(load_module("asr_net_dmr_validate", URF_PLAN_PATH), result["dmr"])
     planner = load_module("asr_net_digital_validate", DIGITAL_PLAN_PATH)
     for mode in ("ysf", "p25", "nxdn"):
-        digital_settings(planner, mode, result[mode])
-    m17_settings(load_m17(), result["m17"])
+        if mode in result:
+            digital_settings(planner, mode, result[mode])
+    if "m17" in result:
+        m17_settings(load_m17(), result["m17"])
     return result
 
 
@@ -578,25 +585,28 @@ def net_bridge_plan(payload: dict[str, Any]) -> dict[str, Any]:
     per_mode = net_bridge_mode_payloads(payload)
     sanitized = json.loads(json.dumps(payload))
     sanitized.pop("planDigest", None)
-    sanitized["modes"]["dmr"].pop("tgifPassword", None)
-    host_plans = {
-        "dmr": load_module("asr_net_dmr_plan", URF_PLAN_PATH).plan(
-            Path("/"), dmr_settings(load_module("asr_net_dmr_settings", URF_PLAN_PATH), per_mode["dmr"])),
-        "m17": load_m17().plan(Path("/"), m17_settings(load_m17(), per_mode["m17"])),
-    }
+    if "dmr" in sanitized["modes"]:
+        sanitized["modes"]["dmr"].pop("tgifPassword", None)
+    host_plans = {}
+    if "dmr" in per_mode:
+        host_plans["dmr"] = load_module("asr_net_dmr_plan", URF_PLAN_PATH).plan(
+            Path("/"), dmr_settings(load_module("asr_net_dmr_settings", URF_PLAN_PATH), per_mode["dmr"]))
+    if "m17" in per_mode:
+        host_plans["m17"] = load_m17().plan(Path("/"), m17_settings(load_m17(), per_mode["m17"]))
     digital = load_module("asr_net_digital_plan", DIGITAL_PLAN_PATH)
     for mode in ("ysf", "p25", "nxdn"):
-        host_plans[mode] = digital.plan(Path("/"), digital_settings(digital, mode, per_mode[mode]))
+        if mode in per_mode:
+            host_plans[mode] = digital.plan(Path("/"), digital_settings(digital, mode, per_mode[mode]))
     material = {"request": sanitized, "plans": {mode: item["digest"] for mode, item in host_plans.items()}}
     digest = hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    active_mode = "dmr"
+    active_mode = next(iter(per_mode))
     config_path = provisioning_config_path("/etc/allscan-reimagined/config.json")
     if config_path.is_file():
         configured_mode = str(json.loads(config_path.read_text()).get("netBridgeMode") or "").lower()
-        if configured_mode in NET_MODE_IDS:
+        if configured_mode in per_mode:
             active_mode = configured_mode
     return {"ok": True, "schema": 1, "bridgeType": "net_bridge", "bridgeNode": 1999,
-            "modes": list(NET_MODE_IDS), "activeMode": active_mode, "digest": digest}
+            "modes": list(per_mode), "activeMode": active_mode, "digest": digest}
 
 
 def sync_net_ysf_custom_hosts(runner=subprocess.run) -> None:
@@ -619,7 +629,7 @@ def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         raise HelperError("Net Bridge preview is stale; preview again")
     per_mode = net_bridge_mode_payloads(payload)
     results = {}
-    for mode in ("dmr", "ysf", "p25", "nxdn", "m17"):
+    for mode in per_mode:
         request = per_mode[mode]
         if mode == "dmr":
             module = load_module("asr_net_dmr_apply_plan", URF_PLAN_PATH)
@@ -633,7 +643,8 @@ def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
             module = load_module(f"asr_net_{mode}_apply_plan", DIGITAL_PLAN_PATH)
             request["planDigest"] = module.plan(Path("/"), digital_settings(module, mode, request))["digest"]
             results[mode] = digital_command(request, mode, True)
-    sync_net_ysf_custom_hosts()
+    if "ysf" in per_mode:
+        sync_net_ysf_custom_hosts()
     controller = Path("/usr/local/sbin/allscan-reimagined-net-bridge-mode-control")
     if not controller.is_file() or controller.is_symlink():
         raise HelperError("Net Bridge lifecycle controller is unavailable")
