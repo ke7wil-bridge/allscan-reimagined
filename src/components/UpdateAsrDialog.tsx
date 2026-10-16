@@ -16,10 +16,10 @@ const LABELS: Record<string, string> = {
 }
 
 export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onClose: () => void; initialUpdate?: UpdateCheck | null }) {
-  const [available, setAvailable] = useState<UpdateCheck | null>(initialUpdate)
+  const [available, setAvailable] = useState<UpdateCheck | null>(null)
   const [job, setJob] = useState<UpdateJob | null>(null)
   const [jobId, setJobId] = useState(() => window.localStorage.getItem(STORED_JOB) || '')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
   const [connectionMessage, setConnectionMessage] = useState('')
 
@@ -62,6 +62,18 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, job?.state])
 
+  useEffect(() => {
+    if (jobId) return
+    let cancelled = false
+    void checkAsrUpdate()
+      .then((next) => { if (!cancelled) setAvailable(next) })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'ASR update request failed.')
+      })
+      .finally(() => { if (!cancelled) setBusy(false) })
+    return () => { cancelled = true }
+  }, [jobId])
+
   const run = async (request: () => Promise<void>) => {
     setBusy(true)
     setError('')
@@ -69,9 +81,12 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
     catch (cause) { setError(cause instanceof Error ? cause.message : 'ASR update request failed.') }
     finally { setBusy(false) }
   }
-  const check = () => void run(async () => {
-    setAvailable(await checkAsrUpdate())
-  })
+  const check = () => {
+    setAvailable(null)
+    void run(async () => {
+      setAvailable(await checkAsrUpdate())
+    })
+  }
   const apply = () => void run(async () => {
     const next = await queueAsrUpdate()
     window.localStorage.setItem(STORED_JOB, next.jobId)
@@ -104,8 +119,8 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
         </div> : null}
         {!job && !running ? <>
           <dl className="asr-update-versions">
-            <div><dt>Current</dt><dd>{available?.installedVersion || 'Check for update'}</dd></div>
-            <div><dt>Available</dt><dd>{available?.availableVersion || '—'}</dd></div>
+            <div><dt>Current</dt><dd>{available?.installedVersion || initialUpdate?.installedVersion || 'Checking…'}</dd></div>
+            <div><dt>Available</dt><dd>{busy ? 'Checking…' : (available?.availableVersion || '—')}</dd></div>
           </dl>
           <div className="asr-update-actions">
             <button type="button" disabled={busy} onClick={check}>Check for Update</button>
