@@ -110,6 +110,7 @@ python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
+python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
 python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-urf-native-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
@@ -188,6 +189,7 @@ install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-
 install -m 755 scripts/asr-patch-connected-clients.py "$STAGE/payload/scripts/asr-patch-connected-clients.py"
 install -m 755 scripts/asr-migrate-tgif-environment.py "$STAGE/payload/scripts/asr-migrate-tgif-environment.py"
 install -m 755 scripts/asr-patch-allscan-index.py "$STAGE/payload/scripts/asr-patch-allscan-index.py"
+install -m 755 scripts/asr-patch-html-nullability.py "$STAGE/payload/scripts/asr-patch-html-nullability.py"
 install -m 755 scripts/asr-release-check.py "$STAGE/payload/scripts/asr-release-check.py"
 install -m 755 scripts/asr-rollback.py "$STAGE/payload/scripts/asr-rollback.py"
 install -m 755 scripts/asr-performance-contract-self-test.php "$STAGE/payload/scripts/asr-performance-contract-self-test.php"

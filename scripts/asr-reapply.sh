@@ -146,6 +146,7 @@ stage_asr_web() {
   stock_before=$(tree_digest "$STOCK_ALLSCAN_DIR")
 
   copy_stable_stock_tree "$stage" || return 1
+  python3 "$MASTER_DIR/scripts/asr-patch-html-nullability.py" "$stage/include/Html.php" || return 1
   if [ -d "$ASR_WEB_DIR" ]; then
     for relative in \
       connected-clients.json asr-connected-clients.json \

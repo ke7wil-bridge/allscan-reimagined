@@ -130,5 +130,11 @@ assert(
     && app.includes('from Favorites?'),
   'A Favorites reset or delete action is missing confirmation',
 )
+assert(
+  app.includes('favoriteColorOpen === favorite.node')
+    && app.includes('favoriteColorDrafts[favorite.node] || favorite.color')
+    && app.includes("'--asr-favorite-tab-color': displayColor"),
+  'Favorite color picker does not preview the draft immediately',
+)
 
 console.log('favorites placement self-test: ok')

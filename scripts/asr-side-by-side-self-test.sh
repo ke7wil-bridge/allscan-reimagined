@@ -25,6 +25,11 @@ mkdir -p \
 
 printf '%s\n' 'stock sentinel' > "$STOCK_ALLSCAN_DIR/stock-sentinel.txt"
 printf '%s\n' '$AllScanVersion = "v1.02";' > "$STOCK_ALLSCAN_DIR/include/common.php"
+cat > "$STOCK_ALLSCAN_DIR/include/Html.php" <<'PHP'
+<?php
+if(strlen($val) > $size) $size = strlen($val);
+if(strlen($class)) $out .= $class;
+PHP
 printf '%s\n' '<?php echo "stock";' > "$STOCK_ALLSCAN_DIR/index.php"
 printf '%s\n' '<html>stock</html>' > "$STOCK_ALLSCAN_DIR/index.html"
 printf '%s\n' '{"guarded":true}' > "$STOCK_ALLSCAN_DIR/include/public-status.json"
@@ -39,6 +44,7 @@ printf '%s\n' '<?php const ASR_VERSION = "1.0.0-beta.6.0";' > "$MASTER_DIR/serve
 cat > "$MASTER_DIR/scripts/asr-protected-config-metadata.py" <<PY
 raise SystemExit("web-only reapply invoked protected-config metadata repair")
 PY
+cp "$SCRIPT_DIR/asr-patch-html-nullability.py" "$MASTER_DIR/scripts/asr-patch-html-nullability.py"
 printf '%s\n' '$AllScanVersion = "v1.02"; // ASR compatibility' \
   > "$MASTER_DIR/compat/allscan-v1.02/include/common.php"
 printf '%s\n' '<?php // EchoLink compatibility sentinel' \
@@ -85,6 +91,9 @@ stock_after=$(tree_digest "$STOCK_ALLSCAN_DIR")
 [ "$stock_before" = "$stock_after" ]
 [ "$(cat "$ASR_WEB_DIR/stock-sentinel.txt")" = "stock sentinel" ]
 grep -q 'ASR compatibility' "$ASR_WEB_DIR/include/common.php"
+grep -Fq 'if($val !== null && strlen($val) > $size)' "$ASR_WEB_DIR/include/Html.php"
+grep -Fq 'if($class !== null && strlen($class))' "$ASR_WEB_DIR/include/Html.php"
+grep -Fq 'if(strlen($val) > $size)' "$STOCK_ALLSCAN_DIR/include/Html.php"
 grep -q '/asr/assets/index-test.js' "$ASR_WEB_DIR/index.html"
 test -f "$ASR_WEB_DIR/asr-api.php"
 test -L "$ASR_WEB_DIR/favorites.ini"
