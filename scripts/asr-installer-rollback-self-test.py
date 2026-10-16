@@ -188,6 +188,12 @@ def assert_installer_order(installer: Path) -> None:
     assert "FIXED_RECOVERY_TIMER_WAS_ENABLED" in text
     assert "FIXED_RECOVERY_TIMER_WAS_ACTIVE" in text
     assert "allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null" in text
+    for unit in (
+        "allscan-reimagined-reapply.path",
+        "allscan-reimagined-reapply.timer",
+    ):
+        assert f"systemctl is-enabled --quiet {unit} 2>/dev/null" in text
+        assert f"systemctl is-active --quiet {unit} 2>/dev/null" in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-fixed-bridge-recovery.py" --self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-bridge-lifecycle.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-startup-bridge-summary.py" --self-test' in text

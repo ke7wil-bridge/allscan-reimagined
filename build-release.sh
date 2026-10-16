@@ -134,6 +134,7 @@ python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 node "$ROOT/scripts/asr-support-self-test.mjs"
 node "$ROOT/scripts/asr-cpu-temperature-consumers-self-test.mjs"
+node "$ROOT/scripts/asr-update-dialog-self-test.mjs"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
 		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do

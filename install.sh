@@ -547,16 +547,16 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || fail "A supported web-server group was not found."
 
-if systemctl is-enabled --quiet allscan-reimagined-reapply.path; then
+if systemctl is-enabled --quiet allscan-reimagined-reapply.path 2>/dev/null; then
   REAPPLY_PATH_WAS_ENABLED=1
 fi
-if systemctl is-active --quiet allscan-reimagined-reapply.path; then
+if systemctl is-active --quiet allscan-reimagined-reapply.path 2>/dev/null; then
   REAPPLY_PATH_WAS_ACTIVE=1
 fi
-if systemctl is-enabled --quiet allscan-reimagined-reapply.timer; then
+if systemctl is-enabled --quiet allscan-reimagined-reapply.timer 2>/dev/null; then
   REAPPLY_TIMER_WAS_ENABLED=1
 fi
-if systemctl is-active --quiet allscan-reimagined-reapply.timer; then
+if systemctl is-active --quiet allscan-reimagined-reapply.timer 2>/dev/null; then
   REAPPLY_TIMER_WAS_ACTIVE=1
 fi
 if systemctl is-enabled --quiet allscan-reimagined-fixed-bridge-recovery.timer 2>/dev/null; then
