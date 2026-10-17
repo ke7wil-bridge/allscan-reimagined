@@ -118,6 +118,7 @@ if [ -e /etc/allscan-reimagined/secrets.json ] || [ -L /etc/allscan-reimagined/s
     || needs_reapply=1
 fi
 [ -f /etc/systemd/system/allscan-reimagined-rollback@.service ] || needs_reapply=1
+[ -f /etc/systemd/system/allscan-reimagined-update@.service ] || needs_reapply=1
 [ -f /etc/systemd/system/allscan-reimagined-reapply-delayed.timer ] || needs_reapply=1
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
 import json
