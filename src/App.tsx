@@ -12,6 +12,7 @@ import {
   activateNetBridgeMode,
   asrPath,
   bridgeCardShowsClientDetails,
+  bridgeTalkerFeed,
   relativeBridgeTime,
   disconnectBridge,
   dropClientChannel,
@@ -822,8 +823,25 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
   const talkerCards = useMemo(() => {
-    const history = recentTalkers.filter((entry) => (!currentTalker || entry.node !== currentTalker.node || entry.eventEpoch !== currentTalker.eventEpoch))
-    return [currentTalker, ...history, null, null, null, null].slice(0, 5).map(enrichBridgeTalker)
+    const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
+    const active = currentTalker || bridgeTalkers.currentTalker
+    const history = [...recentTalkers, ...bridgeTalkers.recentTalkers]
+      .filter((entry) => (!active || entry.node !== active.node || entry.eventEpoch !== active.eventEpoch))
+      .sort((left, right) => right.eventEpoch - left.eventEpoch)
+    const enrichedActive = enrichBridgeTalker(active)
+    const enrichedHistory = history.map(enrichBridgeTalker).filter((entry): entry is TalkerFeedEntry => entry !== null)
+    const uniqueHistory = enrichedHistory.filter((entry, index, entries) => {
+      if (enrichedActive
+        && enrichedActive.info === entry.info
+        && enrichedActive.source === entry.source
+        && Math.abs(enrichedActive.eventEpoch - entry.eventEpoch) <= 3) return false
+      return entries.findIndex((candidate) => (
+      candidate.info === entry.info
+      && candidate.source === entry.source
+      && Math.abs(candidate.eventEpoch - entry.eventEpoch) <= 3
+      )) === index
+    })
+    return [enrichedActive, ...uniqueHistory, null, null, null, null].slice(0, 5)
   }, [currentTalker, recentTalkers, bridgeState.cards, netBridgeMode])
 
   const talkerLastHeard = (talker: TalkerFeedEntry | null, index: number) => {

@@ -39,6 +39,7 @@ for chunk in mapping_chunks[:2]:
         errors.append("bridge node mapping no longer excludes explicit link aliases")
 
 talker_enrichment = app[app.find("const enrichBridgeTalker"):app.find("const talkerCards")]
+talker_composition = app[app.find("const talkerCards"):app.find("const talkerLastHeard")]
 if "info: 'Identifying…'" not in talker_enrichment or "node: 'Net Bridge'" not in talker_enrichment:
     errors.append("node 1999 can leak its generic AllStar identity before mode enrichment")
 if "if (!isCurrentTalker) return null" not in talker_enrichment:
@@ -55,6 +56,8 @@ if "persistedUrfIdentity" not in talker_enrichment or "talker.source" not in tal
     errors.append("persisted URFWIL caller identity/provenance is not rendered after refresh")
 if "transportNode !== '1001' && transportNode !== '1999'" not in talker_enrichment:
     errors.append("Talker Cards no longer guard both private transport nodes 1001 and 1999")
+if "bridgeTalkerFeed(bridgeState.cards)" not in talker_composition or "bridgeTalkers.currentTalker" not in talker_composition:
+    errors.append("bridge-only digital callers are not promoted into the main Talkers cards")
 if "String(entry.description || '').trim() || parts.description" not in live or "String(entry.location || '').trim() || parts.location" not in live:
     errors.append("persisted Talker Card description/location metadata is discarded")
 if "if (!isCurrentTalker) return null" not in talker_enrichment or "info: 'Identifying…'" not in talker_enrichment:
