@@ -8,13 +8,15 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.1** and remains a prerelease. Beta 8.1.5 is the previous
+This archive is **Beta 8.1.5.1** and remains a prerelease. Beta 8.1.4 is the previous
 published prerelease.
 
-Beta 8.1.5.1 adds focused QA corrections on top of Beta 8.1.5, which refreshes
-update availability when the updater opens and suppresses
-harmless first-install service probe warnings while retaining the AllScan v1.04
-compatibility and reliability work from the previous releases.
+Beta 8.1.5.1 restores the administrator update entry, improves Favorites color
+preview and CPU-temperature recovery, and prevents PHP 8.1 nullable-value
+warnings on the staged ASR login page. It also refreshes update availability
+when the updater opens and suppresses harmless first-install service probe
+warnings while retaining the AllScan v1.04 compatibility and reliability work
+from the previous releases.
 
 ## What's New in Beta 8.1
 
