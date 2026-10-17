@@ -35,6 +35,7 @@ if (sourceTree) {
   check(client.includes('?action=cpu-temp') && app.includes('setCpuValue(next.value)') && app.includes('setCpuBgColor(next.bgColor)'), 'React dashboard does not consume the authoritative API value/color contract.')
   check(app.includes("useState('--°F / --°C')") && !app.includes("useState('131°F / 55°C')"), 'React dashboard still displays a fabricated CPU temperature while the API request is pending or failed.')
   check(app.includes("setCpuValue('--°F / --°C')") && app.includes('if (!failureNotified)'), 'React dashboard does not clear a stale CPU reading or suppress repeated notices when refresh fails.')
+  check(app.includes("clearNodeMessage('CPU temperature request failed.')") && app.includes("const cachedFallback = cleanNodeMessageLine(cachedMessage) === target ? '' : cachedMessage"), 'React dashboard does not clear a recovered transient CPU failure notice and its cached copy.')
   check(client.includes('!response.ok || payload.ok === false') && client.includes("if (!payload.value)"), 'React CPU client does not reject failed or incomplete API responses.')
 }
 

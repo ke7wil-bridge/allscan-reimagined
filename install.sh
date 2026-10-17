@@ -1171,6 +1171,7 @@ validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-manager.py" --self-test >/dev/null
 validate_command "canonical Favorites source self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-source.py" --self-test >/dev/null
+  python3 "$RELEASE_DIR/scripts/asr-patch-html-nullability.py" --self-test >/dev/null
 validate_command "loopback endpoint validation self-test" \
   python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" --self-test >/dev/null
 validate_command "multiple Favorites discovery self-test" \

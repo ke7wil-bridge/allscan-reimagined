@@ -1016,6 +1016,8 @@ function App({ config }: { config: RuntimeConfig }) {
   function clearNodeMessage(message: string) {
     const target = cleanNodeMessageLine(message)
     if (!target) return
+    const cachedMessage = readLiveNodeMessageCache()
+    const cachedFallback = cleanNodeMessageLine(cachedMessage) === target ? '' : cachedMessage
     const removeTarget = (current: string) => {
       const remaining = String(current || '')
         .replace(/\r\n?/g, '\n')
@@ -1026,10 +1028,10 @@ function App({ config }: { config: RuntimeConfig }) {
       return remaining
     }
     setNodeMessageRaw(removeTarget)
-    setNodeMessage((current) => removeTarget(current) || readLiveNodeMessageCache() || 'No recent messages')
+    setNodeMessage((current) => removeTarget(current) || cachedFallback || 'No recent messages')
     setNodeMessageLatest((current) => (
       cleanNodeMessageLine(current) === target
-        ? readLiveNodeMessageCache() || 'No recent messages'
+        ? cachedFallback || 'No recent messages'
         : current
     ))
     if (cleanNodeMessageLine(lastNodeMessage.current) === target) {
@@ -1407,6 +1409,7 @@ function App({ config }: { config: RuntimeConfig }) {
         if (!cancelled && next) {
           setCpuValue(next.value)
           setCpuBgColor(next.bgColor)
+          clearNodeMessage('CPU temperature request failed.')
           failureNotified = false
         }
       } catch {
@@ -2713,6 +2716,9 @@ function App({ config }: { config: RuntimeConfig }) {
               const fallbackLinkCount = linkedNodeCounts[favorite.node]
               const hasStatsLinkCount = stats && Number.isFinite(stats.linkCnt)
               const linkText = String(hasStatsLinkCount ? stats.linkCnt : fallbackLinkCount ?? favorite.lcnt ?? '').trim()
+              const displayColor = favoriteColorOpen === favorite.node
+                ? (favoriteColorDrafts[favorite.node] || favorite.color)
+                : favorite.color
               return (
               <tr
                 key={favorite.node}
@@ -2724,7 +2730,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
                   setFavoriteDragNode(null)
                 }}
-                style={favorite.color ? { '--asr-favorite-tab-color': favorite.color, borderInlineStartColor: favorite.color } as React.CSSProperties : undefined}
+                style={displayColor ? { '--asr-favorite-tab-color': displayColor, borderInlineStartColor: displayColor } as React.CSSProperties : undefined}
               >
                 <td className={[favCellClass, scanning ? 'allscan-fav-scanning' : ''].filter(Boolean).join(' ') || undefined}>
                   <button type="button" className="allscan-favorite-drag" draggable={authStatus.canModify} aria-label={`Move Favorite ${favorite.node}`} title="Drag to reorder"
@@ -3108,6 +3114,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.loggedIn ? <a role="menuitem" href={asrPath('asr-settings/?section=account')} onClick={() => setMenuOpen(false)}>My Account</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {!authStatus.loggedIn ? (
