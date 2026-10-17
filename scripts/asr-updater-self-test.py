@@ -47,6 +47,27 @@ def fails(call):
 
 
 def self_test():
+    # The browser API uses sudo -n for exactly these updater operations. Keep
+    # the generated sudoers policy and integrity repair checks in lockstep.
+    project = Path(__file__).resolve().parent.parent
+    reapply = (project / "scripts/asr-reapply.sh").read_text()
+    integrity = (project / "scripts/asr-integrity-check.sh").read_text()
+    api = (project / "server/asr-api.php").read_text()
+    updater_rules = {
+        "check": "--check-json",
+        "preflight": "--preflight-json",
+        "queue": "--queue-update",
+        "recover": "--recover-json",
+        "status": "--status-json [0-9]*",
+    }
+    for operation, sudo_argument in updater_rules.items():
+        api_argument = sudo_argument.split()[0]
+        assert f"'{operation}' => '{api_argument}'" in api, \
+            "missing browser API updater operation: " + operation
+        rule = "/usr/local/sbin/allscan-reimagined-updater " + sudo_argument
+        assert rule in reapply, "missing updater sudoers rule: " + operation
+        assert rule in integrity, "missing updater integrity check: " + operation
+
     with tempfile.TemporaryDirectory(prefix="asr-updater-test-") as tmp:
         root = Path(tmp)
         up.JOB_ROOT = root / "jobs"
