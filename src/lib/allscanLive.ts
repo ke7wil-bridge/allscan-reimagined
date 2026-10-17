@@ -74,7 +74,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 8.1.5.2',
+  versionLabel: 'v1.0.0 Beta 8.1.5.3',
   lowPowerMode: false,
   protectedBanIdentities: [],
   bridges: [],
@@ -1331,6 +1331,82 @@ export function netBridgeTalkerDestinationLabel(
     return /^talkgroup\s+/i.test(value) ? value : `Talkgroup ${value}`
   }
   return value
+}
+
+function bridgeTalkerNodeLabel(card: BridgeCardView) {
+  if (card.node === '1001') return 'URFWIL'
+  if (card.node === '1999' || card.cardType !== 'standard') return 'Net Bridge'
+  return String(card.node || card.title || 'Digital Bridge').trim()
+}
+
+function bridgeTalkerDescription(card: BridgeCardView) {
+  return netBridgeTalkerDestinationLabel(
+    card.cardType,
+    card.currentDestinationLabel || card.currentDestination || card.reflector || card.title,
+  ) || card.title
+}
+
+function bridgeTalkerEntry(
+  card: BridgeCardView,
+  callsign: string,
+  startedEpoch: number,
+  eventEpoch: number,
+  duration: number,
+): TalkerFeedEntry | null {
+  const identity = String(callsign || '').trim()
+  if (!identity || identity === '-') return null
+  return {
+    node: bridgeTalkerNodeLabel(card),
+    info: identity,
+    description: bridgeTalkerDescription(card),
+    location: '',
+    source: bridgeModeLabel(card.mode),
+    duration: String(Math.max(0, Math.floor(Number(duration) || 0))),
+    eventEpoch: Math.max(0, Number(eventEpoch) || 0),
+    startedEpoch: Math.max(0, Number(startedEpoch) || 0),
+  }
+}
+
+/**
+ * Promote structured digital-bridge activity into the main Talkers feed.
+ * Some bridge-only nodes do not emit an AllStar transport row, so relying on
+ * Connection Status alone leaves a valid DMR/YSF/etc. callsign invisible.
+ */
+export function bridgeTalkerFeed(cards: BridgeCardView[]) {
+  const active = cards
+    .filter((card) => card.status === 'Source/TX')
+    .map((card) => bridgeTalkerEntry(
+      card,
+      card.lastCaller || card.lastTransmitter,
+      card.activeStartEpoch || card.lastTxEpoch,
+      card.lastTxEpoch || card.activeStartEpoch,
+      0,
+    ))
+    .filter((entry): entry is TalkerFeedEntry => entry !== null)
+    .sort((left, right) => (right.startedEpoch || right.eventEpoch) - (left.startedEpoch || left.eventEpoch))
+
+  const recent = cards.flatMap((card) => card.recentTalkers
+    .map((talker) => bridgeTalkerEntry(
+      card,
+      talker.callsign,
+      talker.startEpoch,
+      talker.eventEpoch,
+      talker.duration,
+    ))
+    .filter((entry): entry is TalkerFeedEntry => entry !== null))
+    .sort((left, right) => right.eventEpoch - left.eventEpoch)
+
+  const currentTalker = active[0] || null
+  const recentTalkers = recent.filter((entry, index, entries) => {
+    if (currentTalker
+      && entry.info === currentTalker.info
+      && Math.abs(entry.eventEpoch - currentTalker.eventEpoch) <= 3) return false
+    return entries.findIndex((candidate) => candidate.info === entry.info
+      && candidate.source === entry.source
+      && Math.abs(candidate.eventEpoch - entry.eventEpoch) <= 3) === index
+  })
+
+  return { currentTalker, recentTalkers }
 }
 
 export function bridgeCardWarningText(

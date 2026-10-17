@@ -26,6 +26,7 @@ try {
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
+    bridgeTalkerFeed,
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
     provisionedNetBridgeModes,
@@ -212,6 +213,26 @@ try {
     netBridgeTalkerDestinationLabel('p25_net', 'Talkgroup 707') === 'Talkgroup 707',
     'P25 Talker Card duplicated its talkgroup label',
   )
+  const dmrTalkers = bridgeTalkerFeed([{
+    id: 'dmr', mode: 'dmr', node: '1883', title: 'DMR Bridge', cardType: 'standard',
+    status: 'Source/TX', lastCaller: 'KB2MPX', warning: '-', healthSeverity: null,
+    healthIssues: [], currentTg: '91', currentDestination: '91',
+    currentDestinationLabel: 'Talkgroup 91', controlLinked: true, digitalLinked: true,
+    allstarLinked: true, detailTitle: 'Connected Clients', detailRows: [], detailCount: 0,
+    detailAvailable: true, connectedClientCount: 19, runtimeOnline: true, reflector: '',
+    module: '', linkProtocol: '', lastTransmitter: 'KB2MPX', lastTxEpoch: 2_000_000_003,
+    activeStartEpoch: 2_000_000_000,
+    recentTalkers: [{ callsign: 'KB2MPX', startEpoch: 2_000_000_000, eventEpoch: 2_000_000_003, duration: 3 }],
+    recentRows: [],
+  }])
+  assert(
+    dmrTalkers.currentTalker?.info === 'KB2MPX'
+      && dmrTalkers.currentTalker?.source === 'DMR'
+      && dmrTalkers.currentTalker?.node === '1883'
+      && dmrTalkers.currentTalker?.description === 'Talkgroup 91',
+    'bridge-only DMR caller was not promoted into the main Talkers feed',
+  )
+  assert(dmrTalkers.recentTalkers.length === 0, 'active DMR caller was duplicated in Talkers history')
   assert(
     bridgeCardWarningText('-') === '-',
     'healthy backend readiness text was shown as a warning',
