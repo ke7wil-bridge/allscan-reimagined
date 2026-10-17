@@ -35,5 +35,9 @@ check(
     && !source.includes('initialUpdate?.availableVersion'),
   'Update dialog can present a cached available release as current.',
 )
+check(
+  source.includes('install it here in the browser'),
+  'Update dialog does not clearly identify the browser installation path.',
+)
 
 console.log('ASR update dialog self-test passed')

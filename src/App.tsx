@@ -3191,7 +3191,7 @@ function App({ config }: { config: RuntimeConfig }) {
               <div className="allscan-update-notice-copy">
                 <strong>ASR update available: {releaseStatus.availableLabel}</strong>
                 <span>
-                  This node has {releaseStatus.installedLabel}. Nothing will install automatically.
+                  This node has {releaseStatus.installedLabel}. Administrators can install this update here in the browser; nothing will install automatically.
                 </span>
                 {releaseStatus.package.name ? (
                   <span className="allscan-update-package">
@@ -3204,7 +3204,7 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
               <div className="allscan-update-actions">
                 {authStatus.isAdmin ? (
-                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update ASR</button>
+                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update in Browser</button>
                 ) : null}
                 {releaseStatus.releaseUrl ? (
                   <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release details</a>

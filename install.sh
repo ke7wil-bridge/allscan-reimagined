@@ -1229,6 +1229,8 @@ else
 fi
 validate_command "rollback job unit was installed" \
   test -f /etc/systemd/system/allscan-reimagined-rollback@.service
+validate_command "browser update job unit was installed" \
+  test -f /etc/systemd/system/allscan-reimagined-update@.service
 if python3 - /etc/allscan-reimagined/config.json <<'PY'
 import json
 import re

@@ -105,7 +105,7 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
           <h2 id="asr-update-title">Update ASR</h2>
           <button type="button" aria-label="Close Update ASR" onClick={onClose}>×</button>
         </header>
-        <p>Check for an update, then install it when ready. ASR verifies compatibility and creates a rollback backup automatically.</p>
+        <p>Check for an update, then install it here in the browser when ready. ASR verifies compatibility and creates a rollback backup automatically.</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
           {job.message && job.state !== 'complete' ? <p>{job.message}</p> : null}

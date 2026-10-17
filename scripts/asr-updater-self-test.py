@@ -52,6 +52,7 @@ def self_test():
     project = Path(__file__).resolve().parent.parent
     reapply = (project / "scripts/asr-reapply.sh").read_text()
     integrity = (project / "scripts/asr-integrity-check.sh").read_text()
+    installer = (project / "install.sh").read_text()
     api = (project / "server/asr-api.php").read_text()
     updater_rules = {
         "check": "--check-json",
@@ -67,6 +68,15 @@ def self_test():
         rule = "/usr/local/sbin/allscan-reimagined-updater " + sudo_argument
         assert rule in reapply, "missing updater sudoers rule: " + operation
         assert rule in integrity, "missing updater integrity check: " + operation
+
+    update_unit = "/etc/systemd/system/allscan-reimagined-update@.service"
+    assert f"cat > {update_unit}" in reapply, "browser update worker unit is not installed"
+    assert "ExecStart=/usr/local/sbin/allscan-reimagined-updater run-job %i" in reapply, \
+        "browser update worker unit does not execute the fixed updater job"
+    assert f"[ -f {update_unit} ] || needs_reapply=1" in integrity, \
+        "integrity service does not repair a missing browser update worker unit"
+    assert 'validate_command "browser update job unit was installed"' in installer, \
+        "installer release gate does not validate the browser update worker unit"
 
     with tempfile.TemporaryDirectory(prefix="asr-updater-test-") as tmp:
         root = Path(tmp)

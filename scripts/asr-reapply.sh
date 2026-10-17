@@ -850,6 +850,21 @@ TasksMax=64
 TimeoutStartSec=infinity
 ExecStart=/usr/local/sbin/allscan-reimagined-rollback run-job %i
 EOF
+cat > /etc/systemd/system/allscan-reimagined-update@.service <<'EOF'
+[Unit]
+Description=Run a queued AllScan Reimagined browser update
+After=network-online.target apache2.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=768M
+TasksMax=96
+TimeoutStartSec=infinity
+ExecStart=/usr/local/sbin/allscan-reimagined-updater run-job %i
+EOF
 systemctl daemon-reload
 rm -f /var/cache/allscan-reimagined/astapi-*.json /var/cache/allscan-reimagined/astapi-*.lock 2>/dev/null || true
 rmdir /var/cache/allscan-reimagined 2>/dev/null || true
