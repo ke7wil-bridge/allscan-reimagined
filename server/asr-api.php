@@ -23,8 +23,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.4';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.4';
+const ASR_VERSION = '1.0.0-beta.8.1.5.5';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.5';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -3511,12 +3511,16 @@ function asr_bridge_collector_required(array $bridges): bool {
     return false;
 }
 
-function asr_bridge_exact_readiness(array $bridge, array $control, string $linked): array {
+function asr_bridge_exact_readiness(array $bridge, array $control, string $linked, string $selectedNetMode): array {
     $mode = asr_bridge_mode($bridge);
     $modeLabel = $mode === 'zello' ? 'Zello' : strtoupper($mode);
     $node = trim((string) ($bridge['node'] ?? ''));
     $cardType = (string) ($bridge['cardType'] ?? 'standard');
     $backendMode = (string) ($bridge['backendMode'] ?? (isset($bridge['bridgePermission']) ? 'managed' : 'display_only'));
+    $netCardTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net'];
+    if (in_array($cardType, $netCardTypes, true) && $selectedNetMode !== '' && $mode !== $selectedNetMode) {
+        return ['state' => 'inactive_mode', 'ready' => false, 'summary' => $modeLabel . ' is installed and inactive because ' . strtoupper($selectedNetMode) . ' is the selected Net Bridge mode.', 'missing' => []];
+    }
     if ($cardType === 'standard' && in_array($mode, ['p25', 'nxdn', 'm17'], true) && $backendMode === 'display_only') {
         return ['state' => 'display_only', 'ready' => false, 'summary' => 'ASR is monitoring this ' . $modeLabel . ' bridge but will not operate its externally installed service.', 'missing' => []];
     }
@@ -3605,6 +3609,7 @@ function asr_bridge_diagnostics(): array {
     $config = asr_raw_runtime_config();
     $runtime = asr_runtime_config();
     $bridges = is_array($config['bridges'] ?? null) ? $config['bridges'] : [];
+    $selectedNetMode = strtolower(trim((string) ($config['netBridgeMode'] ?? '')));
     $clients = asr_bridge_clients_payload();
     $collectorTimer = asr_unit_state('allscan-reimagined-bridge-clients.timer');
     $collectorService = asr_unit_state('allscan-reimagined-bridge-clients.service');
@@ -3637,7 +3642,7 @@ function asr_bridge_diagnostics(): array {
             ];
         }
         $clientCount = isset($clients[$id]) && is_array($clients[$id]) ? count($clients[$id]) : 0;
-        $readiness = asr_bridge_exact_readiness($bridge, is_array($controlStates[$id] ?? null) ? $controlStates[$id] : [], $linked);
+        $readiness = asr_bridge_exact_readiness($bridge, is_array($controlStates[$id] ?? null) ? $controlStates[$id] : [], $linked, $selectedNetMode);
         $resources = asr_bridge_exact_resources($bridge);
         $exactServices = [];
         foreach ((array) ($resources['services'] ?? []) as $service) {

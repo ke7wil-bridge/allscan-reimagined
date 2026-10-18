@@ -1231,6 +1231,11 @@ if command -v apache2ctl >/dev/null 2>&1; then
 </IfModule>
 
 <IfModule mod_headers.c>
+    <FilesMatch "^(index\.html|asr-api\.php)$">
+        Header always set Cache-Control "no-store, max-age=0"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </FilesMatch>
     <FilesMatch "^index-[A-Za-z0-9_-]+\.(css|js)$">
         Header set Cache-Control "public, max-age=31536000, immutable"
     </FilesMatch>

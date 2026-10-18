@@ -577,5 +577,13 @@ check(strpos($settingsSource, "nxdn: {port: '41400'") !== false, 'NXDN setup def
 check(strpos($settingsSource, "ysf: {port: '42000'") !== false, 'YSF setup defaults are missing.');
 check(strpos($settingsSource, "setupPlanDigest") !== false, 'Bridge setup plan digest binding is missing.');
 check(strpos($settingsSource, 'data-bridge-setup-install disabled') !== false, 'Install control is not fail-closed before preview.');
+check(strpos($settingsSource, "bridge.readiness.state === 'inactive_mode' ? 'Installed, inactive'") !== false,
+	'Bridge Diagnostics still reports an unselected Net Bridge mode as a fault.');
+check(strpos($settingsSource, 'Installed services (inactive while another Net Bridge mode is selected)') !== false,
+	'Bridge Diagnostics does not label intentionally inactive Net Bridge services.');
+$apiSource = file_get_contents($root . '/asr-api.php');
+check(is_string($apiSource) && strpos($apiSource, "'state' => 'inactive_mode'") !== false
+	&& strpos($apiSource, 'is the selected Net Bridge mode.') !== false,
+	'API diagnostics do not distinguish intentionally inactive Net Bridge modes.');
 
 echo "ASR bridge Settings self-test passed\n";

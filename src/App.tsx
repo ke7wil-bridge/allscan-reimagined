@@ -521,6 +521,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
   const [m17ModuleInputs, setM17ModuleInputs] = useState<Record<string, string>>({})
   const [netBridgeMode, setNetBridgeMode] = useState(() => config.netBridgeMode || 'dmr')
+  const [netBridgeModeError, setNetBridgeModeError] = useState('')
   const activeNetBridgeModeRef = useRef(config.netBridgeMode || 'dmr')
   const pendingNetBridgeModeRef = useRef('')
   const modeSwitchPromiseRef = useRef<Promise<void> | null>(null)
@@ -2378,6 +2379,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
   async function runNetBridgeModeSwitch(initialMode: string, owner: string) {
     let targetMode = initialMode
+    setNetBridgeModeError('')
     try {
       while (targetMode) {
         const result = await activateNetBridgeMode(targetMode)
@@ -2395,12 +2397,15 @@ function App({ config }: { config: RuntimeConfig }) {
           continue
         }
         setNetBridgeMode(selected)
+        setNetBridgeModeError('')
         appendNodeMessage(`Net Bridge switched to ${selected.toUpperCase()}.`)
         break
       }
     } catch (error) {
       setNetBridgeMode(activeNetBridgeModeRef.current)
-      appendNodeMessage(error instanceof Error ? error.message : 'Net Bridge mode switch failed.')
+      const message = error instanceof Error ? error.message : 'Net Bridge mode switch failed.'
+      setNetBridgeModeError(message)
+      appendNodeMessage(message)
       throw error
     } finally {
       pendingNetBridgeModeRef.current = ''
@@ -2410,6 +2415,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
   async function selectNetBridgeMode(mode: string) {
     if (!authStatus.canModify || mode === netBridgeMode) return
+    setNetBridgeModeError('')
     setNetBridgeMode(mode)
     const owner = 'net-bridge-mode'
     if (bridgeControlBusyRef.current === owner) {
@@ -3995,6 +4001,12 @@ function App({ config }: { config: RuntimeConfig }) {
                           </div>
                         })}
                       </div> : null}
+                    </div>
+                  ) : null}
+
+                  {card.cardType !== 'standard' && netBridgeModeError ? (
+                    <div className="allscan-net-bridge-error" role="alert">
+                      <strong>Mode change failed.</strong> {netBridgeModeError} The previous mode remains active.
                     </div>
                   ) : null}
 

@@ -64,6 +64,8 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.5'
+
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
   callsign: '',
@@ -74,7 +76,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerByline: 'customized by KE7WIL',
   headerLogo: asrPath('asr-logo-bright-r-tight.png'),
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
-  versionLabel: 'v1.0.0 Beta 8.1.5.4',
+  versionLabel: 'Version temporarily unavailable',
   lowPowerMode: false,
   protectedBanIdentities: [],
   bridges: [],

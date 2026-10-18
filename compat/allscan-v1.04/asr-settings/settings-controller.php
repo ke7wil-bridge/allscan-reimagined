@@ -3672,7 +3672,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				readinessTarget.setAttribute('data-readiness-state', String(bridge.readiness.state || 'unknown'));
 				var readinessTitle = readinessTarget.querySelector('strong');
 				var readinessCopy = readinessTarget.querySelector('span');
-				if(readinessTitle) readinessTitle.textContent = bridge.readiness.ready ? 'Working' : (bridge.readiness.state === 'display_only' ? 'Monitoring only' : 'Needs attention');
+				if(readinessTitle) readinessTitle.textContent = bridge.readiness.ready ? 'Working' : (bridge.readiness.state === 'display_only' ? 'Monitoring only' : (bridge.readiness.state === 'inactive_mode' ? 'Installed, inactive' : 'Needs attention'));
 				if(readinessCopy) readinessCopy.textContent = String(bridge.readiness.summary || 'Readiness unavailable.');
 			}
 			var serviceList = Array.isArray(bridge.services) ? bridge.services : [];
@@ -3682,12 +3682,17 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var inactiveServices = serviceList.filter(function (service) {
 				return String(service.state || '').indexOf('active running') === -1;
 			});
-			var services = activeServices.length
+			var intentionallyInactive = bridge.readiness && bridge.readiness.state === 'inactive_mode';
+			var services = intentionallyInactive && serviceList.length
+				? serviceList.map(function (service) {
+					return '<li>' + escapeHtml(service.unit || '') + ' <span>' + escapeHtml(service.state || '') + '</span></li>';
+				}).join('')
+				: activeServices.length
 				? activeServices.map(function (service) {
 					return '<li>' + escapeHtml(service.unit || '') + ' <span>' + escapeHtml(service.state || '') + '</span></li>';
 				}).join('')
 				: '<li>No matching service hints found.</li>';
-			var inactive = inactiveServices.length
+			var inactive = !intentionallyInactive && inactiveServices.length
 				? '<details class="asr-diagnostics-muted"><summary>Other matching service hints</summary><ul>' + inactiveServices.map(function (service) {
 					return '<li>' + escapeHtml(service.unit || '') + ' <span>' + escapeHtml(service.state || '') + '</span></li>';
 				}).join('') + '</ul></details>'
@@ -3734,7 +3739,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				+ warnings
 				+ dmr
 				+ tgif
-				+ '<div class="asr-diagnostics-block"><h3>Bridge Software</h3><ul>' + services + '</ul>' + inactive + '</div>'
+				+ '<div class="asr-diagnostics-block"><h3>' + (intentionallyInactive ? 'Installed services (inactive while another Net Bridge mode is selected)' : 'Bridge Software') + '</h3><ul>' + services + '</ul>' + inactive + '</div>'
 				+ '</section>';
 		});
 		html += '</div>';

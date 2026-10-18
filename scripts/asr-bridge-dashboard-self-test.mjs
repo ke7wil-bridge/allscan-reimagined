@@ -251,6 +251,7 @@ try {
     'live bridge warning was hidden',
   )
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
   const asrApiSource = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
@@ -528,6 +529,21 @@ try {
   assert(
     appSource.includes('Math.max(0, 100 - (performance.now() - started))'),
     'Zello fast relay polling must remain single-flight while preserving its cadence',
+  )
+  assert(
+    appSource.includes('netBridgeModeError')
+      && appSource.includes('Mode change failed.')
+      && appSource.includes('The previous mode remains active.'),
+    'Net Bridge mode failures are not persistent beside the mode control',
+  )
+  assert(
+    mainSource.includes("window.addEventListener('focus'")
+      && mainSource.includes("window.addEventListener('pageshow'")
+      && mainSource.includes("document.addEventListener('visibilitychange'")
+      && mainSource.includes('installedVersion !== ASR_BUILD_VERSION_LABEL')
+      && mainSource.includes('Refresh now')
+      && allscanLiveSource.includes("versionLabel: 'Version temporarily unavailable'"),
+    'Restored browser tabs do not recheck the installed version or clearly request a refresh',
   )
 
   console.log('bridge dashboard self-test: ok')
