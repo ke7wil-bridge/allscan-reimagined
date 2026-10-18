@@ -316,6 +316,10 @@ def main() -> int:
         "YSF Plain Text host list",
         "The list is a snapshot",
         "A rejected upload never erases the previous valid list",
+        "exact published reflector name or its five-digit ID",
+        "Importing a public list does not repair a failed mode activation",
+        "If the mode selector returns to the previous mode",
+        "Services for modes that are not selected are expected to be inactive",
     ):
         require(requirement in instructions, f"YSF reflector import help is missing: {requirement}")
     require(

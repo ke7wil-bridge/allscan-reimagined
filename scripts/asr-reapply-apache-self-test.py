@@ -23,6 +23,9 @@ def main() -> None:
     assert "bridge" not in apache_block[restart:], (
         "The Apache refresh must not restart bridge services"
     )
+    assert '<FilesMatch "^(index\\.html|asr-api\\.php)$">' in reapply
+    assert 'Header always set Cache-Control "no-store, max-age=0"' in reapply
+    assert 'Header set Cache-Control "public, max-age=31536000, immutable"' in reapply
     print("Apache SSE worker replacement self-test: PASS")
 
 

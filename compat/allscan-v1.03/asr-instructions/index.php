@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.1.5.4 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.1.5.5 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -117,6 +117,8 @@ pageInit();
 			<li>Select Connect. During a mode handoff the button shows <strong>Waiting…</strong> until node 1999 belongs to the requested mode, then <strong>Connecting…</strong> while the backend connection is underway. Wait for bridge-side and AllStar-side evidence; command acceptance alone is not proof of a completed connection.</li>
 			<li>Use Disconnect when finished. Changing digital destination and linking ordinary AllStar nodes are separate operations.</li>
 		</ol>
+		<p><strong>YSF destinations:</strong> Enter the exact published reflector name or its five-digit ID from the installed YSFHosts catalog. Use <strong>Custom Reflectors</strong> only when the reflector is missing from that catalog, with one entry per line in the form <code>NAME | 5-DIGIT ID | HOSTNAME OR IP | PORT | OPTIONAL DESCRIPTION</code>. Importing a public list does not repair a failed mode activation.</p>
+		<p class="asr-instructions-callout"><strong>If the mode selector returns to the previous mode:</strong> rollback worked and the requested backend did not become ready. Copy the inline error, then open <strong>Settings → Diagnostics → Bridge Diagnostics</strong>. Services for modes that are not selected are expected to be inactive; do not reinstall or replace the reflector list until the actual switch error is known.</p>
 		<p class="asr-instructions-callout"><strong>Loop safety:</strong> Do not point the Net Bridge at the same destination already carried by a fixed bridge on the node. That can create an audio feedback loop.</p>
 	</section>
 

@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.5.4 supports the current official AllScan v1.04
+Gleason's AllScan. Beta 8.1.5.5 supports the current official AllScan v1.04
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -9,10 +9,13 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.4** and remains a prerelease. Beta 8.1.5.3 is the
+This archive is **Beta 8.1.5.5** and remains a prerelease. Beta 8.1.5.4 is the
 previous published prerelease.
 
-Beta 8.1.5.4 installs and continuously repairs the missing systemd worker used
+Beta 8.1.5.5 adds persistent Net Bridge mode-switch errors, accurately labels
+unselected bridge services as intentionally inactive, and detects restored browser
+tabs whose JavaScript no longer matches the node's installed version. Beta 8.1.5.4
+installs and continuously repairs the missing systemd worker used
 to start browser updates. It retains the Beta 8.1.5.3 DMR and digital-bridge
 Talkers-card repair and the AllScan v1.04 compatibility and reliability work
 from previous releases.
