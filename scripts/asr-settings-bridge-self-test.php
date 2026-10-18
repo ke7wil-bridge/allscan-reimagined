@@ -581,7 +581,10 @@ check(strpos($settingsSource, "bridge.readiness.state === 'inactive_mode' ? 'Ins
 	'Bridge Diagnostics still reports an unselected Net Bridge mode as a fault.');
 check(strpos($settingsSource, 'Installed services (inactive while another Net Bridge mode is selected)') !== false,
 	'Bridge Diagnostics does not label intentionally inactive Net Bridge services.');
-$apiSource = file_get_contents($root . '/asr-api.php');
+$apiPath = is_file($root . '/asr-api.php')
+	? $root . '/asr-api.php'
+	: $root . '/server/asr-api.php';
+$apiSource = file_get_contents($apiPath);
 check(is_string($apiSource) && strpos($apiSource, "'state' => 'inactive_mode'") !== false
 	&& strpos($apiSource, 'is the selected Net Bridge mode.') !== false,
 	'API diagnostics do not distinguish intentionally inactive Net Bridge modes.');

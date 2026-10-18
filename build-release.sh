@@ -278,6 +278,7 @@ if command -v php >/dev/null 2>&1; then
     done
   done
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
+  php "$STAGE/payload/scripts/asr-settings-bridge-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
   php "$STAGE/payload/scripts/asr-talker-identity-self-test.php"
   php "$STAGE/payload/scripts/asr-ami-guard-self-test.php"
@@ -312,6 +313,17 @@ else
     cd "$OUT"
     shasum -a 256 "$(basename "$PACKAGE")"
   ) > "$PACKAGE.sha256"
+fi
+
+# Validate the exact packaged layout after compression. Source-tree tests cannot
+# catch path assumptions that differ between the repository and release payload.
+if command -v php >/dev/null 2>&1; then
+  VERIFY_DIR=$(mktemp -d "$OUT/.verify-package.XXXXXX")
+  trap 'rm -rf "$VERIFY_DIR"' EXIT
+  tar -xzf "$PACKAGE" -C "$VERIFY_DIR"
+  php "$VERIFY_DIR/allscan-reimagined-$VERSION/payload/scripts/asr-settings-bridge-self-test.php"
+  rm -rf "$VERIFY_DIR"
+  trap - EXIT
 fi
 echo "Created: $PACKAGE"
 cat "$PACKAGE.sha256"

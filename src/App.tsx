@@ -73,6 +73,7 @@ const TOUCH_MODULE_DRAG_DELAY_MS = 350
 const TOUCH_MODULE_DRAG_CANCEL_DISTANCE_PX = 8
 const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
 const TALKERS_OPEN_KEY = 'asrTalkersOpen.v1'
+const UPDATE_NOTICE_DISMISS_KEY = 'asrUpdateNoticeDismissedVersion.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -206,6 +207,24 @@ function writeAutodiscPreference(checked: boolean) {
     window.localStorage.setItem(AUTODISC_PREFERENCE_KEY, checked ? 'true' : 'false')
   } catch {
     // Ignore preference write failures.
+  }
+}
+
+function readDismissedUpdateVersion() {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(UPDATE_NOTICE_DISMISS_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeDismissedUpdateVersion(version: string) {
+  if (typeof window === 'undefined' || !version) return
+  try {
+    window.localStorage.setItem(UPDATE_NOTICE_DISMISS_KEY, version)
+  } catch {
+    // Ignore update-notice preference write failures.
   }
 }
 
@@ -606,6 +625,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [urfAccessBusy, setUrfAccessBusy] = useState(false)
   const [urfAccessStatus, setUrfAccessStatus] = useState('')
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState(readDismissedUpdateVersion)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const [supportFeedbackOpen, setSupportFeedbackOpen] = useState(false)
   const [donateAsrOpen, setDonateAsrOpen] = useState(false)
@@ -3187,7 +3207,7 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
 
         <main className="allscan-dashboard mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
-          {releaseStatus?.updateAvailable ? (
+          {releaseStatus?.updateAvailable && releaseStatus.availableVersion !== dismissedUpdateVersion ? (
             <aside
               className="allscan-update-notice"
               role="status"
@@ -3212,6 +3232,10 @@ function App({ config }: { config: RuntimeConfig }) {
                 {authStatus.isAdmin ? (
                   <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update in Browser</button>
                 ) : null}
+                <button type="button" onClick={() => {
+                  writeDismissedUpdateVersion(releaseStatus.availableVersion)
+                  setDismissedUpdateVersion(releaseStatus.availableVersion)
+                }}>Remind me with the next version</button>
                 {releaseStatus.releaseUrl ? (
                   <a href={releaseStatus.releaseUrl} target="_blank" rel="noreferrer">Release details</a>
                 ) : null}

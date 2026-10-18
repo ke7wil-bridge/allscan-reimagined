@@ -5,6 +5,7 @@ const source = readFileSync(
   new URL('../src/components/UpdateAsrDialog.tsx', import.meta.url),
   'utf8',
 )
+const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const check = (condition, message) => { if (!condition) throw new Error(message) }
 
 check(
@@ -38,6 +39,13 @@ check(
 check(
   source.includes('install it here in the browser'),
   'Update dialog does not clearly identify the browser installation path.',
+)
+check(
+  appSource.includes("const UPDATE_NOTICE_DISMISS_KEY = 'asrUpdateNoticeDismissedVersion.v1'")
+    && appSource.includes('releaseStatus.availableVersion !== dismissedUpdateVersion')
+    && appSource.includes('writeDismissedUpdateVersion(releaseStatus.availableVersion)')
+    && appSource.includes('Remind me with the next version'),
+  'Update notice cannot be dismissed for only the currently offered version.',
 )
 
 console.log('ASR update dialog self-test passed')
