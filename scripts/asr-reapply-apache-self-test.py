@@ -26,6 +26,14 @@ def main() -> None:
     assert '<FilesMatch "^(index\\.html|asr-api\\.php)$">' in reapply
     assert 'Header always set Cache-Control "no-store, max-age=0"' in reapply
     assert 'Header set Cache-Control "public, max-age=31536000, immutable"' in reapply
+    dockerfile_path = ROOT / "Dockerfile.layered"
+    layered_entrypoint_path = ROOT / "docker/layered-entrypoint.sh"
+    if dockerfile_path.is_file() and layered_entrypoint_path.is_file():
+        dockerfile = dockerfile_path.read_text(encoding="utf-8")
+        layered_entrypoint = layered_entrypoint_path.read_text(encoding="utf-8")
+        assert "a2enmod rewrite headers" in dockerfile
+        assert 'Header always set Cache-Control "no-store, max-age=0"' in layered_entrypoint
+        assert 'Header set Cache-Control "public, max-age=31536000, immutable"' in layered_entrypoint
     print("Apache SSE worker replacement self-test: PASS")
 
 

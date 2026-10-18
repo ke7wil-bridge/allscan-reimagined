@@ -18,7 +18,7 @@ RUN apt-get update \
   && docker-php-source delete \
   && rm -rf /var/lib/apt/lists/*
 
-RUN a2enmod rewrite
+RUN a2enmod rewrite headers
 
 WORKDIR /opt/asr-source
 COPY . /opt/asr-source
