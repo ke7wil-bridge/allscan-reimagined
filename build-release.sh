@@ -8,11 +8,18 @@ PUBLIC_BETA_LABEL="Beta ${VERSION#*-beta.}"
 OUT="$ROOT/release"
 STAGE="$OUT/allscan-reimagined-$VERSION"
 PACKAGE="$OUT/allscan-reimagined-$VERSION.tar.gz"
+RELEASE_NOTES="$ROOT/release-notes/v${VERSION}.md"
+TERMINAL_UPDATE_COMMAND='curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh'
 
 command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required." >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required." >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "node is required." >&2; exit 1; }
 [ -n "$VERSION" ] || { echo "package.json version is missing." >&2; exit 1; }
+[ -f "$RELEASE_NOTES" ] || { echo "Release notes are missing: $RELEASE_NOTES" >&2; exit 1; }
+grep -Fqx "$TERMINAL_UPDATE_COMMAND" "$RELEASE_NOTES" || {
+  echo "Release notes must include the supported terminal installation/update command." >&2
+  exit 1
+}
 
 COMPAT_VERSIONS="v1.02 v1.03 v1.04"
 COMPAT_FILES=$(cat <<'EOF'
@@ -265,7 +272,7 @@ for name in set(re.findall(r'\$RELEASE_(?:STAGE|DIR)/scripts/([A-Za-z0-9_.-]+)',
     if not (stage / "payload/scripts" / name).is_file():
         raise SystemExit(f"Installer references a missing packaged script: {name}")
 PY
-install -m 644 "release-notes/v${VERSION}.md" "$STAGE/release-notes/v${VERSION}.md"
+install -m 644 "$RELEASE_NOTES" "$STAGE/release-notes/v${VERSION}.md"
 
 if command -v php >/dev/null 2>&1; then
   for compat_version in $COMPAT_VERSIONS; do
