@@ -46,6 +46,7 @@ ASR_WEB_WAS_PRESENT=0
 ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT=0
 OFFICIAL_INSTALL_ATTEMPTED=0
 OFFICIAL_SHARED_BASELINE_CAPTURED=0
+ASR_LOOPBACK_BASE_URL=""
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 validate_command() {
@@ -449,7 +450,7 @@ ask() {
 }
 
 php_web_runtime_ok() {
-  local probe_name probe_path status=0
+  local probe_name probe_path detected_base="" status=0
   # Stock AllScan's Apache hardening rejects every dot-prefixed file. Keep the
   # randomized probe visible to Apache so this checks PHP execution instead of
   # tripping the unrelated hidden-file access rule.
@@ -457,9 +458,12 @@ php_web_runtime_ok() {
   probe_path="$WEB_ROOT/$probe_name"
   printf '%s\n' '<?php header("Content-Type: application/json"); echo "{\"ok\":true}";' > "$probe_path"
   chmod 644 "$probe_path"
-  python3 "$PAYLOAD_DIR/scripts/asr-loopback-validate.py" \
-    --expect json "http://127.0.0.1/$probe_name" >/dev/null 2>&1 || status=$?
+  detected_base=$(python3 "$PAYLOAD_DIR/scripts/asr-loopback-validate.py" \
+    --expect json --discover "/$probe_name" 2>/dev/null) || status=$?
   rm -f "$probe_path"
+  if [ "$status" -eq 0 ]; then
+    ASR_LOOPBACK_BASE_URL="$detected_base"
+  fi
   [ "$status" -eq 0 ]
 }
 
@@ -1295,7 +1299,7 @@ assert isinstance(data.get("backups"), list)
 fi
 if ! runtime_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
   --expect json \
-  "http://127.0.0.1/asr/asr-api.php?action=runtime-config"); then
+  "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/asr-api.php?action=runtime-config"); then
   fail "Validation failed: /asr runtime-config endpoint"
 fi
 if ! printf '%s' "$runtime_json" | php -r '
@@ -1306,7 +1310,7 @@ if ! printf '%s' "$runtime_json" | php -r '
 fi
 if ! auth_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
   --expect json \
-  "http://127.0.0.1/asr/asr-api.php?action=auth-status"); then
+  "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/asr-api.php?action=auth-status"); then
   fail "Validation failed: /asr auth-status endpoint"
 fi
 if ! printf '%s' "$auth_json" | php -r '
@@ -1336,7 +1340,7 @@ validate_command "stock /allscan access policy" php -r '
 if ! python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
   --expect html \
   --contains 'assets/index-' \
-  http://127.0.0.1/asr/ >/dev/null; then
+  "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/" >/dev/null; then
   fail "Validation failed: /asr page did not serve its built assets"
 fi
 validate_command "enable/start reapply path and timer" \

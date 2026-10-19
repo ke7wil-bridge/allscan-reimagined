@@ -72,6 +72,10 @@ def rejected(function, *args, contains: str = "", **kwargs) -> None:
 
 
 def main() -> None:
+    # Exercise the deployable runtime path even when this offline test runs on
+    # an Apple Silicon workstation, which is not itself an ASL3 target.
+    machine_patch = mock.patch("platform.machine", return_value="x86_64")
+    machine_patch.start()
     native_facts = SimpleNamespace(systemd=True, docker=True, docker_compose=True)
     # Docker being installed must not affect native selection/requirements.
     planner.validate_runtime_requirements(
@@ -256,6 +260,7 @@ def main() -> None:
                      "03423cb00b8e9ba1be164493e8b98b5bd7c1508c",
                      "0ebd2761d441db354f859280873d4286856f3e73"):
         assert revision in source
+    machine_patch.stop()
     print("native/container URF runtime self-test: PASS")
 
 

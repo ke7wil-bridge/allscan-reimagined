@@ -6,17 +6,21 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import re
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Mapping
+from unittest import mock
 
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+DEFAULT_BASES = ("http://127.0.0.1", "https://127.0.0.1")
 
 
 class ValidationError(RuntimeError):
@@ -197,6 +201,71 @@ def validate_endpoint(url: str, expected: str, contains: str = "") -> bytes:
     return response.body
 
 
+def apache_ports(text: str) -> list[int]:
+    """Extract configured Apache listener/vhost ports from apache2ctl output."""
+    matches = re.findall(
+        r"(?:^|\s)(?:\*|_default_|\[[0-9a-f:]+\]|\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})(?=\s|$)",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    matches.extend(re.findall(r"\bport\s+(\d{1,5})\b", text, flags=re.IGNORECASE))
+    result: list[int] = []
+    for raw in matches:
+        port = int(raw)
+        if 1 <= port <= 65535 and port not in result:
+            result.append(port)
+    return result
+
+
+def apache_runtime_dump() -> str:
+    outputs: list[str] = []
+    for arguments in (("-t", "-D", "DUMP_VHOSTS"), ("-S",)):
+        try:
+            result = subprocess.run(
+                ["apache2ctl", *arguments], capture_output=True, text=True,
+                timeout=15, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        outputs.extend((result.stdout, result.stderr))
+    return "\n".join(outputs)
+
+
+def loopback_bases(apache_dump: str) -> list[str]:
+    result = list(DEFAULT_BASES)
+    for port in apache_ports(apache_dump):
+        schemes = ("https", "http") if port in {443, 8443} else ("http", "https")
+        for scheme in schemes:
+            default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+            candidate = f"{scheme}://127.0.0.1{'' if default_port else f':{port}'}"
+            if candidate not in result:
+                result.append(candidate)
+    return result
+
+
+def validate_discovery_path(path: str) -> str:
+    parsed = urllib.parse.urlsplit(path)
+    if (not path.startswith("/") or path.startswith("//") or parsed.scheme
+            or parsed.netloc or parsed.fragment):
+        raise ValidationError("discovery target must be an absolute local path")
+    return path
+
+
+def discover_endpoint(
+    path: str, expected: str, contains: str = "", bases: list[str] | None = None,
+) -> tuple[str, bytes]:
+    target = validate_discovery_path(path)
+    failures: list[str] = []
+    for base in bases if bases is not None else loopback_bases(apache_runtime_dump()):
+        try:
+            body = validate_endpoint(base.rstrip("/") + target, expected, contains)
+            return base.rstrip("/"), body
+        except ValidationError as error:
+            failures.append(f"{base}: {error}")
+    detail = "; ".join(failures[-4:])
+    raise ValidationError(f"no configured Apache loopback endpoint passed validation{': ' + detail if detail else ''}")
+
+
 def self_test() -> None:
     assert is_loopback_host("127.0.0.1")
     assert is_loopback_host("::1")
@@ -256,6 +325,58 @@ def self_test() -> None:
         else:
             raise AssertionError("invalid endpoint response was accepted")
 
+    dump = """VirtualHost configuration:
+*:8080 is a NameVirtualHost
+         port 8443 namevhost secure.example
+127.0.0.1:9090 test.example (/etc/apache2/sites-enabled/test.conf:1)
+"""
+    assert apache_ports(dump) == [8080, 9090, 8443]
+    bases = loopback_bases(dump)
+    assert "http://127.0.0.1:8080" in bases
+    assert "https://127.0.0.1:8443" in bases
+    for unsafe_path in ("probe.php", "//example.com/probe.php", "https://example.com/probe.php", "/probe.php#fragment"):
+        try:
+            validate_discovery_path(unsafe_path)
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError(f"unsafe discovery path was accepted: {unsafe_path}")
+
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class ProbeHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/asr-probe.php":
+                self.send_error(404)
+                return
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    # HTTPServer otherwise performs a reverse-DNS lookup for its display name;
+    # that can make this offline test stall on hosts without working DNS.
+    with mock.patch("socket.getfqdn", return_value="localhost"):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_port}"
+        selected, body = discover_endpoint(
+            "/asr-probe.php", "json", bases=[base],
+        )
+        assert selected == base and json.loads(body) == {"ok": True}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
     print("ASR loopback endpoint validation self-test: ok")
 
 
@@ -264,10 +385,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--expect", choices=("json", "html"))
     parser.add_argument("--contains", default="")
+    parser.add_argument("--discover", metavar="PATH")
     parser.add_argument("url", nargs="?")
     args = parser.parse_args()
-    if not args.self_test and (not args.expect or not args.url):
-        parser.error("--expect and URL are required")
+    if not args.self_test and (not args.expect or bool(args.url) == bool(args.discover)):
+        parser.error("--expect and exactly one of URL or --discover PATH are required")
     return args
 
 
@@ -277,6 +399,10 @@ def main() -> int:
         self_test()
         return 0
     try:
+        if args.discover:
+            base, _body = discover_endpoint(args.discover, args.expect, args.contains)
+            print(base)
+            return 0
         body = validate_endpoint(args.url, args.expect, args.contains)
     except ValidationError as error:
         print(f"ASR loopback validation error: {error}", file=sys.stderr)

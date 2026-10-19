@@ -252,6 +252,7 @@ try {
   )
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
+  const runtimeBootstrapSource = readFileSync(new URL('../src/RuntimeBootstrap.tsx', import.meta.url), 'utf8')
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
   const asrApiSource = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
@@ -463,6 +464,15 @@ try {
     'Node Controls lost centralized client administration access',
   )
   assert(
+    appSource.includes("const ACTION_PREFERENCE_KEY = 'asrNodeControlAction.v1'")
+      && appSource.includes('useState<NodeControlAction>(readActionPreference)')
+      && appSource.includes('writeActionPreference(action)')
+      && appSource.includes("const PERMANENT_PREFERENCE_KEY = 'asrPermanentConnection.v1'")
+      && appSource.includes('useState(readPermanentPreference)')
+      && appSource.includes('writePermanentPreference(checked)'),
+    'Node Controls action or Permanent selection is not browser-persistent',
+  )
+  assert(
     !appSource.includes('allscan-urf-mode-stack')
       && !appSource.includes('allscan-urf-mode-dropdown'),
     'legacy bespoke URF mode-card rendering is still active',
@@ -537,11 +547,12 @@ try {
     'Net Bridge mode failures are not persistent beside the mode control',
   )
   assert(
-    mainSource.includes("window.addEventListener('focus'")
-      && mainSource.includes("window.addEventListener('pageshow'")
-      && mainSource.includes("document.addEventListener('visibilitychange'")
-      && mainSource.includes('installedVersion !== ASR_BUILD_VERSION_LABEL')
-      && mainSource.includes('Refresh now')
+    mainSource.includes("import RuntimeBootstrap from './RuntimeBootstrap.tsx'")
+      && runtimeBootstrapSource.includes("window.addEventListener('focus'")
+      && runtimeBootstrapSource.includes("window.addEventListener('pageshow'")
+      && runtimeBootstrapSource.includes("document.addEventListener('visibilitychange'")
+      && runtimeBootstrapSource.includes('installedVersion !== ASR_BUILD_VERSION_LABEL')
+      && runtimeBootstrapSource.includes('Refresh now')
       && allscanLiveSource.includes("versionLabel: 'Version temporarily unavailable'"),
     'Restored browser tabs do not recheck the installed version or clearly request a refresh',
   )

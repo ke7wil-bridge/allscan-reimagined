@@ -104,6 +104,7 @@ for compat_version in $COMPAT_VERSIONS; do
     exit 1
   }
 done
+pnpm lint
 python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
 python3 "$ROOT/scripts/asr-rollback.py" self-test

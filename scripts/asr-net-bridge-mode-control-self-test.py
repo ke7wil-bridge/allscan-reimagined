@@ -58,9 +58,11 @@ def bridge(mode: str, destination: str) -> dict:
 
 
 class FakeRunner:
-    def __init__(self, old_mode: str = "dmr", fail_mode: str = ""):
+    def __init__(self, old_mode: str = "dmr", fail_mode: str = "",
+                 unloaded_dmr_workers: bool = False):
         self.active = {mode: mode == old_mode for mode in control.MODES}
         self.fail_mode = fail_mode
+        self.unloaded_dmr_workers = unloaded_dmr_workers
         self.commands: list[list[str]] = []
         self.reload_count = 0
         self.transport_linked = False
@@ -113,7 +115,10 @@ class FakeRunner:
             self.active["dmr"] = False
             return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.SYSTEMCTL and argv[1] == "reset-failed":
-            return subprocess.CompletedProcess(argv, 0, "", "")
+            return subprocess.CompletedProcess(
+                argv, 1 if self.unloaded_dmr_workers else 0, "",
+                "Unit is not loaded.\n" if self.unloaded_dmr_workers else "",
+            )
         if "disable" in argv:
             if mode:
                 self.active[mode] = False
@@ -168,7 +173,9 @@ def main() -> None:
     try:
         with tempfile.TemporaryDirectory() as temporary:
             profile, original = fixture(Path(temporary))
-            runner = FakeRunner()
+            # Reproduce a native node where stopped DMR worker units are no
+            # longer loaded and systemctl reset-failed therefore returns 1.
+            runner = FakeRunner(unloaded_dmr_workers=True)
             result = control.switch_mode("ysf", profile, runner)
             assert result["ok"] and result["mode"] == "ysf" and result["node"] == 1999
             assert runner.transport_linked is True

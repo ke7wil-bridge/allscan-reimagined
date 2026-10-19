@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -730,6 +731,10 @@ def test_adapter_allowlists(systemctl) -> None:
 
 
 def main() -> int:
+    # Runtime-source selection supports deployment architectures, not the
+    # developer workstation's macOS arm64 value. Keep this host-independent
+    # self-test on a representative supported target architecture.
+    platform.machine = lambda: "x86_64"
     installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
     compose_source = (HERE.parent / "docker-compose.yml").read_text(encoding="utf-8")
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
