@@ -86,8 +86,9 @@ assert(
 assert(
   app.includes('favorite.description || favorite.name')
     && app.includes('favorite.frequency || favorite.referenceDesc')
+    && !app.includes('<small>User description</small>')
     && css.includes('.allscan-favorite-frequency'),
-  'Favorite description and frequency are not presented as separate stacked fields',
+  'Favorite description and frequency are not presented cleanly as separate stacked fields',
 )
 assert(
   api.includes("'description' => $customDescription !== '' ? $customDescription : (string) $display['name']")

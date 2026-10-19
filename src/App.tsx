@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
@@ -67,6 +67,8 @@ const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
+const ACTION_PREFERENCE_KEY = 'asrNodeControlAction.v1'
+const PERMANENT_PREFERENCE_KEY = 'asrPermanentConnection.v1'
 const FAVORITES_PLACEMENT_KEY = 'asrFavoritesPlacement.v1'
 const DASHBOARD_MODULE_ORDER_KEY = 'asrDashboardModuleOrder.v1'
 const TOUCH_MODULE_DRAG_DELAY_MS = 350
@@ -205,6 +207,47 @@ function writeAutodiscPreference(checked: boolean) {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(AUTODISC_PREFERENCE_KEY, checked ? 'true' : 'false')
+  } catch {
+    // Ignore preference write failures.
+  }
+}
+
+type NodeControlAction = (typeof actionOptions)[number]['value']
+
+function readActionPreference(): NodeControlAction {
+  if (typeof window === 'undefined') return 'dropclient'
+  try {
+    const saved = window.localStorage.getItem(ACTION_PREFERENCE_KEY)
+    return actionOptions.some((option) => option.value === saved)
+      ? saved as NodeControlAction
+      : 'dropclient'
+  } catch {
+    return 'dropclient'
+  }
+}
+
+function writeActionPreference(action: NodeControlAction) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(ACTION_PREFERENCE_KEY, action)
+  } catch {
+    // Ignore preference write failures.
+  }
+}
+
+function readPermanentPreference() {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(PERMANENT_PREFERENCE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writePermanentPreference(checked: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(PERMANENT_PREFERENCE_KEY, checked ? 'true' : 'false')
   } catch {
     // Ignore preference write failures.
   }
@@ -606,9 +649,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => readThemeSettings())
   const [desktopThemeViewport, setDesktopThemeViewport] = useState(() => isDesktopThemeViewport())
   const [nodeValue, setNodeValue] = useState('')
-  const [actionValue, setActionValue] =
-    useState<(typeof actionOptions)[number]['value']>('dropclient')
-  const [permanent, setPermanent] = useState(false)
+  const [actionValue, setActionValue] = useState<NodeControlAction>(readActionPreference)
+  const [permanent, setPermanent] = useState(readPermanentPreference)
   const [autodisc, setAutodisc] = useState(readAutodiscPreference)
   const [clock, setClock] = useState(() => new Date())
   const [lcarsNumbers, setLcarsNumbers] = useState(() => makeLcarsNumbers(12))
@@ -706,7 +748,7 @@ function App({ config }: { config: RuntimeConfig }) {
     [adjacentCount, bridgeState.cards, directCount],
   )
 
-  const enrichBridgeTalker = (talker: TalkerFeedEntry | null): TalkerFeedEntry | null => {
+  const enrichBridgeTalker = useCallback((talker: TalkerFeedEntry | null): TalkerFeedEntry | null => {
     if (!talker) return null
     const transportNode = String(talker.node || '')
     if (transportNode !== '1001' && transportNode !== '1999') return talker
@@ -842,7 +884,7 @@ function App({ config }: { config: RuntimeConfig }) {
       node: transportNode === '1999' ? 'Net Bridge' : 'URFWIL',
       description: identity.description,
     }
-  }
+  }, [bridgeState.cards, currentTalker, netBridgeMode])
   const talkerCards = useMemo(() => {
     const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
     const active = currentTalker || bridgeTalkers.currentTalker
@@ -863,7 +905,7 @@ function App({ config }: { config: RuntimeConfig }) {
       )) === index
     })
     return [enrichedActive, ...uniqueHistory, null, null, null, null].slice(0, 5)
-  }, [currentTalker, recentTalkers, bridgeState.cards, netBridgeMode])
+  }, [currentTalker, recentTalkers, bridgeState.cards, enrichBridgeTalker])
 
   const talkerLastHeard = (talker: TalkerFeedEntry | null, index: number) => {
     if (!talker || index === 0 || talker.eventEpoch <= 0) return ''
@@ -922,7 +964,7 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [urfAccessOpen])
 
-  function applyBridgeConnectionOverrides(next: { updatedLabel: string; cards: BridgeCardView[] }) {
+  const applyBridgeConnectionOverrides = useCallback((next: { updatedLabel: string; cards: BridgeCardView[] }) => {
     const rowsByNode = new Map(
       connectionRowsRef.current
         .filter((row) => !row.configuredTransport)
@@ -1023,7 +1065,7 @@ function App({ config }: { config: RuntimeConfig }) {
         return withStatus(card, card.status)
       }),
     }
-  }
+  }, [config.bridges, config.node])
 
   function appendNodeMessage(message: string, options?: { persistLatest?: boolean }) {
     const bodyText = String(message || '')
@@ -1535,10 +1577,7 @@ function App({ config }: { config: RuntimeConfig }) {
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-    // applyBridgeConnectionOverrides reads the latest connection-row ref and
-    // must not restart bridge polling when connection rows change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1561,7 +1600,7 @@ function App({ config }: { config: RuntimeConfig }) {
     void tick()
     const timer = window.setInterval(tick, 100)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1595,7 +1634,7 @@ function App({ config }: { config: RuntimeConfig }) {
     void tick()
     const timer = window.setInterval(tick, 100)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1627,7 +1666,7 @@ function App({ config }: { config: RuntimeConfig }) {
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1650,7 +1689,7 @@ function App({ config }: { config: RuntimeConfig }) {
     void tick()
     const timer = window.setInterval(tick, 100)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1672,7 +1711,7 @@ function App({ config }: { config: RuntimeConfig }) {
     void tick()
     const timer = window.setInterval(tick, 100)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [config])
+  }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -2829,7 +2868,6 @@ function App({ config }: { config: RuntimeConfig }) {
                         {favorite.href ? (
                           <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.description || favorite.name || <em>No description</em>}</a>
                         ) : (favorite.description || favorite.name || <em>No description</em>)}
-                        {favorite.customDescription ? <small>User description</small> : null}
                       </span>
                       <span className="allscan-favorite-meta">
                         <span className="allscan-favorite-frequency" title="Frequency or node details">
@@ -3323,7 +3361,11 @@ function App({ config }: { config: RuntimeConfig }) {
                       id="allscan-action-select"
                       className="allscan-action-select"
                       value={actionValue}
-                      onChange={(event) => setActionValue(event.target.value as (typeof actionOptions)[number]['value'])}
+                      onChange={(event) => {
+                        const action = event.target.value as NodeControlAction
+                        setActionValue(action)
+                        writeActionPreference(action)
+                      }}
                       disabled={!authStatus.canModify}
                     >
                       {actionOptions.map((option) => (
@@ -3364,7 +3406,11 @@ function App({ config }: { config: RuntimeConfig }) {
                     type="checkbox"
                     className="allscan-checkbox"
                     checked={permanent}
-                    onChange={(event) => setPermanent(event.target.checked)}
+                    onChange={(event) => {
+                      const checked = event.target.checked
+                      setPermanent(checked)
+                      writePermanentPreference(checked)
+                    }}
                     disabled={!authStatus.canModify}
                   />
                   Permanent

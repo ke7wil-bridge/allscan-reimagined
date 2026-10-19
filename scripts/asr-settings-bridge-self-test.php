@@ -6,6 +6,9 @@ $root = dirname(__DIR__);
 $settingsDir = $root . '/compat/allscan-v1.02/asr-settings';
 chdir($settingsDir);
 define('ASR_SETTINGS_FUNCTIONS_ONLY', true);
+$wwwroot = '/var/www/html';
+$asdir = 'allscan';
+$urlbase = '/allscan';
 // The isolated controller test omits common.php; its URL migration helper
 // is irrelevant to bridge setup but is called when a real config is present.
 function asrRebaseLegacyWebPath($path, $defaultPath = '') {
@@ -26,6 +29,14 @@ function check(bool $condition, string $message): void {
 foreach(['v1.02', 'v1.03', 'v1.04'] as $compatVersion) {
 	$controllerSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/asr-settings/settings-controller.php');
 	check(is_string($controllerSource), "Unable to read $compatVersion Settings controller.");
+	$adminCss = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/css/asr-admin.css');
+	check(is_string($adminCss)
+		&& str_contains($adminCss, '.asr-net-bridge-setup-fields fieldset select { padding-right: 2.25rem; }')
+		&& str_contains($adminCss, 'grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));')
+		&& str_contains($adminCss, '.asr-net-bridge-setup-fields fieldset input,'),
+		"$compatVersion Net Bridge fields do not reserve enough width for complete select labels.");
+	check(substr_count($adminCss, '{') === substr_count($adminCss, '}'),
+		"$compatVersion admin stylesheet has unbalanced rule braces.");
 	foreach(['updateRecoveryCheck' => 'asrUpdateRecoveryCheck', 'updateRecoveryStatus' => 'asrUpdateRecoveryStatus'] as $variable => $elementId) {
 		$declaration = "var $variable = document.getElementById('$elementId');";
 		check(substr_count($controllerSource, $declaration) === 1, "$compatVersion Settings does not declare $variable exactly once.");

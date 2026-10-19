@@ -34,7 +34,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.1.5.6 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.1.5.7 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -53,7 +53,7 @@ pageInit();
 		<h2>Dashboard, Talkers, Node Controls &amp; Favorites</h2>
 		<div class="asr-instructions-topic-grid">
 			<article><h3>Talker Cards</h3><p>The Talkers module shows Current Talker plus Last Talker 1–4. History headings include the local last-heard time in 24-hour HH:MM format. Duration stays at the bottom of each card. The Talkers checkbox shows or hides this module and that choice is remembered by the current browser.</p></article>
-			<article><h3>Node Controls</h3><p>Enter an AllStar node number and use Connect or Disconnect. <strong>Disc. before Connect</strong> disconnects existing ordinary AllStar links before the new connection and is remembered by that browser. <strong>Permanent</strong> requests a permanent connection for that action only and is not remembered. <strong>Commands</strong> opens configured custom DTMF commands; administrators can add, edit, reorder, or remove custom commands.</p></article>
+			<article><h3>Node Controls</h3><p>Enter an AllStar node number and use Connect or Disconnect. <strong>Disc. before Connect</strong> disconnects existing ordinary AllStar links before the new connection and is remembered by that browser. The selected <strong>Action</strong> and <strong>Permanent</strong> checkbox are also remembered by that browser until changed. <strong>Commands</strong> opens configured custom DTMF commands; administrators can add, edit, reorder, or remove custom commands.</p></article>
 			<article><h3>Favorites</h3><p>The Favs checkbox opens the Favorites module and is remembered by the browser. One click selects a Favorite and copies its node into Node Controls; <strong>double-click connects once</strong>. Manage Favorites can reorder entries, edit descriptions and colors, import compatible Supermon favorites.ini entries without replacing existing customizations, and reset the list when needed. Status indicators show networking, recent TX, Rx Busy, and scanning state.</p></article>
 			<article><h3>Dashboard Layout</h3><p>Talkers, Node Controls, Favorites, Connection Status, and Digital Bridge Status can be reordered with their six-dot handles. Module order and open/closed UI preferences are browser-local, so changing browsers or devices can have a different layout.</p></article>
 		</div>

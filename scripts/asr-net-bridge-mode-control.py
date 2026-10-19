@@ -198,8 +198,10 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         elif result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
         elif mode == "dmr" and not CONTAINERIZED:
-            checked(runner([SYSTEMCTL, "reset-failed", argv[-1]], False),
-                    "clearing stopped DMR runtime state")
+            # A cleanly stopped or never-loaded worker is already safe. systemd
+            # returns nonzero for reset-failed when such a unit is not loaded;
+            # that must not roll a valid DMR -> digital mode switch back to DMR.
+            runner([SYSTEMCTL, "reset-failed", argv[-1]], False)
 
 
 def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:

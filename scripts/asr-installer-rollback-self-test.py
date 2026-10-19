@@ -266,6 +266,9 @@ def assert_installer_order(installer: Path) -> None:
     stock_policy_check = text.index('validate_command "stock /allscan access policy"')
     assert text.index("new CfgModel($db);", stock_policy_check) > stock_policy_check
     assert "Validation failed: /asr runtime-config endpoint" in text
+    assert '--expect json --discover "/$probe_name"' in text
+    assert 'ASR_LOOPBACK_BASE_URL="$detected_base"' in text
+    assert text.count('${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/') == 3
     official_run = text.index('if ! php "$official_installer"; then')
     stock_complete = text.index(
         '[ -d "$STOCK_ALLSCAN_DIR" ] || fail "Official AllScan installation was not completed."'
