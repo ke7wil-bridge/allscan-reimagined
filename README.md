@@ -58,6 +58,12 @@ from previous releases.
 
 [Read the Beta 8.1 release notes](release-notes/v1.0.0-beta.8.1.md).
 
+> **ONE-TIME TERMINAL UPDATE REQUIRED:** If the node is running stock AllScan
+> v1.04 with ASR Beta 8.1.5.7 or earlier, the browser updater cannot complete
+> the transition to AllScan v1.05. Run the verified command below once and
+> complete its prompts. After the node reaches AllScan v1.05 and ASR Beta
+> 8.1.5.8, routine ASR updates return to **Admin → Update ASR** in the browser.
+
 ## Install
 
 For a fresh installation, run this one-time command from an
@@ -79,15 +85,17 @@ For a normal update to a newer published ASR version, open `/asr/`, then choose
 **Admin → Update ASR → Check for Update** and follow the preflight and
 confirmation steps.
 
-If the node cannot use the browser updater, run the same verified bootstrap
-command once from an interactive terminal:
+If the node is running stock AllScan v1.04 with ASR Beta 8.1.5.7 or earlier,
+or if the browser updater cannot start, run this verified terminal command:
 
 ```bash
 curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo bash /tmp/asr-bootstrap.sh
 ```
 
-This is also the supported recovery path when the browser updater cannot start.
-The installer creates a rollback backup and preserves the existing AllScan
+Complete the installer prompts. Once the node reports AllScan v1.05 and ASR
+Beta 8.1.5.8, use the browser for routine ASR updates again. This command is
+also the supported recovery path when the browser updater cannot start. The
+installer creates a rollback backup and preserves the existing AllScan
 accounts, Favorites, node configuration, ASR settings, branding, and bridge
 configuration. Do not copy files from a Git checkout into the live web root.
 
