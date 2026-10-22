@@ -141,6 +141,32 @@ def read_status(job: str) -> dict:
             "currentVersion", "availableVersion", "message") if k in data}
 
 
+def browser_status(job: str) -> dict:
+    """Turn a systemd worker that never started into a terminal job state."""
+    data = read_status(job)
+    if data["state"] != "queued":
+        return data
+    try:
+        updated = dt.datetime.fromisoformat(data["updatedAt"])
+        age = (dt.datetime.now(dt.timezone.utc) - updated).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        raise UpdateError("Update status time is invalid")
+    if age < 30:
+        return data
+    try:
+        worker = subprocess.run(
+            ["systemctl", "show", "--property=ActiveState", "--value",
+             f"allscan-reimagined-update@{job}.service"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return data
+    if worker.returncode == 0 and worker.stdout.strip() in {"active", "activating", "reloading"}:
+        return data
+    owned_jobs()
+    return status(job, "failed", message="Update could not start.")
+
+
 def active_jobs(root: Path) -> bool:
     if not root.is_dir():
         return False
@@ -612,7 +638,7 @@ def main(argv: list[str]) -> int:
                 result.pop("release")
                 print(json.dumps(result))
         elif len(argv) == 2 and argv[0] == "--status-json":
-            print(json.dumps(read_status(argv[1])))
+            print(json.dumps(browser_status(argv[1])))
         elif len(argv) == 2 and argv[0] == "run-job":
             return run(argv[1])
         elif len(argv) == 3 and argv[0] == "internal-progress":

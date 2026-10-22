@@ -21,7 +21,7 @@ grep -Fqx "$TERMINAL_UPDATE_COMMAND" "$RELEASE_NOTES" || {
   exit 1
 }
 
-COMPAT_VERSIONS="v1.02 v1.03 v1.04"
+COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05"
 COMPAT_FILES=$(cat <<'EOF'
 LICENSE
 asr-instructions/index.php
@@ -75,7 +75,8 @@ ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\.
 for file in asr-api.php src/lib/allscanLive.ts \
   compat/allscan-v1.02/include/common.php \
   compat/allscan-v1.03/include/common.php \
-  compat/allscan-v1.04/include/common.php; do
+  compat/allscan-v1.04/include/common.php \
+  compat/allscan-v1.05/include/common.php; do
   if ! grep -Fq "$VERSION_LABEL" "$ROOT/$file"; then
     echo "$file does not contain expected version label: $VERSION_LABEL" >&2
     exit 1
@@ -144,6 +145,9 @@ node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
 node "$ROOT/scripts/asr-support-self-test.mjs"
 node "$ROOT/scripts/asr-cpu-temperature-consumers-self-test.mjs"
 node "$ROOT/scripts/asr-update-dialog-self-test.mjs"
+node "$ROOT/scripts/asr-custom-command-buttons-self-test.mjs"
+node "$ROOT/scripts/asr-maintenance-regression-self-test.mjs"
+python3 "$ROOT/scripts/asr-deployment-source-consistency-self-test.py"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
 		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do

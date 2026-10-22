@@ -494,6 +494,52 @@ ensure_php_web_runtime() {
     || fail "The web server still does not execute PHP after installing the Apache PHP runtime"
 }
 
+php_has_critical_security_fix() {
+  local version_id
+  version_id=$(php -r 'echo PHP_VERSION_ID;' 2>/dev/null) || return 1
+  [[ "$version_id" =~ ^[0-9]+$ ]] || return 1
+  case "$version_id" in
+    802*) [ "$version_id" -ge 80235 ] ;;
+    803*) [ "$version_id" -ge 80336 ] ;;
+    804*) [ "$version_id" -ge 80427 ] ;;
+    805*) [ "$version_id" -ge 80512 ] ;;
+    806*|807*|808*|809*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_php_security_updates() {
+  local php_version
+  local -a php_packages=()
+  php_version=$(php -r 'echo PHP_VERSION;' 2>/dev/null || printf 'unknown')
+  if php_has_critical_security_fix; then
+    echo "PHP security baseline satisfied: $php_version"
+    return 0
+  fi
+
+  echo "Refreshing vendor PHP packages for the 2026-10-21 critical PHP security release (detected $php_version)."
+  if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; then
+    while IFS= read -r package; do
+      [ -n "$package" ] && php_packages+=("$package")
+    done < <(dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' 'php*' 2>/dev/null \
+      | awk '$1 ~ /^ii/ {print $2}' | sed 's/:.*$//' | sort -u)
+    [ "${#php_packages[@]}" -gt 0 ] || fail "No installed PHP packages were found for the security update"
+    DEBIAN_FRONTEND=noninteractive apt-get update \
+      || fail "Could not refresh package metadata for the critical PHP security update"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade "${php_packages[@]}" \
+      || fail "Could not install current vendor PHP security packages"
+    if systemctl is-active --quiet apache2; then
+      systemctl restart apache2 \
+        || fail "Apache could not restart after the critical PHP security update"
+    fi
+    php_version=$(php -r 'echo PHP_VERSION;' 2>/dev/null || printf 'unknown')
+    echo "Vendor PHP packages are current after security refresh: $php_version"
+    return 0
+  fi
+
+  fail "PHP $php_version predates the critical security release. Update to vendor-patched PHP 8.2.35, 8.3.36, 8.4.27, or 8.5.12 or newer, then retry."
+}
+
 prune_old_backups() {
   local backup_root="/root/allscan-reimagined-backups" removed=0 remove_count index
   local -a backups=()
@@ -541,6 +587,7 @@ else
   fail "A supported web root was not found."
 fi
 ensure_php_web_runtime
+ensure_php_security_updates
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1

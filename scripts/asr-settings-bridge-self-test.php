@@ -26,7 +26,7 @@ function check(bool $condition, string $message): void {
 	if(!$condition) throw new RuntimeException($message);
 }
 
-foreach(['v1.02', 'v1.03', 'v1.04'] as $compatVersion) {
+foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 	$controllerSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/asr-settings/settings-controller.php');
 	check(is_string($controllerSource), "Unable to read $compatVersion Settings controller.");
 	$adminCss = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/css/asr-admin.css');

@@ -40,19 +40,20 @@ def docker_bytes(container: str, path: str) -> bytes:
 def static_checks() -> None:
     require_equal(ROOT / "asr-api.php", ROOT / "server/asr-api.php")
     v103 = ROOT / "compat/allscan-v1.03"
-    v104 = ROOT / "compat/allscan-v1.04"
     v103_files = {path.relative_to(v103) for path in v103.rglob("*") if path.is_file()}
-    v104_files = {path.relative_to(v104) for path in v104.rglob("*") if path.is_file()}
-    if v103_files != v104_files:
-        raise RuntimeError("AllScan v1.04 compatibility layer file set diverges from v1.03")
-    for relative in v103_files - {Path("include/common.php")}:
-        require_equal(v103 / relative, v104 / relative)
-    v104_common = (v104 / "include/common.php").read_text()
-    if v104_common.replace('$AllScanVersion = "v1.04";', '$AllScanVersion = "v1.03";', 1) \
-            != (v103 / "include/common.php").read_text():
-        raise RuntimeError("AllScan v1.04 common.php differs beyond the qualified backend version")
+    for version in ("v1.04", "v1.05"):
+        compat = ROOT / f"compat/allscan-{version}"
+        compat_files = {path.relative_to(compat) for path in compat.rglob("*") if path.is_file()}
+        if v103_files != compat_files:
+            raise RuntimeError(f"AllScan {version} compatibility layer file set diverges from v1.03")
+        for relative in v103_files - {Path("include/common.php")}:
+            require_equal(v103 / relative, compat / relative)
+        common = (compat / "include/common.php").read_text()
+        if common.replace(f'$AllScanVersion = "{version}";', '$AllScanVersion = "v1.03";', 1) \
+                != (v103 / "include/common.php").read_text():
+            raise RuntimeError(f"AllScan {version} common.php differs beyond the qualified backend version")
     for relative in CRITICAL_COMPAT:
-        for version in ("v1.03", "v1.04"):
+        for version in ("v1.03", "v1.04", "v1.05"):
             require_equal(ROOT / "compat/allscan-v1.02" / relative,
                           ROOT / f"compat/allscan-{version}" / relative)
     entrypoint = (ROOT / "docker/layered-entrypoint.sh").read_text()
@@ -70,7 +71,7 @@ def static_checks() -> None:
             raise RuntimeError(f"layered recreation can delete persistent runtime state: {runtime_name}")
     if 'compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"' not in reapply:
         raise RuntimeError("native reapply does not select an exact detected compatibility version")
-    for version in ("v1.02", "v1.03", "v1.04"):
+    for version in ("v1.02", "v1.03", "v1.04", "v1.05"):
         source = ROOT / f"compat/allscan-{version}/astapi/server.php"
         text = source.read_text()
         if "asrSanitizeTalkerFeed($payload['current']" not in text:

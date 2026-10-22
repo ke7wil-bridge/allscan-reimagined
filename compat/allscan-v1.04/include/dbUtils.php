@@ -29,6 +29,8 @@ function dbInit() {
 
 function initErrExit($msg) {
 	global $asdbfile;
+	if(defined('ASR_JSON_API') && ASR_JSON_API)
+		throw new RuntimeException('Shared AllScan database validation failed.');
 	pageInit();
 	echo implode(BR, $msg) . BR;
 	msg("DB validation failed. $asdbfile may be corrupted. Try copying .bak over .db if exists or delete .db file.");
