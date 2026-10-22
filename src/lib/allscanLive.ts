@@ -44,6 +44,8 @@ export type RuntimeConfig = {
   node: string
   callsign: string
   netBridgeMode: string
+  storageWarning?: string
+  phpSecurityWarning?: string
   headerTitle: string
   browserTitle: string
   brandByline: string
@@ -64,7 +66,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.7'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.8'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -1064,8 +1066,16 @@ export async function fetchFavorites(favsfile = ''): Promise<FavoritesPayload> {
     credentials: 'same-origin',
     cache: 'no-store',
   })
-  const payload = (await response.json()) as FavoritesPayload & { ok?: boolean; error?: string }
-  if (payload.ok === false) throw new Error(payload.error || 'Favorites list could not be loaded.')
+  const body = await response.text()
+  let payload: FavoritesPayload & { ok?: boolean; error?: string }
+  try {
+    payload = JSON.parse(body) as FavoritesPayload & { ok?: boolean; error?: string }
+  } catch {
+    throw new Error(`Favorites request failed (${response.status}). Check node storage and the shared AllScan database.`)
+  }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Favorites request failed (${response.status}).`)
+  }
   return {
     rows: payload.rows || [],
     files: payload.files || [],

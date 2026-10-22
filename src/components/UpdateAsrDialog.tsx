@@ -41,7 +41,7 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
         if (next.state === 'complete' || next.state === 'failed') {
           window.localStorage.removeItem(STORED_JOB)
         }
-      } catch {
+      } catch (cause) {
         if (cancelled) return
         // A persisted job can outlive the server-side status file after a completed update.
         // If we have never observed this job as active, treat it as stale instead of
@@ -52,7 +52,12 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
           setConnectionMessage('')
           return
         }
-        setConnectionMessage('ASR is reconnecting. This update job continues on the server.')
+        const detail = cause instanceof Error ? cause.message : ''
+        setConnectionMessage(
+          detail && detail !== 'ASR update request failed.'
+            ? `Update status unavailable: ${detail}`
+            : 'ASR is reconnecting. This update job continues on the server.',
+        )
       }
     }
     void poll()

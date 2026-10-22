@@ -2,6 +2,21 @@
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
+ini_set('display_errors', '0');
+define('ASR_JSON_API', true);
+set_exception_handler(static function (Throwable $error): void {
+    error_log('ASR API failure: ' . get_class($error));
+    if (!headers_sent()) {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    echo json_encode([
+        'ok' => false,
+        'error' => 'Node storage or the shared AllScan database is unavailable. Check disk space, inodes, and database health.',
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
+});
 
 const ASR_ETC_FAVORITES = '/etc/allscan/favorites.ini';
 const ASR_DEFAULT_FAVORITES = __DIR__ . '/favorites.ini';
@@ -23,8 +38,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.7';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.7';
+const ASR_VERSION = '1.0.0-beta.8.1.5.8';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.8';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -507,11 +522,30 @@ function asr_runtime_config(): array {
     $headerTitle = $replace((string) ($stored['headerTitle'] ?? '{CALLSIGN} | Node {NODE}'));
     $browserTitle = $replace((string) ($stored['browserTitle'] ?? ($headerTitle . ' | ASR')));
 
+    $diskTotal = (float) @disk_total_space('/');
+    $diskFree = (float) @disk_free_space('/');
+    $diskUsedPercent = $diskTotal > 0 ? (($diskTotal - $diskFree) / $diskTotal) * 100 : 0;
+    $storageWarning = ($diskTotal > 0 && ($diskFree < 512 * 1024 * 1024 || $diskUsedPercent >= 90))
+        ? 'Node storage is critically low. Free disk space and verify filesystem inodes before continuing.'
+        : '';
+    $phpFixed = match (PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION) {
+        '8.2' => PHP_VERSION_ID >= 80235,
+        '8.3' => PHP_VERSION_ID >= 80336,
+        '8.4' => PHP_VERSION_ID >= 80427,
+        '8.5' => PHP_VERSION_ID >= 80512,
+        default => PHP_VERSION_ID >= 80600,
+    };
+    $phpSecurityWarning = is_file('/.dockerenv') && !$phpFixed
+        ? 'This Docker container is running PHP ' . PHP_VERSION . ', which predates the critical October 21 security release. Rebuild and recreate the ASR web container from this release.'
+        : '';
+
     return [
         'ok' => true,
         'node' => $node,
         'callsign' => $callsign,
         'netBridgeMode' => $selectedNetBridgeMode,
+        'storageWarning' => $storageWarning,
+        'phpSecurityWarning' => $phpSecurityWarning,
         'headerTitle' => $headerTitle,
         'browserTitle' => $browserTitle,
         'brandByline' => 'by KE7WIL',

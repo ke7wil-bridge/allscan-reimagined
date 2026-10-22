@@ -100,6 +100,20 @@ def self_test():
         fails(lambda: up.status(job, "failed", message="password=secret"))
         assert "secret" not in (up.JOB_ROOT / (job + ".json")).read_text()
         assert up.active_jobs(up.JOB_ROOT)
+        for journal in (up.JOB_ROOT / (job + ".json"), up.PERSIST_ROOT / (job + ".json")):
+            old = json.loads(journal.read_text())
+            old["updatedAt"] = "2000-01-01T00:00:00+00:00"
+            journal.write_text(json.dumps(old) + "\n")
+        with mock.patch.object(up, "owned_jobs"), mock.patch.object(
+                up.subprocess, "run",
+                return_value=SimpleNamespace(returncode=0, stdout="failed\n")):
+            stalled = up.browser_status(job)
+        assert stalled["state"] == "failed"
+        assert stalled["message"] == "Update could not start."
+        fresh = up.status(job, "queued")
+        with mock.patch.object(up.subprocess, "run",
+                               return_value=SimpleNamespace(returncode=0, stdout="failed\n")):
+            assert up.browser_status(job)["state"] == "queued"
         up.status(job, "complete", message="Update complete.")
         assert not up.active_jobs(up.JOB_ROOT)
 

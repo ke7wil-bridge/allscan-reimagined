@@ -737,8 +737,10 @@ def main() -> int:
     platform.machine = lambda: "x86_64"
     installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
     compose_source = (HERE.parent / "docker-compose.yml").read_text(encoding="utf-8")
+    layered_reapply_source = (HERE.parent / "docker" / "layered-reapply.sh").read_text(encoding="utf-8")
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
     assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
+    assert "if [ ! -d /run/allscan-reimagined-m17 ]; then" in layered_reapply_source
     m17_exec = "--proc-root {profile.host_proc} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector"
     assert m17_exec in installer_source
     assert "--user {SERVICE_USER} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector" not in installer_source

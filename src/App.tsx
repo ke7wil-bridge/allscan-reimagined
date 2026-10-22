@@ -65,6 +65,7 @@ const NODE_MESSAGE_LIVE_TTL = 300000
 const BRIDGE_REFRESH_MS = 500
 const BRIDGE_REFRESH_TIMEOUT_MS = 5000
 const BRIDGE_REFRESH_ERROR_BACKOFF_MS = 5000
+const TALKER_HISTORY_MAX_AGE_SECONDS = 24 * 60 * 60
 const THEME_SETTINGS_KEY = 'asrThemeSettings.v1'
 const AUTODISC_PREFERENCE_KEY = 'asrDisconnectBeforeConnect.v1'
 const ACTION_PREFERENCE_KEY = 'asrNodeControlAction.v1'
@@ -887,8 +888,13 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [bridgeState.cards, currentTalker, netBridgeMode])
   const talkerCards = useMemo(() => {
     const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
-    const active = currentTalker || bridgeTalkers.currentTalker
+    const cutoff = Math.floor(clock.getTime() / 1000) - TALKER_HISTORY_MAX_AGE_SECONDS
+    const activeCandidate = currentTalker || bridgeTalkers.currentTalker
+    const active = activeCandidate && Math.max(activeCandidate.eventEpoch, activeCandidate.startedEpoch) >= cutoff
+      ? activeCandidate
+      : null
     const history = [...recentTalkers, ...bridgeTalkers.recentTalkers]
+      .filter((entry) => entry.eventEpoch >= cutoff)
       .filter((entry) => (!active || entry.node !== active.node || entry.eventEpoch !== active.eventEpoch))
       .sort((left, right) => right.eventEpoch - left.eventEpoch)
     const enrichedActive = enrichBridgeTalker(active)
@@ -905,7 +911,7 @@ function App({ config }: { config: RuntimeConfig }) {
       )) === index
     })
     return [enrichedActive, ...uniqueHistory, null, null, null, null].slice(0, 5)
-  }, [currentTalker, recentTalkers, bridgeState.cards, enrichBridgeTalker])
+  }, [clock, currentTalker, recentTalkers, bridgeState.cards, enrichBridgeTalker])
 
   const talkerLastHeard = (talker: TalkerFeedEntry | null, index: number) => {
     if (!talker || index === 0 || talker.eventEpoch <= 0) return ''
@@ -1434,6 +1440,13 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [authStatus.canRead])
 
   useEffect(() => {
+    const warnings = [config.storageWarning, config.phpSecurityWarning].filter(Boolean) as string[]
+    if (!warnings.length) return
+    const timer = window.setTimeout(() => warnings.forEach((warning) => appendNodeMessage(warning)), 0)
+    return () => window.clearTimeout(timer)
+  }, [config.phpSecurityWarning, config.storageWarning])
+
+  useEffect(() => {
     if (!config.node) {
       const messageTimer = window.setTimeout(() => {
         appendNodeMessage('No local node number was detected. Run the Reimagined setup again.')
@@ -1732,11 +1745,11 @@ function App({ config }: { config: RuntimeConfig }) {
             setSelectedFavoriteFile(next.selectedFile)
           }
         }
-      } catch {
+      } catch (error) {
         if (cancelled) return
         attempts += 1
         if (!failureNotified) {
-          appendNodeMessage(FAVORITES_LOAD_ERROR)
+          appendNodeMessage(error instanceof Error ? error.message : FAVORITES_LOAD_ERROR)
           failureNotified = true
         }
         if (attempts < 4) {
@@ -3427,7 +3440,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   <div ref={customCommandsRef} className="allscan-custom-commands">
                     <button
                       type="button"
-                      className="allscan-custom-commands-button"
+                      className="allscan-action-button allscan-custom-commands-button"
                       aria-expanded={customCommandsOpen}
                       disabled={busy}
                       onClick={() => {

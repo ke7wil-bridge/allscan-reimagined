@@ -558,7 +558,7 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert '"root:$WEB_GROUP:2750"' in integrity_text
     assert "allscan-reimagined-reapply-delayed.timer" in integrity_text
     project_root = reapply.parents[1]
-    for backend_version in ("v1.02", "v1.03", "v1.04"):
+    for backend_version in ("v1.02", "v1.03", "v1.04", "v1.05"):
         settings = (
             project_root
             / "compat"

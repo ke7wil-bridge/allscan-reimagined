@@ -57,8 +57,15 @@ def main() -> int:
     require(
         "apt-get install -y libapache2-mod-php" in installer
         and "php_web_runtime_ok" in installer
-        and "ensure_php_web_runtime\nSTOCK_ALLSCAN_DIR=" in installer,
+        and "ensure_php_web_runtime\nensure_php_security_updates" in installer,
         "installer must verify and provision a web PHP runtime before exposing stock AllScan",
+    )
+    require(
+        "php_has_critical_security_fix" in installer
+        and "apt-get install -y --only-upgrade" in installer
+        and "ensure_php_security_updates\nSTOCK_ALLSCAN_DIR=" in installer
+        and "PHP security baseline satisfied" in installer,
+        "installer must refresh vulnerable native PHP runtimes before exposing ASR",
     )
     require(
         'probe_name="asr-php-runtime-probe.$$.$RANDOM.php"' in installer

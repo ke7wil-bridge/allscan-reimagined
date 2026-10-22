@@ -41,6 +41,11 @@ check(
   'Update dialog does not clearly identify the browser installation path.',
 )
 check(
+  source.includes('Update status unavailable: ${detail}')
+    && source.includes('ASR is reconnecting. This update job continues on the server.'),
+  'Update polling does not distinguish a server rejection from a temporary reconnect.',
+)
+check(
   appSource.includes("const UPDATE_NOTICE_DISMISS_KEY = 'asrUpdateNoticeDismissedVersion.v1'")
     && appSource.includes('releaseStatus.availableVersion !== dismissedUpdateVersion')
     && appSource.includes('writeDismissedUpdateVersion(releaseStatus.availableVersion)')
