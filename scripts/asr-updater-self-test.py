@@ -46,6 +46,17 @@ def fails(call):
     raise AssertionError("Unsafe input was accepted")
 
 
+def stock_manifest(version="v1.02"):
+    commit = "a" * 40
+    return {
+        "schema": 1,
+        "version": version,
+        "commit": commit,
+        "url": f"https://codeload.github.com/davidgsd/AllScan/tar.gz/{commit}",
+        "sha256": "b" * 64,
+    }
+
+
 def self_test():
     # The browser API uses sudo -n for exactly these updater operations. Keep
     # the generated sudoers policy and integrity repair checks in lockstep.
@@ -197,7 +208,7 @@ def self_test():
                 up.shutil, "disk_usage", return_value=SimpleNamespace(total=10 * 1024 ** 3, used=1024 ** 3, free=9 * 1024 ** 3)), mock.patch.object(
                 Path, "read_text", local_config_read):
             assert up.preflight()["rebootRequired"] is False
-            stock.write_text('$AllScanVersion = "v1.00";\n')
+            stock.write_text('$AllScanVersion = "broken";\n')
             fails(up.preflight)
             stock.write_text('$AllScanVersion = "v1.02";\n')
 
@@ -253,6 +264,9 @@ def self_test():
         checks["release"]["sha256"] = hashlib.sha256(package()).hexdigest()
         staged_for_failure = root / "staged-for-failure"
         (staged_for_failure / "payload/compat/allscan-v1.02").mkdir(parents=True)
+        (staged_for_failure / "payload/stock-allscan.json").write_text(
+            json.dumps(stock_manifest())
+        )
         (staged_for_failure / "install.sh").write_text("exit 1")
         with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
                 up, "preflight", return_value=checks), mock.patch.object(

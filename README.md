@@ -62,7 +62,8 @@ from previous releases.
 > v1.04 with ASR Beta 8.1.5.7 or earlier, the browser updater cannot complete
 > the transition to AllScan v1.05. Run the verified command below once and
 > complete its prompts. After the node reaches AllScan v1.05 and ASR Beta
-> 8.1.5.8, routine ASR updates return to **Admin → Update ASR** in the browser.
+> 8.1.5.8, future supported AllScan and ASR upgrades return to
+> **Admin → Update ASR** in the browser.
 
 ## Install
 
@@ -93,9 +94,11 @@ curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridg
 ```
 
 Complete the installer prompts. Once the node reports AllScan v1.05 and ASR
-Beta 8.1.5.8, use the browser for routine ASR updates again. This command is
-also the supported recovery path when the browser updater cannot start. The
-installer creates a rollback backup and preserves the existing AllScan
+Beta 8.1.5.8, use the browser for future supported AllScan and ASR upgrades.
+ASR stages a release-pinned, checksum-verified AllScan tree and backs up both
+applications before changing either one. This command is also the supported
+recovery path when the browser updater cannot start. The installer creates a
+rollback backup and preserves the existing AllScan
 accounts, Favorites, node configuration, ASR settings, branding, and bridge
 configuration. Do not copy files from a Git checkout into the live web root.
 

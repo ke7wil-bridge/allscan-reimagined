@@ -47,6 +47,9 @@ ASR_FRIENDLY_NAMES_DROPIN_WAS_PRESENT=0
 OFFICIAL_INSTALL_ATTEMPTED=0
 OFFICIAL_SHARED_BASELINE_CAPTURED=0
 ASR_LOOPBACK_BASE_URL=""
+STOCK_PREVIOUS_ARMED=0
+STOCK_PREVIOUS_DIR=""
+STOCK_STAGE_PARENT=""
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 validate_command() {
@@ -320,6 +323,11 @@ rollback_on_error() {
     rm -rf -- "$STOCK_ALLSCAN_DIR"
     mv "$MIGRATED_STOCK_DIR" "$STOCK_ALLSCAN_DIR"
   fi
+  if [ "$STOCK_PREVIOUS_ARMED" -eq 1 ] && [ -d "$STOCK_PREVIOUS_DIR" ]; then
+    rm -rf -- "$STOCK_ALLSCAN_DIR"
+    mv "$STOCK_PREVIOUS_DIR" "$STOCK_ALLSCAN_DIR"
+  fi
+  [ -n "$STOCK_STAGE_PARENT" ] && rm -rf -- "$STOCK_STAGE_PARENT"
   if [ "$ALLSCAN_OLD_ARMED" -eq 1 ] && [ -d "$ALLSCAN_OLD_BACKUP" ]; then
     [ -e "$WEB_ROOT/allscan-old" ] && mv "$WEB_ROOT/allscan-old" "$BACKUP_DIR/failed-allscan-old"
     mv "$ALLSCAN_OLD_BACKUP" "$WEB_ROOT/allscan-old"
@@ -623,17 +631,20 @@ if [ -r "$STOCK_ALLSCAN_DIR/include/common.php" ]; then
   current_version=$(sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' "$STOCK_ALLSCAN_DIR/include/common.php" | head -1)
   current_version="${current_version:-unknown}"
 fi
-latest_version=$(curl -fsSL https://raw.githubusercontent.com/davidgsd/AllScan/main/include/common.php \
-  | sed -n 's/^\$AllScanVersion = "\([^"]*\)";.*/\1/p' | head -1)
-latest_version="${latest_version:-unknown}"
-[ "$latest_version" != "unknown" ] || fail "The latest official AllScan version could not be verified."
+STOCK_MANIFEST="$PAYLOAD_DIR/stock-allscan.json"
+STOCK_UPDATE_HELPER="$PAYLOAD_DIR/scripts/asr-stock-allscan.py"
+[ -f "$STOCK_MANIFEST" ] && [ -x "$STOCK_UPDATE_HELPER" ] \
+  || fail "The verified stock AllScan update payload is incomplete."
+latest_version=$(python3 "$STOCK_UPDATE_HELPER" manifest-version "$STOCK_MANIFEST") \
+  || fail "The verified stock AllScan manifest is invalid."
 STOCK_OVERLAY_DETECTED=0
 if [ -f "$STOCK_ALLSCAN_DIR/asr-api.php" ] \
   || [ -d "$STOCK_ALLSCAN_DIR/asr-settings" ] \
   || grep -q 'AllScan Reimagined' "$STOCK_ALLSCAN_DIR/index.html" 2>/dev/null; then
   STOCK_OVERLAY_DETECTED=1
 fi
-if { [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; } \
+if [ "$BROWSER_UPDATE" -eq 0 ] \
+  && { [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; } \
   && [ ! -t 0 ]; then
   fail "The official AllScan update requires an interactive terminal. Run 'bash ./install.sh' directly in an interactive shell; do not run it through a heredoc or wrapper."
 fi
@@ -641,8 +652,12 @@ fi
 if [ "$BROWSER_UPDATE" -eq 1 ]; then
   [ -d "$ASR_WEB_DIR" ] && [ -d /opt/allscan-reimagined/current ] \
     || fail "Browser updates require a completed initial ASR installation."
-  [ "$current_version" = "$latest_version" ] && [ "$STOCK_OVERLAY_DETECTED" -eq 0 ] \
-    || fail "The official AllScan backend needs an interactive upgrade."
+  [ "$STOCK_OVERLAY_DETECTED" -eq 0 ] \
+    || fail "The legacy stock overlay needs an interactive migration."
+  [ -d "$STOCK_ALLSCAN_DIR" ] \
+    || fail "Browser updates require an existing stock AllScan installation."
+  [ -f "$PAYLOAD_DIR/compat/allscan-$latest_version/include/common.php" ] \
+    || fail "This release cannot manage the required stock AllScan version."
   [ -s /etc/allscan-reimagined/config.json ] \
     || fail "ASR configuration is missing."
   php -r 'json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);' \
@@ -789,6 +804,14 @@ if [ -n "$PRE_UPDATE_MASTER" ]; then
     -czf "$BACKUP_DIR/asr-release.tar.gz" -C "$PRE_UPDATE_MASTER" .
   chmod 600 "$BACKUP_DIR/asr-release.tar.gz"
 fi
+if [ "$BROWSER_UPDATE" -eq 1 ] && [ "$current_version" != "$latest_version" ]; then
+  COPYFILE_DISABLE=1 tar --ignore-failed-read --warning=no-file-changed \
+    -czf "$BACKUP_DIR/stock-allscan.tar.gz" -C "$WEB_ROOT" allscan \
+    || fail "Stock AllScan rollback backup failed."
+  [ -s "$BACKUP_DIR/stock-allscan.tar.gz" ] \
+    || fail "Stock AllScan rollback backup is empty."
+  chmod 600 "$BACKUP_DIR/stock-allscan.tar.gz"
+fi
 if [ -f /etc/allscan/allscan.db ]; then
   install -o root -g root -m 600 /etc/allscan/allscan.db "$BACKUP_DIR/allscan.db"
 else
@@ -827,7 +850,32 @@ if [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; then
 fi
 if [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" -eq 1 ]; then
   echo "Official AllScan will be installed or upgraded: $current_version -> $latest_version"
-  if ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
+  if [ "$BROWSER_UPDATE" -eq 1 ]; then
+    echo "Preparing the release-pinned, checksum-verified stock AllScan tree."
+    STOCK_STAGE_PARENT=$(mktemp -d "$WEB_ROOT/.allscan-browser-upgrade.XXXXXX")
+    python3 "$STOCK_UPDATE_HELPER" prepare \
+      "$STOCK_MANIFEST" "$STOCK_STAGE_PARENT/allscan" \
+      || fail "The verified stock AllScan tree could not be prepared."
+    for user_ini in "$STOCK_ALLSCAN_DIR"/*.ini "$STOCK_ALLSCAN_DIR"/*.ini.bak; do
+      [ -f "$user_ini" ] || continue
+      cp -pn -- "$user_ini" "$STOCK_STAGE_PARENT/allscan/"
+    done
+    chgrp "$WEB_GROUP" "$STOCK_STAGE_PARENT/allscan"
+    chmod 775 "$STOCK_STAGE_PARENT/allscan"
+    for user_ini in "$STOCK_STAGE_PARENT/allscan"/*.ini "$STOCK_STAGE_PARENT/allscan"/*.ini.bak; do
+      [ -f "$user_ini" ] || continue
+      chgrp "$WEB_GROUP" "$user_ini"
+      chmod 664 "$user_ini"
+    done
+    STOCK_PREVIOUS_DIR="$WEB_ROOT/.allscan-browser-previous.$$"
+    [ ! -e "$STOCK_PREVIOUS_DIR" ] \
+      || fail "A previous stock AllScan staging directory still exists."
+    mv "$STOCK_ALLSCAN_DIR" "$STOCK_PREVIOUS_DIR"
+    STOCK_PREVIOUS_ARMED=1
+    mv "$STOCK_STAGE_PARENT/allscan" "$STOCK_ALLSCAN_DIR"
+    rmdir "$STOCK_STAGE_PARENT"
+    STOCK_STAGE_PARENT=""
+  elif ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
     official_installer_dir=$(mktemp -d /tmp/allscan-official-installer.XXXXXX)
     official_installer="$official_installer_dir/AllScanInstallUpdate.php"
     if ! curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"; then
@@ -883,7 +931,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -1401,6 +1449,9 @@ RELEASE_PREVIOUS_ARMED=0
 CHANGES_STARTED=0
 [ -n "$MIGRATED_STOCK_DIR" ] && rm -rf -- "$MIGRATED_STOCK_DIR"
 MIGRATED_STOCK_ARMED=0
+[ -n "$STOCK_PREVIOUS_DIR" ] && rm -rf -- "$STOCK_PREVIOUS_DIR"
+STOCK_PREVIOUS_ARMED=0
+STOCK_PREVIOUS_DIR=""
 ALLSCAN_OLD_ARMED=0
 if ! prune_old_backups; then
   echo "WARNING: Old rollback backups could not be pruned automatically." >&2

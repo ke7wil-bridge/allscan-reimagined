@@ -36,6 +36,8 @@ API = "https://api.github.com/repos/ke7wil-bridge/allscan-reimagined/releases?pe
 JOB_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$")
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-(?:alpha|beta|rc)\.[0-9]+(?:\.[0-9]+)*)?$")
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
+STOCK_VERSION_RE = re.compile(r"^v([0-9]+)\.([0-9]+)$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 STATES = {"queued", "preflight", "downloading", "verifying", "staging",
           "backup", "installing", "health", "restoring", "complete", "failed"}
 MAX_ARCHIVE = 256 * 1024 * 1024
@@ -193,6 +195,35 @@ def current_version() -> str:
     return match.group(1)
 
 
+def stock_manifest(release_root: Path) -> dict:
+    try:
+        data = json.loads((release_root / "stock-allscan.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise UpdateError("Release stock AllScan manifest is unavailable") from exc
+    if not isinstance(data, dict) or data.get("schema") != 1:
+        raise UpdateError("Release stock AllScan manifest is invalid")
+    version = data.get("version")
+    commit = data.get("commit")
+    url = data.get("url")
+    digest = data.get("sha256")
+    if not isinstance(version, str) or not STOCK_VERSION_RE.fullmatch(version):
+        raise UpdateError("Release stock AllScan version is invalid")
+    if not isinstance(commit, str) or not COMMIT_RE.fullmatch(commit):
+        raise UpdateError("Release stock AllScan commit is invalid")
+    if url != f"https://codeload.github.com/davidgsd/AllScan/tar.gz/{commit}":
+        raise UpdateError("Release stock AllScan source is not pinned")
+    if not isinstance(digest, str) or not SHA_RE.fullmatch(digest):
+        raise UpdateError("Release stock AllScan checksum is invalid")
+    return data
+
+
+def stock_version_tuple(version: str) -> tuple[int, int]:
+    match = STOCK_VERSION_RE.fullmatch(version)
+    if not match:
+        raise UpdateError("Installed stock AllScan version is invalid")
+    return int(match.group(1)), int(match.group(2))
+
+
 def fetch(url: str, accept: str, limit: int) -> bytes:
     request = urllib.request.Request(url, headers={
         "Accept": accept, "User-Agent": "AllScan-Reimagined/updater"})
@@ -344,8 +375,7 @@ def preflight() -> dict:
         raise UpdateError("Stock backend or ASR configuration is unavailable") from exc
     if not match or not isinstance(config, dict) or not (WEB_ROOT / "asr/asr-api.php").is_file():
         raise UpdateError("Installed configuration is incomplete")
-    if not (RELEASE_ROOT / "compat" / ("allscan-" + match.group(1))).is_dir():
-        raise UpdateError("Current stock backend is unsupported")
+    stock_version_tuple(match.group(1))
     if not (WEB_ROOT / "allscan").is_dir():
         raise UpdateError("Stock AllScan is missing")
     if shutil.which("systemctl") is None or shutil.which("php") is None:
@@ -358,12 +388,6 @@ def preflight() -> dict:
         raise UpdateError("Insufficient free backup space")
     if shutil.disk_usage(RELEASE_ROOT).free < 2 * 1024 ** 3:
         raise UpdateError("Insufficient free release space")
-    # Avoid any stock backend upgrade, which belongs to the interactive installer.
-    official = fetch("https://raw.githubusercontent.com/davidgsd/AllScan/main/include/common.php",
-                     "text/plain", 2 * 1024 * 1024).decode("utf-8")
-    latest = re.search(r'^\$AllScanVersion\s*=\s*"([^"]+)"', official, re.M)
-    if not latest or latest.group(1) != match.group(1):
-        raise UpdateError("Stock AllScan requires an interactive upgrade")
     if (WEB_ROOT / "allscan/asr-api.php").exists():
         raise UpdateError("Legacy stock overlay requires interactive migration")
     return {"ok": True, "installedVersion": installed, "availableVersion": version,
@@ -531,9 +555,14 @@ def run(job: str) -> int:
             stock_version = re.search(
                 r'^\$AllScanVersion\s*=\s*"([^"]+)"',
                 (WEB_ROOT / "allscan/include/common.php").read_text(), re.M)
-            if (not stock_version or not
-                    (staged / "payload/compat" / ("allscan-" + stock_version.group(1))).is_dir()):
-                raise UpdateError("Release does not support the installed stock backend")
+            if not stock_version:
+                raise UpdateError("Installed stock AllScan version is unavailable")
+            installed_stock = stock_version.group(1)
+            target_stock = str(stock_manifest(staged / "payload")["version"])
+            if stock_version_tuple(installed_stock) > stock_version_tuple(target_stock):
+                raise UpdateError("Release would downgrade stock AllScan")
+            if not (staged / "payload/compat" / ("allscan-" + target_stock)).is_dir():
+                raise UpdateError("Release does not support its stock AllScan target")
             status(job, "backup")
             result_code = install_release(staged, job)
             if result_code:

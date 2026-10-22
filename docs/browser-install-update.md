@@ -7,7 +7,7 @@ This workflow is for the packaged release after sandbox qualification. The first
 > v1.05 through its installed browser updater. Run the verified bootstrap
 > command in [Terminal recovery update](#terminal-recovery-update) once and
 > complete its prompts. After the node reaches AllScan v1.05 and ASR Beta
-> 8.1.5.8, routine ASR updates return to the browser.
+> 8.1.5.8, future supported AllScan and ASR upgrades return to the browser.
 
 ## First installation
 
@@ -25,9 +25,10 @@ Open `/asr/` after installation and log in with an existing AllScan administrato
 
 In ASR, open **Admin → Update ASR**.
 
-The steps below apply when stock AllScan is already v1.05. For the one-time
-v1.04-to-v1.05 transition on ASR Beta 8.1.5.7 or earlier, use the terminal
-command above instead.
+For the one-time v1.04-to-v1.05 transition on ASR Beta 8.1.5.7 or earlier, use
+the terminal command above. After Beta 8.1.5.8 is installed, these browser steps
+also handle a future AllScan upgrade when the published ASR release includes an
+exact compatibility layer and a pinned, verified upstream AllScan archive.
 
 1. Choose **Check for Update**. ASR reports the current and latest published versions.
 2. Choose **Run Preflight**. It checks compatibility with installed stock AllScan, service and configuration readiness, disk space, backup storage, and whether restart or reboot is required.
@@ -36,7 +37,12 @@ command above instead.
 
 The browser can request only fixed updater operations. The helper selects release assets from the ASR GitHub repository, checks their expected names and URLs, verifies the companion SHA-256 digest, validates archive contents, creates a rollback backup, applies the release, and runs application health checks. It does not install a GitHub branch, user-provided URL, path, shell command, or service name.
 
-If stock AllScan needs its own interactive upstream update, ASR preflight stops before changing files. It does not silently run or bypass the official installer's prompts.
+For a supported stock AllScan change, the target ASR release declares the exact
+upstream version, commit, URL, and SHA-256 checksum. The updater verifies and
+stages that release before changing files, preserves the node's `.ini` files,
+and backs up stock AllScan and ASR together. A failed installation or health
+check restores the matching pair. ASR never installs an unpinned upstream
+branch or an AllScan version without a packaged compatibility layer.
 
 ### Terminal recovery update
 

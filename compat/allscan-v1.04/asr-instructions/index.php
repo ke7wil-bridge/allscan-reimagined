@@ -96,6 +96,7 @@ pageInit();
 			<li>Reload the dashboard, confirm the expected card and modes appear, then make a short two-way audio test. Use Bridge Diagnostics if the card is not ready or audio works in only one direction.</li>
 		</ol>
 		<ul class="asr-instructions-list">
+			<li><strong>Browser updates after Beta 8.1.5.8.</strong> Use <strong>Admin → Update ASR</strong>. When a qualified ASR release supports a newer stock AllScan version, the same browser job verifies, backs up, and updates both applications together.</li>
 			<li>Use the unified <strong>Net Bridge</strong> choice for the outbound selectable bridge. Its private AllStar transport node is managed internally rather than chosen during normal operation.</li>
 			<li>Standard bridges normally stay on one destination. Display-only cards monitor externally installed services without operating them.</li>
 			<li>Do not share USRP, TLV, DMR-network, MQTT, emulator, or vocoder ports between active bridge instances.</li>
