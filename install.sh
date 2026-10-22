@@ -633,7 +633,7 @@ if [ -r "$STOCK_ALLSCAN_DIR/include/common.php" ]; then
 fi
 STOCK_MANIFEST="$PAYLOAD_DIR/stock-allscan.json"
 STOCK_UPDATE_HELPER="$PAYLOAD_DIR/scripts/asr-stock-allscan.py"
-[ -f "$STOCK_MANIFEST" ] && [ -x "$STOCK_UPDATE_HELPER" ] \
+[ -f "$STOCK_MANIFEST" ] && [ -f "$STOCK_UPDATE_HELPER" ] \
   || fail "The verified stock AllScan update payload is incomplete."
 latest_version=$(python3 "$STOCK_UPDATE_HELPER" manifest-version "$STOCK_MANIFEST") \
   || fail "The verified stock AllScan manifest is invalid."

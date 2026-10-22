@@ -304,6 +304,8 @@ def assert_installer_order(installer: Path) -> None:
     assert "Official AllScan is still $installed_version; expected $latest_version." in text
     assert "no exact compatibility layer" in text and "/asr was not changed" in text
     assert 'STOCK_MANIFEST="$PAYLOAD_DIR/stock-allscan.json"' in text
+    assert '[ -f "$STOCK_MANIFEST" ] && [ -f "$STOCK_UPDATE_HELPER" ]' in text
+    assert '[ -x "$STOCK_UPDATE_HELPER" ]' not in text
     assert 'python3 "$STOCK_UPDATE_HELPER" manifest-version "$STOCK_MANIFEST"' in text
     assert 'python3 "$STOCK_UPDATE_HELPER" prepare' in text
     assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
