@@ -303,6 +303,14 @@ def assert_installer_order(installer: Path) -> None:
     assert "Official AllScan did not provide readable version metadata" in text
     assert "Official AllScan is still $installed_version; expected $latest_version." in text
     assert "no exact compatibility layer" in text and "/asr was not changed" in text
+    assert 'STOCK_MANIFEST="$PAYLOAD_DIR/stock-allscan.json"' in text
+    assert 'python3 "$STOCK_UPDATE_HELPER" manifest-version "$STOCK_MANIFEST"' in text
+    assert 'python3 "$STOCK_UPDATE_HELPER" prepare' in text
+    assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
+    assert 'mv "$STOCK_PREVIOUS_DIR" "$STOCK_ALLSCAN_DIR"' in rollback_block
+    assert text.index('STOCK_PREVIOUS_ARMED=1') < text.index(
+        'mv "$STOCK_STAGE_PARENT/allscan" "$STOCK_ALLSCAN_DIR"'
+    )
 
 
 def capture_shared_state(shared: Path, backup: Path) -> None:

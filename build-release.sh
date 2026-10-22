@@ -108,6 +108,7 @@ done
 pnpm lint
 python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
+python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
@@ -120,7 +121,8 @@ python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
-python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
+TMPDIR=$(python3 -c 'import os; print(os.path.realpath("/tmp"))') \
+  python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-urf-native-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
@@ -241,6 +243,7 @@ install -m 755 scripts/asr-favorites-manager.py "$STAGE/payload/scripts/asr-favo
 install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favorites-source.py"
 install -m 755 scripts/asr-loopback-validate.py "$STAGE/payload/scripts/asr-loopback-validate.py"
 install -m 755 scripts/asr-loopback-validate-integration-self-test.py "$STAGE/payload/scripts/asr-loopback-validate-integration-self-test.py"
+install -m 755 scripts/asr-stock-allscan.py "$STAGE/payload/scripts/asr-stock-allscan.py"
 install -m 755 scripts/asr-favorites-discovery-self-test.php "$STAGE/payload/scripts/asr-favorites-discovery-self-test.php"
 install -m 755 scripts/asr-installer-prompts-self-test.py "$STAGE/payload/scripts/asr-installer-prompts-self-test.py"
 install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr-instructions-self-test.py"
@@ -262,6 +265,7 @@ install -m 755 bootstrap.sh "$STAGE/bootstrap.sh"
 bash -n "$STAGE/install.sh"
 bash -n "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
+install -m 644 stock-allscan.json "$STAGE/payload/stock-allscan.json"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
@@ -298,6 +302,7 @@ fi
 sh -n "$STAGE/payload/scripts/asr-asterisk-read.sh"
 sh "$STAGE/payload/scripts/asr-asterisk-read.sh" --self-test
 python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
+python3 "$STAGE/payload/scripts/asr-stock-allscan.py" self-test
 python3 "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 

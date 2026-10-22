@@ -22,8 +22,8 @@ import tempfile
 from typing import Any
 
 
-SCHEMA_VERSION = 2
-SUPPORTED_SCHEMAS = (1, 2)
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMAS = (1, 2, 3)
 BACKUP_ROOT = Path("/root/allscan-reimagined-backups")
 RELEASE_ROOT = Path("/opt/allscan-reimagined/releases")
 CURRENT_LINK = Path("/opt/allscan-reimagined/current")
@@ -47,6 +47,7 @@ REQUIRED_RELEASE_FILES = (
 )
 ARCHIVE_LIMITS = {
     "webroot": {"members": 20000, "file_bytes": 128 * 1024 * 1024, "total_bytes": 512 * 1024 * 1024},
+    "stock": {"members": 20000, "file_bytes": 128 * 1024 * 1024, "total_bytes": 512 * 1024 * 1024},
     "release": {"members": 10000, "file_bytes": 64 * 1024 * 1024, "total_bytes": 256 * 1024 * 1024},
 }
 
@@ -129,7 +130,7 @@ def validate_archive(path: Path, archive_kind: str) -> None:
             link_names: set[str] = set()
             total_bytes = 0
             limits = ARCHIVE_LIMITS["webroot" if archive_kind == "legacy-webroot" else archive_kind]
-            expected_root = "allscan" if archive_kind == "legacy-webroot" else "asr"
+            expected_root = "allscan" if archive_kind in {"legacy-webroot", "stock"} else "asr"
             if len(members) > limits["members"]:
                 raise RollbackError(f"Too many members in {archive_kind} archive")
             for member in members:
@@ -148,7 +149,7 @@ def validate_archive(path: Path, archive_kind: str) -> None:
                         raise RollbackError(f"Expanded {archive_kind} archive is too large")
                 if member.ischr() or member.isblk() or member.isfifo():
                     raise RollbackError(f"Special file in {archive_kind} archive")
-                if archive_kind in {"webroot", "legacy-webroot"}:
+                if archive_kind in {"webroot", "legacy-webroot", "stock"}:
                     parts = tuple(part for part in member_path.parts if part != ".")
                     if not parts or parts[0] != expected_root:
                         raise RollbackError(
@@ -158,9 +159,12 @@ def validate_archive(path: Path, archive_kind: str) -> None:
                     raise RollbackError(f"Hard link in {archive_kind} archive")
                 if member.issym():
                     allowed = (
-                        archive_kind in {"webroot", "legacy-webroot"}
-                        and normalized == f"{expected_root}/favorites.ini"
+                        normalized == f"{expected_root}/favorites.ini"
                         and member.linkname == "/etc/allscan/favorites.ini"
+                    ) or (
+                        archive_kind == "stock"
+                        and normalized == "allscan/astdb.txt"
+                        and member.linkname == "/var/lib/asterisk/astdb.txt"
                     )
                     if not allowed:
                         raise RollbackError(f"Unexpected link in {archive_kind} archive")
@@ -169,7 +173,7 @@ def validate_archive(path: Path, archive_kind: str) -> None:
                 prefix = f"{link_name}/"
                 if any(name.startswith(prefix) for name in names):
                     raise RollbackError("Archive contains a member below a symbolic link")
-            if archive_kind in {"webroot", "legacy-webroot"} and not any(
+            if archive_kind in {"webroot", "legacy-webroot", "stock"} and not any(
                 name == expected_root or name.startswith(f"{expected_root}/") for name in names
             ):
                 raise RollbackError(f"Webroot archive has no {expected_root}/ directory")
@@ -206,6 +210,7 @@ def write_manifest(
     webroot = backup_dir / "asr-webroot.tar.gz"
     legacy_webroot = backup_dir / "allscan-webroot.tar.gz"
     release = backup_dir / "asr-release.tar.gz"
+    stock = backup_dir / "stock-allscan.tar.gz"
     if webroot.is_file():
         artifacts["webroot"] = artifact_record(
             backup_dir, "asr-webroot.tar.gz", "webroot"
@@ -222,6 +227,12 @@ def write_manifest(
         artifacts["release"] = artifact_record(
             backup_dir, "asr-release.tar.gz", "release"
         )
+    if stock.is_file():
+        artifacts["stock"] = artifact_record(
+            backup_dir, "stock-allscan.tar.gz", "stock"
+        )
+        if schema == 2:
+            schema = 3
     eligible = (
         VERSION_RE.fullmatch(version) is not None
         and "webroot" in artifacts
@@ -270,8 +281,8 @@ def load_valid_manifest(
     if not isinstance(artifacts, dict):
         raise RollbackError("Manifest artifacts are invalid")
     schema = int(manifest["schema"])
-    webroot_filename = "asr-webroot.tar.gz" if schema == 2 else "allscan-webroot.tar.gz"
-    webroot_kind = "webroot" if schema == 2 else "legacy-webroot"
+    webroot_filename = "asr-webroot.tar.gz" if schema in {2, 3} else "allscan-webroot.tar.gz"
+    webroot_kind = "webroot" if schema in {2, 3} else "legacy-webroot"
     for key, filename in (
         ("webroot", webroot_filename),
         ("release", "asr-release.tar.gz"),
@@ -295,6 +306,26 @@ def load_valid_manifest(
             raise RollbackError(f"{key.capitalize()} archive checksum does not match")
         if verify_archives:
             validate_archive(artifact, webroot_kind if key == "webroot" else key)
+    if schema == 3:
+        record = artifacts.get("stock")
+        if not isinstance(record, dict) or record.get("file") != "stock-allscan.tar.gz":
+            raise RollbackError("Manifest stock record is invalid")
+        expected = record.get("sha256")
+        stock_artifact = backup_dir / "stock-allscan.tar.gz"
+        expected_bytes = record.get("bytes")
+        if (
+            not isinstance(expected, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected)
+            or not stock_artifact.is_file()
+            or not isinstance(expected_bytes, int)
+            or expected_bytes <= 0
+            or stock_artifact.stat().st_size != expected_bytes
+        ):
+            raise RollbackError("Stock archive metadata does not match")
+        if verify_checksums and sha256_file(stock_artifact) != expected:
+            raise RollbackError("Stock archive checksum does not match")
+        if verify_archives:
+            validate_archive(stock_artifact, "stock")
     return manifest
 
 
@@ -558,6 +589,11 @@ def create_safety_backup(web_root: Path) -> Path:
         run_tar_create(
             ["-czf", str(release_archive), "-C", str(master), "."],
             release_archive,
+        )
+        stock_archive = backup_dir / "stock-allscan.tar.gz"
+        run_tar_create(
+            ["-czf", str(stock_archive), "-C", str(web_root), "allscan"],
+            stock_archive,
         )
         version = detect_version(master / "server/asr-api.php")
         manifest = write_manifest(backup_dir, version)
@@ -1018,7 +1054,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
     with LOCK_PATH.open("w", encoding="utf-8") as lock_handle:
         fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         web_root = find_webroot()
-        active_web = web_root / ("asr" if schema == 2 else "allscan")
+        active_web = web_root / ("asr" if schema in {2, 3} else "allscan")
         old_master = CURRENT_LINK.resolve(strict=True)
         if RELEASE_ROOT.resolve() not in old_master.parents:
             raise RollbackError("Current ASR master is outside the release directory")
@@ -1054,17 +1090,25 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
         web_stage_parent = Path(
             tempfile.mkdtemp(prefix=".asr-rollback-web-", dir=str(web_root))
         )
+        stock_stage_parent = Path(
+            tempfile.mkdtemp(prefix=".asr-rollback-stock-", dir=str(web_root))
+        ) if schema == 3 else None
         release_stage_parent = Path(
             tempfile.mkdtemp(prefix=".asr-rollback-release-", dir=str(RELEASE_ROOT))
         )
         web_extract = web_stage_parent / "payload"
+        stock_extract = stock_stage_parent / "payload" if stock_stage_parent else None
         release_extract = release_stage_parent / "payload"
         old_web = web_root / f".asr-rollback-previous-{os.getpid()}"
+        active_stock = web_root / "allscan"
+        old_stock = web_root / f".allscan-rollback-previous-{os.getpid()}"
         legacy_asr_old = web_root / f".asr-legacy-rollback-previous-{os.getpid()}"
         link_temp = CURRENT_LINK.parent / f".current.rollback-{os.getpid()}"
         release_installed = False
         active_moved = False
         web_swapped = False
+        stock_moved = False
+        stock_swapped = False
         legacy_asr_moved = False
         link_swapped = False
         reapply_units_to_restore: list[str] = []
@@ -1078,21 +1122,36 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
         signal.signal(signal.SIGINT, rollback_interrupted)
         try:
             webroot_filename = (
-                "asr-webroot.tar.gz" if schema == 2 else "allscan-webroot.tar.gz"
+                "asr-webroot.tar.gz" if schema in {2, 3} else "allscan-webroot.tar.gz"
             )
-            webroot_kind = "webroot" if schema == 2 else "legacy-webroot"
-            webroot_name = "asr" if schema == 2 else "allscan"
+            webroot_kind = "webroot" if schema in {2, 3} else "legacy-webroot"
+            webroot_name = "asr" if schema in {2, 3} else "allscan"
             extract_archive(backup_dir / webroot_filename, web_extract, webroot_kind)
             staged_web = web_extract / webroot_name
             if not staged_web.is_dir():
                 raise RollbackError("Staged webroot is incomplete")
             runtime_source = runtime_source_for_schema(web_root, active_web, schema)
             copy_preserved_runtime(runtime_source, staged_web)
+            staged_stock: Path | None = None
+            if schema == 3:
+                assert stock_extract is not None
+                extract_archive(
+                    backup_dir / "stock-allscan.tar.gz", stock_extract, "stock"
+                )
+                staged_stock = stock_extract / "allscan"
+                if not staged_stock.is_dir():
+                    raise RollbackError("Staged stock AllScan tree is incomplete")
             staged_backend = detect_backend(staged_web / "include/common.php")
-            current_backend = detect_backend(web_root / "allscan/include/common.php")
-            backend_version = staged_backend if schema == 1 else current_backend
+            current_backend = detect_backend(active_stock / "include/common.php")
+            backend_version = (
+                detect_backend(staged_stock / "include/common.php")
+                if staged_stock is not None
+                else staged_backend if schema == 1 else current_backend
+            )
             if backend_version == "unknown" or (
                 schema == 2 and staged_backend != current_backend
+            ) or (
+                schema == 3 and staged_backend != backend_version
             ):
                 raise RollbackError(
                     "Selected backup does not match the installed AllScan backend"
@@ -1151,6 +1210,13 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             os.symlink(release_target, link_temp)
             os.replace(link_temp, CURRENT_LINK)
             link_swapped = True
+            if staged_stock is not None:
+                os.replace(active_stock, old_stock)
+                stock_moved = True
+                os.replace(staged_stock, active_stock)
+                stock_swapped = True
+                assert stock_stage_parent is not None
+                shutil.rmtree(stock_stage_parent, ignore_errors=True)
             if schema == 1 and (web_root / "asr").exists():
                 os.replace(web_root / "asr", legacy_asr_old)
                 legacy_asr_moved = True
@@ -1160,7 +1226,7 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             web_swapped = True
             shutil.rmtree(web_stage_parent, ignore_errors=True)
 
-            if schema == 2:
+            if schema in {2, 3}:
                 environment = rollback_reapply_environment(
                     stable_protected_config_helper
                 )
@@ -1185,6 +1251,8 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                 run_checked(["apache2ctl", "configtest"])
             run_checked(["systemctl", "reload", "apache2"])
             shutil.rmtree(old_web, ignore_errors=True)
+            if stock_swapped:
+                shutil.rmtree(old_stock, ignore_errors=True)
             if legacy_asr_moved:
                 shutil.rmtree(legacy_asr_old, ignore_errors=True)
             if schema == 1:
@@ -1210,6 +1278,15 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                 shutil.rmtree(failed_web, ignore_errors=True)
             elif active_moved and old_web.exists():
                 os.replace(old_web, active_web)
+            if stock_swapped:
+                failed_stock = web_root / f".allscan-rollback-failed-{os.getpid()}"
+                if active_stock.exists():
+                    os.replace(active_stock, failed_stock)
+                if old_stock.exists():
+                    os.replace(old_stock, active_stock)
+                shutil.rmtree(failed_stock, ignore_errors=True)
+            elif stock_moved and old_stock.exists():
+                os.replace(old_stock, active_stock)
             if legacy_asr_moved and legacy_asr_old.exists():
                 if (web_root / "asr").exists():
                     shutil.rmtree(web_root / "asr", ignore_errors=True)
@@ -1248,6 +1325,8 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             if link_temp.exists() or link_temp.is_symlink():
                 link_temp.unlink()
             shutil.rmtree(web_stage_parent, ignore_errors=True)
+            if stock_stage_parent is not None:
+                shutil.rmtree(stock_stage_parent, ignore_errors=True)
             if release_stage_parent.exists():
                 shutil.rmtree(release_stage_parent, ignore_errors=True)
             stable_reapply.unlink(missing_ok=True)
@@ -1477,6 +1556,27 @@ def self_test() -> None:
         ]
         assert version_label("1.0.0-beta.5.11") == "v1.0.0 Beta 5.11"
         assert set(listed[0]) == {"id", "version", "label", "createdAt", "path"}
+
+        schema3 = root / "schema3-backups" / "20260724-120000"
+        schema3.mkdir(parents=True)
+        shutil.copy2(
+            backups / "20260723-120000" / "asr-webroot.tar.gz",
+            schema3 / "asr-webroot.tar.gz",
+        )
+        shutil.copy2(
+            backups / "20260723-120000" / "asr-release.tar.gz",
+            schema3 / "asr-release.tar.gz",
+        )
+        stock_source = root / "schema3-stock" / "allscan"
+        (stock_source / "include").mkdir(parents=True)
+        (stock_source / "include/common.php").write_text(
+            '$AllScanVersion = "v1.05";\n', encoding="utf-8"
+        )
+        with tarfile.open(schema3 / "stock-allscan.tar.gz", "w:gz") as archive:
+            archive.add(stock_source, arcname="allscan")
+        schema3_manifest = write_manifest(schema3, "1.0.0-beta.6.0")
+        assert schema3_manifest["schema"] == 3
+        assert "stock" in load_valid_manifest(schema3)["artifacts"]
 
         # Fast listing deliberately avoids hashing large archives, but the
         # mutating rollback preflight must reject same-size tampering.

@@ -10,7 +10,7 @@ const LABELS: Record<string, string> = {
   queued: 'Waiting to start…', preflight: 'Checking update compatibility…',
   downloading: 'Downloading the release…', verifying: 'Verifying SHA-256…',
   staging: 'Staging the verified release…', backup: 'Creating a rollback backup…',
-  installing: 'Installing ASR…', restoring: 'Restoring configuration…',
+  installing: 'Installing the verified AllScan and ASR update…', restoring: 'Restoring configuration…',
   health: 'Running health checks…', complete: 'Update complete',
   failed: 'Update needs attention',
 }
@@ -110,7 +110,7 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
           <h2 id="asr-update-title">Update ASR</h2>
           <button type="button" aria-label="Close Update ASR" onClick={onClose}>×</button>
         </header>
-        <p>Check for an update, then install it here in the browser when ready. ASR verifies compatibility and creates a rollback backup automatically.</p>
+        <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
           {job.message && job.state !== 'complete' ? <p>{job.message}</p> : null}
