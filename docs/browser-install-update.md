@@ -2,6 +2,13 @@
 
 This workflow is for the packaged release after sandbox qualification. The first installation uses a terminal once. Subsequent ASR updates and rollback use the browser.
 
+> **ONE-TIME TERMINAL UPDATE REQUIRED:** A node running stock AllScan v1.04
+> with ASR Beta 8.1.5.7 or earlier cannot complete the transition to AllScan
+> v1.05 through its installed browser updater. Run the verified bootstrap
+> command in [Terminal recovery update](#terminal-recovery-update) once and
+> complete its prompts. After the node reaches AllScan v1.05 and ASR Beta
+> 8.1.5.8, routine ASR updates return to the browser.
+
 ## First installation
 
 From an interactive terminal on the ASL3 node, run this single command after the release is published:
@@ -17,6 +24,10 @@ Open `/asr/` after installation and log in with an existing AllScan administrato
 ## ASR updates
 
 In ASR, open **Admin → Update ASR**.
+
+The steps below apply when stock AllScan is already v1.05. For the one-time
+v1.04-to-v1.05 transition on ASR Beta 8.1.5.7 or earlier, use the terminal
+command above instead.
 
 1. Choose **Check for Update**. ASR reports the current and latest published versions.
 2. Choose **Run Preflight**. It checks compatibility with installed stock AllScan, service and configuration readiness, disk space, backup storage, and whether restart or reboot is required.
