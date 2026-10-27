@@ -58,6 +58,14 @@ def exercise(stage_root):
                 broker_unit = root / f"etc/systemd/system/asr-mqtt-{mode}_test.service"
                 assert "User=mosquitto\nGroup=mosquitto" in broker_unit.read_text()
             first = snapshot(root)
+            if mode == "ysf":
+                record_path = root / install.planner.STATE.lstrip("/") / "ysf_test.json"
+                legacy_record = json.loads(record_path.read_text())
+                legacy_record["ownedFiles"] = [
+                    item for item in legacy_record["ownedFiles"]
+                    if not item.endswith("/DMRIds.dat")
+                ]
+                record_path.write_text(json.dumps(legacy_record, sort_keys=True, indent=2) + "\n")
             plan = install.planner.plan(root, settings)
             repeated = install.install(root, settings, stage, kwargs, expected_digest=plan["digest"])
             assert repeated["changedFiles"] == 0

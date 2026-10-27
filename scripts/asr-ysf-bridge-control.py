@@ -183,13 +183,14 @@ def validate_custom_reflectors(value: object) -> list[dict]:
     return reflectors
 
 
-def validate_bridge(bridge: dict, config: dict) -> dict:
+def validate_bridge(bridge: dict, config: dict, *, require_active: bool = True) -> dict:
     bridge_id = str(bridge.get("id", ""))
     if not BRIDGE_ID_RE.fullmatch(bridge_id):
         raise ControlError("Invalid bridge ID.")
     if bridge.get("cardType") != "ysf_net":
         raise ControlError("Selected bridge is not a YSF Net Bridge.")
-    if "netBridgeMode" in config and str(config.get("netBridgeMode", "")).lower() != "ysf":
+    if (require_active and "netBridgeMode" in config
+            and str(config.get("netBridgeMode", "")).lower() != "ysf"):
         raise ControlError("YSF is not the active Net Bridge mode.")
     if bridge.get("bridgePermission") not in {"self_owned", "approved"}:
         raise ControlError("YSF Net Bridge permission is not confirmed.")
@@ -258,24 +259,25 @@ def validate_bridge(bridge: dict, config: dict) -> dict:
     }
 
 
-def bridge_config(bridge_id: str, path: Path = CONFIG_PATH) -> dict:
+def bridge_config(bridge_id: str, path: Path = CONFIG_PATH,
+                  *, require_active: bool = True) -> dict:
     if not BRIDGE_ID_RE.fullmatch(bridge_id):
         raise ControlError("Invalid bridge ID.")
     config = load_config(path)
     for bridge in config.get("bridges", []):
         if isinstance(bridge, dict) and bridge.get("id") == bridge_id:
-            return validate_bridge(bridge, config)
+            return validate_bridge(bridge, config, require_active=require_active)
     raise ControlError("Configured YSF Net Bridge was not found.")
 
 
-def configured_bridges(path: Path = CONFIG_PATH) -> list[dict]:
+def configured_bridges(path: Path = CONFIG_PATH, *, require_active: bool = True) -> list[dict]:
     config = load_config(path)
     found = []
     for bridge in config.get("bridges", []):
         if not isinstance(bridge, dict) or bridge.get("cardType") != "ysf_net":
             continue
         try:
-            found.append(validate_bridge(bridge, config))
+            found.append(validate_bridge(bridge, config, require_active=require_active))
         except ControlError:
             continue
     return found
@@ -345,6 +347,63 @@ def atomic_json(path: Path, payload: object) -> None:
             os.unlink(temporary)
 
 
+def disconnect_intent_path(bridge_id: str) -> Path:
+    if not BRIDGE_ID_RE.fullmatch(bridge_id):
+        raise ControlError("Invalid bridge ID.")
+    return RUN_DIR / f"disconnect-intent-{bridge_id}.json"
+
+
+def record_disconnect_intent(bridge_id: str, marker: tuple[str, int, int]) -> None:
+    atomic_json(disconnect_intent_path(bridge_id), {
+        "bridgeId": bridge_id,
+        "issuedEpoch": int(time.time()),
+        "logMarker": [marker[0], marker[1], marker[2]],
+    })
+
+
+def clear_disconnect_intent(bridge_id: str) -> None:
+    path = disconnect_intent_path(bridge_id)
+    try:
+        if path.is_symlink():
+            raise ControlError("YSF disconnect intent must not be a symbolic link.")
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise ControlError("YSF disconnect intent could not be cleared.") from exc
+
+
+def load_disconnect_intent(bridge_id: str) -> dict | None:
+    path = disconnect_intent_path(bridge_id)
+    if not path.exists():
+        return None
+    try:
+        require_secure_root_file(path, "YSF disconnect intent", service_owned=True)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        marker = payload.get("logMarker")
+        if (payload.get("bridgeId") != bridge_id or not isinstance(marker, list)
+                or len(marker) != 3 or not isinstance(marker[0], str)
+                or not all(isinstance(value, int) for value in marker[1:])):
+            raise ValueError
+        return payload
+    except (ControlError, OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def disconnect_intent_holds(intent: dict | None, settings: dict) -> bool:
+    """Keep stale gateway link history hidden until a newer link is observed."""
+    if not intent:
+        return False
+    marker_values = intent.get("logMarker", [])
+    if len(marker_values) != 3:
+        return False
+    marker = (str(marker_values[0]), int(marker_values[1]), int(marker_values[2]))
+    return not any(
+        event and event[0] in ("connect", "linked")
+        for event in (gateway_event(line) for line in new_log_lines(
+            settings["logDir"], settings["logRoot"], marker
+        ))
+    )
+
+
 def atomic_root_text(path: Path, content: str, mode: int = 0o644) -> bool:
     if path.is_symlink() or path.parent.is_symlink():
         raise ControlError(f"{path} must not be a symbolic link.")
@@ -389,6 +448,19 @@ def custom_hosts_path(bridge_id: str) -> Path:
     return path
 
 
+def gateway_file_level(parser: configparser.ConfigParser) -> int:
+    try:
+        file_level = parser.getint("Log", "FileLevel")
+    except (configparser.Error, ValueError) as exc:
+        raise ControlError("YSF Gateway logging configuration is incomplete.") from exc
+    if file_level > 1:
+        raise ControlError(
+            "YSF Gateway FileLevel must be 1 so reflector links can be confirmed; "
+            "run the ASR reapply service."
+        )
+    return file_level
+
+
 def gateway_configuration(bridge: dict) -> dict:
     parser = ini_parser(bridge["gatewayPath"])
     try:
@@ -406,11 +478,16 @@ def gateway_configuration(bridge: dict) -> dict:
         raise ControlError("Configured YSF hosts path is not allowed.")
     if log_path != "/var/log/mmdvm" or not LOG_ROOT_RE.fullmatch(log_root):
         raise ControlError("Configured YSF Gateway log path is not allowed.")
+    # Remote-link success is confirmed by YSFGateway's CONNECT Reply record.
+    # That record is omitted at FileLevel=2, which makes a successful link look
+    # like a timeout to the controller. The managed renderer uses level 1.
+    file_level = gateway_file_level(parser)
     return {
         "port": port,
         "hosts": Path(hosts),
         "logDir": Path(log_path),
         "logRoot": log_root,
+        "fileLevel": file_level,
         "localIdentities": local_identities,
     }
 
@@ -549,7 +626,7 @@ def parse_imported_hosts(content: bytes) -> tuple[str, list[dict]]:
 
 def import_hosts(bridge_id: str, content: bytes, path: Path = CONFIG_PATH) -> dict:
     require_secure_config_file(path)
-    bridge = bridge_config(bridge_id, path)
+    bridge = bridge_config(bridge_id, path, require_active=False)
     settings = gateway_configuration(bridge)
     source = source_hosts_path(bridge, settings["hosts"])
     if source.exists() or source.is_symlink():
@@ -596,7 +673,7 @@ def import_hosts(bridge_id: str, content: bytes, path: Path = CONFIG_PATH) -> di
 
 def catalog_status(bridge_id: str, path: Path = CONFIG_PATH) -> dict:
     require_secure_config_file(path)
-    bridge = bridge_config(bridge_id, path)
+    bridge = bridge_config(bridge_id, path, require_active=False)
     settings = gateway_configuration(bridge)
     source = source_hosts_path(bridge, settings["hosts"])
     try:
@@ -771,7 +848,7 @@ def sync_custom_catalog(bridge: dict, reload_gateway: bool = True) -> dict:
 
 def sync_all_custom_catalogs(path: Path = CONFIG_PATH) -> list[dict]:
     require_secure_config_file(path)
-    return [sync_custom_catalog(bridge) for bridge in configured_bridges(path)]
+    return [sync_custom_catalog(bridge) for bridge in configured_bridges(path, require_active=False)]
 
 
 def destination_by_id(settings: dict, destination: str) -> dict:
@@ -1066,7 +1143,8 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
             None,
             parse_destinations(settings["hosts"]),
         )
-        old_destination = str(previous["destination"]) if previous["linked"] else ""
+        pending_disconnect = load_disconnect_intent(bridge_id)
+        old_destination = str(previous["destination"]) if previous["linked"] and not pending_disconnect else ""
         try:
             audit(user, bridge_id, "connect", old_destination, destination, "attempt")
         except OSError as exc:
@@ -1124,6 +1202,7 @@ def connect(bridge_id: str, destination: str, user: str, path: Path = CONFIG_PAT
             audit(user, bridge_id, "connect", old_destination, destination, "success")
         except OSError:
             pass
+        clear_disconnect_intent(bridge_id)
         return {
             "ok": True, "bridgeId": bridge_id, "destination": destination,
             "name": item["name"], "linked": True,
@@ -1135,7 +1214,8 @@ def gateway_disconnect_complete(state: dict) -> bool:
     return state.get("linked") is False
 
 
-def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
+def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH,
+               allow_unconfirmed: bool = False) -> dict:
     require_secure_config_file(path)
     bridge = bridge_config(bridge_id, path)
     if not bridge.get("allowTune"):
@@ -1163,10 +1243,13 @@ def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
         # the same cleanup again while moving to the next mode.
         digital_ok = gateway_disconnect_complete(previous)
         digital_error = ""
+        intent_recorded = False
         marker = log_marker(latest_log(settings["logDir"], settings["logRoot"]))
         if previous["linked"]:
             try:
                 remote_command(bridge, settings["port"], "UnLink")
+                record_disconnect_intent(bridge_id, marker)
+                intent_recorded = True
                 digital_ok = wait_gateway_disconnect(settings, marker)
                 if not digital_ok:
                     digital_error = "YSF Gateway did not confirm disconnect"
@@ -1182,6 +1265,7 @@ def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
             allstar_error = str(exc)
 
         if digital_ok and allstar_ok:
+            clear_disconnect_intent(bridge_id)
             try:
                 audit(user, bridge_id, "disconnect", old_destination, "", "success")
             except OSError:
@@ -1190,6 +1274,20 @@ def disconnect(bridge_id: str, user: str, path: Path = CONFIG_PATH) -> dict:
                 "ok": True, "bridgeId": bridge_id, "linked": False,
                 "message": f"YSF Net Bridge disconnected and node {bridge['node']} unlinked.",
             }
+        if not digital_ok and intent_recorded and allstar_ok and allow_unconfirmed:
+            warning = "YSF Gateway did not confirm disconnect; stale reflector state is being suppressed."
+            try:
+                audit(user, bridge_id, "disconnect", old_destination, "", f"success with warning: {warning}")
+            except OSError:
+                pass
+            return {
+                "ok": True, "bridgeId": bridge_id, "linked": False,
+                "digitalDisconnectConfirmed": False,
+                "warning": warning,
+                "message": f"YSF disconnect was sent and node {bridge['node']} unlinked.",
+            }
+        if not digital_ok and intent_recorded and not allow_unconfirmed:
+            clear_disconnect_intent(bridge_id)
         failures = []
         if not digital_ok:
             failures.append(digital_error or "YSF disconnect failed")
@@ -1397,6 +1495,14 @@ def bridge_status(
         destination = str(gateway["destination"])
         name = str(gateway["name"])
         event_epoch = int(gateway["eventEpoch"])
+        disconnect_intent = load_disconnect_intent(str(bridge["id"]))
+        if disconnect_intent and disconnect_intent_holds(disconnect_intent, settings):
+            linked = False
+            destination = ""
+            name = ""
+            warning = "YSF disconnect was sent but gateway confirmation is unavailable."
+        elif disconnect_intent:
+            clear_disconnect_intent(str(bridge["id"]))
         state = refresh_activity(
             bridge,
             state,
@@ -1428,7 +1534,9 @@ def bridge_status(
             and all(service_states.values())
             and bool(state.get("allstar_check_ok"))
         )
-        if not all(service_states.values()):
+        if warning:
+            pass
+        elif not all(service_states.values()):
             warning = "One or more configured YSF Net Bridge services are inactive."
         elif not state.get("allstar_check_ok"):
             warning = "Asterisk bridge-link status is unavailable."
@@ -1619,6 +1727,14 @@ def self_test() -> None:
         )
         state = gateway_link_state(gateway_log)
         assert state["linked"] and state["destination"] == "23456" and state["name"] == "US-TEST-WIDE"
+        disconnect_marker = log_marker(gateway_log)
+        disconnect_intent = {
+            "bridgeId": "ysf_netbridge",
+            "issuedEpoch": int(time.time()),
+            "logMarker": list(disconnect_marker),
+        }
+        test_log_settings = {"logDir": tmp, "logRoot": "gateway"}
+        assert disconnect_intent_holds(disconnect_intent, test_log_settings)
         reply_log = tmp / "reply-gateway.log"
         reply_log.write_text(
             'M: 2026-01-01 12:00:01.000 Connect by remote command to 23456 - "US-TEST-WIDE    "\n'
@@ -1639,6 +1755,10 @@ def self_test() -> None:
             handle.write("M: 2026-01-01 12:10:00.000 Disconnect by remote command\n")
         disconnected_state = gateway_link_state(gateway_log)
         assert not disconnected_state["linked"]
+        assert disconnect_intent_holds(disconnect_intent, test_log_settings)
+        with gateway_log.open("a", encoding="utf-8") as handle:
+            handle.write('M: 2026-01-01 12:11:00.000 Connect by remote command to 23456 - "US-TEST-WIDE"\n')
+        assert not disconnect_intent_holds(disconnect_intent, test_log_settings)
         assert gateway_disconnect_complete(disconnected_state)
         assert not gateway_disconnect_complete(state)
         startup_log = tmp / "startup.log"
@@ -1656,6 +1776,17 @@ def self_test() -> None:
         )
         local_identities = gateway_local_identities(identity_config)
         assert local_identities == frozenset({"N0CALL", "N0CALL-RPT"})
+        log_config = configparser.ConfigParser(interpolation=None, strict=False)
+        log_config.optionxform = str
+        log_config.read_string("[Log]\nFileLevel=1\n")
+        assert gateway_file_level(log_config) == 1
+        log_config.set("Log", "FileLevel", "2")
+        try:
+            gateway_file_level(log_config)
+        except ControlError as exc:
+            assert "FileLevel must be 1" in str(exc)
+        else:
+            raise AssertionError("YSF FileLevel=2 was accepted without link confirmation logs")
         local_activity = initial_activity_state()
         apply_activity_line(
             local_activity,
@@ -1733,6 +1864,16 @@ def self_test() -> None:
         validated = validate_bridge(config["bridges"][0], config)
         assert validated["remoteCommand"] == Path("/opt/MMDVM_Bridge_TestNet/RemoteCommand")
         assert validated["approvedDestinations"] == []
+        inactive_config = dict(config, netBridgeMode="dmr")
+        try:
+            validate_bridge(config["bridges"][0], inactive_config)
+        except ControlError:
+            pass
+        else:
+            raise AssertionError("active YSF control accepted an inactive Net Bridge mode")
+        assert validate_bridge(
+            config["bridges"][0], inactive_config, require_active=False,
+        )["id"] == "ysf_net"
         try:
             validate_bridge(dict(config["bridges"][0], approvedDestinations=[""]), config)
         except ControlError:
@@ -1762,6 +1903,8 @@ def main() -> int:
     parser.add_argument("destination", nargs="?")
     parser.add_argument("--user", default="unknown")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--allow-unconfirmed", action="store_true",
+                        help="allow mode switching to stop the runtime after UnLink was sent")
     args = parser.parse_args()
     try:
         if args.self_test:
@@ -1783,7 +1926,9 @@ def main() -> int:
                 raise ControlError("YSF destination is required.")
             print(json.dumps(connect(args.connect, args.destination, args.user), separators=(",", ":")))
         elif args.disconnect:
-            print(json.dumps(disconnect(args.disconnect, args.user), separators=(",", ":")))
+            print(json.dumps(disconnect(
+                args.disconnect, args.user, allow_unconfirmed=args.allow_unconfirmed,
+            ), separators=(",", ":")))
         return 0
     except ControlError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, separators=(",", ":")))

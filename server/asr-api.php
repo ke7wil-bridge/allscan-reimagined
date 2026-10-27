@@ -38,8 +38,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.8';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.8';
+const ASR_VERSION = '1.0.0-beta.8.1.5.9';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.9';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -777,6 +777,72 @@ function asr_next_mode_helper(string $mode, string $bridgeId, array $arguments, 
     return $payload;
 }
 
+function asr_m17_runtime_status(string $bridgeId): array {
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) return [];
+    $runtimeDirectory = '/run/allscan-reimagined-m17';
+    $payload = asr_secure_service_runtime_json(
+        $runtimeDirectory . '/' . $bridgeId . '.state.json',
+        $runtimeDirectory
+    );
+    $updated = (float) ($payload['updatedEpoch'] ?? 0);
+    if (!is_array($payload)
+        || !hash_equals($bridgeId, (string) ($payload['bridgeId'] ?? ''))
+        || $updated <= 0
+        || $updated > time() + 30
+        || time() - $updated > 35) {
+        return [];
+    }
+    $cleanTarget = static function ($target): ?array {
+        if (!is_array($target)) return null;
+        $reflector = substr(strtoupper(trim((string) ($target['reflector'] ?? ''))), 0, 16);
+        $module = substr(strtoupper(trim((string) ($target['module'] ?? ''))), 0, 1);
+        if (!preg_match('/^M17-[A-Z0-9]{3}$/D', $reflector)
+            || !preg_match('/^[A-Z]$/D', $module)) return null;
+        return ['reflector' => $reflector, 'module' => $module];
+    };
+    $recentTalkers = [];
+    foreach ((array) ($payload['recentTalkers'] ?? []) as $row) {
+        if (!is_array($row)) continue;
+        $callsign = substr(strtoupper(trim((string) ($row['callsign'] ?? ''))), 0, 9);
+        $sourceId = max(0, (int) ($row['sourceId'] ?? 0));
+        $eventEpoch = max(0, (int) ($row['eventEpoch'] ?? 0));
+        if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{1,8}$/D', $callsign)
+            || $sourceId <= 0 || $eventEpoch <= 0 || $eventEpoch > time() + 300) continue;
+        $recentTalkers[] = [
+            'callsign' => $callsign,
+            'sourceId' => $sourceId,
+            'startEpoch' => max(0, (int) ($row['startEpoch'] ?? 0)),
+            'eventEpoch' => $eventEpoch,
+            'duration' => max(0, (int) ($row['duration'] ?? 0)),
+        ];
+        if (count($recentTalkers) >= 4) break;
+    }
+    $linkState = (string) ($payload['linkState'] ?? 'unavailable');
+    if (!in_array($linkState, ['disconnected', 'connecting', 'linked', 'disconnecting', 'error'], true)) {
+        $linkState = 'unavailable';
+    }
+    return [
+        'ok' => true,
+        'bridgeId' => $bridgeId,
+        'linkState' => $linkState,
+        'digitalLinked' => ($payload['digitalLinked'] ?? null) === true,
+        'allstarLinked' => ($payload['allstarLinked'] ?? null) === true,
+        'allstarLinkState' => substr((string) ($payload['allstarLinkState'] ?? 'unknown'), 0, 20),
+        'requestedTarget' => $cleanTarget($payload['requestedTarget'] ?? null),
+        'confirmedTarget' => $cleanTarget($payload['confirmedTarget'] ?? null),
+        'talker' => substr(strtoupper(trim((string) ($payload['talker'] ?? ''))), 0, 9),
+        'inboundStartEpoch' => max(0, (int) ($payload['inboundStartEpoch'] ?? 0)),
+        'recentTalkers' => $recentTalkers,
+        'outboundActive' => ($payload['outboundActive'] ?? null) === true,
+        'outboundActivityEpoch' => max(0, (int) ($payload['outboundActivityEpoch'] ?? 0)),
+        'outboundStartEpoch' => max(0, (int) ($payload['outboundStartEpoch'] ?? 0)),
+        'lastKeepaliveEpoch' => max(0, (float) ($payload['lastKeepaliveEpoch'] ?? 0)),
+        'updatedEpoch' => $updated,
+        'error' => substr((string) ($payload['lastError'] ?? ''), 0, 160),
+        'audioReady' => ($payload['audioReady'] ?? null) === true,
+    ];
+}
+
 function asr_next_mode_statuses(): array {
     if (!is_readable(ASR_RUNTIME_CONFIG)) return ['live' => [], 'controls' => []];
     $config = json_decode((string) file_get_contents(ASR_RUNTIME_CONFIG), true);
@@ -815,7 +881,7 @@ function asr_next_mode_statuses(): array {
             continue;
         }
         $status = $mode === 'm17'
-            ? asr_next_mode_helper($mode, $id, ['status'], 'Status unavailable.', false)
+            ? asr_m17_runtime_status($id)
             : (is_array($modeCaches[$mode][$id] ?? null) ? $modeCaches[$mode][$id] : []);
         if ($status === [] || ($mode !== 'm17' && (empty($status['ok']) || !empty($status['stale'])))) {
             $reason = trim((string) ($status['message'] ?? $status['error'] ?? ''));

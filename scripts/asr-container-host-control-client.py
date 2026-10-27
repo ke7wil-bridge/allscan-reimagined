@@ -2,6 +2,7 @@
 """Fixed-program client for container-host bridge controls."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import socket
@@ -10,6 +11,7 @@ from pathlib import Path
 
 SOCKET = "/run/allscan-reimagined-host/bridge-setup.sock"
 CONTROL_TIMEOUT_SECONDS = 120
+MAX_CONTROL_STDIN = 2 * 1024 * 1024
 NAMES = {
     "allscan-reimagined-managed-dmr-net-control": "managed-dmr",
     "allscan-reimagined-ysf-bridge-control": "ysf",
@@ -25,8 +27,14 @@ def main() -> int:
     if program is None:
         print('{"ok":false,"error":"unsupported host control"}', file=sys.stderr)
         return 2
-    request = json.dumps({"schema": 1, "program": program, "args": sys.argv[1:]},
-                         separators=(",", ":")).encode()
+    request_object = {"schema": 1, "program": program, "args": sys.argv[1:]}
+    if program == "ysf" and len(sys.argv) == 3 and sys.argv[1] == "--import-hosts":
+        content = sys.stdin.buffer.read(MAX_CONTROL_STDIN + 1)
+        if len(content) > MAX_CONTROL_STDIN:
+            print('{"ok":false,"error":"YSFHosts.txt exceeds the 2 MB safety limit"}', file=sys.stderr)
+            return 2
+        request_object["stdinBase64"] = base64.b64encode(content).decode("ascii")
+    request = json.dumps(request_object, separators=(",", ":")).encode()
     path = os.environ.get("ASR_CONTAINER_HOST_SOCKET", SOCKET)
     if path != SOCKET and os.environ.get("ASR_BROKER_TESTING") != "1":
         print('{"ok":false,"error":"invalid broker socket"}', file=sys.stderr); return 2

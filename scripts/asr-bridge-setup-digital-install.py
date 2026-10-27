@@ -366,7 +366,23 @@ def install(root: Path, settings, stage: Path, credentials: dict | None = None,
     for logical in (*outputs, record):
         target = rooted(root, logical)
         if target.exists() and logical not in (planner.CONFIG, planner.RPT, planner.MODULES, MQTT_SECRETS, record) and logical not in allowed:
-            raise InstallError(f"existing file is not owned by this bridge: {logical}")
+            # Early digital-bridge installation records omitted the generated
+            # DMR ID lookup file even though ASR created it inside the bridge's
+            # dedicated MMDVM directory. Grandfather only that exact, secure,
+            # byte-for-byte generated file; never adopt arbitrary content.
+            info = target.stat()
+            generated_dmr_ids = (
+                old_record is not None
+                and logical.endswith("/DMRIds.dat")
+                and target.is_file()
+                and not target.is_symlink()
+                and info.st_uid == 0
+                and info.st_nlink == 1
+                and stat.S_IMODE(info.st_mode) & 0o022 == 0
+                and target.read_bytes() == outputs[logical][0]
+            )
+            if not generated_dmr_ids:
+                raise InstallError(f"existing file is not owned by this bridge: {logical}")
         if target.exists() and (not target.is_file() or target.stat().st_nlink != 1):
             raise InstallError(f"managed path is not a regular single-link file: {logical}")
     before = {logical: (rooted(root, logical).read_bytes(), rooted(root, logical).stat().st_mode & 0o777)
