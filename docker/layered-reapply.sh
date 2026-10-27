@@ -184,6 +184,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py ysf-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-plan
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py dmr-security-update
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined-docker
 visudo -cf /etc/sudoers.d/allscan-reimagined-docker >/dev/null

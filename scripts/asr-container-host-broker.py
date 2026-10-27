@@ -23,6 +23,7 @@ COMMANDS = frozenset({
     "m17-plan", "m17-install", "p25-plan", "p25-install",
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
     "dmr-plan", "dmr-install",
+    "dmr-security-update",
     "net-bridge-plan", "net-bridge-install",
 })
 PROGRAMS = {

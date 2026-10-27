@@ -167,6 +167,33 @@ def main() -> None:
         pass
 
     with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        config = root / "etc/allscan-reimagined/config.json"
+        token_path = root / "opt/allscan-reimagined-bridges/urf/dmr_tgif_net/secrets/tgif-static-token"
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({"bridges": [{
+            "id": "dmr_tgif_net", "cardType": "dmr_net", "managedNetControl": True,
+            "dmrNetworkId": "322493904",
+            "tgifStaticTokenPath": "/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/secrets/tgif-static-token",
+        }]}))
+        original_map = helper.provisioning_config_path
+        original_require_root = helper.require_root
+        original_audit = helper.append_audit
+        helper.provisioning_config_path = lambda logical: root / str(logical).lstrip("/")
+        helper.require_root = lambda: None
+        helper.append_audit = lambda event: None
+        token = "TGIFSTG1.0123456789ABCDEF.FEDCBA9876543210.abcdefghijklmnop"
+        try:
+            result = helper.dmr_security_update({"bridgeId": "dmr_tgif_net", "tgifPassword": "", "tgifStaticToken": token})
+            assert result["dmrNetworkId"] == "322493904"
+            assert token_path.read_text() == token
+            assert token_path.stat().st_mode & 0o777 == 0o600
+        finally:
+            helper.provisioning_config_path = original_map
+            helper.require_root = original_require_root
+            helper.append_audit = original_audit
+
+    with tempfile.TemporaryDirectory() as tmp:
         audit = Path(tmp) / "log" / "audit.jsonl"
         helper.append_audit({"action": "test", "result": "ok"}, audit)
         record = json.loads(audit.read_text().strip())

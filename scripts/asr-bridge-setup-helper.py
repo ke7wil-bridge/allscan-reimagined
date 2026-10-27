@@ -660,6 +660,78 @@ def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
     return {**preview, "installed": True, "results": results}
 
 
+def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
+    """Replace root-owned TGIF credentials for an installed DMR Net Bridge."""
+    require_root()
+    if set(payload) != {"bridgeId", "tgifPassword", "tgifStaticToken"}:
+        raise HelperError("DMR security update contains unsupported fields")
+    bridge_id = str(payload.get("bridgeId") or "")
+    password = str(payload.get("tgifPassword") or "")
+    token = str(payload.get("tgifStaticToken") or "")
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", bridge_id):
+        raise HelperError("DMR Net Bridge ID is invalid")
+    if not password and not token:
+        raise HelperError("Enter a replacement TGIF hotspot key or Static TG API token")
+    if password and (len(password) > 128 or any(ord(ch) < 33 or ord(ch) > 126 for ch in password)):
+        raise HelperError("Enter a valid TGIF hotspot key")
+    if token and not re.fullmatch(r"TGIFSTG1\.[A-F0-9]{16}\.[A-F0-9]{16}\.[A-Za-z0-9_-]{16,4096}", token):
+        raise HelperError("Enter a valid device-scoped TGIF Static TG API token")
+
+    config_path = provisioning_config_path("/etc/allscan-reimagined/config.json")
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HelperError("ASR bridge configuration is unavailable") from exc
+    bridge = next((item for item in config.get("bridges", [])
+                   if isinstance(item, dict) and item.get("id") == bridge_id), None)
+    if not bridge or bridge.get("cardType") != "dmr_net" or not bridge.get("managedNetControl"):
+        raise HelperError("The installed DMR Net Bridge was not found")
+    expected_root = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id / "secrets"
+    token_logical = Path(str(bridge.get("tgifStaticTokenPath") or ""))
+    if token and (not token_logical.is_absolute() or token_logical.parent != expected_root or token_logical.name != "tgif-static-token"):
+        raise HelperError("The DMR Net Bridge token path is not trusted")
+    secrets_to_write = []
+    if password:
+        secrets_to_write.append((expected_root / "tgif-password", password))
+    if token:
+        secrets_to_write.append((token_logical, token))
+    for logical, value in secrets_to_write:
+        path = provisioning_config_path(str(logical))
+        secure_parent(path.parent, 0o700)
+        if path.is_symlink():
+            raise HelperError("The DMR Net Bridge credential path is unsafe")
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, value.encode("ascii"))
+            os.fsync(fd)
+            os.close(fd)
+            fd = -1
+            os.replace(temporary, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+    if password:
+        restarted = subprocess.run(
+            ["/usr/bin/systemctl", "restart", f"allscan-reimagined-urf-tgif-{bridge_id}.service"],
+            capture_output=True, text=True,
+        )
+        if restarted.returncode:
+            raise HelperError("TGIF credentials were saved, but the DMR bridge could not restart")
+    append_audit({"action": "dmr-security-update", "bridgeId": bridge_id, "result": "ok"})
+    return {"ok": True, "bridgeId": bridge_id, "dmrNetworkId": str(bridge.get("dmrNetworkId") or ""),
+            "hotspotKeyUpdated": bool(password), "staticTokenUpdated": bool(token)}
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("command", choices=(
@@ -668,6 +740,7 @@ def parser() -> argparse.ArgumentParser:
         "ysf-plan", "ysf-install", "dmr-plan", "dmr-install",
         "zello-plan", "zello-install",
         "net-bridge-plan", "net-bridge-install",
+        "dmr-security-update",
     ))
     return result
 
@@ -691,6 +764,8 @@ def main() -> int:
                     result = m17_command(payload, True)
                 elif args.command in ("net-bridge-plan", "net-bridge-install"):
                     result = net_bridge_command(payload, args.command == "net-bridge-install")
+                elif args.command == "dmr-security-update":
+                    result = dmr_security_update(payload)
                 elif args.command in ("dmr-plan", "dmr-install"):
                     result = dmr_command(payload, args.command == "dmr-install")
                 elif args.command in ("zello-plan", "zello-install"):

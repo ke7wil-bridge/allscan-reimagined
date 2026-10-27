@@ -590,6 +590,11 @@ check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helpe
 check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN helper actions are unavailable.');
 check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');
 check(strpos($settingsSource, "'dmr-plan', 'dmr-install'") !== false, 'DMR helper actions are unavailable.');
+check(strpos($settingsSource, "'dmr-security-update'") !== false
+	&& strpos($settingsSource, 'data-dmr-security-maintenance') !== false
+	&& strpos($settingsSource, 'Save and verify DMR security') !== false
+	&& strpos($settingsSource, 'data-dmr-hotspot-key') !== false,
+	'Installed DMR Net Bridge credentials cannot be maintained through Settings.');
 check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
 check(stripos($settingsSource, 'dstar') === false, 'D-Star remains exposed by Settings.');
 check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');
