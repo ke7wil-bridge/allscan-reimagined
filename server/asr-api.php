@@ -38,8 +38,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.9';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.9';
+const ASR_VERSION = '1.0.0-beta.8.1.5.10';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.10';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -2240,11 +2240,17 @@ function asr_dmr_net_control_statuses(): array {
         $currentTg = $pathsValid
             ? (is_array($managedStatus) ? (string) ($managedStatus['currentTg'] ?? '') : asr_dmr_net_current_tg($analogConfig, $id, (string) ($bridge['abinfoPath'] ?? ''), $managed))
             : '';
-        $linked = is_array($managedStatus) ? !empty($managedStatus['linked']) : $currentTg !== '';
+        // The managed worker keeps the private node 1999 transport available
+        // even while DMR has no selected talkgroup.  That transport is not a
+        // digital connection and must not enable Disconnect, add a connection
+        // count, or allow the dashboard to infer Relay.
+        $digitalLinked = $currentTg !== ''
+            && (is_array($managedStatus) ? !empty($managedStatus['digitalLinked']) : true);
+        $linked = $digitalLinked;
         $statuses[$id] = [
             'currentTg' => $currentTg,
             'linked' => $linked,
-            'digitalLinked' => is_array($managedStatus) ? !empty($managedStatus['digitalLinked']) : $currentTg !== '',
+            'digitalLinked' => $digitalLinked,
             'allstarLinked' => is_array($managedStatus) ? !empty($managedStatus['allstarLinked']) : $linked,
             'ready' => count($reasons) === 0,
             'reason' => count($reasons) === 0 ? 'DMR backend ready.' : 'DMR backend not ready: ' . implode(' ', $reasons),

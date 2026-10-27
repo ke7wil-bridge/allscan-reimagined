@@ -24,6 +24,11 @@ RUNTIME_SOURCE = Path(os.environ.get(
     "ASR_URF_RUNTIME_SOURCE",
     "/usr/local/share/allscan-reimagined/runtime/urf",
 ))
+MANAGED_IMAGE_TAGS = (
+    "allscan-reimagined/urf:managed",
+    "allscan-reimagined/urf-tcd:managed",
+    "allscan-reimagined/urf-tgif:managed",
+)
 STATE = "/var/lib/allscan-reimagined/bridge-setup/installations"
 CONTAINER_DOCKER_HOME = "/var/cache/allscan-reimagined/docker-home"
 CONTAINER_DOCKER_CONFIG = "/var/cache/allscan-reimagined/docker-config"
@@ -123,33 +128,46 @@ def compose_yaml(plan: dict[str, Any]) -> str:
     root = (str(Path(host_base) / "urf" / plan["settings"]["bridge_id"])
             if host_base else os.environ.get("ASR_URF_DOCKER_HOST_ROOT", docker_host.get("root", plan["resources"]["root"])))
     network_mode = os.environ.get("ASR_URF_DOCKER_NETWORK_MODE", docker_host.get("networkMode", "host"))
+    resolver_path = os.environ.get("ASR_URF_DOCKER_RESOLV_CONF", "")
     if not isinstance(root, str) or not root.startswith("/") or ".." in Path(root).parts:
         raise InstallError("invalid Docker host path for URF runtime")
     if (not isinstance(network_mode, str)
             or not re.fullmatch(r"(?:host|container:[A-Za-z0-9][A-Za-z0-9_.-]{0,127})", network_mode)):
         raise InstallError("invalid URF Docker network mode")
+    if resolver_path and resolver_path != "/run/systemd/resolve/resolv.conf":
+        raise InstallError("invalid URF Docker resolver path")
+    resolver_mount = (
+        f"      - {resolver_path}:/etc/resolv.conf:ro\n"
+        if resolver_path and network_mode.startswith("container:") else ""
+    )
     reflector_name, transcoder_name, tgif_name = runtime_names(plan)
     network_dmr_id = plan["dmrNetworkId"]
     return f"""services:
   urfd:
     image: allscan-reimagined/urf:managed
+    pull_policy: never
     container_name: {reflector_name}
     network_mode: {network_mode}
     restart: unless-stopped
     volumes:
       - {root}/config:/config:ro
       - {root}/data:/data
+      - {root}/data:/run/urf-wil
+{resolver_mount.rstrip()}
     command: ["exec /usr/local/bin/urfd /config/urfd.ini"]
   tcd:
     image: allscan-reimagined/urf-tcd:managed
+    pull_policy: never
     container_name: {transcoder_name}
     network_mode: {network_mode}
     restart: unless-stopped
     volumes:
       - {root}/config:/config:ro
+{resolver_mount.rstrip()}
     command: ["/config/tcd.ini"]
   tgif:
     image: allscan-reimagined/urf-tgif:managed
+    pull_policy: never
     container_name: {tgif_name}
     network_mode: {network_mode}
     restart: unless-stopped
@@ -174,6 +192,7 @@ def compose_yaml(plan: dict[str, Any]) -> str:
     volumes:
       - {root}/secrets/tgif-password:/run/secrets/tgif-password:ro
       - {root}/tgif-run:/run/tgif-dmr
+{resolver_mount.rstrip()}
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/tgif-dmr/adapter.pid && test -s /run/tgif-dmr/mmdvm.pid && kill -0 $$(cat /run/tgif-dmr/adapter.pid) && kill -0 $$(cat /run/tgif-dmr/mmdvm.pid) && find /run/tgif-dmr -name 'urf-health' -mmin -1 | grep -q . && find /run/tgif-dmr -name 'tgif-health' -mmin -1 | grep -q ."]
       interval: 10s
@@ -297,7 +316,8 @@ WantedBy=multi-user.target
         f"/etc/systemd/system/{tgif}": (tgif_text.encode(), 0o644),
     }
 
-def file_spec(root: Path, plan: dict[str, Any], password: str) -> dict[str, tuple[bytes, int]]:
+def file_spec(root: Path, plan: dict[str, Any], password: str,
+              static_token: str = "") -> dict[str, tuple[bytes, int]]:
     outputs = planner.integration_files(root, plan)
     if plan["backend"] == "container":
         outputs[plan["resources"]["compose"]] = (compose_yaml(plan).encode(), 0o644)
@@ -307,6 +327,10 @@ def file_spec(root: Path, plan: dict[str, Any], password: str) -> dict[str, tupl
         outputs.update(native_units(plan))
         secret_mode = 0o640
     outputs[plan["resources"]["tgifSecret"]] = ((password + "\n").encode(), secret_mode)
+    if plan["settings"].get("bridge_role") == "net":
+        outputs[plan["resources"]["tgifStaticToken"]] = (
+            (validate_static_token(static_token) + "\n").encode(), 0o600
+        )
     return outputs
 
 def validate_password(value: str) -> str:
@@ -314,6 +338,15 @@ def validate_password(value: str) -> str:
         raise InstallError("TGIF hotspot password is required")
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
         raise InstallError("TGIF hotspot password contains control characters")
+    return value
+
+
+def validate_static_token(value: str) -> str:
+    value = value.strip() if isinstance(value, str) else ""
+    if not 16 <= len(value) <= 4096:
+        raise InstallError("TGIF Static TG API token is required for a DMR Net Bridge")
+    if any(ord(ch) < 33 or ord(ch) > 126 for ch in value):
+        raise InstallError("TGIF Static TG API token contains unsupported characters")
     return value
 
 
@@ -431,6 +464,19 @@ def build_images() -> dict[str, dict[str, str]]:
         except Exception as rollback:
             raise InstallError(f"image build failed ({original}); image rollback also failed ({rollback})") from original
         raise
+
+
+def ensure_managed_images() -> bool:
+    """Rebuild the complete managed image set only when a local tag is absent."""
+    missing = [tag for tag in MANAGED_IMAGE_TAGS if not image_id(tag)]
+    if not missing:
+        return False
+    transaction = build_images()
+    cleanup_image_transaction(transaction)
+    still_missing = [tag for tag in MANAGED_IMAGE_TAGS if not image_id(tag)]
+    if still_missing:
+        raise InstallError("managed image repair did not create: " + ", ".join(still_missing))
+    return True
 
 
 def prepare_native_runtime() -> dict[str, Any]:
@@ -703,6 +749,7 @@ def verify_asterisk_node(plan: dict[str, Any]) -> None:
                        f"{': ' + last_error[-500:] if last_error else ''}")
 
 def install(root: Path, settings, password: str, *, expected_digest: str,
+            static_token: str = "",
             manage_services: bool = False, fail_after: int | None = None) -> dict[str, Any]:
     if manage_services and root != Path("/"):
         raise InstallError("service management is only valid for the real host")
@@ -710,7 +757,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     plan = planner.plan(root, settings)
     if plan["digest"] != expected_digest:
         raise InstallError("preview is stale; preview again")
-    outputs = file_spec(root, plan, password)
+    outputs = file_spec(root, plan, password, static_token)
     runtime_root_was_present = rooted(root, plan["resources"]["root"]).exists()
     identity = settings.bridge_id
     service = service_name(identity)
@@ -722,7 +769,17 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     allowed = set(old_record.get("ownedFiles", [])) if old_record else set()
     for logical in (*outputs, record):
         target = rooted(root, logical)
-        if target.exists() and logical not in (planner.CONFIG, planner.RPT, planner.MODULES, record) and logical not in allowed:
+        legacy_static_token = (
+            old_record is not None
+            and logical == plan["resources"].get("tgifStaticToken")
+            and target.is_file()
+            and target.stat().st_nlink == 1
+            and target.stat().st_uid == (0 if root == Path("/") else os.getuid())
+            and stat.S_IMODE(target.stat().st_mode) & 0o077 == 0
+        )
+        if (target.exists()
+                and logical not in (planner.CONFIG, planner.RPT, planner.MODULES, record)
+                and logical not in allowed and not legacy_static_token):
             raise InstallError(f"existing file is not owned by this bridge: {logical}")
         if target.exists() and (not target.is_file() or target.stat().st_nlink != 1):
             raise InstallError(f"managed path is not a regular single-link file: {logical}")

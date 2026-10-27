@@ -13,6 +13,7 @@ import json
 import os
 import platform
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -404,10 +405,10 @@ def test_asterisk_adapter(adapter) -> None:
     loader = lambda path: values[path]
     for command in ("module show like chan_usrp.so", "rpt stats 123456",
                     "rpt lstats 123456", "rpt cmd 123456 ilink 3 1001",
-                    "rpt cmd 123456 ilink 11 1001"):
+                    "rpt cmd 123456 ilink 11 1001",
+                    "rpt cmd 1001 ilink 3 123456"):
         adapter.authorize_command(command, profile, loader, records)
     for command in ("rpt stats 1001", "rpt lstats 999999",
-                    "rpt cmd 1001 ilink 3 123456",
                     "rpt cmd 123456 ilink 3 1002",
                     "rpt cmd 123456 ilink 3 9999"):
         rejected(adapter.authorize_command, command, profile, loader, records)
@@ -502,6 +503,130 @@ def test_urf_docker_environment(installer) -> None:
             os.environ["DOCKER_CONFIG"] = original_docker
 
 
+def test_managed_urf_image_repair_selection(host_installer) -> None:
+    with tempfile.TemporaryDirectory(prefix="asr-image-repair-") as temporary:
+        config_root = Path(temporary)
+        profile = SimpleNamespace(asr_config=config_root)
+        (config_root / "config.json").write_text(json.dumps({"bridges": []}))
+        assert host_installer.managed_urf_images_required(profile) is False
+        (config_root / "config.json").write_text(json.dumps({"bridges": [{
+            "id": "dmr_net", "cardType": "dmr_net", "backendMode": "display_only",
+        }]}))
+        assert host_installer.managed_urf_images_required(profile) is False
+        (config_root / "config.json").write_text(json.dumps({"bridges": [{
+            "id": "dmr_net", "cardType": "dmr_net", "backendMode": "managed",
+        }]}))
+        assert host_installer.managed_urf_images_required(profile) is True
+
+
+def test_mqtt_secrets_metadata_migration(host_installer) -> None:
+    profile = SimpleNamespace(client_uid=33, client_gid=33)
+    regular = SimpleNamespace(st_uid=33, st_gid=33, st_mode=stat.S_IFREG | 0o600, st_nlink=1)
+    parent = SimpleNamespace(st_uid=0, st_gid=33, st_mode=stat.S_IFDIR | 0o775)
+    assert host_installer.mqtt_secrets_metadata_is_safe(regular, parent, profile)
+    assert host_installer.mqtt_secrets_metadata_is_safe(
+        SimpleNamespace(st_uid=0, st_gid=0, st_mode=stat.S_IFREG | 0o600, st_nlink=1),
+        parent, profile,
+    )
+    for unsafe_file in (
+        SimpleNamespace(st_uid=34, st_gid=33, st_mode=stat.S_IFREG | 0o600, st_nlink=1),
+        SimpleNamespace(st_uid=33, st_gid=34, st_mode=stat.S_IFREG | 0o600, st_nlink=1),
+        SimpleNamespace(st_uid=33, st_gid=33, st_mode=stat.S_IFREG | 0o640, st_nlink=1),
+        SimpleNamespace(st_uid=33, st_gid=33, st_mode=stat.S_IFREG | 0o600, st_nlink=2),
+        SimpleNamespace(st_uid=33, st_gid=33, st_mode=stat.S_IFLNK | 0o600, st_nlink=1),
+    ):
+        assert not host_installer.mqtt_secrets_metadata_is_safe(unsafe_file, parent, profile)
+    assert not host_installer.mqtt_secrets_metadata_is_safe(
+        regular, SimpleNamespace(st_uid=0, st_gid=33, st_mode=stat.S_IFDIR | 0o777), profile,
+    )
+    assert not host_installer.mqtt_secrets_metadata_is_safe(
+        regular, SimpleNamespace(st_uid=0, st_gid=34, st_mode=stat.S_IFDIR | 0o775), profile,
+    )
+
+
+def test_mosquitto_credential_metadata_migration(host_installer) -> None:
+    safe_root = SimpleNamespace(st_uid=0, st_gid=188, st_mode=stat.S_IFREG | 0o640, st_nlink=1)
+    safe_daemon = SimpleNamespace(st_uid=188, st_gid=188, st_mode=stat.S_IFREG | 0o640, st_nlink=1)
+    assert host_installer.mosquitto_credential_metadata_is_safe(safe_root, 188, 188)
+    assert host_installer.mosquitto_credential_metadata_is_safe(safe_daemon, 188, 188)
+    for unsafe in (
+        SimpleNamespace(st_uid=33, st_gid=188, st_mode=stat.S_IFREG | 0o640, st_nlink=1),
+        SimpleNamespace(st_uid=0, st_gid=189, st_mode=stat.S_IFREG | 0o640, st_nlink=1),
+        SimpleNamespace(st_uid=0, st_gid=188, st_mode=stat.S_IFREG | 0o644, st_nlink=1),
+        SimpleNamespace(st_uid=0, st_gid=188, st_mode=stat.S_IFREG | 0o640, st_nlink=2),
+        SimpleNamespace(st_uid=0, st_gid=188, st_mode=stat.S_IFLNK | 0o640, st_nlink=1),
+    ):
+        assert not host_installer.mosquitto_credential_metadata_is_safe(unsafe, 188, 188)
+
+
+def test_ysf_net_startup_migration(host_installer) -> None:
+    legacy = "[General]\nCallsign=KE7WIL\n\n[Network]\n# Startup=EXAMPLE\nStartup=KE7WIL-ASR\nInactivityTimeout=0\n\n[YSF Network]\nEnable=1\n"
+    migrated, changed = host_installer.disconnected_ysf_net_config(legacy)
+    assert changed
+    assert "# Startup=EXAMPLE\nStartup=\n" in migrated
+    assert "Startup=KE7WIL-ASR" not in migrated
+    stable, changed = host_installer.disconnected_ysf_net_config(migrated)
+    assert not changed and stable == migrated
+    for invalid in (
+        "[Network]\nInactivityTimeout=0\n",
+        "[Network]\nStartup=ONE\nStartup=TWO\n",
+        "[General]\nStartup=WRONG-SECTION\n",
+    ):
+        try:
+            host_installer.disconnected_ysf_net_config(invalid)
+            raise AssertionError("invalid YSF startup configuration was accepted")
+        except RuntimeError:
+            pass
+
+
+def test_managed_dmr_live_mount_migration(host_installer) -> None:
+    root = Path("/opt/allscan-reimagined-bridges/urf/qa_dmr")
+    legacy = f"""services:
+  urfd:
+    volumes:
+      - {root}/config:/config:ro
+      - {root}/data:/data
+"""
+    migrated, changed = host_installer.managed_dmr_live_mounts(legacy, root)
+    assert changed is True
+    assert migrated.count(f"      - {root}/data:/run/urf-wil\n") == 1
+    stable, changed = host_installer.managed_dmr_live_mounts(migrated, root)
+    assert changed is False and stable == migrated
+    rejected(host_installer.managed_dmr_live_mounts, "services: {}\n", root)
+
+
+def test_managed_m17_bind_migration(host_installer) -> None:
+    config = {"bridges": [
+        {"id": "m17_net", "mode": "m17", "cardType": "m17_net",
+         "backendMode": "managed", "m17BindAddress": "127.0.0.1",
+         "m17UsrpBindAddress": "127.0.0.1"},
+        {"id": "m17_display", "mode": "m17", "backendMode": "display_only",
+         "m17BindAddress": "127.0.0.1"},
+    ]}
+    assert host_installer.managed_m17_external_bind(config) is True
+    assert config["bridges"][0]["m17BindAddress"] == "0.0.0.0"
+    assert config["bridges"][0]["m17UsrpBindAddress"] == "127.0.0.1"
+    assert config["bridges"][1]["m17BindAddress"] == "127.0.0.1"
+    assert host_installer.managed_m17_external_bind(config) is False
+
+
+def test_zello_relay_startup_reset(zello_installer) -> None:
+    upstream = '''import asyncio\n\ndef _write_relay_state(active):\n    pass\n\nclass USRPController:\n    def __init__(self, usrp_ptt, zello_ptt):\n        self._transport = None\n\n        self._usrp_ptt = usrp_ptt\n        self._zello_ptt = zello_ptt\n\n    def datagram_received(self, data, addr):\n        ptt = self._frame_ptt_state(data)\n        if not ptt:\n            if self._usrp_ptt.is_set():\n                _write_relay_state(False)\n            self._usrp_ptt.clear()\n            return\n\n        if not self._usrp_ptt.is_set():\n            _write_relay_state(True)\n        self._usrp_ptt.set()\n'''
+    with tempfile.TemporaryDirectory(prefix="asr-zello-runtime-test-") as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        (source / "asl_zello_bridge").mkdir(parents=True)
+        (source / "asl_zello_bridge/usrp.py").write_text(upstream, encoding="utf-8")
+        first = root / "first"
+        zello_installer.prepare_runtime_source(source, first)
+        patched = (first / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8")
+        assert "self._zello_ptt = zello_ptt\n        _write_relay_state(False)" in patched
+        assert "def _commit_usrp_off(self):" in patched
+        second = root / "second"
+        zello_installer.prepare_runtime_source(first, second)
+        assert (second / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8") == patched
+
+
 def test_urf_image_transaction(installer) -> None:
     finals = (
         "allscan-reimagined/urf:managed",
@@ -550,6 +675,14 @@ def test_urf_image_transaction(installer) -> None:
             assert all(images[state["backup"]] == state["priorId"]
                        for state in transaction.values())
             assert installer.cleanup_image_transaction(transaction) == []
+            assert not any(":asr-build-" in tag or ":asr-previous-" in tag
+                           for tag in images)
+            build_count = sum(1 for command in commands if command[1] == "build")
+            assert installer.ensure_managed_images() is False
+            assert sum(1 for command in commands if command[1] == "build") == build_count
+            images.pop(finals[1])
+            assert installer.ensure_managed_images() is True
+            assert all(tag in images for tag in finals)
             assert not any(":asr-build-" in tag or ":asr-previous-" in tag
                            for tag in images)
 
@@ -758,10 +891,13 @@ def main() -> int:
     platform.machine = lambda: "x86_64"
     installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
     compose_source = (HERE.parent / "docker-compose.yml").read_text(encoding="utf-8")
-    layered_reapply_source = (HERE.parent / "docker" / "layered-reapply.sh").read_text(encoding="utf-8")
+    layered_reapply = (HERE.parent / "docker/layered-reapply.sh").read_text(encoding="utf-8")
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
     assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
-    assert "if [ ! -d /run/allscan-reimagined-m17 ]; then" in layered_reapply_source
+    host_boundary = "if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then"
+    assert layered_reapply.index(host_boundary) < layered_reapply.index(
+        "install -d -o root -g root -m 755 /run/allscan-reimagined-m17"
+    ) < layered_reapply.index("\nfi\n", layered_reapply.index(host_boundary))
     m17_exec = "--proc-root {profile.host_proc} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector"
     assert m17_exec in installer_source
     assert "--user {SERVICE_USER} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector" not in installer_source
@@ -787,6 +923,8 @@ def main() -> int:
     digital = load("asr_container_test_digital", "asr-bridge-setup-digital.py")
     urf = load("asr_container_test_urf", "asr-bridge-setup-urf.py")
     urf_installer = load("asr_container_test_urf_installer", "asr-bridge-setup-urf-install.py")
+    zello_installer = load("asr_container_test_zello_installer", "asr-bridge-setup-zello-install.py")
+    host_installer = load("asr_container_test_host_installer", "asr-container-host-install.py")
     renderer = load("asr_container_test_renderer", "asr-bridge-setup-digital-render.py")
     setup_client = load("asr_container_test_setup_client", "asr-container-host-client.py")
     control_client = load("asr_container_test_control_client", "asr-container-host-control-client.py")
@@ -799,6 +937,13 @@ def main() -> int:
     test_payload_validators(digital, urf)
     test_urf_port_folding(urf)
     test_urf_docker_environment(urf_installer)
+    test_managed_urf_image_repair_selection(host_installer)
+    test_mqtt_secrets_metadata_migration(host_installer)
+    test_mosquitto_credential_metadata_migration(host_installer)
+    test_ysf_net_startup_migration(host_installer)
+    test_managed_dmr_live_mount_migration(host_installer)
+    test_managed_m17_bind_migration(host_installer)
+    test_zello_relay_startup_reset(zello_installer)
     test_urf_image_transaction(urf_installer)
     test_p25_no_emulator_topology(digital, renderer)
     test_client_error_forwarding(setup_client, control_client)

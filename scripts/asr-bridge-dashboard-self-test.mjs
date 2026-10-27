@@ -106,15 +106,25 @@ try {
       `${mode.toUpperCase()} mode moved the shared Net Bridge ahead of Zello`,
     )
   }
-  const explicitNetFirst = orderedVisibleBridgeCards(
-    [...orderConfig.filter((bridge) => bridge.id !== 'zello'), orderConfig[2]],
-    orderCards,
-    'ysf',
-    2,
-  ).map((card) => card.id)
+  const savedNetFirst = orderedVisibleBridgeCards(orderConfig, orderCards, 'ysf', 2).map((card) => card.id)
   assert(
-    explicitNetFirst.join(',') === 'ysf_net,zello',
-    'an explicit Net Bridge-before-Zello order was not preserved',
+    savedNetFirst.join(',') === 'zello,ysf_net',
+    'the saved unified bridge slot did not remain at its final mode record',
+  )
+  const savedStandardLastConfig = [
+    ...orderConfig.filter((bridge) => bridge.id !== 'zello'),
+    orderConfig.find((bridge) => bridge.id === 'zello'),
+  ]
+  const savedStandardLast = orderedVisibleBridgeCards(savedStandardLastConfig, orderCards, 'ysf', 2).map((card) => card.id)
+  assert(
+    savedStandardLast.join(',') === 'ysf_net,zello',
+    'an explicit v2 Net Bridge-before-Zello order was not preserved',
+  )
+  const hiddenReflector = { id: 'urf', node: '1001', cardType: 'standard', mode: 'urf', urfReflector: true }
+  assert(
+    !orderedVisibleBridgeCards([...orderConfig, hiddenReflector], [...orderCards, hiddenReflector], 'ysf')
+      .some((card) => card.id === 'urf'),
+    'the shared URF reflector leaked into the dashboard bridge-card fallback pass',
   )
   const sharedTransports = ['p25', 'ysf'].map((mode) => ({
     ...netBridges[0], id: `${mode}_net`, mode, node: '1999', cardType: `${mode}_net`,
@@ -171,7 +181,7 @@ try {
     { mode: 'dmr', connectedClientCount: 2, cardType: 'standard' },
     {
       mode: 'dmr', connectedClientCount: 0, cardType: 'dmr_net',
-      controlLinked: true, digitalLinked: false,
+      controlLinked: false, digitalLinked: false,
     },
     {
       mode: 'p25', connectedClientCount: 0, cardType: 'p25_net',
@@ -185,7 +195,7 @@ try {
   ])
   assert(JSON.stringify(linkedNetBridgeCounts) === JSON.stringify([
     { mode: 'ysf', label: 'YSF', count: 7 },
-    { mode: 'dmr', label: 'DMR', count: 3 },
+    { mode: 'dmr', label: 'DMR', count: 2 },
     { mode: 'p25', label: 'P25', count: 1 },
     { mode: 'm17', label: 'M17', count: 1 },
   ]), 'connected Net Bridge links were not included once in their mode totals')
@@ -300,8 +310,17 @@ try {
   const runtimeV102 = readFileSync(new URL('../compat/allscan-v1.02/include/asrRuntime.php', import.meta.url), 'utf8')
   const runtimeV103 = readFileSync(new URL('../compat/allscan-v1.03/include/asrRuntime.php', import.meta.url), 'utf8')
   assert(
+    appSource.includes('className="allscan-action-button allscan-custom-commands-button"'),
+    'Commands button no longer inherits the same theme palette as the neighboring action buttons',
+  )
+  assert(
     asrApiSource.includes("['connected', 'selected-unverified', 'connected-unverified', 'partial-digital-only']"),
     'Protocol-confirmed P25/NXDN connections must remain linked in the production API',
+  )
+  assert(
+    asrApiSource.includes("$digitalLinked = $currentTg !== ''")
+      && asrApiSource.includes("$linked = $digitalLinked;"),
+    'DMR canonical link state still treats node 1999 transport as a selected digital destination',
   )
   assert(
     asrApiSource.includes('$zelloConfigured')
@@ -348,6 +367,15 @@ try {
       && !appSource.includes('netBridgeQueuedModeRef')
       && !appSource.includes('on private node 1999'),
     'mode selection does not use the unified lifecycle or exposes its private node',
+  )
+  assert(
+    appSource.includes("if (card.cardType !== 'standard' && !card.controlLinked)")
+      && !appSource.includes("card.cardType !== 'dmr_net' && !card.controlLinked"),
+    'a disconnected DMR Net Bridge can still inherit false Relay state from node 1999',
+  )
+  assert(
+    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
+    'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
   )
   assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')
   assert(!dmrControls.includes('approvedDestinations.length'), 'DMR Net input still depends on an approved list')
@@ -562,8 +590,13 @@ try {
   assert(
     appSource.includes('const wasReady = zelloFastRelayReadyRef.current')
       && appSource.includes('zelloFastRelayReadyRef.current = true')
-      && appSource.includes('relay.active === previous && wasReady'),
+      && appSource.includes('active === previous && wasReady'),
     'Zello fast relay readiness must be established before equal idle samples may suppress the legacy fallback',
+  )
+  assert(
+    appSource.includes('const edgeAgeMs = Date.now() - relay.updatedEpochMs')
+      && appSource.includes('relay.active && (asteriskRelayActive || (edgeAgeMs >= 0 && edgeAgeMs <= 3000))'),
+    'A stale Zello Relay producer file must yield to current Asterisk idle evidence after the edge grace period',
   )
   assert(
     appSource.includes("!bridgeStatusLoaded ? '…' : card.detailAvailable ? card.detailCount : '–'"),

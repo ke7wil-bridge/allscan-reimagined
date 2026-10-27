@@ -59,6 +59,7 @@ ASTERISK_BIN = Path(
 ASTERISK_TIMEOUT = 8.0
 ALLSTAR_CONFIRM_ATTEMPTS = 40
 ALLSTAR_CONFIRM_INTERVAL = 0.25
+CONFIG_NOT_READY_EXIT = 78
 
 
 class ConnectorError(RuntimeError):
@@ -115,7 +116,10 @@ def direct_linked(
     )
     if completed.returncode != 0 or not completed.stdout.strip():
         raise ConnectorError("Asterisk direct-link status returned an error.")
-    return (bridge_node, "OUT") in parse_lstats_links(completed.stdout)
+    return any(
+        node == bridge_node
+        for node, _direction in parse_lstats_links(completed.stdout)
+    )
 
 
 def set_direct_link(
@@ -126,10 +130,12 @@ def set_direct_link(
 ) -> None:
     if direct_linked(local_node, bridge_node, runner) == linked:
         return
+    source, target = ((bridge_node, local_node) if linked
+                      else (local_node, bridge_node))
     completed = runner(
         [
             str(ASTERISK_BIN), "-rx",
-            f"rpt cmd {local_node} ilink {'3' if linked else '11'} {bridge_node}",
+            f"rpt cmd {source} ilink {'3' if linked else '11'} {target}",
         ],
         ASTERISK_TIMEOUT,
     )
@@ -1267,7 +1273,10 @@ def main() -> int:
                 "audioReady": False,
                 "error": error,
             }, separators=(",", ":")))
-            return 1
+            # EX_CONFIG is paired with RestartPreventExitStatus in the managed
+            # unit. A missing qualification/dependency is persistent state,
+            # not a transient crash that should restart every three seconds.
+            return CONFIG_NOT_READY_EXIT
         if args.check:
             codec.close()
             print(json.dumps({

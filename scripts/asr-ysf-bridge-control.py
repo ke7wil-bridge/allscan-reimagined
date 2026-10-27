@@ -1046,15 +1046,20 @@ def asterisk_output(command: str) -> str:
 
 
 def direct_linked(local_node: str, bridge_node: str) -> bool:
-    return (bridge_node, "OUT") in parse_lstats_links(
-        asterisk_output(f"rpt lstats {local_node}")
+    return any(
+        node == bridge_node
+        for node, _direction in parse_lstats_links(
+            asterisk_output(f"rpt lstats {local_node}")
+        )
     )
 
 
 def set_direct_link(local_node: str, bridge_node: str, linked: bool) -> None:
     if direct_linked(local_node, bridge_node) == linked:
         return
-    command = f"rpt cmd {local_node} ilink {'3' if linked else '11'} {bridge_node}"
+    source, target = ((bridge_node, local_node) if linked
+                      else (local_node, bridge_node))
+    command = f"rpt cmd {source} ilink {'3' if linked else '11'} {target}"
     try:
         completed = subprocess.run(
             [str(ASTERISK_BIN), "-rx", command], capture_output=True, text=True,

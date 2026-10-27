@@ -569,6 +569,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=/usr/local/sbin/allscan-reimagined-m17-usrp-connector --bridge %i --run
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=3s
 NoNewPrivileges=true
 PrivateTmp=true

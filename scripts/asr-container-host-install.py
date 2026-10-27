@@ -11,6 +11,7 @@ import os
 import pwd
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -181,19 +182,281 @@ def ensure_private_root_directories(paths: tuple[Path, ...]) -> None:
         os.chmod(path, 0o700)
 
 
+def managed_urf_images_required(profile) -> bool:
+    config_path = profile.asr_config / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("ASR configuration could not be read for managed image repair") from exc
+    return any(
+        isinstance(bridge, dict)
+        and bridge.get("cardType") == "dmr_net"
+        and bridge.get("backendMode", "managed") != "display_only"
+        for bridge in config.get("bridges", [])
+    )
+
+
+def repair_managed_urf_images(profile) -> bool:
+    """Restore missing local URF images on hosts that actually use DMR Net Bridge."""
+    if not managed_urf_images_required(profile):
+        return False
+    source = DEST / "asr-bridge-setup-urf-install.py"
+    spec = importlib.util.spec_from_file_location("asr_urf_image_repair", source)
+    if not spec or not spec.loader:
+        raise RuntimeError("managed URF image repair module is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    previous_profile = os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")
+    os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = str(PROFILE)
+    try:
+        spec.loader.exec_module(module)
+        return bool(module.ensure_managed_images())
+    finally:
+        if previous_profile is None:
+            os.environ.pop("ASR_CONTAINER_PROVISIONING_PROFILE", None)
+        else:
+            os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = previous_profile
+
+
+def mqtt_secrets_metadata_is_safe(file_info, parent_info, profile) -> bool:
+    legacy_owner = file_info.st_uid == profile.client_uid and file_info.st_gid == profile.client_gid
+    parent_group_safe = not (parent_info.st_mode & 0o020) or parent_info.st_gid == profile.client_gid
+    return (
+        stat.S_ISREG(file_info.st_mode)
+        and file_info.st_nlink == 1
+        and stat.S_IMODE(file_info.st_mode) == 0o600
+        and (file_info.st_uid == 0 or legacy_owner)
+        and stat.S_ISDIR(parent_info.st_mode)
+        and parent_info.st_uid == 0
+        and not parent_info.st_mode & 0o002
+        and parent_group_safe
+    )
+
+
+def normalize_mqtt_secrets(profile) -> None:
+    """Atomically migrate the exact legacy web-owned credential file to root."""
+    path = profile.asr_config / "bridge-mqtt-secrets.json"
+    if not path.exists() and not path.is_symlink():
+        return
+    parent = path.parent
+    parent_info = parent.lstat()
+    if parent.is_symlink():
+        raise RuntimeError("MQTT credential directory is unsafe")
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(parent, directory_flags)
+    descriptor = -1
+    try:
+        descriptor = os.open(path.name, file_flags, dir_fd=directory_fd)
+        info = os.fstat(descriptor)
+        if not mqtt_secrets_metadata_is_safe(info, parent_info, profile):
+            raise RuntimeError("existing MQTT credential file is unsafe")
+        with os.fdopen(os.dup(descriptor), "rb") as handle:
+            content = handle.read(1_048_577)
+        if len(content) > 1_048_576:
+            raise RuntimeError("existing MQTT credential file is unsafe")
+        try:
+            payload = json.loads(content)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("existing MQTT credential file is invalid") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("bridges"), dict):
+            raise RuntimeError("existing MQTT credential file is invalid")
+        atomic_bytes(path, content, 0o600)
+        migrated = path.lstat()
+        if (path.is_symlink() or not path.is_file() or migrated.st_uid != 0
+                or migrated.st_gid != 0 or migrated.st_nlink != 1
+                or stat.S_IMODE(migrated.st_mode) != 0o600):
+            raise RuntimeError("MQTT credential ownership migration failed")
+    except OSError as exc:
+        raise RuntimeError("existing MQTT credential file is unsafe") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_fd)
+
+
+def mosquitto_credential_metadata_is_safe(file_info, mosquitto_uid: int,
+                                           mosquitto_gid: int) -> bool:
+    return (
+        stat.S_ISREG(file_info.st_mode)
+        and file_info.st_nlink == 1
+        and stat.S_IMODE(file_info.st_mode) == 0o640
+        and file_info.st_uid in {0, mosquitto_uid}
+        and file_info.st_gid == mosquitto_gid
+    )
+
+
+def normalize_mosquitto_credentials() -> None:
+    """Migrate ASR-owned broker credentials to Mosquitto's required owner."""
+    directory = Path("/etc/mosquitto")
+    directory_info = directory.lstat()
+    if (directory.is_symlink() or not stat.S_ISDIR(directory_info.st_mode)
+            or directory_info.st_uid != 0 or directory_info.st_mode & 0o022):
+        raise RuntimeError("Mosquitto credential directory is unsafe")
+    account = pwd.getpwnam("mosquitto")
+    for pattern in ("asr-*.passwords", "asr-*.acl"):
+        for path in directory.glob(pattern):
+            info = path.lstat()
+            if not mosquitto_credential_metadata_is_safe(
+                    info, account.pw_uid, account.pw_gid):
+                raise RuntimeError(f"existing Mosquitto credential file is unsafe: {path}")
+            if info.st_uid != account.pw_uid:
+                os.chown(path, account.pw_uid, account.pw_gid)
+            migrated = path.lstat()
+            if (migrated.st_uid != account.pw_uid
+                    or migrated.st_gid != account.pw_gid
+                    or stat.S_IMODE(migrated.st_mode) != 0o640):
+                raise RuntimeError(f"Mosquitto credential ownership migration failed: {path}")
+
+
+def disconnected_ysf_net_config(content: str) -> tuple[str, bool]:
+    """Clear only the live Startup target in a YSF Gateway Network section."""
+    lines = content.splitlines(keepends=True)
+    section = ""
+    matches: list[int] = []
+    for index, line in enumerate(lines):
+        section_match = re.match(r"^\s*\[([^]]+)]\s*(?:[#;].*)?(?:\r?\n)?$", line)
+        if section_match:
+            section = section_match.group(1).strip().lower()
+            continue
+        if section == "network" and re.match(r"^\s*Startup\s*=", line, re.IGNORECASE):
+            matches.append(index)
+    if len(matches) != 1:
+        raise RuntimeError("managed YSF Net Bridge configuration is invalid")
+    index = matches[0]
+    match = re.match(r"^(\s*)Startup\s*=([^\r\n]*)(\r?\n)?$", lines[index], re.IGNORECASE)
+    if not match:
+        raise RuntimeError("managed YSF Net Bridge configuration is invalid")
+    changed = bool(match.group(2).strip())
+    if changed:
+        lines[index] = f"{match.group(1)}Startup={match.group(3) or ''}"
+    return "".join(lines), changed
+
+
+def normalize_managed_ysf_net_startup(profile) -> None:
+    """Prevent legacy Net Bridge gateways from auto-linking on mode startup."""
+    config_path = profile.asr_config / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("ASR configuration could not be read for YSF startup migration") from exc
+    candidates: set[Path] = set()
+    allowed = re.compile(r"^/opt/YSFGateway_[a-z][a-z0-9_-]{1,31}/YSFGateway\.ini$")
+    for bridge in config.get("bridges", []):
+        if (not isinstance(bridge, dict) or bridge.get("cardType") != "ysf_net"
+                or bridge.get("backendMode", "managed") == "display_only"):
+            continue
+        value = bridge.get("ysfGatewayConfig")
+        if not isinstance(value, str) or not allowed.fullmatch(value):
+            raise RuntimeError("managed YSF Net Bridge configuration path is unsafe")
+        candidates.add(Path(value))
+    for path in candidates:
+        parent_info = path.parent.lstat()
+        info = path.lstat()
+        if (path.parent.is_symlink() or not path.parent.is_dir()
+                or parent_info.st_uid != 0 or parent_info.st_gid != 0
+                or stat.S_IMODE(parent_info.st_mode) != 0o755
+                or path.is_symlink() or not path.is_file() or info.st_nlink != 1
+                or info.st_uid != 0 or info.st_gid != 0
+                or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size > 1_048_576):
+            raise RuntimeError(f"managed YSF Net Bridge configuration is unsafe: {path}")
+        content = path.read_text(encoding="utf-8")
+        updated, changed = disconnected_ysf_net_config(content)
+        if changed:
+            atomic_bytes(path, updated.encode("utf-8"), 0o644)
+
+
+def managed_dmr_live_mounts(content: str, runtime_root: Path) -> tuple[str, bool]:
+    """Expose the managed URF event/PTT files at the path used by its binary."""
+    data_mount = f"      - {runtime_root}/data:/data\n"
+    live_mount = f"      - {runtime_root}/data:/run/urf-wil\n"
+    if content.count(data_mount) != 1:
+        raise RuntimeError("managed DMR compose data mount is invalid")
+    if content.count(live_mount) > 1:
+        raise RuntimeError("managed DMR compose live-state mount is invalid")
+    if live_mount in content:
+        return content, False
+    return content.replace(data_mount, data_mount + live_mount), True
+
+
+def normalize_managed_dmr_live_state_mounts(profile) -> None:
+    """Migrate existing managed DMR compose files without rebuilding settings."""
+    try:
+        config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("ASR configuration could not be read for managed DMR migration") from exc
+    for bridge in config.get("bridges", []):
+        if (not isinstance(bridge, dict) or bridge.get("cardType") != "dmr_net"
+                or bridge.get("backendMode", "managed") == "display_only"):
+            continue
+        bridge_id = str(bridge.get("id", ""))
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
+            raise RuntimeError("managed DMR bridge ID is invalid")
+        runtime_root = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id
+        path = runtime_root / "compose.yml"
+        info = path.lstat()
+        parent = path.parent.lstat()
+        if (path.is_symlink() or not path.is_file() or info.st_nlink != 1
+                or info.st_uid != 0 or info.st_gid != 0
+                or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size > 1_048_576
+                or path.parent.is_symlink() or not path.parent.is_dir()
+                or parent.st_uid != 0 or parent.st_gid != 0
+                or parent.st_mode & 0o022):
+            raise RuntimeError(f"managed DMR compose file is unsafe: {path}")
+        updated, changed = managed_dmr_live_mounts(
+            path.read_text(encoding="utf-8"), runtime_root
+        )
+        if changed:
+            atomic_bytes(path, updated.encode("utf-8"), 0o644)
+
+
+def managed_m17_external_bind(config: dict) -> bool:
+    """Allow managed M17 signaling to reach non-loopback reflectors."""
+    changed = False
+    for bridge in config.get("bridges", []):
+        if (not isinstance(bridge, dict) or bridge.get("mode") != "m17"
+                or bridge.get("backendMode", "managed") == "display_only"):
+            continue
+        if bridge.get("m17BindAddress") == "127.0.0.1":
+            bridge["m17BindAddress"] = "0.0.0.0"
+            changed = True
+    return changed
+
+
+def normalize_managed_m17_bind_address(profile) -> None:
+    """Migrate the legacy loopback-only M17 network socket atomically."""
+    path = profile.asr_config / "config.json"
+    info = path.lstat()
+    if (path.is_symlink() or not path.is_file() or info.st_nlink != 1
+            or info.st_uid != 0 or info.st_mode & 0o002 or info.st_size > 1_048_576):
+        raise RuntimeError("ASR configuration is unsafe for M17 bind migration")
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("ASR configuration could not be read for M17 bind migration") from exc
+    if not managed_m17_external_bind(config):
+        return
+    descriptor, temporary = tempfile.mkstemp(prefix=".config.json.m17-bind.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fchown(handle.fileno(), 0, info.st_gid)
+            os.fchmod(handle.fileno(), stat.S_IMODE(info.st_mode))
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def install(profile) -> None:
     if os.geteuid() != 0:
         raise RuntimeError("container host backend installation requires root")
-    mqtt_secrets = profile.asr_config / "bridge-mqtt-secrets.json"
-    if mqtt_secrets.exists() or mqtt_secrets.is_symlink():
-        info = mqtt_secrets.stat(follow_symlinks=False)
-        if (mqtt_secrets.is_symlink() or not mqtt_secrets.is_file()
-                or info.st_uid != 0 or info.st_nlink != 1
-                or (info.st_mode & 0o777) != 0o600):
-            raise RuntimeError("existing MQTT credential file is unsafe")
-        # Some older layered installs assigned the web GID despite mode 0600.
-        # Normalize metadata without reading or replacing credential content.
-        os.chown(mqtt_secrets, 0, 0)
+    normalize_mqtt_secrets(profile)
+    normalize_managed_ysf_net_startup(profile)
+    normalize_managed_dmr_live_state_mounts(profile)
+    normalize_managed_m17_bind_address(profile)
     source_spec = importlib.util.spec_from_file_location(
         "asr_container_runtime_sources", HERE / "asr-bridge-runtime-sources.py"
     )
@@ -218,6 +481,7 @@ def install(profile) -> None:
         if directory.exists() and (directory.is_symlink() or not directory.is_dir()):
             raise RuntimeError(f"required host directory is unsafe: {directory}")
         directory.mkdir(parents=True, exist_ok=True)
+    normalize_mosquitto_credentials()
     service_account = pwd.getpwnam(SERVICE_USER)
     for directory in (Path("/var/log/mmdvm"), Path("/var/log/allscan-reimagined"),
                       Path("/run/allscan-reimagined-m17")):
@@ -303,8 +567,13 @@ def install(profile) -> None:
         os.replace(runtime_target, previous_runtime)
     try:
         os.replace(temporary_runtime, runtime_target)
+        repair_managed_urf_images(profile)
     except Exception:
-        if previous_runtime.exists() and not runtime_target.exists():
+        if previous_runtime.exists():
+            if runtime_target.exists():
+                if runtime_target.is_symlink() or not runtime_target.is_dir() or runtime_target.stat().st_uid != 0:
+                    raise RuntimeError("managed URF runtime rollback target is unsafe")
+                shutil.rmtree(runtime_target)
             os.replace(previous_runtime, runtime_target)
         raise
     if previous_runtime.exists():
@@ -415,6 +684,7 @@ Type=simple
 Environment=ASR_CONTAINER_PROVISIONING_PROFILE={PROFILE}
 ExecStart={DEST}/asr-container-netns-exec.py --container {profile.asterisk_container} --proc-root {profile.host_proc} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector --bridge %i --run
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=3s
 NoNewPrivileges=true
 PrivateTmp=true

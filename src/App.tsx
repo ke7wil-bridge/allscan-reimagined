@@ -1053,7 +1053,7 @@ function App({ config }: { config: RuntimeConfig }) {
         if (card.status !== 'Idle') {
           return card
         }
-        if (card.cardType !== 'standard' && card.cardType !== 'dmr_net' && !card.controlLinked) {
+        if (card.cardType !== 'standard' && !card.controlLinked) {
           return withStatus(card, 'Idle')
         }
         // Standard URF mode cards share one AllStar transport row. Until the
@@ -1679,11 +1679,19 @@ function App({ config }: { config: RuntimeConfig }) {
         // legitimate opposite edges that happen within the same millisecond.
         if (cancelled || relay.updatedEpochMs <= 0 || relay.updatedEpochMs < appliedEpochMs) return
         appliedEpochMs = relay.updatedEpochMs
+        const localRows = connectionRowsRef.current.filter((row) => !row.configuredTransport)
+        const localRow = localRows.find((row) => row.node === config.node) || localRows[0]
+        const asteriskRelayActive = localRow?.state === 'talking' || localRow?.state === 'both'
+        // A producer edge leads the slower Asterisk snapshot briefly. After
+        // that grace period, require live transport evidence so an old true
+        // file cannot survive a Zello process restart indefinitely.
+        const edgeAgeMs = Date.now() - relay.updatedEpochMs
+        const active = relay.active && (asteriskRelayActive || (edgeAgeMs >= 0 && edgeAgeMs <= 3000))
         const wasReady = zelloFastRelayReadyRef.current
         zelloFastRelayReadyRef.current = true
-        if (relay.active === previous && wasReady) return
-        previous = relay.active
-        zelloFastRelayRef.current = relay.active
+        if (active === previous && wasReady) return
+        previous = active
+        zelloFastRelayRef.current = active
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
       finally {
@@ -3870,7 +3878,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 const canConnect = bridgeCapabilities.includes('connect')
                 const canDisconnect = bridgeCapabilities.includes('disconnect')
                 const canChangeDestination = bridgeCapabilities.includes('changeDestination')
-                const bridgeLinked = card.cardType !== 'standard' && card.cardType !== 'dmr_net'
+                const bridgeLinked = card.cardType !== 'standard'
                   ? card.controlLinked
                   : card.controlLinked || rows.some(
                   (row) => row.bridgeId === card.id

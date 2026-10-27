@@ -399,7 +399,7 @@ def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "title",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
-        "hotspotEssid",
+        "hotspotEssid", "tgifStaticToken",
     }
     if set(payload) - allowed:
         raise HelperError("DMR request contains unsupported fields")
@@ -438,6 +438,8 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         if current_plan["digest"] != expected:
             raise HelperError("preview is stale; preview again")
         auth_mode = payload.get("authMode", "secured" if payload.get("tgifPassword") else "legacy")
+        if settings.bridge_role == "net" and auth_mode != "secured":
+            raise HelperError("DMR Net Bridge requires a secured TGIF connection")
         if auth_mode == "legacy":
             if payload.get("tgifPassword"):
                 raise HelperError("A website password must not be submitted for TGIF legacy connection")
@@ -451,6 +453,7 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         try:
             result = installer.install(
                 Path("/"), settings, password,
+                static_token=str(payload.get("tgifStaticToken") or ""),
                 expected_digest=expected, manage_services=True,
             )
         except Exception as original:
@@ -538,7 +541,7 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
         raise HelperError("Net Bridge common configuration is incomplete")
     modes = payload["modes"]
     schemas = {
-        "dmr": {"destination", "authMode", "tgifPassword"},
+        "dmr": {"destination", "authMode", "tgifPassword", "tgifStaticToken"},
         "ysf": {"destination", "name", "host", "port"},
         "p25": {"destination", "host", "port"},
         "nxdn": {"destination", "identity", "host", "port"},
@@ -551,7 +554,8 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
     candidates = {
         "dmr": {**common, "bridgeId": NET_MODE_IDS["dmr"], "destination": str(modes.get("dmr", {}).get("destination", "")),
                 "network": "tgif", "authMode": str(modes.get("dmr", {}).get("authMode") or "legacy"),
-                "tgifPassword": str(modes.get("dmr", {}).get("tgifPassword") or ""), "title": "DMR Net Bridge"},
+                "tgifPassword": str(modes.get("dmr", {}).get("tgifPassword") or ""),
+                "tgifStaticToken": str(modes.get("dmr", {}).get("tgifStaticToken") or ""), "title": "DMR Net Bridge"},
         "ysf": {**common, "bridgeId": NET_MODE_IDS["ysf"], "destination": str(modes.get("ysf", {}).get("destination", "")),
                 "name": str(modes.get("ysf", {}).get("name", "")), "host": str(modes.get("ysf", {}).get("host", "")),
                 "port": str(modes.get("ysf", {}).get("port", "")), "title": "YSF Net Bridge"},
@@ -587,6 +591,7 @@ def net_bridge_plan(payload: dict[str, Any]) -> dict[str, Any]:
     sanitized.pop("planDigest", None)
     if "dmr" in sanitized["modes"]:
         sanitized["modes"]["dmr"].pop("tgifPassword", None)
+        sanitized["modes"]["dmr"].pop("tgifStaticToken", None)
     host_plans = {}
     if "dmr" in per_mode:
         host_plans["dmr"] = load_module("asr_net_dmr_plan", URF_PLAN_PATH).plan(

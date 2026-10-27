@@ -131,7 +131,9 @@ def authorize_command(command: str, profile, loader=safe_root_json,
             raise RuntimeError("Asterisk status node is not authorized")
         return
     link = re.fullmatch(r"rpt cmd ([0-9]{3,10}) ilink (?:3|11) ([0-9]{3,10})", command)
-    if not link or link.group(1) != main_node or link.group(2) not in owned:
+    forward = bool(link and link.group(1) == main_node and link.group(2) in owned)
+    reverse = bool(link and link.group(1) in owned and link.group(2) == main_node)
+    if not (forward or reverse):
         raise RuntimeError("Asterisk link pair is not authorized")
 
 

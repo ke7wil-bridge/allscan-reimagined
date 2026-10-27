@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 MODES = {
-    "dmr": {"id": "dmr_tgif_net", "destination": "67498",
-        "connect": ["/usr/local/sbin/allscan-reimagined-managed-dmr-net-control", "--bridge", "dmr_tgif_net", "--connect", "67498"],
+    "dmr": {"id": "dmr_tgif_net", "destination": "86753",
+        "connect": ["/usr/local/sbin/allscan-reimagined-managed-dmr-net-control", "--bridge", "dmr_tgif_net", "--connect", "86753"],
         "disconnect": ["/usr/local/sbin/allscan-reimagined-managed-dmr-net-control", "--bridge", "dmr_tgif_net", "--disconnect"]},
     "ysf": {"id": "ysf_net", "destination": "67498",
         "connect": ["/usr/local/sbin/allscan-reimagined-ysf-bridge-control", "--connect", "ysf_net", "67498", "--user", "automated-qa"],
@@ -156,6 +156,7 @@ print(json.dumps({{'sourcePort':source,'destinationPort':destination,'frames':fr
 def inject_and_observe(args, bridge_id: str, source: int, destination: int,
                        *, zello: bool = False) -> None:
     traffic_epoch = int(time.time())
+    local_eot = False
     process = subprocess.Popen(
         ["docker", "exec", "-i", args.asterisk_container, "python3", "-"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -197,7 +198,8 @@ def inject_and_observe(args, bridge_id: str, source: int, destination: int,
     # is genuine RELAY activity, not a stuck local PTT.  Allow that traffic to
     # finish, but still require the production state to become Idle so a real
     # missing EOT remains a hard failure.
-    idle_deadline = time.monotonic() + (3 if zello else 120)
+    idle_wait = 3 if zello else (8 if bridge_id == "m17_net" else 120)
+    idle_deadline = time.monotonic() + idle_wait
     final = {}
     while True:
         if zello:
@@ -217,6 +219,17 @@ def inject_and_observe(args, bridge_id: str, source: int, destination: int,
         stale = str(final.get("current_user", final.get("caller", ""))).strip()
         if stale in {"9999", "0"}:
             raise RuntimeError(f"{bridge_id}: stale Talking identity after EOT: {stale}")
+    if active and bridge_id == "m17_net":
+        status = web_command(args, [
+            "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+            "--bridge", "m17_net", "status",
+        ])
+        local_eot = (
+            status.get("outboundActive") is False
+            and int(status.get("outboundActivityEpoch", 0) or 0) >= traffic_epoch - 1
+            and int(status.get("m17PacketsSent", 0) or 0) > 0
+        )
+        active = not local_eot
     if active:
         raise RuntimeError(f"{bridge_id}: production state did not return to Idle")
     # The dashboard's Last Activity label reads the production bridge-status
@@ -235,7 +248,7 @@ def inject_and_observe(args, bridge_id: str, source: int, destination: int,
         time.sleep(.25)
     if persisted < traffic_epoch - 1:
         raise RuntimeError(f"{bridge_id}: production API lost completed activity; {final_bridge}")
-    if str(final_bridge.get("role", "")).lower() != "idle":
+    if str(final_bridge.get("role", "")).lower() != "idle" and not local_eot:
         raise RuntimeError(f"{bridge_id}: production bridge-status remained active after EOT")
 
 

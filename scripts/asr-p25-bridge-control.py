@@ -426,6 +426,20 @@ def validate_bridge(raw: dict, config: dict, spec: ModeSpec) -> dict:
         mqtt_port = int(raw.get("mqttPort", 1883))
     except (TypeError, ValueError) as exc:
         raise ControlError("MQTT port is invalid.") from exc
+    setup_ports = raw.get("setupPorts")
+    if isinstance(setup_ports, dict) and "mqtt" in setup_ports:
+        try:
+            setup_mqtt_port = int(setup_ports["mqtt"])
+        except (TypeError, ValueError) as exc:
+            raise ControlError("Provisioned MQTT port is invalid.") from exc
+        if not 1 <= setup_mqtt_port <= 65535:
+            raise ControlError("Provisioned MQTT port is invalid.")
+        # Beta 8.1.5.7 Settings saves could replace the active provisioned port
+        # with the legacy default while leaving installer-owned setupPorts intact.
+        if mqtt_port != setup_mqtt_port:
+            if mqtt_port != 1883:
+                raise ControlError("Configured and provisioned MQTT ports do not agree.")
+            mqtt_port = setup_mqtt_port
     mqtt_name = str(raw.get("mqttName", ""))
     mmdvm_mqtt_name = str(raw.get("mmdvmMqttName", ""))
     if (
@@ -642,18 +656,20 @@ def direct_linked(bridge: dict, runner: Runner) -> bool:
     links = parse_lstats_links(
         asterisk_output(f"rpt lstats {bridge['localNode']}", runner)
     )
-    return (bridge["bridgeNode"], "OUT") in links
+    return any(node == bridge["bridgeNode"] for node, _direction in links)
 
 
 def set_direct_link(bridge: dict, linked: bool, runner: Runner) -> None:
     if direct_linked(bridge, runner) == linked:
         return
     action = "3" if linked else "11"
+    source, target = ((bridge["bridgeNode"], bridge["localNode"]) if linked
+                      else (bridge["localNode"], bridge["bridgeNode"]))
     completed = runner(
         [
             ASTERISK_BIN,
             "-rx",
-            f"rpt cmd {bridge['localNode']} ilink {action} {bridge['bridgeNode']}",
+            f"rpt cmd {source} ilink {action} {target}",
         ],
         8.0,
     )
@@ -2130,6 +2146,18 @@ def self_test(spec: ModeSpec) -> None:
         os.chmod(trusted_dir, 0o775)
         # Production-path checks are independently tested; point the validated object at the fixture.
         validated = validate_bridge(bridge, test_config(bridge), spec)
+        legacy_port = dict(bridge, mqttPort=1883, setupPorts={"mqtt": 39971})
+        assert validate_bridge(
+            legacy_port, test_config(legacy_port), spec
+        )["mqttPort"] == 39971
+        conflicting_port = dict(
+            bridge, mqttPort=39972, setupPorts={"mqtt": 39971}
+        )
+        try:
+            validate_bridge(conflicting_port, test_config(conflicting_port), spec)
+            raise AssertionError("conflicting MQTT ports accepted")
+        except ControlError:
+            pass
         validated["gatewayPath"] = gateway
         validated["analogBridgePath"] = analog
         parse_ini(validated, spec, uid)
