@@ -178,6 +178,7 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         "root": runtime, "compose": f"{runtime}/compose.yml", "urfConfig": f"{runtime}/config/urfd.ini",
         "tcdConfig": f"{runtime}/config/tcd.ini", "blacklist": f"{runtime}/config/urfd.blacklist",
         "tgifSecret": f"{runtime}/secrets/tgif-password", "config": CONFIG, "rpt": RPT, "modules": MODULES,
+        "tgifStaticToken": f"{runtime}/secrets/tgif-static-token",
         "data": f"{runtime}/data", "tgifRun": f"{runtime}/tgif-run",
     }
     backend = "container" if containerized else "native"
@@ -227,7 +228,7 @@ def tcd_ini(plan: dict) -> str:
 def integration_files(root: Path, plan: dict) -> dict[str, tuple[bytes, int]]:
     config_path=safe_regular(root, CONFIG); rpt_path=safe_regular(root, RPT); modules_path=safe_regular(root, MODULES)
     config=json.loads(config_path.read_text(encoding="utf-8")); s=plan["settings"]; node=plan["bridgeNode"]; p=plan["ports"]
-    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(plan["dmrNetworkId"]),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","liveAudioVerified":False}
+    role=s.get("bridge_role","standard"); entry={"id":s["bridge_id"],"mode":"dmr","node":str(node),"title":s["title"],"detailTitle":"Connected Clients","friendlyName":s["title"],"cardType":"dmr_net" if role=="net" else "standard","instance":s["bridge_id"],"bridgePermission":"self_owned","backendMode":"managed","clientSource":"dmr","urfReflector":True,"urfGroupId":"urf","urfName":s["reflector"],"urfModes":["dmr"],"fixedDestination":str(s["tgif_tg"]),"setupPorts":p,"tgifTalkgroup":str(s["tgif_tg"]),"dmrId":str(s["dmr_id"]),"dmrNetworkId":str(plan["dmrNetworkId"]),"allowTune":role=="net","approvedDestinations":[str(s["tgif_tg"])] if role=="net" else [],"managedNetControl":role=="net","managedTargetFile":f"{plan['resources']['root']}/tgif-run/net-target" if role=="net" else "","tgifStaticTokenPath":plan["resources"]["tgifStaticToken"] if role=="net" else "","liveAudioVerified":False}
     bridges=config.setdefault("bridges",[]); matches=[i for i,b in enumerate(bridges) if isinstance(b,dict) and b.get("id")==s["bridge_id"]]
     if len(matches)>1: raise PlanError("duplicate bridge identity")
     if matches:

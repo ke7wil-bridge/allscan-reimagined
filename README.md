@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.5.9 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.1.5.10 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -9,22 +9,22 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.9** and remains a prerelease. Beta 8.1.5.8 is the
+This archive is **Beta 8.1.5.10** and remains a prerelease. Beta 8.1.5.9 is the
 previous published prerelease.
 
-Beta 8.1.5.9 completes the unified Net Bridge maintenance work for DMR, YSF,
-P25, NXDN, and M17; keeps the selectable bridge free of a fixed DMR talkgroup;
-stabilizes bridge-card ordering and dashboard polling; adds browser-managed
-TGIF security and YSF reflector-list setup; repairs stale Node Messages and
-Favorites navigation; and cleans up desktop and mobile Settings layouts.
+Beta 8.1.5.10 prevents a disconnected DMR Net Bridge from inheriting a false
+Relay state from the permanent node 1999 AllStar transport and makes its
+Connect/Disconnect controls follow the actual digital destination. It also
+keeps the private transport connectable when an adjacent AllStar network
+advertises another node with the same private number, and restores DNS for
+Docker-managed TGIF sidecars sharing Asterisk's network namespace. It retains
+the unified Net Bridge, security, automation, and Settings work from Beta
+8.1.5.9.
 
 Beta 8.1.5.7 fixes native installation on nodes whose web server uses a
 nonstandard port, prevents a harmless unloaded DMR worker from rolling back a
 Net Bridge mode switch, remembers the selected Node Control action and Permanent
 option, and corrects Favorite-description and bridge-form display issues.
-Beta 8.1 is reserved for maintenance and regressions from the Beta 7.5-to-8.1
-transition. D-Star bridge work is deferred to Beta 8.2.
-
 Beta 8.1.5.6 fixes native browser updates, validates the exact packaged archive,
 lets operators dismiss the current update reminder until the next release, and
 extends stale-tab cache protection to layered Docker installs.

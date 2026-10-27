@@ -198,10 +198,17 @@ def prepare_runtime_source(source: Path, destination: Path) -> None:
         if transport not in text or false_edge not in text:
             raise InstallError("unsupported Zello USRP runtime; relay debounce cannot be applied safely")
         text = text.replace(transport, replacement, 1).replace(false_edge, debounced_edge, 1)
-        usrp.write_text(text)
+    startup_anchor = "        self._zello_ptt = zello_ptt"
+    startup_reset = startup_anchor + "\n        _write_relay_state(False)"
+    if startup_reset not in text:
+        if text.count(startup_anchor) != 1:
+            raise InstallError("unsupported Zello USRP runtime; relay startup reset cannot be applied safely")
+        text = text.replace(startup_anchor, startup_reset, 1)
+    usrp.write_text(text)
     if (marker not in text
             or "call_later(" not in text
-            or "self._usrp_off_handle.cancel()" not in text):
+            or "self._usrp_off_handle.cancel()" not in text
+            or startup_reset not in text):
         raise InstallError("Zello relay debounce validation failed")
 
 

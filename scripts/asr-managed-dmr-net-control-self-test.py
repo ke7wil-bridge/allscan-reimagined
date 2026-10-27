@@ -44,7 +44,7 @@ class FakeRunner:
             return subprocess.CompletedProcess(
                 argv, 0, f"RPT channels for node 1999\nrxchannel : {self.channel}\n", ""
             )
-        if " ilink 3 1999" in command:
+        if command == "rpt cmd 1999 ilink 3 641890":
             if self.fail_link:
                 return subprocess.CompletedProcess(argv, 1, "", "link failed")
             self.linked = True
@@ -81,6 +81,7 @@ def main() -> None:
                 "cardType": "dmr_net", "backendMode": "managed",
                 "managedNetControl": True,
                 "managedTargetFile": "/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/tgif-run/net-target",
+                "dmrId": "3224939", "dmrNetworkId": "322493904",
                 "setupPorts": {"usrp_rx": 52000, "usrp_tx": 52001},
             }],
         }
@@ -96,21 +97,69 @@ def main() -> None:
         loaded, bridge = control.bridge_config("dmr_tgif_net", config_path)
         assert control.target_path(bridge, root) == target
         original_root = control.ROOT
+        original_set = control.set_static_membership
+        original_remove = control.remove_static_membership
+        original_open = control.STATIC_OPENER.open
         control.ROOT = root
+        memberships: set[int] = set()
+        control.set_static_membership = lambda bridge, token, tg: memberships.add(tg)
+        control.remove_static_membership = lambda bridge, token, tg: memberships.discard(tg)
         try:
             runner = FakeRunner()
             control.write_target(target, 67498)
             status = control.status_payload(loaded, bridge, target, runner)
-            assert status["digitalLinked"] is True
+            assert status["digitalLinked"] is False
+            assert status["staticControlConfigured"] is False
             assert status["allstarLinked"] is False
             assert status["linked"] is False
 
+            token = control.static_token_path(bridge)
+            control.write_static_token(token, "test-static-token-123456789")
+            assert token.stat().st_mode & 0o777 == 0o600
+
+            class Response:
+                def __init__(self, payload: dict) -> None:
+                    self.payload = payload
+                def __enter__(self): return self
+                def __exit__(self, *unused): return False
+                def read(self, unused: int) -> bytes: return json.dumps(self.payload).encode()
+
+            requests = []
+            replies = iter([
+                {"ok": True, "device": 322493904, "enabled": True,
+                 "supports_ts2": True, "memberships": []},
+                {"ok": True, "device": 322493904, "changed": True,
+                 "runtime_seen": True, "memberships": [{"slot": 2, "talkgroup": 67498}]},
+                {"ok": True, "device": 322493904, "enabled": True,
+                 "supports_ts2": True, "memberships": [{"slot": 2, "talkgroup": 67498}]},
+            ])
+            def fake_urlopen(request, timeout=0):
+                requests.append(request)
+                assert timeout == 12
+                return Response(next(replies))
+            control.STATIC_OPENER.open = fake_urlopen
+            original_set(bridge, token, 67498)
+            assert [request.get_method() for request in requests] == ["GET", "POST", "GET"]
+            assert all(request.get_header("Authorization") == "Bearer test-static-token-123456789"
+                       for request in requests)
+            assert json.loads(requests[1].data) == {"slot": 2, "talkgroup": 67498}
+            control.STATIC_OPENER.open = original_open
+
+            status = control.status_payload(loaded, bridge, target, runner)
+            assert status["digitalLinked"] is False
+            assert status["staticControlConfigured"] is True
+            assert status["staticMembershipConfirmed"] is False
+
             connected = control.connect(loaded, bridge, target, 67498, runner)
             assert connected["linked"] is True and runner.linked is True
-            assert any("ilink 3 1999" in command[-1] for command in runner.commands)
+            assert connected["staticMembershipConfirmed"] is True
+            assert memberships == {67498}
+            assert any(command[-1] == "rpt cmd 1999 ilink 3 641890"
+                       for command in runner.commands)
 
             disconnected = control.disconnect(loaded, bridge, target, runner)
             assert disconnected["linked"] is False and runner.linked is False
+            assert memberships == set()
             assert not target.exists()
             assert any("ilink 11 1999" in command[-1] for command in runner.commands)
 
@@ -127,6 +176,9 @@ def main() -> None:
             )
         finally:
             control.ROOT = original_root
+            control.set_static_membership = original_set
+            control.remove_static_membership = original_remove
+            control.STATIC_OPENER.open = original_open
     print("managed DMR Net Bridge control self-test: PASS")
 
 

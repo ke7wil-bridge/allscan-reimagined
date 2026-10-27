@@ -67,7 +67,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.9'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.10'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -198,9 +198,10 @@ export type BridgeCardView = {
 }
 
 /**
- * Keep the five node-1999 mode records in one stable dashboard slot. Legacy
- * configurations list those records around standard bridges, so changing the
- * active mode must not move the one visible Net Bridge card through the grid.
+ * Return dashboard bridge cards in the configured order while treating the
+ * five node-1999 mode records as one movable Net Bridge. Legacy configurations
+ * predate a movable unified group, so standard cards lead until Settings saves
+ * an explicit v2 order. In v2, the group is anchored at its final mode record.
  */
 export function orderedVisibleBridgeCards(
   bridges: RuntimeBridgeConfig[],
@@ -221,7 +222,8 @@ export function orderedVisibleBridgeCards(
     ? requestedMode
     : NET_BRIDGE_MODES.find((mode) => availableModes.has(mode)) || ''
   const selectedNetCard = cards.find((card) =>
-    isNetMode(card) && normalizedBridgeMode(card.mode, card.id) === selectedMode,
+    isNetMode(card)
+      && normalizedBridgeMode(card.mode, card.id) === selectedMode,
   )
   const hiddenStandardIds = new Set(bridges
     .filter((bridge) => bridge.urfReflector === true && bridge.cardType === 'standard')
@@ -230,16 +232,19 @@ export function orderedVisibleBridgeCards(
   const included = new Set<string>()
 
   bridges.forEach((bridge, index) => {
-    if (isNetMode(bridge)) {
-      if (index === netSlot && bridgeOrderVersion >= 2 && selectedNetCard && !included.has(selectedNetCard.id)) {
-        ordered.push(selectedNetCard)
-        included.add(selectedNetCard.id)
+    const netMode = isNetMode(bridge)
+    if (netMode) {
+      if (index === netSlot && selectedNetCard && !included.has(selectedNetCard.id)) {
+        if (bridgeOrderVersion >= 2) {
+          ordered.push(selectedNetCard)
+          included.add(selectedNetCard.id)
+        }
       }
       return
     }
     if (bridge.urfReflector === true && bridge.cardType === 'standard') return
     const card = cardsById.get(bridge.id)
-    if (card?.cardType === 'standard' && !included.has(card.id)) {
+    if (card && card.cardType === 'standard' && !included.has(card.id)) {
       ordered.push(card)
       included.add(card.id)
     }

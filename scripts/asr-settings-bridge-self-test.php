@@ -60,7 +60,7 @@ check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"
 $savedPost = $_POST;
 $_POST = [
 	'setupNetModes' => ['dmr','ysf'], 'setupCallsign' => 'KE7WIL', 'setupDigitalId' => '3224939',
-	'setupMainNode' => '641890', 'setupNetDmrDestination' => '86753', 'setupTgifAuthMode' => 'legacy',
+	'setupMainNode' => '641890', 'setupNetDmrDestination' => '86753', 'setupTgifAuthMode' => 'secured',
 	'setupNetYsfDestination' => '64189', 'setupNetYsfName' => 'US-KE7WIL-YSF',
 	'setupNetYsfHost' => '127.0.0.1', 'setupNetYsfPort' => '42000',
 ];
@@ -82,8 +82,14 @@ ob_start();
 asrSettingsUnifiedNetBridgePanel($unified, 'dmr');
 $unifiedHtml = (string)ob_get_clean();
 check(substr_count($unifiedHtml, 'asr-unified-net-bridge-settings') === 1
-	&& substr_count($unifiedHtml, 'class="asr-net-mode-settings"') === 5,
+	&& substr_count($unifiedHtml, 'class="asr-net-mode-settings"') === 5
+	&& substr_count($unifiedHtml, 'asr-bridge-drag-handle') === 1
+	&& !str_contains($unifiedHtml, 'asr-bridge-delete'),
 	'Existing unified configuration did not render as one Settings bridge with five modes.');
+check(str_contains($settingsSource, "function orderRows()")
+	&& str_contains($settingsSource, "closest('.asr-bridge-order-item')")
+	&& str_contains($settingsSource, '$lastNetBridgeIndex'),
+	'Unified Net Bridge ordering is not wired into the shared drag controls.');
 
 function expectFailure(callable $operation, string $needle): void {
 	try {
@@ -124,6 +130,31 @@ foreach(['dmr', 'ysf', 'zello'] as $mode) {
 	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
 	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");
 }
+$existingP25 = [[
+	'id'=>'p25_net', 'mode'=>'p25', 'node'=>'1999', 'cardType'=>'p25_net',
+	'backendMode'=>'managed', 'digitalMode'=>'p25', 'bridgeRole'=>'net',
+	'instance'=>'p25_net', 'gatewayConfig'=>'/opt/P25Gateway_p25_net/P25Gateway.ini',
+	'gatewayService'=>'p25gateway-p25_net.service', 'mmdvmService'=>'mmdvm-bridge-p25_net.service',
+	'analogBridgeService'=>'analog-bridge-p25_net.service', 'mqttHost'=>'127.0.0.1',
+	'mqttPort'=>39971, 'mqttName'=>'p25_p25_net', 'mmdvmMqttName'=>'mmdvm_p25_p25_net',
+	'bridgePermission'=>'self_owned', 'fixedDestination'=>'64189',
+	'approvedDestinations'=>['64189'], 'allowTune'=>true,
+	'setupPorts'=>['mqtt'=>39971, 'usrp_rx'=>52000, 'usrp_tx'=>52001],
+]];
+$savedP25 = postedBridge([
+	'bridgeId'=>['p25_net'], 'bridgeMode'=>['p25'], 'bridgeNode'=>['1999'],
+	'bridgeCardType'=>['p25_net'], 'bridgeBackendMode'=>['managed'],
+	'bridgePermission'=>['self_owned'], 'bridgeInstance'=>['p25_net'],
+	'bridgeGatewayConfig'=>['/opt/P25Gateway_p25_net/P25Gateway.ini'],
+	'bridgeGatewayService'=>['p25gateway-p25_net.service'],
+	'bridgeDigitalMmdvmService'=>['mmdvm-bridge-p25_net.service'],
+	'bridgeDigitalAnalogService'=>['analog-bridge-p25_net.service'],
+	'bridgeMqttName'=>['p25_p25_net'], 'bridgeMmdvmMqttName'=>['mmdvm_p25_p25_net'],
+	'bridgeFixedDestination'=>['64189'], 'bridgeApprovedDestinations'=>['64189'],
+], $existingP25);
+check(($savedP25['mqttPort'] ?? null) === 39971
+	&& ($savedP25['setupPorts']['mqtt'] ?? null) === 39971,
+	'P25 Settings save replaced the provisioned MQTT port with the legacy default.');
 check(asrSettingsDefaultDetailTitle('zello') === 'Recent Talkers', 'Zello detail default is not mode-aware.');
 check(asrSettingsDefaultDetailTitle('p25') === 'Linked Clients', 'P25 detail default is not mode-aware.');
 check(asrSettingsClientPayloadHasSupportedShape([]), 'An authoritative empty client list was rejected.');
@@ -135,6 +166,9 @@ check($filterError === '', 'Valid custom station filters reported an error.');
 $filterError = '';
 check(asrSettingsCleanFilteredStations('BAD*', $filterError) === [] && $filterError !== '', 'Invalid custom station filter was accepted.');
 check(asrSettingsDefaultConfig()['filterServiceStations'] === true, 'Built-in station filtering is not enabled by default.');
+
+check(str_contains($settingsSource, '$next[\'bridgeOrderVersion\'] = 2;'), 'Bridge saves do not mark the explicit unified order schema.');
+check(str_contains($settingsSource, 'if($bridgeOrderVersion < 2)'), 'Legacy bridge ordering does not migrate standard cards ahead of the unified group.');
 
 $aggregateUrf = [
 	'bridges' => [[
@@ -361,6 +395,7 @@ $m17 = postedBridge([
 	'bridgeM17Host' => ['127.0.0.1'], 'bridgeM17Port' => ['17000'], 'bridgeM17Module' => ['A'],
 ]);
 check($m17['m17AudioQualified'] === false && $m17['m17BindPort'] > 0, 'M17 qualification remained editable or ports were not assigned.');
+check(($m17['m17BindAddress'] ?? '') === '0.0.0.0', 'M17 network socket cannot reach external reflectors.');
 
 $m17Net = postedBridge([
 	'bridgeMode' => ['m17'], 'bridgeCardType' => ['net'], 'bridgePermission' => ['approved'],
@@ -555,6 +590,11 @@ check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helpe
 check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN helper actions are unavailable.');
 check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');
 check(strpos($settingsSource, "'dmr-plan', 'dmr-install'") !== false, 'DMR helper actions are unavailable.');
+check(strpos($settingsSource, "'dmr-security-update'") !== false
+	&& strpos($settingsSource, 'data-dmr-security-maintenance') !== false
+	&& strpos($settingsSource, 'Save and verify DMR security') !== false
+	&& strpos($settingsSource, 'data-dmr-hotspot-key') !== false,
+	'Installed DMR Net Bridge credentials cannot be maintained through Settings.');
 check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
 check(stripos($settingsSource, 'dstar') === false, 'D-Star remains exposed by Settings.');
 check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');

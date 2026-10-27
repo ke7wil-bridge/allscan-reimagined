@@ -23,6 +23,7 @@ COMMANDS = frozenset({
     "m17-plan", "m17-install", "p25-plan", "p25-install",
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
     "dmr-plan", "dmr-install",
+    "dmr-security-update",
     "net-bridge-plan", "net-bridge-install",
 })
 PROGRAMS = {
@@ -44,7 +45,7 @@ class BrokerError(RuntimeError):
 
 def child_environment(profile_path: Path, profile) -> dict[str, str]:
     """Return the complete, non-inherited environment for privileged helpers."""
-    return {
+    environment = {
         "PATH": f"{HERE / 'container-host-bin'}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
@@ -58,6 +59,13 @@ def child_environment(profile_path: Path, profile) -> dict[str, str]:
         "ASR_URF_DOCKER_NETWORK_MODE": f"container:{profile.asterisk_container}",
         "ASR_URF_DOCKER_HOST_BASE": str(profile.runtime_host_root),
     }
+    # Containers which share Asterisk's network namespace cannot use Docker's
+    # per-container 127.0.0.11 resolver.  systemd-resolved's uplink file lists
+    # the actual DNS servers and is safe to bind read-only into those sidecars.
+    resolver = Path("/run/systemd/resolve/resolv.conf")
+    if resolver.is_file():
+        environment["ASR_URF_DOCKER_RESOLV_CONF"] = str(resolver)
+    return environment
 
 
 def load_backend():

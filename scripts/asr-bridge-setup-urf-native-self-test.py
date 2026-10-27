@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import stat
 import sys
 import tempfile
@@ -113,6 +114,18 @@ def main() -> None:
         assert outputs[secret][1] == 0o640
         assert all(b"never-log-this-secret" not in data
                    for path, (data, _mode) in outputs.items() if path != secret)
+        net_settings = planner.UrfSettings(
+            "dmr_tgif_net", "KE7WIL", 3224939, 67498, "URFWIL",
+            "DMR Net Bridge", 1999, "net")
+        net_plan = planner.plan(root, net_settings)
+        net_outputs = installer.file_spec(
+            root, net_plan, "never-log-this-secret", "static-token-1234567890")
+        static_secret = net_plan["resources"]["tgifStaticToken"]
+        assert net_outputs[static_secret] == (b"static-token-1234567890\n", 0o600)
+        assert net_plan["resources"]["tgifStaticToken"] == (
+            "/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/secrets/tgif-static-token")
+        rejected(installer.file_spec, root, net_plan, "never-log-this-secret", "short",
+                 contains="Static TG API token")
         units = {path: data.decode() for path, (data, _mode) in outputs.items()
                  if path.startswith("/etc/systemd/system/")}
         assert len(units) == 4
@@ -173,10 +186,15 @@ def main() -> None:
             "urf": "allscan-reimagined/urf:managed",
             "tcd": "allscan-reimagined/urf-tcd:managed",
         }
-        container_outputs = installer.file_spec(root, container_plan, "container-secret")
+        with mock.patch.dict(os.environ, {
+            "ASR_URF_DOCKER_NETWORK_MODE": "container:allstarlink3",
+            "ASR_URF_DOCKER_RESOLV_CONF": "/run/systemd/resolve/resolv.conf",
+        }):
+            container_outputs = installer.file_spec(root, container_plan, "container-secret")
         compose = container_outputs[plan["resources"]["compose"]][0].decode()
         wrapper = container_outputs[installer.unit_path(settings.bridge_id)][0].decode()
         assert "docker compose" in wrapper and "image: allscan-reimagined/urf:managed" in compose
+        assert compose.count("/run/systemd/resolve/resolv.conf:/etc/resolv.conf:ro") == 3
         assert container_outputs[secret][1] == 0o600
         assert all(b"container-secret" not in data
                    for path, (data, _mode) in container_outputs.items() if path != secret)

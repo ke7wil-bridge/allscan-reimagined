@@ -99,6 +99,15 @@ def net_bridges(config: dict) -> dict[str, dict]:
     return result
 
 
+def validate_mode_preflight(mode: str, bridge: dict) -> None:
+    """Reject permanent configuration failures before disturbing the live mode."""
+    if mode == "m17" and bridge.get("m17AudioQualified") is not True:
+        raise ModeError(
+            "M17 audio is not qualified on this node. The current Net Bridge "
+            "mode was left unchanged."
+        )
+
+
 def service_units(mode: str, bridge: dict) -> list[str]:
     bridge_id = re.escape(str(bridge["id"]))
     if mode == "m17":
@@ -234,7 +243,7 @@ def disconnect_backend(mode: str, bridge: dict, profile, runner: Runner = run) -
         ],
         "ysf": [
             "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
-            "--disconnect", bridge_id, "--user", user,
+            "--disconnect", bridge_id, "--user", user, "--allow-unconfirmed",
         ],
         "p25": [
             "/usr/local/sbin/allscan-reimagined-p25-bridge-control",
@@ -448,13 +457,13 @@ def parse_lstats_links(output: str) -> set[tuple[str, str]]:
 def transport_linked(main_node: str, runner: Runner = run) -> bool:
     result = runner([ASTERISK, "-rx", f"rpt lstats {main_node}"], False)
     checked(result, "reading permanent Net Bridge link state")
-    return (str(NODE), "OUT") in parse_lstats_links(result.stdout)
+    return any(node == str(NODE) for node, _direction in parse_lstats_links(result.stdout))
 
 
 def ensure_transport_link(main_node: str, runner: Runner = run) -> None:
     if not transport_linked(main_node, runner):
         checked(
-            runner([ASTERISK, "-rx", f"rpt cmd {main_node} ilink 3 {NODE}"], False),
+            runner([ASTERISK, "-rx", f"rpt cmd {NODE} ilink 3 {main_node}"], False),
             "restoring permanent Net Bridge link",
         )
         for attempt in range(40):
@@ -525,6 +534,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     bridges = net_bridges(config)
     if mode not in bridges:
         raise ModeError(f"Net Bridge mode {mode} is not provisioned")
+    validate_mode_preflight(mode, bridges[mode])
     for candidate, bridge in bridges.items():
         runtime_argv(candidate, bridge, "status")
         selected_ports(candidate, bridge)
@@ -544,6 +554,9 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     staged_config = json.dumps(updated, sort_keys=True, indent=2) + "\n"
     try:
         prepare_backend(mode, runner)
+        # Settings writes the persistent container volume. Publish that exact
+        # state before a P25/NXDN teardown reads its protected host snapshot.
+        refresh_watch_snapshots(profile)
         old_node = str(bridges[old_mode].get("node", NODE)) if old_mode else str(NODE)
         if old_mode:
             disconnect_backend(old_mode, bridges[old_mode], profile, runner)

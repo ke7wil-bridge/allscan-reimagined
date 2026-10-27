@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import pwd
 import re
 import shutil
 import stat
@@ -120,7 +121,8 @@ def file_spec(plan: dict, stage: Path, credentials: dict | None = None) -> dict[
                 or any(ch in password_hash for ch in "\r\n\0")):
             raise InstallError("a valid broker password hash is required")
         prefix = f"/etc/mosquitto/asr-{identity}"
-        # Production installation assigns these 0640 files to root:mosquitto.
+        # Mosquitto requires its password and ACL files to be owned by the
+        # daemon account; the listener include remains root-owned.
         outputs[f"{prefix}.passwords"] = f"{user}:{password_hash}\n".encode(), 0o640
         outputs[f"{prefix}.acl"] = (
             f"user {user}\ntopic readwrite {mode}_{identity}/#\n"
@@ -416,19 +418,23 @@ def install(root: Path, settings, stage: Path, credentials: dict | None = None,
         broker_files = [path for path in outputs if path.startswith("/etc/mosquitto/asr-")]
         if root == Path("/") and broker_files:
             for logical in broker_files:
-                shutil.chown(rooted(root, logical), user="root", group="mosquitto")
+                owner = "mosquitto" if logical.endswith((".passwords", ".acl")) else "root"
+                shutil.chown(rooted(root, logical), user=owner, group="mosquitto")
         backend_profile = load("asr_backend_digital_owner", "asr-provisioning-backend.py").load_profile()
         service_config = plan["resources"]["gateway"]
         if root == Path("/") and backend_profile is not None and plan["bridgeType"] != "ysf":
             shutil.chown(rooted(root, service_config), user="root", group="asr-bridge")
         broker_gid = grp.getgrnam("mosquitto").gr_gid if root == Path("/") and broker_files else None
+        broker_uid = pwd.getpwnam("mosquitto").pw_uid if broker_gid is not None else None
         for logical, (data, mode) in outputs.items():
             target = rooted(root, logical)
             info = target.stat()
             if target.read_bytes() != data or stat.S_IMODE(info.st_mode) != mode:
                 raise InstallError(f"verification failed: {logical}")
-            if broker_gid is not None and logical in broker_files and (info.st_uid != 0 or info.st_gid != broker_gid):
-                raise InstallError(f"broker file ownership verification failed: {logical}")
+            if broker_gid is not None and logical in broker_files:
+                expected_uid = broker_uid if logical.endswith((".passwords", ".acl")) else 0
+                if info.st_uid != expected_uid or info.st_gid != broker_gid:
+                    raise InstallError(f"broker file ownership verification failed: {logical}")
             if (backend_profile is not None and logical == service_config
                     and plan["bridgeType"] != "ysf"
                     and (info.st_uid != 0 or info.st_gid != grp.getgrnam("asr-bridge").gr_gid)):

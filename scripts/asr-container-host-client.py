@@ -12,6 +12,7 @@ COMMANDS = {
     "m17-plan", "m17-install", "p25-plan", "p25-install",
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
     "dmr-plan", "dmr-install",
+    "dmr-security-update",
 }
 MAX_REQUEST = 256 * 1024
 MAX_RESPONSE = 1024 * 1024

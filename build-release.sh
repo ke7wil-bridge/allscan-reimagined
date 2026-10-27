@@ -212,7 +212,7 @@ install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scrip
 install -m 755 scripts/asr-reapply-apache-self-test.py "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
 for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
@@ -281,6 +281,32 @@ for name in set(re.findall(r'\$RELEASE_(?:STAGE|DIR)/scripts/([A-Za-z0-9_.-]+)',
     if not (stage / "payload/scripts" / name).is_file():
         raise SystemExit(f"Installer references a missing packaged script: {name}")
 PY
+python3 - "$STAGE/payload/scripts" <<'PY'
+import ast
+from pathlib import Path
+import sys
+
+scripts = Path(sys.argv[1])
+installer_path = scripts / "asr-container-host-install.py"
+tree = ast.parse(installer_path.read_text(encoding="utf-8"), filename=str(installer_path))
+required_groups = {"HOST_FILES", "CONTROL_FILES", "SUPPORT_FILES"}
+groups = {}
+for node in tree.body:
+    if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+        continue
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    value = node.value
+    for target in targets:
+        if isinstance(target, ast.Name) and target.id in required_groups:
+            groups[target.id] = ast.literal_eval(value)
+
+missing_groups = sorted(required_groups - groups.keys())
+if missing_groups:
+    raise SystemExit(f"Container host installer file groups are missing: {', '.join(missing_groups)}")
+missing_files = sorted({name for names in groups.values() for name in names if not (scripts / name).is_file()})
+if missing_files:
+    raise SystemExit(f"Container host installer references missing packaged scripts: {', '.join(missing_files)}")
+PY
 install -m 644 "$RELEASE_NOTES" "$STAGE/release-notes/v${VERSION}.md"
 
 if command -v php >/dev/null 2>&1; then
@@ -334,13 +360,39 @@ fi
 
 # Validate the exact packaged layout after compression. Source-tree tests cannot
 # catch path assumptions that differ between the repository and release payload.
+VERIFY_DIR=$(mktemp -d "$OUT/.verify-package.XXXXXX")
+trap 'rm -rf "$VERIFY_DIR"' EXIT
+tar -xzf "$PACKAGE" -C "$VERIFY_DIR"
+python3 - "$VERIFY_DIR/allscan-reimagined-$VERSION/payload/scripts" <<'PY'
+import ast
+from pathlib import Path
+import sys
+
+scripts = Path(sys.argv[1])
+installer_path = scripts / "asr-container-host-install.py"
+tree = ast.parse(installer_path.read_text(encoding="utf-8"), filename=str(installer_path))
+required_groups = {"HOST_FILES", "CONTROL_FILES", "SUPPORT_FILES"}
+groups = {}
+for node in tree.body:
+    if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+        continue
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    value = node.value
+    for target in targets:
+        if isinstance(target, ast.Name) and target.id in required_groups:
+            groups[target.id] = ast.literal_eval(value)
+
+missing_groups = sorted(required_groups - groups.keys())
+if missing_groups:
+    raise SystemExit(f"Container host installer file groups are missing: {', '.join(missing_groups)}")
+missing_files = sorted({name for names in groups.values() for name in names if not (scripts / name).is_file()})
+if missing_files:
+    raise SystemExit(f"Container host installer references missing packaged scripts: {', '.join(missing_files)}")
+PY
 if command -v php >/dev/null 2>&1; then
-  VERIFY_DIR=$(mktemp -d "$OUT/.verify-package.XXXXXX")
-  trap 'rm -rf "$VERIFY_DIR"' EXIT
-  tar -xzf "$PACKAGE" -C "$VERIFY_DIR"
   php "$VERIFY_DIR/allscan-reimagined-$VERSION/payload/scripts/asr-settings-bridge-self-test.php"
-  rm -rf "$VERIFY_DIR"
-  trap - EXIT
 fi
+rm -rf "$VERIFY_DIR"
+trap - EXIT
 echo "Created: $PACKAGE"
 cat "$PACKAGE.sha256"
