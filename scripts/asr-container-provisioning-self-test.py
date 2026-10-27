@@ -278,6 +278,7 @@ def test_broker(broker) -> None:
     assert environment["BUILDX_CONFIG"] == "/var/cache/allscan-reimagined/buildx"
     assert "/root" not in "\n".join(environment.values())
     valid_controls = (
+        ("asterisk-read", ["-rx", "rpt lstats 641890"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--disconnect"]),
         ("ysf", ["--connect", "qa_ysf", "12345", "--user", "N0CALL"]),
@@ -315,6 +316,7 @@ def test_broker(broker) -> None:
 
     layered_source = (HERE.parent / "docker/layered-reapply.sh").read_text(encoding="utf-8")
     assert "asr-container-host-control-client.py" in layered_source
+    assert "/usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py" in layered_source
     assert "allscan-reimagined-ysf-bridge-control" in layered_source
     reapply_source = (HERE / "asr-reapply.sh").read_text(encoding="utf-8")
     assert "allscan-reimagined-ysf-bridge-control --import-hosts" in reapply_source
@@ -334,6 +336,7 @@ def test_broker(broker) -> None:
     rejected(broker.read_request, io.BytesIO(b"{"))
     rejected(broker.read_request, io.BytesIO(b"x" * (broker.MAX_REQUEST + 1)))
     for program, args in (
+        ("asterisk-read", ["-rx", "rpt lstats 641890; id"]),
         ("managed-dmr", ["--bridge", "qa_dmr;id", "--status"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111;id"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "4000"]),

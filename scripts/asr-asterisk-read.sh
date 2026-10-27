@@ -4,6 +4,15 @@ set -eu
 cmd="${1:-}"
 arg="${2:-}"
 
+run_asterisk() {
+  if [ -x /usr/sbin/asterisk ]; then
+    exec /usr/sbin/asterisk "$@"
+  fi
+  client=/usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py
+  [ -x "$client" ] || { echo "Asterisk status transport is unavailable." >&2; exit 1; }
+  exec /usr/bin/python3 "$client" --asr-program asterisk-read "$@"
+}
+
 sanitize_echolink_nodes() {
   LC_ALL=C /usr/bin/awk '
     $1 ~ /^[0-9]+$/ && length($1) <= 6 \
@@ -39,7 +48,7 @@ case "$cmd" in
     case "$arg" in
       *[!0-9]*|'') echo "Invalid node." >&2; exit 2 ;;
     esac
-    exec /usr/sbin/asterisk -rx "rpt $cmd $arg"
+    run_asterisk -rx "rpt $cmd $arg"
     ;;
   file-status)
     [ "$#" -eq 2 ] || { echo "Unexpected argument count." >&2; exit 2; }

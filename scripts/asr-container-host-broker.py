@@ -27,6 +27,7 @@ COMMANDS = frozenset({
     "net-bridge-plan", "net-bridge-install",
 })
 PROGRAMS = {
+    "asterisk-read": str(HERE / "asr-container-asterisk.py"),
     "managed-dmr": "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
     "ysf": "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
     "p25": "/usr/local/sbin/allscan-reimagined-p25-bridge-control",
@@ -141,7 +142,10 @@ def validate_control(program: str, args: list[str]) -> None:
     user = lambda value: re.fullmatch(r"[A-Za-z0-9_.@+-]{1,80}", value) is not None
     number = lambda value, maximum: value.isdigit() and 1 <= int(value) <= maximum
     valid = False
-    if program == "managed-dmr":
+    if program == "asterisk-read":
+        valid = (len(args) == 2 and args[0] == "-rx"
+                 and re.fullmatch(r"rpt lstats [0-9]{3,10}", args[1]) is not None)
+    elif program == "managed-dmr":
         valid = ((len(args) == 4 and args[:1] == ["--bridge"] and bid(args[1])
                   and args[2] == "--connect" and number(args[3], 16777215) and args[3] != "4000")
                  or (len(args) == 3 and args[:1] == ["--bridge"] and bid(args[1])
