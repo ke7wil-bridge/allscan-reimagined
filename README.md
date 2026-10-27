@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.5.10 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.1.5.11 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -9,17 +9,14 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.10** and remains a prerelease. Beta 8.1.5.9 is the
+This archive is **Beta 8.1.5.11** and remains a prerelease. Beta 8.1.5.10 is the
 previous published prerelease.
 
-Beta 8.1.5.10 prevents a disconnected DMR Net Bridge from inheriting a false
-Relay state from the permanent node 1999 AllStar transport and makes its
-Connect/Disconnect controls follow the actual digital destination. It also
-keeps the private transport connectable when an adjacent AllStar network
-advertises another node with the same private number, and restores DNS for
-Docker-managed TGIF sidecars sharing Asterisk's network namespace. It retains
-the unified Net Bridge, security, automation, and Settings work from Beta
-8.1.5.9.
+Beta 8.1.5.11 restores Docker bridge diagnostics by routing the narrow,
+read-only Asterisk link query through the existing host broker. Settings can
+therefore confirm connected Standard bridges such as URFWIL and Zello without
+installing Asterisk inside the web container. It retains the Net Bridge status,
+security, automation, and Settings work from Beta 8.1.5.10.
 
 Beta 8.1.5.7 fixes native installation on nodes whose web server uses a
 nonstandard port, prevents a harmless unloaded DMR worker from rolling back a
