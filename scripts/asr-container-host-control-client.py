@@ -13,6 +13,7 @@ SOCKET = "/run/allscan-reimagined-host/bridge-setup.sock"
 CONTROL_TIMEOUT_SECONDS = 120
 MAX_CONTROL_STDIN = 2 * 1024 * 1024
 NAMES = {
+    "allscan-reimagined-asterisk-read": "asterisk-read",
     "allscan-reimagined-managed-dmr-net-control": "managed-dmr",
     "allscan-reimagined-ysf-bridge-control": "ysf",
     "allscan-reimagined-p25-bridge-control": "p25",
@@ -23,12 +24,16 @@ NAMES = {
 
 
 def main() -> int:
+    arguments = sys.argv[1:]
     program = NAMES.get(Path(sys.argv[0]).name)
+    if program is None and arguments[:2] == ["--asr-program", "asterisk-read"]:
+        program = "asterisk-read"
+        arguments = arguments[2:]
     if program is None:
         print('{"ok":false,"error":"unsupported host control"}', file=sys.stderr)
         return 2
-    request_object = {"schema": 1, "program": program, "args": sys.argv[1:]}
-    if program == "ysf" and len(sys.argv) == 3 and sys.argv[1] == "--import-hosts":
+    request_object = {"schema": 1, "program": program, "args": arguments}
+    if program == "ysf" and len(arguments) == 2 and arguments[0] == "--import-hosts":
         content = sys.stdin.buffer.read(MAX_CONTROL_STDIN + 1)
         if len(content) > MAX_CONTROL_STDIN:
             print('{"ok":false,"error":"YSFHosts.txt exceeds the 2 MB safety limit"}', file=sys.stderr)

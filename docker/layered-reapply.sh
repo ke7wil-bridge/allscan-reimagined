@@ -71,6 +71,8 @@ if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
     /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py
   install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-provisioning-detect.py" \
     /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py
+  install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-control-client.py" \
+    /usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py
   for control_helper in \
     allscan-reimagined-managed-dmr-net-control \
     allscan-reimagined-ysf-bridge-control \
@@ -83,7 +85,8 @@ if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
   done
 else
   rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py \
-    /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py
+    /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py \
+    /usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py
 fi
 
 install -d -o root -g "$WEB_GROUP" -m 1775 /run/allscan-reimagined
