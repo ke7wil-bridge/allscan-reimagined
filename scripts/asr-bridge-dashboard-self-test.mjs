@@ -27,14 +27,21 @@ try {
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
     bridgeTalkerFeed,
+    isNodeMessageAuthNotice,
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
+    orderedVisibleBridgeCards,
     provisionedNetBridgeModes,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
     summarizeConnectionTotal,
     talkerInfoParts,
   } = await server.ssrLoadModule('/src/lib/allscanLive.ts')
+
+  assert(isNodeMessageAuthNotice('Login required.'), 'plain login notice was not recognized')
+  assert(isNodeMessageAuthNotice('ERROR: Error: Insufficient user permission to retrieve data.'), 'ASTAPI permission notice was not recognized')
+  assert(isNodeMessageAuthNotice('Login required for TGIF client tracking.'), 'scoped login notice was not recognized')
+  assert(!isNodeMessageAuthNotice('Login with node-control permission required.'), 'an actionable role notice was mistaken for stale login state')
 
   const iaxTalker = talkerInfoParts('IaxRpt / Web Transceiver client\u00a0\u00a0Goodyear, AZ', 'KM7GHS')
   assert(iaxTalker.callsign === 'KM7GHS', 'IaxRpt transport label replaced the Web Transceiver callsign')
@@ -82,6 +89,32 @@ try {
   assert(
     provisionedNetBridgeModes([{ ...netBridges[0], node: '1004' }]).size === 0,
     'a bridge outside the unified node 1999 transport was treated as a unified mode',
+  )
+  const orderConfig = [
+    { id: 'dmr_net', node: '1999', cardType: 'dmr_net', mode: 'dmr' },
+    { id: 'p25_net', node: '1999', cardType: 'p25_net', mode: 'p25' },
+    { id: 'zello', node: '1002', cardType: 'standard', mode: 'zello' },
+    { id: 'ysf_net', node: '1999', cardType: 'ysf_net', mode: 'ysf' },
+    { id: 'nxdn_net', node: '1999', cardType: 'nxdn_net', mode: 'nxdn' },
+    { id: 'm17_net', node: '1999', cardType: 'm17_net', mode: 'm17' },
+  ]
+  const orderCards = orderConfig.map((bridge) => ({ ...bridge }))
+  for (const mode of ['dmr', 'ysf', 'p25', 'nxdn', 'm17']) {
+    const orderedIds = orderedVisibleBridgeCards(orderConfig, orderCards, mode).map((card) => card.id)
+    assert(
+      orderedIds.join(',') === `zello,${mode}_net`,
+      `${mode.toUpperCase()} mode moved the shared Net Bridge ahead of Zello`,
+    )
+  }
+  const explicitNetFirst = orderedVisibleBridgeCards(
+    [...orderConfig.filter((bridge) => bridge.id !== 'zello'), orderConfig[2]],
+    orderCards,
+    'ysf',
+    2,
+  ).map((card) => card.id)
+  assert(
+    explicitNetFirst.join(',') === 'ysf_net,zello',
+    'an explicit Net Bridge-before-Zello order was not preserved',
   )
   const sharedTransports = ['p25', 'ysf'].map((mode) => ({
     ...netBridges[0], id: `${mode}_net`, mode, node: '1999', cardType: `${mode}_net`,
@@ -251,6 +284,14 @@ try {
     'live bridge warning was hidden',
   )
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert(
+    (appSource.match(/isNodeMessageAuthNotice\(/g) || []).length >= 2,
+    'authentication notices can still be restored or persisted as live node messages',
+  )
+  assert(
+    appSource.includes("href={asrPath('cfg/')}") && appSource.includes('>Manage Favorites</a>'),
+    'the administrator menu no longer links to Favorites file upload and download management',
+  )
   const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
   const runtimeBootstrapSource = readFileSync(new URL('../src/RuntimeBootstrap.tsx', import.meta.url), 'utf8')
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
@@ -291,7 +332,7 @@ try {
   assert(dmrControls.includes('id={`net-mode-${card.id}`}'), 'unified Net Bridge mode selector is missing')
   assert(
     appSource.includes("['dmr','ysf','p25','nxdn','m17'].filter((mode) => availableNetBridgeModes.has(mode)).map")
-      && appSource.includes("card.mode.toLowerCase() === (selectedModeAvailable ? netBridgeMode : fallbackMode)"),
+      && appSource.includes('orderedVisibleBridgeCards(config.bridges, bridgeState.cards, netBridgeMode, config.bridgeOrderVersion).map'),
     'the dashboard does not constrain installed modes to one visible Net Bridge card',
   )
   assert(
@@ -499,6 +540,18 @@ try {
       && !settingsSource.includes('m17.example.net'),
     'Settings unified rendering/provisioning wiring is incomplete or retains the fake M17 host',
   )
+  const instructionsSource = readFileSync('compat/allscan-v1.02/asr-instructions/index.php', 'utf8')
+  assert(
+    settingsSource.includes('Secured (recommended; hotspot key)')
+      && settingsSource.includes('TGIF Hotspot Security Key')
+      && settingsSource.includes("document.querySelectorAll('.asr-net-mode-settings-row')")
+      && settingsSource.includes('Static TG API token')
+      && instructionsSource.includes('TGIF DMR Security — Standard and Net Bridges')
+      && instructionsSource.includes('Settings → Bridges → + Add Bridge')
+      && instructionsSource.includes('Legacy connection:')
+      && instructionsSource.includes('Static talkgroups:'),
+    'Settings and instructions must explain TGIF security for Standard and Net Bridges without terminal work',
+  )
 
   assert(
     appSource.includes('const relayActive = zelloFastRelayReadyRef.current')
@@ -539,6 +592,18 @@ try {
   assert(
     appSource.includes('Math.max(0, 100 - (performance.now() - started))'),
     'Zello fast relay polling must remain single-flight while preserving its cadence',
+  )
+  assert(
+    !appSource.includes('window.setInterval(tick, 100)')
+      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, 100 - \(performance\.now\(\) - started\)\)/g) || []).length === 4,
+    'fast bridge feeds must remain single-flight and back off while the page is hidden',
+  )
+  assert(
+    asrApiSource.includes("function asr_m17_runtime_status(string $bridgeId): array")
+      && asrApiSource.includes("'/run/allscan-reimagined-m17'")
+      && asrApiSource.includes('? asr_m17_runtime_status($id)')
+      && !asrApiSource.includes("? asr_next_mode_helper($mode, $id, ['status']"),
+    'M17 dashboard status must use the secure runtime state instead of a blocking helper process',
   )
   assert(
     appSource.includes('netBridgeModeError')

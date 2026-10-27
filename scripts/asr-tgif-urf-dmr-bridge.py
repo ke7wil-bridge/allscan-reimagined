@@ -186,6 +186,10 @@ def active_tgif_tg():
                 return value
         except (OSError, ValueError):
             pass
+        # A managed Net Bridge with no target file is intentionally idle.
+        # Falling back to the provisioning TG here silently reconnects the
+        # bridge after Disconnect and can create an audio loop.
+        return None
     return TGIF_TG
 
 
@@ -194,7 +198,8 @@ def inbound_matches_active_tg(packet):
     if not packet.startswith(b"DMRD"):
         return True
     destination = destination_id(packet)
-    return destination == active_tgif_tg() or (
+    target = active_tgif_tg()
+    return (target is not None and destination == target) or (
         len(packet) > 15 and bool(packet[15] & 0x40) and destination == DMR_ID
     )
 
@@ -202,8 +207,10 @@ def inbound_matches_active_tg(packet):
 def rewrite_for_tgif(packet):
     if not packet.startswith(b"DMRD") or len(packet) < 15:
         return packet
-    out = bytearray(packet)
     target = active_tgif_tg()
+    if target is None:
+        return None
+    out = bytearray(packet)
     out[5:8] = DMR_ID.to_bytes(3, "big")
     out[8:11] = target.to_bytes(3, "big")
     out[11:15] = network_id_bytes()
@@ -469,7 +476,9 @@ def main():
                 # Present a complete, authenticated DMR identity and the selected TGIF TG.
                 if tgif_authenticated:
                     try:
-                        tgif.send(rewrite_for_tgif(packet))
+                        rewritten = rewrite_for_tgif(packet)
+                        if rewritten is not None:
+                            tgif.send(rewritten)
                     except OSError as error:
                         close_tgif(tgif, error)
                         tgif = None
@@ -496,6 +505,8 @@ def self_test():
                 roster = json.load(handle)
             assert {row["dmrid"] for row in roster["urf_dmr"]} == {"1234567", "7654321"}
             globals()["TARGET_FILE"] = os.path.join(scratch, "net-target")
+            assert active_tgif_tg() is None
+            assert rewrite_for_tgif(bytes(packet)) is None
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("67498\n")
             assert active_tgif_tg() == 67498
@@ -510,7 +521,8 @@ def self_test():
             assert inbound_matches_active_tg(b"MSTPONG") is True
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("4000\n")
-            assert active_tgif_tg() == TGIF_TG
+            assert active_tgif_tg() is None
+            assert rewrite_for_tgif(bytes(packet)) is None
     finally:
         globals()["ROSTER_FILE"] = old_roster
         globals()["TARGET_FILE"] = old_target

@@ -280,6 +280,7 @@ def test_broker(broker) -> None:
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--disconnect"]),
         ("ysf", ["--connect", "qa_ysf", "12345", "--user", "N0CALL"]),
+        ("ysf", ["--import-hosts", "qa_ysf"]),
         ("p25", ["connect", "qa_p25", "10200", "--user", "N0CALL"]),
         ("nxdn", ["status", "qa_nxdn"]),
         ("m17", ["--bridge", "qa_m17", "--user", "N0CALL", "connect", "--reflector", "M17-M17", "--module", "C"]),
@@ -287,8 +288,15 @@ def test_broker(broker) -> None:
         ("net-mode", ["--mode", "dmr"]),
     )
     for program, args in valid_controls:
+        if program == "ysf" and args[0] == "--import-hosts":
+            continue
         result = request(broker, {"schema": 1, "program": program, "args": args})
         assert result["kind"] == "control"
+    imported = request(broker, {
+        "schema": 1, "program": "ysf", "args": ["--import-hosts", "qa_ysf"],
+        "stdinBase64": "MTIzNDU7VVMtVEVTVDtUZXN0O2V4YW1wbGUubmV0OzQyMDAwOzAwMDtcblxu",
+    })
+    assert imported["kind"] == "control" and imported["controlStdin"].startswith(b"12345;")
 
     installer_source = (HERE / "asr-container-host-install.py").read_text(encoding="utf-8")
     assert "--proc-root {profile.host_proc} --user {SERVICE_USER}" in installer_source
@@ -297,6 +305,19 @@ def test_broker(broker) -> None:
     assert 'request["program"] in {"p25", "nxdn"}' in broker_source
     assert '"--proc-root", str(profile.host_proc)' in broker_source
     assert 'environment["ASR_CONTAINER_WATCH_CONFIG"]' in broker_source
+    # YSF catalog uploads arrive as bytes. Keep subprocess in binary mode for
+    # that path, then normalize its output before building the JSON response.
+    assert "text_mode = isinstance(input_data, str)" in broker_source
+    assert "text=text_mode" in broker_source
+    assert 'result.stdout.decode("utf-8", "replace")' in broker_source
+    assert 'result.stderr.decode("utf-8", "replace")' in broker_source
+
+    layered_source = (HERE.parent / "docker/layered-reapply.sh").read_text(encoding="utf-8")
+    assert "asr-container-host-control-client.py" in layered_source
+    assert "allscan-reimagined-ysf-bridge-control" in layered_source
+    reapply_source = (HERE / "asr-reapply.sh").read_text(encoding="utf-8")
+    assert "allscan-reimagined-ysf-bridge-control --import-hosts" in reapply_source
+    assert "allscan-reimagined-ysf-bridge-control --catalog-status" in reapply_source
 
     malformed = [
         None, [], {"schema": 1},

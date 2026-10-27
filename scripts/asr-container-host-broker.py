@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import os
 import socket
@@ -14,8 +16,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
 HELPER = HERE / "asr-bridge-setup-helper.py"
-MAX_REQUEST = 256 * 1024
+MAX_REQUEST = 3 * 1024 * 1024
 MAX_RESPONSE = 1024 * 1024
+MAX_CONTROL_STDIN = 2 * 1024 * 1024
 COMMANDS = frozenset({
     "m17-plan", "m17-install", "p25-plan", "p25-install",
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
@@ -98,12 +101,26 @@ def read_request(stream=sys.stdin.buffer) -> dict:
         if not isinstance(value.get("payload"), dict):
             raise BrokerError("broker payload must be an object")
         value["kind"] = "setup"
-    elif set(value) == {"schema", "program", "args"}:
+    elif set(value) in ({"schema", "program", "args"},
+                        {"schema", "program", "args", "stdinBase64"}):
         if value.get("schema") != 1 or value.get("program") not in PROGRAMS:
             raise BrokerError("broker control program is not allowed")
         if not isinstance(value.get("args"), list) or not all(isinstance(item, str) for item in value["args"]):
             raise BrokerError("broker control arguments are invalid")
         validate_control(value["program"], value["args"])
+        encoded = value.get("stdinBase64")
+        expects_stdin = value["program"] == "ysf" and len(value["args"]) == 2 \
+            and value["args"][0] == "--import-hosts"
+        if (encoded is None) != (not expects_stdin) or (encoded is not None and not isinstance(encoded, str)):
+            raise BrokerError("broker control input is invalid")
+        if encoded is not None:
+            try:
+                control_stdin = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise BrokerError("broker control input is invalid") from exc
+            if not control_stdin or len(control_stdin) > MAX_CONTROL_STDIN:
+                raise BrokerError("broker control input exceeds size limit")
+            value["controlStdin"] = control_stdin
         value["kind"] = "control"
     else:
         raise BrokerError("broker request has an invalid shape")
@@ -126,7 +143,8 @@ def validate_control(program: str, args: list[str]) -> None:
                   and re.fullmatch(r"[0-9]{5}", args[2]) and args[3] == "--user" and user(args[4]))
                  or (len(args) == 4 and args[0] == "--disconnect" and bid(args[1])
                      and args[2] == "--user" and user(args[3]))
-                 or (len(args) == 2 and args[0] == "--catalog-status" and bid(args[1])))
+                 or (len(args) == 2 and args[0] in {"--catalog-status", "--import-hosts"}
+                     and bid(args[1])))
     elif program in {"p25", "nxdn"}:
         destination_ok = lambda value: (number(value, 65534) and int(value) >= 11
                                         and int(value) not in ({20, 9999, 10999} if program == "p25" else {20, 9999}))
@@ -184,18 +202,21 @@ def execute(request: dict, profile_path: Path = PROFILE) -> dict:
         argv = [str(netns), "--container", profile.asterisk_container,
                 "--proc-root", str(profile.host_proc), "--", *argv]
     input_data = (json.dumps(request["payload"], separators=(",", ":"))
-                  if request["kind"] == "setup" else None)
+                  if request["kind"] == "setup" else request.get("controlStdin"))
+    text_mode = isinstance(input_data, str)
     result = subprocess.run(
         argv, input=input_data,
-        capture_output=True, text=True, env=environment, check=False, timeout=1200,
+        capture_output=True, text=text_mode, env=environment, check=False, timeout=1200,
     )
-    if len(result.stdout) + len(result.stderr) > MAX_RESPONSE:
+    stdout = result.stdout if isinstance(result.stdout, str) else result.stdout.decode("utf-8", "replace")
+    stderr = result.stderr if isinstance(result.stderr, str) else result.stderr.decode("utf-8", "replace")
+    if len(stdout) + len(stderr) > MAX_RESPONSE:
         raise BrokerError("host helper response exceeds size limit")
     if (request["kind"] == "setup" and request["command"].endswith("-install")
             and result.returncode == 0):
         backend.refresh_watch_snapshots(profile)
     return {"schema": 1, "exitCode": result.returncode,
-            "stdout": result.stdout, "stderr": result.stderr}
+            "stdout": stdout, "stderr": stderr}
 
 
 def main() -> int:

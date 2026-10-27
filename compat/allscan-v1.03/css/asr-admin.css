@@ -587,6 +587,8 @@ body.asr-admin-page-settings-modern .asr-remove-urf-button {
 	body.asr-admin-page-settings-modern .asr-reimagined-submit:not(.asr-reimagined-submit-top) {
 		align-items:stretch;
 		flex-direction:column-reverse;
+		position:static;
+		bottom:auto;
 	}
 
 	body.asr-admin-page-settings-modern .asr-reimagined-submit input[type=submit] {
@@ -2436,6 +2438,19 @@ body.asr-admin-page-performance .asr-admin-header {
 	width:18px;
 	height:18px;
 	margin:0;
+}
+
+.asr-settings-check > span {
+	display:grid;
+	gap:2px;
+	min-width:0;
+}
+
+.asr-settings-check > span > small {
+	color:#c7d2d9;
+	font-size:12px;
+	font-weight:600;
+	line-height:1.35;
 }
 
 .asr-reimagined-submit {

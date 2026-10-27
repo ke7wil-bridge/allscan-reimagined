@@ -23,6 +23,7 @@ pageInit();
 		<a href="#appearance-access">Settings, Menus &amp; Themes</a>
 		<a href="#bridge-cards">Digital Bridge Status</a>
 		<a href="#bridge-setup">Bridge Setup Wizard</a>
+		<a href="#dmr-security">TGIF DMR Security</a>
 		<a href="#net-bridge">Unified Net Bridge</a>
 		<a href="#standard-bridges">Standard Digital Bridges</a>
 		<a href="#client-management">Clients, Kicks &amp; Bans</a>
@@ -34,7 +35,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.1.5.8 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.1.5.9 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -103,6 +104,21 @@ pageInit();
 			<li>ASR never adopts a pre-existing bridge resource merely because a path, unit name, node, or port matches. Ownership is recorded only when ASR creates a dedicated managed resource.</li>
 			<li>Use Bridge Diagnostics after saving to verify configuration, services, paths, and optional client sources without displaying credentials.</li>
 		</ul>
+	</section>
+
+	<section id="dmr-security" class="asr-instructions-section">
+		<h2>TGIF DMR Security — Standard and Net Bridges</h2>
+		<p>A TGIF Hotspot Security Key is the password used by the bridge itself when it connects to TGIF. It is <strong>not</strong> your TGIF website password, and it is <strong>not</strong> a Static Talkgroups API token. Secured connection is recommended and is required for secure-only talkgroups and TGIF static talkgroups.</p>
+		<ol class="asr-instructions-steps">
+			<li>Sign in at <strong>tgif.network</strong> with your callsign and TGIF website password.</li>
+			<li>Open your callsign menu, choose <strong>User Security</strong>, find the correct DMR ID, and use the copy button to copy its Hotspot Security Key.</li>
+			<li>In ASR, open <strong>Settings → Bridges → + Add Bridge</strong>. For a fixed bridge choose <strong>DMR → Standard Bridge → TGIF</strong>. For the selectable bridge choose <strong>Net Bridge</strong>, enable DMR, and use the <strong>DMR / TGIF Security</strong> box.</li>
+			<li>Choose <strong>Secured (recommended; hotspot key)</strong> and paste the copied key into <strong>TGIF Hotspot Security Key</strong>. Never enter the TGIF website password in this field.</li>
+			<li>If more than one hotspot or bridge uses the same DMR ID, give each one a different ESSID from 01 through 99. The same Hotspot Security Key is used with that DMR ID; the ESSID distinguishes the devices.</li>
+			<li>Select <strong>Check Setup</strong>, then <strong>Install Bridge</strong>. Reload the dashboard and verify that the bridge becomes ready, connects to the expected talkgroup, and passes a short inbound and outbound audio test.</li>
+		</ol>
+		<p class="asr-instructions-callout"><strong>Legacy connection:</strong> TGIF currently permits the shared legacy password for general compatibility, but legacy connections cannot use secure-only talkgroups or TGIF static talkgroups. Use it only when you deliberately need legacy compatibility.</p>
+		<p class="asr-instructions-callout"><strong>Static talkgroups:</strong> TGIF’s device-scoped Static TG API token is a separate credential. Do not paste that token into the Hotspot Security Key field.</p>
 	</section>
 
 	<section id="net-bridge" class="asr-instructions-section">

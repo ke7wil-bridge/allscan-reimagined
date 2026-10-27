@@ -30,8 +30,10 @@ import {
   fetchFavoriteStats,
   manageFavorite,
   fetchReleaseStatus,
+  isNodeMessageAuthNotice,
   normalizedBridgeMode,
   netBridgeTalkerDestinationLabel,
+  orderedVisibleBridgeCards,
   fetchUrfBlacklist,
   updateUrfBlacklist,
   kickUrfClient,
@@ -382,7 +384,7 @@ function readLiveNodeMessageCache() {
     }
     const age = Date.now() - Number(state.time || 0)
     const line = cleanNodeMessageLine(state.line || '')
-    if (isNodeMessageTransportNoise(line)) {
+    if (isNodeMessageTransportNoise(line) || isNodeMessageAuthNotice(line)) {
       window.localStorage.removeItem(NODE_MESSAGE_LIVE_CACHE_KEY)
       return ''
     }
@@ -397,7 +399,7 @@ function writeLiveNodeMessageCache(line: string) {
 
   const cleaned = cleanNodeMessageLine(line)
   if (!cleaned || /^No recent messages$/i.test(cleaned)) return
-  if (isNodeMessageTransportNoise(cleaned)) return
+  if (isNodeMessageTransportNoise(cleaned) || isNodeMessageAuthNotice(cleaned)) return
 
   try {
     window.localStorage.setItem(
@@ -1597,7 +1599,9 @@ function App({ config }: { config: RuntimeConfig }) {
     let previous = ''
     let requestSequence = 0
     let appliedSequence = 0
+    let timer: number | undefined
     const tick = async () => {
+      const started = performance.now()
       const sequence = ++requestSequence
       try {
         const cards = await fetchFastNextModeActivity()
@@ -1609,10 +1613,15 @@ function App({ config }: { config: RuntimeConfig }) {
         previous = fingerprint
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge and connection status remain the fallback */ }
+      finally {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+      }
     }
     void tick()
-    const timer = window.setInterval(tick, 100)
-    return () => { cancelled = true; window.clearInterval(timer) }
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
@@ -1620,7 +1629,9 @@ function App({ config }: { config: RuntimeConfig }) {
     let previous = ''
     let requestSequence = 0
     let appliedSequence = 0
+    let timer: number | undefined
     const tick = async () => {
+      const started = performance.now()
       const sequence = ++requestSequence
       try {
         const cards = await fetchFastYsfNetActivity()
@@ -1643,10 +1654,15 @@ function App({ config }: { config: RuntimeConfig }) {
         previous = fingerprint
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
+      finally {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+      }
     }
     void tick()
-    const timer = window.setInterval(tick, 100)
-    return () => { cancelled = true; window.clearInterval(timer) }
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
@@ -1686,7 +1702,9 @@ function App({ config }: { config: RuntimeConfig }) {
     let previous = ''
     let requestSequence = 0
     let appliedSequence = 0
+    let timer: number | undefined
     const tick = async () => {
+      const started = performance.now()
       const sequence = ++requestSequence
       try {
         const cards = await fetchFastStandardActivity()
@@ -1698,10 +1716,15 @@ function App({ config }: { config: RuntimeConfig }) {
         previous = fingerprint
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available if the fast feed fails */ }
+      finally {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+      }
     }
     void tick()
-    const timer = window.setInterval(tick, 100)
-    return () => { cancelled = true; window.clearInterval(timer) }
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
@@ -1709,7 +1732,9 @@ function App({ config }: { config: RuntimeConfig }) {
     let wasActive = false
     let requestSequence = 0
     let appliedSequence = 0
+    let timer: number | undefined
     const tick = async () => {
+      const started = performance.now()
       const sequence = ++requestSequence
       try {
         const fast = await fetchDmrFastSource()
@@ -1720,10 +1745,15 @@ function App({ config }: { config: RuntimeConfig }) {
         wasActive = fast.active
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
+      finally {
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+      }
     }
     void tick()
-    const timer = window.setInterval(tick, 100)
-    return () => { cancelled = true; window.clearInterval(timer) }
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
@@ -2602,10 +2632,17 @@ function App({ config }: { config: RuntimeConfig }) {
       }
       if (card.cardType === 'p25_net' || card.cardType === 'nxdn_net') {
         setBridgeDestinationInputs((current) => ({ ...current, [card.id]: '' }))
-        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config)))
         appendNodeMessage(card.cardType === 'p25_net'
           ? `${card.title} selected Talkgroup ${canonicalId}.`
           : `${card.title} selected ${canonicalId}.`)
+        // The controller response already confirms that the destination was
+        // selected and the AllStar transport was handled.  Do not keep the
+        // Connect button busy while a separate status refresh waits on every
+        // bridge backend; the regular single-flight poll will reconcile the
+        // card, and this bounded refresh merely makes that happen sooner.
+        void fetchBridgeCards(config, AbortSignal.timeout(BRIDGE_REFRESH_TIMEOUT_MS))
+          .then((next) => setBridgeState(applyBridgeConnectionOverrides(next)))
+          .catch(() => undefined)
         return
       }
       const canonical = await confirmBridgeControlState(
@@ -3208,6 +3245,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 <div className={`allscan-submenu allscan-submenu-admin${openSubmenu === 'admin' ? ' is-open' : ''}`}>
                   {authStatus.loggedIn ? <a role="menuitem" href={asrPath('asr-settings/?section=account')} onClick={() => setMenuOpen(false)}>My Account</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
+                  {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Manage Favorites</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
                   {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
@@ -3826,16 +3864,7 @@ function App({ config }: { config: RuntimeConfig }) {
             })()}
 
             <div className="allscan-bridge-grid">
-              {bridgeState.cards.filter((card) => {
-                const bridge = config.bridges.find((candidate) => candidate.id === card.id)
-                if (bridge?.urfReflector === true && bridge.cardType === 'standard') return false
-                if (card.cardType !== 'standard') {
-                  const selectedModeAvailable = availableNetBridgeModes.has(netBridgeMode)
-                  const fallbackMode = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].find((mode) => availableNetBridgeModes.has(mode)) || ''
-                  return card.mode.toLowerCase() === (selectedModeAvailable ? netBridgeMode : fallbackMode)
-                }
-                return true
-              }).map((card) => {
+              {orderedVisibleBridgeCards(config.bridges, bridgeState.cards, netBridgeMode, config.bridgeOrderVersion).map((card) => {
                 const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
                 const bridgeCapabilities = bridgeConfig?.adminCapabilities?.bridgeControl || []
                 const canConnect = bridgeCapabilities.includes('connect')

@@ -44,6 +44,7 @@ export type RuntimeConfig = {
   node: string
   callsign: string
   netBridgeMode: string
+  bridgeOrderVersion?: number
   storageWarning?: string
   phpSecurityWarning?: string
   headerTitle: string
@@ -66,7 +67,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.8'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.9'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -194,6 +195,64 @@ export type BridgeCardView = {
   activeStartEpoch: number
   recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
   recentRows: BridgeDetailItem[]
+}
+
+/**
+ * Keep the five node-1999 mode records in one stable dashboard slot. Legacy
+ * configurations list those records around standard bridges, so changing the
+ * active mode must not move the one visible Net Bridge card through the grid.
+ */
+export function orderedVisibleBridgeCards(
+  bridges: RuntimeBridgeConfig[],
+  cards: BridgeCardView[],
+  activeNetBridgeMode: string,
+  bridgeOrderVersion = 0,
+): BridgeCardView[] {
+  const cardsById = new Map(cards.map((card) => [card.id, card]))
+  const isNetMode = (bridge: Pick<RuntimeBridgeConfig, 'node' | 'cardType'>) =>
+    bridge.node === '1999' && NET_BRIDGE_MODES.some((mode) => bridge.cardType === `${mode}_net`)
+  const netIndexes = bridges
+    .map((bridge, index) => isNetMode(bridge) ? index : -1)
+    .filter((index) => index >= 0)
+  const netSlot = netIndexes.length ? netIndexes[netIndexes.length - 1] : -1
+  const availableModes = provisionedNetBridgeModes(bridges)
+  const requestedMode = normalizedBridgeMode(activeNetBridgeMode, '')
+  const selectedMode = availableModes.has(requestedMode)
+    ? requestedMode
+    : NET_BRIDGE_MODES.find((mode) => availableModes.has(mode)) || ''
+  const selectedNetCard = cards.find((card) =>
+    isNetMode(card) && normalizedBridgeMode(card.mode, card.id) === selectedMode,
+  )
+  const hiddenStandardIds = new Set(bridges
+    .filter((bridge) => bridge.urfReflector === true && bridge.cardType === 'standard')
+    .map((bridge) => bridge.id))
+  const ordered: BridgeCardView[] = []
+  const included = new Set<string>()
+
+  bridges.forEach((bridge, index) => {
+    if (isNetMode(bridge)) {
+      if (index === netSlot && bridgeOrderVersion >= 2 && selectedNetCard && !included.has(selectedNetCard.id)) {
+        ordered.push(selectedNetCard)
+        included.add(selectedNetCard.id)
+      }
+      return
+    }
+    if (bridge.urfReflector === true && bridge.cardType === 'standard') return
+    const card = cardsById.get(bridge.id)
+    if (card?.cardType === 'standard' && !included.has(card.id)) {
+      ordered.push(card)
+      included.add(card.id)
+    }
+  })
+
+  cards.forEach((card) => {
+    if (card.cardType === 'standard' && !hiddenStandardIds.has(card.id) && !included.has(card.id)) {
+      ordered.push(card)
+      included.add(card.id)
+    }
+  })
+  if (selectedNetCard && !included.has(selectedNetCard.id)) ordered.push(selectedNetCard)
+  return ordered
 }
 
 export type UrfClient = { callsign: string; mode: string; module: string; connected: string; lastHeard: string }
@@ -578,6 +637,16 @@ function htmlToMessageText(html: string) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .join('\n')
+}
+
+export function isNodeMessageAuthNotice(message: string) {
+  const normalized = String(message || '')
+    .replace(/\s+/g, ' ')
+    .replace(/^Node Messages\s+/i, '')
+    .replace(/^(?:error:\s*)+/i, '')
+    .trim()
+  return /^Login required(?:\.| for\b.*)?$/i.test(normalized)
+    || /^Insufficient user permission to retrieve data\.?$/i.test(normalized)
 }
 
 function toModeLabel(mode: string) {

@@ -263,6 +263,15 @@ def disconnect_backend(mode: str, bridge: dict, profile, runner: Runner = run) -
     checked(runner(command, False), f"disconnecting {mode.upper()} session")
 
 
+def prepare_backend(mode: str, runner: Runner = run) -> None:
+    """Apply mode-specific managed state before changing the live transport."""
+    if mode == "ysf":
+        checked(runner([
+            "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
+            "--sync-custom-hosts",
+        ], False), "applying YSF reflector catalog")
+
+
 def configured_ports(mode: str, bridge: dict) -> tuple[int, int]:
     try:
         if mode == "m17":
@@ -534,6 +543,7 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     updated["netBridgeMode"] = mode
     staged_config = json.dumps(updated, sort_keys=True, indent=2) + "\n"
     try:
+        prepare_backend(mode, runner)
         old_node = str(bridges[old_mode].get("node", NODE)) if old_mode else str(NODE)
         if old_mode:
             disconnect_backend(old_mode, bridges[old_mode], profile, runner)

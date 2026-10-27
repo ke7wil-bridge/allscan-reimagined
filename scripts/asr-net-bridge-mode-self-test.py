@@ -29,6 +29,7 @@ assert "os.environ[backend.PROFILE_ENV] = str(PROFILE)" in source
 assert "for attempt in range(20):" in source
 assert 'updated["netBridgeMode"] = mode' in source
 assert 'updated["netBridgeMode"] = old_mode' not in source
+assert '"--sync-custom-hosts"' in source
 assert 'subprocess.run(argv' in source and 'shell=True' not in source
 connector=(HERE/"asr-m17-usrp-connector.py").read_text()
 assert "self.control.saved_destination(self.bridge)" in connector
