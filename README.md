@@ -192,7 +192,7 @@ the browser. Browser-only dashboard preferences remain in the browser profile.
 
 ### Smaller-node performance
 
-The Access section includes **Low-Power Node Mode**. It reduces bridge and temperature refresh frequency, disables animated themes, uses adaptive Asterisk polling, and keeps transient status caches in RAM. The admin-only **Performance Stats** page shows load, temperature, memory, disk use, request activity, active viewers, and ASR timer state without reloading the page.
+The Access section includes **Low-Power Node Mode** for adaptive node-side Asterisk polling on resource-constrained hosts. Viewer performance is separate: **Menu → Theme → Reduce browser activity** stores a preference only in that browser, uses static animated-theme backgrounds, and slows that viewer's bridge and temperature refreshes. The admin-only **Performance Stats** page shows load, temperature, memory, disk use, request activity, active viewers, and ASR timer state without reloading the page.
 
 ## Accounts and Secrets
 

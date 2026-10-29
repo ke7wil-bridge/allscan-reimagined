@@ -3210,7 +3210,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="lowPowerMode" type="checkbox" value="1"<?php echo $lowPowerMode ? ' checked' : ''; ?>>
 			<span>Low-Power Node Mode</span>
 		</label>
-		<p class="asr-settings-inline-note">Reduces background work and disables animated themes for smaller nodes.</p>
+		<p class="asr-settings-inline-note">Reduces node-side polling on resource-constrained hosts. Viewer performance is controlled per browser under Menu → Theme.</p>
 	</section>
 	<?php endif; ?>
 
@@ -3264,7 +3264,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="lowPowerMode" type="checkbox" value="1"<?php echo $lowPowerMode ? ' checked' : ''; ?>>
 			<span>Low-Power Node Mode</span>
 		</label>
-		<p class="asr-settings-inline-note">Reduces background work and disables animated themes for smaller nodes.</p>
+		<p class="asr-settings-inline-note">Reduces node-side polling on resource-constrained hosts. Viewer performance is controlled per browser under Menu → Theme.</p>
 		<?php endif; ?>
 	</section>
 
