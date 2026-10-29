@@ -21,6 +21,7 @@ LOCK = GLOBAL_BAN_ROOT / ".asr-asl-bans.lock"
 GLOBAL = GLOBAL_BAN_ROOT / "urfd.blacklist"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
+ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"))
 DURATIONS = {"15m": 900, "1h": 3600, "1w": 604800, "30d": 2592000, "permanent": 0}
 NODE = re.compile(r"^[0-9]{3,10}$")
 CALL = re.compile(r"^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[LR])?$")
@@ -120,6 +121,40 @@ def global_calls():
         else:
             unsupported.append(raw)
     return result, unsupported
+
+
+def allstar_nodes_for_calls(calls):
+    wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
+    nodes = set()
+    for path in ASTDB_FILES:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            parts = line.split("|", 2)
+            if len(parts) < 2 or not NODE.fullmatch(parts[0]):
+                continue
+            call = re.sub(r"-(?:L|R)$", "", parts[1].strip().upper())
+            if call in wanted:
+                nodes.add(parts[0])
+        if nodes:
+            break
+    return nodes
+
+
+def echolink_calls_for_calls(ami, calls):
+    wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
+    result = set(wanted)
+    output = ami.command("echolink dbdump")
+    for line in output.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) < 2:
+            continue
+        call = parts[1].strip().upper()
+        if CALL.fullmatch(call) and re.sub(r"-(?:L|R)$", "", call) in wanted:
+            result.add(call)
+    return result
 
 
 class AMI:
@@ -290,12 +325,15 @@ def reconcile(data, ami, local):
         for row in expired:
             data["audit"].append({"action": "expire", "kind": row["kind"], "value": row["value"], "at": now})
         data["audit"] = data["audit"][-250:]
-    desired_ast = {row["value"] for row in active if row["kind"] in ("node", "allstar-call")}
-    desired_echo = {row["value"] for row in active if row["kind"] == "echolink-call"}
+    desired_ast = {row["value"] for row in active if row["kind"] == "node"}
+    desired_ast_calls = {row["value"] for row in active if row["kind"] == "allstar-call"}
+    desired_echo_calls = {row["value"] for row in active if row["kind"] == "echolink-call"}
     global_rules, unsupported = global_calls()
-    for call in global_rules:
-        desired_ast.add(call)
-        desired_echo.add(call)
+    desired_ast_calls.update(global_rules)
+    desired_echo_calls.update(global_rules)
+    desired_ast.update(desired_ast_calls)
+    desired_ast.update(allstar_nodes_for_calls(desired_ast_calls))
+    desired_echo = echolink_calls_for_calls(ami, desired_echo_calls)
     previous_ast = set(data.get("ownedAst", []))
     previous_echo = set(data.get("ownedEcho", []))
     existing = ast_entries(ami, local)
