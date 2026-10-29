@@ -675,7 +675,7 @@ def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
     if password and (len(password) > 128 or any(ord(ch) < 33 or ord(ch) > 126 for ch in password)):
         raise HelperError("Enter a valid TGIF hotspot key")
     if token and not re.fullmatch(r"TGIFSTG1\.[A-F0-9]{16}\.[A-F0-9]{16}\.[A-Za-z0-9_-]{16,4096}", token):
-        raise HelperError("Enter a valid device-scoped TGIF Static TG API token")
+        raise HelperError("Paste the complete TGIF Static TG secret beginning with TGIFSTG1, not the short hexadecimal Token ID")
 
     config_path = provisioning_config_path("/etc/allscan-reimagined/config.json")
     try:
@@ -732,6 +732,27 @@ def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
             "hotspotKeyUpdated": bool(password), "staticTokenUpdated": bool(token)}
 
 
+def net_bridge_reset(payload: dict[str, Any],
+                     controller: Path = Path("/usr/local/sbin/allscan-reimagined-net-bridge-mode-control"),
+                     runner=subprocess.run) -> dict[str, Any]:
+    """Reset only the installed Net Bridge runtime and preserve configuration."""
+    require_root()
+    if payload != {"confirmation": "RESET NET BRIDGE"}:
+        raise HelperError("Net Bridge reset confirmation is invalid")
+    if not controller.is_file() or controller.is_symlink():
+        raise HelperError("Net Bridge lifecycle controller is unavailable")
+    reset = runner([str(controller), "--reset-runtime"], capture_output=True, text=True)
+    try:
+        result = json.loads(reset.stdout or reset.stderr)
+    except json.JSONDecodeError as exc:
+        raise HelperError("Net Bridge reset returned an invalid response") from exc
+    if reset.returncode or not isinstance(result, dict) or not result.get("ok"):
+        detail = str(result.get("error") if isinstance(result, dict) else "")
+        raise HelperError(detail or "Net Bridge reset failed")
+    append_audit({"action": "net-bridge-reset", "bridgeId": "net_bridge", "result": "ok"})
+    return result
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("command", choices=(
@@ -740,6 +761,7 @@ def parser() -> argparse.ArgumentParser:
         "ysf-plan", "ysf-install", "dmr-plan", "dmr-install",
         "zello-plan", "zello-install",
         "net-bridge-plan", "net-bridge-install",
+        "net-bridge-reset",
         "dmr-security-update",
     ))
     return result
@@ -764,6 +786,8 @@ def main() -> int:
                     result = m17_command(payload, True)
                 elif args.command in ("net-bridge-plan", "net-bridge-install"):
                     result = net_bridge_command(payload, args.command == "net-bridge-install")
+                elif args.command == "net-bridge-reset":
+                    result = net_bridge_reset(payload)
                 elif args.command == "dmr-security-update":
                     result = dmr_security_update(payload)
                 elif args.command in ("dmr-plan", "dmr-install"):

@@ -58,6 +58,18 @@ try {
       && allstarTalker.sourceOverride === '',
     'ordinary AllStar talker identity regressed',
   )
+  for (const suffixedCallsign of ['W3QV/R', 'N0CALL/P', 'K7ABC/M']) {
+    const suffixedTalker = talkerInfoParts(
+      `${suffixedCallsign} Repeater station\u00a0\u00a0Phoenix, Arizona`,
+      '47970',
+    )
+    assert(
+      suffixedTalker.callsign === suffixedCallsign
+        && suffixedTalker.description === 'Repeater station'
+        && suffixedTalker.location === 'Phoenix, Arizona',
+      `${suffixedCallsign} suffix was replaced by the numeric AllStar node`,
+    )
+  }
 
   const netBridgeTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net']
   const netBridges = netBridgeTypes.map((cardType, index) => ({

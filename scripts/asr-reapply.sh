@@ -56,6 +56,36 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
+# Global Ban state must survive native-node reboots. Docker nodes provide the
+# same contract as a bind mount at /run/urf-wil-config, while native nodes keep
+# the canonical files under /var/lib and recreate the runtime link at boot.
+if [ "$WEB_ONLY" != "1" ] && [ ! -e /.dockerenv ]; then
+  GLOBAL_BAN_DIR="$DATA_DIR/admin"
+  install -d -o root -g root -m 755 "$GLOBAL_BAN_DIR"
+  for legacy_dir in /run/urf-wil-config "$DATA_DIR/global-ban"; do
+    [ -d "$legacy_dir" ] || continue
+    [ "$(readlink -f "$legacy_dir")" = "$GLOBAL_BAN_DIR" ] && continue
+    for state_file in urfd.blacklist asr-timed-bans.json asr-admin-audit.jsonl asr-asl-bans.json; do
+      [ -f "$legacy_dir/$state_file" ] && [ ! -e "$GLOBAL_BAN_DIR/$state_file" ] && cp -p "$legacy_dir/$state_file" "$GLOBAL_BAN_DIR/$state_file"
+    done
+  done
+  [ -e "$GLOBAL_BAN_DIR/urfd.blacklist" ] || printf '%s\n' '# Managed by AllScan Reimagined URF Administration' > "$GLOBAL_BAN_DIR/urfd.blacklist"
+  [ -e "$GLOBAL_BAN_DIR/asr-timed-bans.json" ] || printf '%s\n' '{}' > "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+  [ -e "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl" ] || : > "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  chown root:root "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json" "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  chmod 644 "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+  chmod 640 "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  if [ -d /run/urf-wil-config ] && [ ! -L /run/urf-wil-config ]; then
+    mv /run/urf-wil-config "/run/urf-wil-config.pre-asr-$(date +%s)"
+  fi
+  printf '%s\n' 'L+ /run/urf-wil-config - - - - /var/lib/allscan-reimagined/admin' > /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
+  systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
+  [ -L /run/urf-wil-config ] && [ "$(readlink -f /run/urf-wil-config)" = "$GLOBAL_BAN_DIR" ] || {
+    echo "Native Global Ban runtime link could not be created." >&2
+    exit 1
+  }
+fi
+
 safe_chown_files() {
   local owner="$1"
   shift
@@ -1113,6 +1143,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py zello-install
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py net-bridge-plan
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py net-bridge-install
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py net-bridge-reset
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle preview-all
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion

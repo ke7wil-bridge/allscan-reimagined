@@ -491,6 +491,45 @@ def restore_transport(profile, runner: Runner = run) -> dict:
             "bridgeId": bridges[mode]["id"], "transportLinked": True}
 
 
+def reset_runtime(profile, runner: Runner = run) -> dict:
+    """Return the installed Net Bridge to an idle, known-good runtime state."""
+    config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
+    bridges = net_bridges(config)
+    mode = str(config.get("netBridgeMode", "")).lower()
+    if mode not in bridges:
+        raise ModeError("selected Net Bridge mode is not provisioned")
+    main_node = str(config.get("node", ""))
+    if not re.fullmatch(r"[0-9]{3,10}", main_node):
+        raise ModeError("main AllStar node is invalid")
+    for candidate, bridge in bridges.items():
+        runtime_argv(candidate, bridge, "status")
+        selected_ports(candidate, bridge)
+    ports = selected_ports(mode, bridges[mode])
+    try:
+        disconnect_backend(mode, bridges[mode], profile, runner)
+        disconnect_transport(config, str(bridges[mode].get("node", NODE)), runner)
+        for candidate, bridge in bridges.items():
+            stop_backend(candidate, bridge, runner)
+        prepare_backend(mode, runner)
+        refresh_watch_snapshots(profile)
+        reload_and_verify(runner, expected_ports=ports)
+        start_backend(mode, bridges[mode], runner)
+        ensure_transport_link(main_node, runner)
+    except Exception as exc:
+        recovery_error = ""
+        try:
+            prepare_backend(mode, runner)
+            refresh_watch_snapshots(profile)
+            reload_and_verify(runner, expected_ports=ports)
+            start_backend(mode, bridges[mode], runner)
+            ensure_transport_link(main_node, runner)
+        except Exception as recovery_exc:
+            recovery_error = f"; automatic recovery failed: {recovery_exc}"
+        raise ModeError(f"Net Bridge reset failed: {exc}{recovery_error}") from exc
+    return {"ok": True, "reset": True, "mode": mode, "node": NODE,
+            "bridgeId": bridges[mode]["id"], "transportLinked": True}
+
+
 def reload_and_verify(
     runner: Runner = run, node: int = NODE,
     expected_ports: tuple[int, int] | None = None,
@@ -601,6 +640,7 @@ def main() -> int:
     operation.add_argument("--mode", choices=MODES)
     operation.add_argument("--migrate-transport", action="store_true")
     operation.add_argument("--restore-transport", action="store_true")
+    operation.add_argument("--reset-runtime", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if CONTAINERIZED:
@@ -638,6 +678,15 @@ def main() -> int:
                               "node": NODE, "bridgeId": bridges[mode]["id"],
                               "usrpRx": rx, "usrpTx": tx}))
             return 0
+        if args.reset_runtime:
+            mode = str(config.get("netBridgeMode", "")).lower()
+            if mode not in bridges:
+                raise SystemExit("selected Net Bridge mode is not provisioned")
+            rx, tx = selected_ports(mode, bridges[mode])
+            print(json.dumps({"ok": True, "reset": True, "mode": mode,
+                              "node": NODE, "bridgeId": bridges[mode]["id"],
+                              "usrpRx": rx, "usrpTx": tx}))
+            return 0
         rx, tx = selected_ports(args.mode, bridges[args.mode])
         print(json.dumps({"ok": True, "mode": args.mode, "node": NODE,
                           "bridgeId": bridges[args.mode]["id"],
@@ -656,6 +705,8 @@ def main() -> int:
                 result = migrate_transport(profile)
             elif args.restore_transport:
                 result = restore_transport(profile)
+            elif args.reset_runtime:
+                result = reset_runtime(profile)
             else:
                 result = switch_mode(args.mode, profile)
         except (ModeError, OSError, ValueError, subprocess.SubprocessError) as exc:

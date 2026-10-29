@@ -90,6 +90,26 @@ check(str_contains($settingsSource, "function orderRows()")
 	&& str_contains($settingsSource, "closest('.asr-bridge-order-item')")
 	&& str_contains($settingsSource, '$lastNetBridgeIndex'),
 	'Unified Net Bridge ordering is not wired into the shared drag controls.');
+check(str_contains($settingsSource, 'TGIF device DMR ID/ESSID:')
+	&& str_contains($settingsSource, 'TGIFSTG1')
+	&& str_contains($settingsSource, 'short hexadecimal Token ID'),
+	'DMR security guidance does not distinguish the exact device ID and full TGIF secret.');
+check(str_contains($settingsSource, 'data-net-bridge-reset-button')
+	&& str_contains($settingsSource, "'net-bridge-reset'")
+	&& str_contains($settingsSource, 'Other bridges and saved settings will not be changed.'),
+	'Settings does not expose the confirmed, isolated Net Bridge runtime reset.');
+
+$ysfHosts = tempnam(sys_get_temp_dir(), 'asr-ysf-hosts-');
+check(is_string($ysfHosts), 'Unable to create temporary YSF catalog.');
+file_put_contents($ysfHosts, "32453;KC-WIDE;test;example.net;42000\n");
+$duplicateError = '';
+$duplicateAccepted = asrSettingsValidateCustomYsfCatalog([[
+	'cardType'=>'ysf_net', 'ysfHostsPath'=>$ysfHosts,
+	'ysfCustomReflectors'=>[['id'=>'32453','name'=>'KC-WIDE','host'=>'remote.example','port'=>42000]],
+]], $duplicateError);
+unlink($ysfHosts);
+check($duplicateAccepted === false && str_contains($duplicateError, 'catalog destination 32453'),
+	'Duplicate custom YSF reflector was not rejected before save.');
 
 function expectFailure(callable $operation, string $needle): void {
 	try {

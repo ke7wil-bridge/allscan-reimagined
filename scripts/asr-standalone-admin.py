@@ -20,9 +20,14 @@ from typing import Any
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUNTIME_ROOT = Path("/run/asr-standalone-admin")
-BLACKLIST = Path("/run/urf-wil-config/urfd.blacklist")
-TIMED_BANS = Path("/run/urf-wil-config/asr-timed-bans.json")
-AUDIT_LOG = Path("/run/urf-wil-config/asr-admin-audit.jsonl")
+def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
+    return runtime if runtime.is_dir() else native
+
+
+GLOBAL_BAN_ROOT = global_ban_root()
+BLACKLIST = GLOBAL_BAN_ROOT / "urfd.blacklist"
+TIMED_BANS = GLOBAL_BAN_ROOT / "asr-timed-bans.json"
+AUDIT_LOG = GLOBAL_BAN_ROOT / "asr-admin-audit.jsonl"
 ID_RE = re.compile(r"[a-z][a-z0-9_-]{1,31}")
 IDENTITY_RE = re.compile(r"[A-Z0-9][A-Z0-9_.\/-]{0,14}")
 ACTOR_RE = re.compile(r"[A-Za-z0-9_.@+-]{1,80}")

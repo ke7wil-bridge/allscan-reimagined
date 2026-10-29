@@ -271,6 +271,11 @@ def test_broker(broker) -> None:
     assert setup["kind"] == "setup"
     unified_setup = request(broker, {"schema": 1, "command": "net-bridge-plan", "payload": {"modes": {}}})
     assert unified_setup["kind"] == "setup"
+    unified_reset = request(broker, {
+        "schema": 1, "command": "net-bridge-reset",
+        "payload": {"confirmation": "RESET NET BRIDGE"},
+    })
+    assert unified_reset["kind"] == "setup"
     profile = SimpleNamespace(asterisk_container="asterisk", runtime_host_root=Path("/runtime"))
     environment = broker.child_environment(Path("/profile.json"), profile)
     assert environment["HOME"] == "/var/cache/allscan-reimagined/docker-home"
@@ -366,6 +371,7 @@ def test_broker(broker) -> None:
         try:
             rejected(broker.execute, setup, Path(temporary) / "profile")
             broker.peer_uid = lambda: 33
+            helper.chmod(0o777)
             rejected(broker.execute, setup, Path(temporary) / "profile")
         finally:
             broker.load_backend, broker.peer_uid, broker.HELPER = original_backend, original_peer, original_helper
@@ -760,17 +766,19 @@ def run_client(module, argv: list[str], response: dict, payload: bytes = b"{}"):
     stdout, stderr = io.StringIO(), io.StringIO()
     old = (sys.argv, sys.stdin, sys.stdout, sys.stderr,
            module.socket.socket, os.environ.get("ASR_BROKER_TESTING"),
-           os.environ.get("ASR_CONTAINER_HOST_SOCKET"))
+           os.environ.get("ASR_CONTAINER_HOST_SOCKET"), module.os.geteuid)
     try:
         sys.argv = argv
         sys.stdin = SimpleNamespace(buffer=io.BytesIO(payload))
         sys.stdout, sys.stderr = stdout, stderr
         module.socket.socket = lambda *_args, **_kwargs: fake
+        module.os.geteuid = lambda: 1000
         os.environ["ASR_BROKER_TESTING"] = "1"
         os.environ["ASR_CONTAINER_HOST_SOCKET"] = "/tmp/asr-test-broker.sock"
         code = module.main()
     finally:
         (sys.argv, sys.stdin, sys.stdout, sys.stderr, module.socket.socket) = old[:5]
+        module.os.geteuid = old[7]
         for name, value in (("ASR_BROKER_TESTING", old[5]),
                             ("ASR_CONTAINER_HOST_SOCKET", old[6])):
             if value is None:
@@ -781,6 +789,15 @@ def run_client(module, argv: list[str], response: dict, payload: bytes = b"{}"):
 
 
 def test_client_error_forwarding(setup_client, control_client) -> None:
+    success = {"schema": 1, "exitCode": 0, "stdout": '{"ok":true}\n', "stderr": ""}
+    code, stdout, stderr, fake = run_client(
+        setup_client, ["asr-container-host-client.py", "net-bridge-reset"], success,
+        payload=b'{"confirmation":"RESET NET BRIDGE"}')
+    assert code == 0 and stdout == '{"ok":true}\n' and stderr == ""
+    sent = json.loads(fake.sent)
+    assert sent["command"] == "net-bridge-reset"
+    assert sent["payload"] == {"confirmation": "RESET NET BRIDGE"}
+
     responses = (
         ({"schema": 1, "exitCode": 17, "stdout": "fallback detail\n",
           "stderr": "precise broker detail\n"}, "precise broker detail\n"),

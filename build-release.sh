@@ -112,6 +112,9 @@ python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
+python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
+python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test

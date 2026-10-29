@@ -67,7 +67,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.11'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.12'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -622,11 +622,14 @@ export function talkerInfoParts(html: string, node: string) {
     .trim()
   const chunks = raw.split(/\s{2,}/).map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const identity = chunks.shift() || ''
-  const parsedCallsign = identity.match(/^[A-Z0-9]{3,10}(?=\s|$)/i)?.[0] || ''
+  // AllStar callsigns may include an operating suffix such as /R, /P, /M,
+  // /MM, or /QRP. Keep the suffix as part of the station identity instead of
+  // rejecting the callsign and falling back to the numeric node number.
+  const parsedCallsign = identity.match(/^[A-Z0-9]{3,10}(?:\/[A-Z0-9]{1,6})?(?=\s|$)/i)?.[0] || ''
   const iaxClient = /^(?:IAX(?:RPT)?|WEB\s*TRANSCEIVER)(?:\s|\/|$)/i.test(identity)
   const nodeCallsign = /^(?=[A-Z0-9]{3,10}$)(?=.*\d)[A-Z0-9]+$/i.test(node) ? node.toUpperCase() : ''
   const callsign = iaxClient && nodeCallsign ? nodeCallsign : (parsedCallsign || node)
-  const description = identity.replace(/^[A-Z0-9]{3,10}(?=\s|$)\s*/i, '').trim().replace(/^\/\s*/, '')
+  const description = identity.replace(/^[A-Z0-9]{3,10}(?:\/[A-Z0-9]{1,6})?(?=\s|$)\s*/i, '').trim().replace(/^\/\s*/, '')
   const location = chunks.join(' ').trim().replace(/^\/\s*/, '')
   return { callsign, description, location, sourceOverride: iaxClient ? 'VoIP App' : '' }
 }

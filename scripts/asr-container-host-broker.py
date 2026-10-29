@@ -24,7 +24,7 @@ COMMANDS = frozenset({
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
     "dmr-plan", "dmr-install",
     "dmr-security-update",
-    "net-bridge-plan", "net-bridge-install",
+    "net-bridge-plan", "net-bridge-install", "net-bridge-reset",
 })
 PROGRAMS = {
     "asterisk-read": str(HERE / "asr-container-asterisk.py"),
