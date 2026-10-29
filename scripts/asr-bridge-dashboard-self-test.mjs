@@ -322,6 +322,19 @@ try {
   const runtimeV102 = readFileSync(new URL('../compat/allscan-v1.02/include/asrRuntime.php', import.meta.url), 'utf8')
   const runtimeV103 = readFileSync(new URL('../compat/allscan-v1.03/include/asrRuntime.php', import.meta.url), 'utf8')
   assert(
+    appSource.includes('reduceMotion?: boolean')
+      && appSource.includes('dataset.asrReduceMotion = normalized.reduceMotion')
+      && appSource.includes('role="menuitemcheckbox"')
+      && appSource.includes('Reduce animations')
+      && !appSource.includes("lowPowerMode && (theme === 'deep-ocean-animated' || theme === 'matrix')"),
+    'node Low-Power Mode still overrides every viewer instead of using a browser-local animation preference',
+  )
+  assert(
+    indexCssSource.includes('html[data-asr-theme="deep-ocean-animated"][data-asr-reduce-motion="true"]::before')
+      && indexCssSource.includes('html[data-asr-theme="matrix"][data-asr-reduce-motion="true"]::before'),
+    'browser-local reduced-motion themes do not have static background fallbacks',
+  )
+  assert(
     appSource.includes('className="allscan-action-button allscan-custom-commands-button"'),
     'Commands button no longer inherits the same theme palette as the neighboring action buttons',
   )

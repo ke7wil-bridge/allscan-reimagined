@@ -122,6 +122,7 @@ const loggedOutAuth: AuthStatus = {
 type ThemeSettings = {
   theme?: string
   mode?: 'dark' | 'light'
+  reduceMotion?: boolean
 }
 
 type DashboardModuleKey = 'talkers' | 'controls' | 'favorites' | 'connections' | 'bridges'
@@ -150,10 +151,6 @@ function applyThemeSettings(settings: ThemeSettings, lowPowerMode = false) {
   const normalized = normalizeThemeSettings(settings)
   let theme = normalized.theme
   let mode = normalized.mode || 'dark'
-  if (lowPowerMode && (theme === 'deep-ocean-animated' || theme === 'matrix')) {
-    theme = 'standard'
-    mode = 'dark'
-  }
   if (theme === 'lcars-frame' && window.innerWidth < 1200) {
     theme = 'standard'
     mode = 'dark'
@@ -163,6 +160,7 @@ function applyThemeSettings(settings: ThemeSettings, lowPowerMode = false) {
   document.body.dataset.asrTheme = theme
   document.body.dataset.asrMode = mode
   document.documentElement.dataset.asrLowPower = lowPowerMode ? 'true' : 'false'
+  document.documentElement.dataset.asrReduceMotion = normalized.reduceMotion ? 'true' : 'false'
 }
 
 function normalizeThemeSettings(settings: ThemeSettings): Required<ThemeSettings> {
@@ -172,7 +170,8 @@ function normalizeThemeSettings(settings: ThemeSettings): Required<ThemeSettings
   if (theme === 'matrix-static') theme = 'matrix'
   if (!allowedThemes.includes(theme)) theme = 'standard'
   const mode = settings.mode === 'light' ? 'light' : 'dark'
-  return { theme, mode }
+  const reduceMotion = settings.reduceMotion === true
+  return { theme, mode, reduceMotion }
 }
 
 function readThemeSettings(): ThemeSettings {
@@ -3284,6 +3283,15 @@ function App({ config }: { config: RuntimeConfig }) {
                       </button>
                     )
                   })}
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={effectiveThemeSettings.reduceMotion ? 'true' : 'false'}
+                    className={effectiveThemeSettings.reduceMotion ? 'is-selected' : undefined}
+                    onClick={() => updateTheme({ reduceMotion: !effectiveThemeSettings.reduceMotion })}
+                  >
+                    Reduce animations
+                  </button>
                 </div>
               </div>
             ) : null}
