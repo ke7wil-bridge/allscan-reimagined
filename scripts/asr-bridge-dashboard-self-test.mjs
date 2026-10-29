@@ -58,6 +58,18 @@ try {
       && allstarTalker.sourceOverride === '',
     'ordinary AllStar talker identity regressed',
   )
+  for (const suffixedCallsign of ['W3QV/R', 'N0CALL/P', 'K7ABC/M']) {
+    const suffixedTalker = talkerInfoParts(
+      `${suffixedCallsign} Repeater station\u00a0\u00a0Phoenix, Arizona`,
+      '47970',
+    )
+    assert(
+      suffixedTalker.callsign === suffixedCallsign
+        && suffixedTalker.description === 'Repeater station'
+        && suffixedTalker.location === 'Phoenix, Arizona',
+      `${suffixedCallsign} suffix was replaced by the numeric AllStar node`,
+    )
+  }
 
   const netBridgeTypes = ['dmr_net', 'ysf_net', 'p25_net', 'nxdn_net', 'm17_net']
   const netBridges = netBridgeTypes.map((cardType, index) => ({
@@ -309,6 +321,21 @@ try {
   const asrApiSource = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
   const runtimeV102 = readFileSync(new URL('../compat/allscan-v1.02/include/asrRuntime.php', import.meta.url), 'utf8')
   const runtimeV103 = readFileSync(new URL('../compat/allscan-v1.03/include/asrRuntime.php', import.meta.url), 'utf8')
+  assert(
+    appSource.includes('reduceBrowserActivity?: boolean')
+      && appSource.includes('dataset.asrReduceActivity = normalized.reduceBrowserActivity')
+      && appSource.includes('role="menuitemcheckbox"')
+      && appSource.includes('Reduce browser activity')
+      && !appSource.includes("lowPowerMode && (theme === 'deep-ocean-animated' || theme === 'matrix')"),
+    'node Low-Power Mode still overrides every viewer instead of using a browser-local animation preference',
+  )
+  assert(
+    indexCssSource.includes('html[data-asr-theme="deep-ocean-animated"][data-asr-reduce-activity="true"]::before')
+      && indexCssSource.includes('html[data-asr-theme="matrix"][data-asr-reduce-activity="true"]::before')
+      && appSource.includes('effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000')
+      && appSource.includes('effectiveThemeSettings.reduceBrowserActivity ? 5000 : BRIDGE_REFRESH_MS'),
+    'browser-local reduced activity does not provide static themes and slower browser refreshes',
+  )
   assert(
     appSource.includes('className="allscan-action-button allscan-custom-commands-button"'),
     'Commands button no longer inherits the same theme palette as the neighboring action buttons',

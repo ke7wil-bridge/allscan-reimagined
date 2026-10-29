@@ -35,7 +35,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.1.5.11 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.1.5.12 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -64,7 +64,7 @@ pageInit();
 		<h2>Settings, Menus, Themes &amp; Access</h2>
 		<p>The current Settings interface is organized into <strong>My Account</strong>, <strong>Settings Home</strong>, <strong>Appearance &amp; Display</strong>, <strong>Bridges</strong>, <strong>Lookup &amp; Map</strong>, <strong>Access &amp; Administration</strong>, and <strong>System &amp; Recovery</strong>.</p>
 		<div class="asr-instructions-topic-grid">
-			<article><h3>Appearance &amp; Display</h3><p>Header title and logo, station display filters, and Display Performance live here. The title can use <strong>{CALLSIGN}</strong> and <strong>{NODE}</strong>. Low-Power Node Mode reduces background work and disables animated themes without changing Asterisk or bridge audio.</p></article>
+			<article><h3>Appearance &amp; Display</h3><p>Header title and logo, station display filters, and Display Performance live here. The title can use <strong>{CALLSIGN}</strong> and <strong>{NODE}</strong>. Low-Power Node Mode reduces node-side polling on resource-constrained hosts. Each viewer can independently select <strong>Reduce browser activity</strong> under Menu → Theme.</p></article>
 			<article><h3>Access &amp; Administration</h3><p>ASR and stock AllScan login requirements are controlled here. Administrator Tools links to Users, Advanced Configuration, and Performance Stats. Existing users and permissions are retained when access policy changes.</p></article>
 			<article><h3>Themes &amp; ST:ASL</h3><p>Theme selection is a browser preference rather than a node-level Settings value. Available Beta 8 themes include Dark Side, Bright Side, Deep Ocean, Matrix, and ST:ASL. ST:ASL uses four desktop header controls—<strong>Menu</strong>, <strong>Resources</strong>, <strong>Theme</strong>, and <strong>Lookup</strong>—while Menu opens the same shared Beta 8 hierarchy used by the other themes.</p></article>
 			<article><h3>Menu, Resources &amp; Support</h3><p>The shared menu provides Admin, Theme, Resources, Lookup, Support &amp; Feedback, and <strong>Donate to ASR</strong>. Resources links to operator references and project resources. Support &amp; Feedback is for bugs, questions, and feature requests. Donate to ASR opens the optional Support ASR contribution dialog and is separate from technical support.</p></article>
@@ -114,13 +114,14 @@ pageInit();
 			<li>Open your callsign menu, choose <strong>User Security</strong>, find the correct DMR ID, and use the copy button to copy its Hotspot Security Key.</li>
 			<li>In ASR, open <strong>Settings → Bridges → + Add Bridge</strong>. For a fixed bridge choose <strong>DMR → Standard Bridge → TGIF</strong>. For the selectable bridge choose <strong>Net Bridge</strong>, enable DMR, and use the <strong>DMR / TGIF Security</strong> box.</li>
 			<li>Choose <strong>Secured (recommended; hotspot key)</strong> and paste the copied key into <strong>TGIF Hotspot Security Key</strong>. Never enter the TGIF website password in this field.</li>
-			<li>If more than one hotspot or bridge uses the same DMR ID, give each one a different ESSID from 01 through 99. The same Hotspot Security Key is used with that DMR ID; the ESSID distinguishes the devices.</li>
-			<li>For a Net Bridge, open TGIF <strong>Self Care</strong>, select the device with that exact DMR ID and ESSID, and create its device-scoped <strong>Static TG API token</strong>. Paste that token into ASR’s separate <strong>TGIF Static TG API token</strong> field. A Standard Bridge does not need this token unless ASR will change its TGIF static talkgroup.</li>
+			<li>Open the installed bridge under <strong>Settings → Bridges → DMR configuration</strong> and note the exact number shown beside <strong>TGIF device DMR ID/ESSID</strong>. If more than one hotspot or bridge uses the base DMR ID, each live device needs a different ESSID from 01 through 99. Do not create another ESSID merely because you are replacing a token.</li>
+			<li>For a Net Bridge, open TGIF <strong>Self Care</strong>, select the device with that exact DMR ID and ESSID, and create its device-scoped <strong>Static TG API token</strong>. TGIF shows a long one-time secret beginning with <code>TGIFSTG1</code> and a separate short hexadecimal Token ID. Paste the <strong>long TGIFSTG1 secret</strong> into ASR’s <strong>TGIF Static TG API token</strong> field; the short Token ID will not authenticate. A Standard Bridge does not need this token unless ASR will change its TGIF static talkgroup.</li>
 			<li>Select <strong>Check Setup</strong>, then <strong>Install Bridge</strong>. Reload the dashboard and verify that the bridge becomes ready, connects to the expected talkgroup, and passes a short inbound and outbound audio test.</li>
 		</ol>
 		<p class="asr-instructions-callout"><strong>Replace a key or token later:</strong> Open <strong>Settings → Bridges</strong>, expand the installed DMR bridge, and use <strong>DMR / TGIF Security</strong>. Paste only the credential that changed, leave the other field blank, and select <strong>Save and verify DMR security</strong>. ASR keeps the blank credential unchanged, stores replacements root-only, and never displays them again. No terminal editing or bridge reinstall is required.</p>
 		<p class="asr-instructions-callout"><strong>Legacy connection:</strong> TGIF currently permits the shared legacy password for general compatibility, but legacy connections cannot use secure-only talkgroups or TGIF static talkgroups. Use it only when you deliberately need legacy compatibility.</p>
 		<p class="asr-instructions-callout"><strong>Static talkgroups:</strong> TGIF’s device-scoped Static TG API token is a separate credential. Do not paste that token into the Hotspot Security Key field.</p>
+		<p class="asr-instructions-callout"><strong>Protected TGIF destinations:</strong> TGIF does not allow protected destinations such as 9, 777, 4000, 9990, or 31000 through the Static TG API. Use an authorized ordinary talkgroup when testing the token.</p>
 	</section>
 
 	<section id="net-bridge" class="asr-instructions-section">
@@ -136,7 +137,8 @@ pageInit();
 			<li>Select Connect. During a mode handoff the button shows <strong>Waiting…</strong> until node 1999 belongs to the requested mode, then <strong>Connecting…</strong> while the backend connection is underway. Wait for bridge-side and AllStar-side evidence; command acceptance alone is not proof of a completed connection.</li>
 			<li>Use Disconnect when finished. Changing digital destination and linking ordinary AllStar nodes are separate operations.</li>
 		</ol>
-		<p><strong>YSF destinations:</strong> Enter the exact published reflector name or its five-digit ID from the installed YSFHosts catalog. Use <strong>Custom Reflectors</strong> only when the reflector is missing from that catalog, with one entry per line in the form <code>NAME | 5-DIGIT ID | HOSTNAME OR IP | PORT | OPTIONAL DESCRIPTION</code>. Importing a public list does not repair a failed mode activation.</p>
+		<p><strong>YSF destinations:</strong> Enter the exact published reflector name or its five-digit ID from the installed YSFHosts catalog. Use <strong>Custom Reflectors</strong> only when the reflector is missing from that catalog, with one entry per line in the form <code>NAME | 5-DIGIT ID | HOSTNAME OR IP | PORT | OPTIONAL DESCRIPTION</code>. ASR blocks a custom entry that duplicates the installed catalog before switching modes. Importing a public list does not repair a failed mode activation.</p>
+		<p class="asr-instructions-callout"><strong>Reset a stuck Net Bridge:</strong> Open <strong>Settings → Bridges</strong> and select <strong>Reset Net Bridge runtime</strong>. Confirm the warning. ASR disconnects the current digital session, restarts only the Net Bridge services, and restores private node 1999. Installed modes, TGIF credentials, dashboard order, Standard bridges, Zello, and other settings are preserved.</p>
 		<p class="asr-instructions-callout"><strong>If the mode selector returns to the previous mode:</strong> rollback worked and the requested backend did not become ready. Copy the inline error, then open <strong>Settings → Diagnostics → Bridge Diagnostics</strong>. Services for modes that are not selected are expected to be inactive; do not reinstall or replace the reflector list until the actual switch error is known.</p>
 		<p class="asr-instructions-callout"><strong>Loop safety:</strong> Do not point the Net Bridge at the same destination already carried by a fixed bridge on the node. That can create an audio feedback loop.</p>
 	</section>

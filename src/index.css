@@ -2136,6 +2136,18 @@ html[data-asr-theme="matrix"]::before {
   filter: brightness(1.18) saturate(1.1);
 }
 
+html[data-asr-theme="deep-ocean-animated"][data-asr-reduce-activity="true"]::before {
+  background-image:
+    radial-gradient(circle at 30% 20%, rgba(34, 134, 190, 0.42), transparent 42%),
+    linear-gradient(145deg, #04111a, #09283a 52%, #02090e);
+}
+
+html[data-asr-theme="matrix"][data-asr-reduce-activity="true"]::before {
+  background-image:
+    repeating-linear-gradient(90deg, rgba(0, 255, 102, 0.035) 0 1px, transparent 1px 24px),
+    linear-gradient(180deg, #000500, #021306 55%, #000500);
+}
+
 html[data-asr-theme="matrix"]::after {
   background: transparent;
 }

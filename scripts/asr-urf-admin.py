@@ -8,11 +8,19 @@ import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
-BLACKLIST = "/run/urf-wil-config/urfd.blacklist"
-TIMED_BANS = "/run/urf-wil-config/asr-timed-bans.json"
-AUDIT_LOG = "/run/urf-wil-config/asr-admin-audit.jsonl"
-ADMIN_LOCK = "/run/urf-wil-config/.asr-urf-admin.lock"
+
+def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")):
+    """Use the Docker mount when present and persistent storage on native nodes."""
+    return runtime if runtime.is_dir() else native
+
+
+GLOBAL_BAN_ROOT = global_ban_root()
+BLACKLIST = str(GLOBAL_BAN_ROOT / "urfd.blacklist")
+TIMED_BANS = str(GLOBAL_BAN_ROOT / "asr-timed-bans.json")
+AUDIT_LOG = str(GLOBAL_BAN_ROOT / "asr-admin-audit.jsonl")
+ADMIN_LOCK = str(GLOBAL_BAN_ROOT / ".asr-urf-admin.lock")
 CONFIG = "/etc/allscan-reimagined/config.json"
 RUNTIME_DIR = "/run/urf-wil"
 KICK_REQUEST = os.path.join(RUNTIME_DIR, "asr-kick-client.request")
@@ -82,7 +90,7 @@ def assert_ban_allowed(rule):
 def admin_lock():
     directory = os.path.dirname(ADMIN_LOCK)
     if not os.path.isdir(directory):
-        raise RuntimeError("URF configuration mount is unavailable.")
+        raise RuntimeError("ASR Global Ban storage is unavailable.")
     descriptor = os.open(ADMIN_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
@@ -147,7 +155,7 @@ def read_rules():
 def write_rules(rules):
     directory = os.path.dirname(BLACKLIST)
     if not os.path.isdir(directory):
-        raise RuntimeError("URF configuration mount is unavailable.")
+        raise RuntimeError("ASR Global Ban storage is unavailable.")
     fd, tmp = tempfile.mkstemp(prefix=".urfd.blacklist.", dir=directory, text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -192,7 +200,7 @@ def read_timed_bans():
 def write_timed_bans(records):
     directory = os.path.dirname(TIMED_BANS)
     if not os.path.isdir(directory):
-        raise RuntimeError("URF configuration mount is unavailable.")
+        raise RuntimeError("ASR Global Ban storage is unavailable.")
     fd, tmp = tempfile.mkstemp(prefix=".asr-timed-bans.", dir=directory, text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -236,7 +244,7 @@ def append_audit_event(action, actor="system", **details):
         raise ValueError("Unsupported administration audit event.")
     directory = os.path.dirname(AUDIT_LOG)
     if not os.path.isdir(directory):
-        raise RuntimeError("URF configuration mount is unavailable.")
+        raise RuntimeError("ASR Global Ban storage is unavailable.")
     clean_actor = re.sub(r"[^A-Za-z0-9_.@+-]", "_", str(actor or "system"))[:80] or "system"
     record = {"timestamp": int(time.time()), "action": action, "actor": clean_actor}
     record.update({key: value for key, value in details.items() if value not in (None, "")})

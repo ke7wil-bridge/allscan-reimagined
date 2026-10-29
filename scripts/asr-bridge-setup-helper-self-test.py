@@ -153,6 +153,32 @@ def main() -> None:
     except helper.HelperError:
         pass
 
+    with tempfile.TemporaryDirectory() as tmp:
+        controller = Path(tmp) / "allscan-reimagined-net-bridge-mode-control"
+        controller.write_text("test\n")
+        original_require_root = helper.require_root
+        original_audit = helper.append_audit
+        audited = []
+        helper.require_root = lambda: None
+        helper.append_audit = lambda event: audited.append(event)
+        try:
+            reset = helper.net_bridge_reset(
+                {"confirmation": "RESET NET BRIDGE"}, controller,
+                lambda argv, **kwargs: helper.subprocess.CompletedProcess(
+                    argv, 0, json.dumps({"ok": True, "reset": True, "mode": "dmr"}), ""
+                ),
+            )
+            assert reset["reset"] and reset["mode"] == "dmr"
+            assert audited == [{"action": "net-bridge-reset", "bridgeId": "net_bridge", "result": "ok"}]
+            try:
+                helper.net_bridge_reset({"confirmation": "wrong"}, controller)
+                raise AssertionError("unsafe Net Bridge reset confirmation accepted")
+            except helper.HelperError:
+                pass
+        finally:
+            helper.require_root = original_require_root
+            helper.append_audit = original_audit
+
     zello = helper.load_module("setup_zello_test", helper.ZELLO_PLAN_PATH)
     zello_request = {
         "bridgeId": "zello", "username": "bridge-user", "channel": "My Channel",

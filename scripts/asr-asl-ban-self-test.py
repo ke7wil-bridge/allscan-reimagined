@@ -42,6 +42,8 @@ class FakeAMI:
         self.calls.append(("command", value))
         if value == "core show channels concise":
             return "\n".join(self.channels)
+        if value == "echolink dbdump":
+            return "3000001|N0GLOBAL-L|192.0.2.10\n3000002|N0OTHER-R|192.0.2.11"
         if value.startswith("core show channel IAX2/web-2"):
             return "Caller ID Name: N0GLOBAL\nNODENUM=641890\nCALLSIGN=N0GLOBAL"
         if value.startswith("channel request hangup "):
@@ -65,7 +67,9 @@ def run():
         ban.STATE = root / "state.json"
         ban.GLOBAL = root / "urfd.blacklist"
         ban.CONFIG = root / "config.json"
+        ban.ASTDB_FILES = (root / "astdb.txt",)
         ban.CONFIG.write_text(json.dumps({"node": "641890", "callsign": "N0OWNER", "bridges": [], "filteredStations": ["N0SERVICE"]}))
+        ban.ASTDB_FILES[0].write_text("67098|N0GLOBAL|Global test node,|Test City\n")
         now = int(time.time())
         ban.GLOBAL.write_text("N0GLOBAL\nN0SERVICE\n")
         fake = FakeAMI(ast={"765432"}, echo={"N0MANUAL", "N0GLOBAL"})
@@ -80,9 +84,9 @@ def run():
             {"kind": "echolink-call", "value": "N0LOCAL", "createdAt": now, "expiresAt": now + 3600, "reason": "", "actor": "test"},
         ], "ownedAst": [], "ownedEcho": []}
         result = ban.reconcile(state, fake, "641890")
-        assert fake.ast == {"765432", "123456", "N0GLOBAL"}
-        assert fake.echo == {"N0MANUAL", "N0GLOBAL", "N0LOCAL"}
-        assert ban.read_state()["ownedEcho"] == ["N0LOCAL"]
+        assert fake.ast == {"765432", "123456", "67098", "N0GLOBAL"}
+        assert fake.echo == {"N0MANUAL", "N0GLOBAL", "N0GLOBAL-L", "N0LOCAL"}
+        assert ban.read_state()["ownedEcho"] == ["N0GLOBAL-L", "N0LOCAL"]
         assert "765432" in result["externalAst"]
         assert "N0MANUAL" in result["externalEcho"]
         assert result["removed"] == 3

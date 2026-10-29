@@ -13,6 +13,7 @@ COMMANDS = {
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
     "dmr-plan", "dmr-install",
     "dmr-security-update",
+    "net-bridge-plan", "net-bridge-install", "net-bridge-reset",
 }
 MAX_REQUEST = 256 * 1024
 MAX_RESPONSE = 1024 * 1024

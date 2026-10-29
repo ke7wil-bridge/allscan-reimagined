@@ -122,6 +122,7 @@ const loggedOutAuth: AuthStatus = {
 type ThemeSettings = {
   theme?: string
   mode?: 'dark' | 'light'
+  reduceBrowserActivity?: boolean
 }
 
 type DashboardModuleKey = 'talkers' | 'controls' | 'favorites' | 'connections' | 'bridges'
@@ -145,15 +146,11 @@ const headerMenuGroups: Array<[HeaderMenuKey, string]> = [
 
 const headerMenuLabels = Object.fromEntries(headerMenuGroups) as Record<HeaderMenuKey, string>
 
-function applyThemeSettings(settings: ThemeSettings, lowPowerMode = false) {
+function applyThemeSettings(settings: ThemeSettings) {
   if (typeof document === 'undefined') return
   const normalized = normalizeThemeSettings(settings)
   let theme = normalized.theme
   let mode = normalized.mode || 'dark'
-  if (lowPowerMode && (theme === 'deep-ocean-animated' || theme === 'matrix')) {
-    theme = 'standard'
-    mode = 'dark'
-  }
   if (theme === 'lcars-frame' && window.innerWidth < 1200) {
     theme = 'standard'
     mode = 'dark'
@@ -162,7 +159,7 @@ function applyThemeSettings(settings: ThemeSettings, lowPowerMode = false) {
   document.documentElement.dataset.asrMode = mode
   document.body.dataset.asrTheme = theme
   document.body.dataset.asrMode = mode
-  document.documentElement.dataset.asrLowPower = lowPowerMode ? 'true' : 'false'
+  document.documentElement.dataset.asrReduceActivity = normalized.reduceBrowserActivity ? 'true' : 'false'
 }
 
 function normalizeThemeSettings(settings: ThemeSettings): Required<ThemeSettings> {
@@ -172,7 +169,8 @@ function normalizeThemeSettings(settings: ThemeSettings): Required<ThemeSettings
   if (theme === 'matrix-static') theme = 'matrix'
   if (!allowedThemes.includes(theme)) theme = 'standard'
   const mode = settings.mode === 'light' ? 'light' : 'dark'
-  return { theme, mode }
+  const reduceBrowserActivity = settings.reduceBrowserActivity === true
+  return { theme, mode, reduceBrowserActivity }
 }
 
 function readThemeSettings(): ThemeSettings {
@@ -1278,8 +1276,8 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [faviconStatus])
 
   useEffect(() => {
-    applyThemeSettings(themeSettings, config.lowPowerMode)
-  }, [themeSettings, config.lowPowerMode])
+    applyThemeSettings(themeSettings)
+  }, [themeSettings])
 
   useEffect(() => {
     const handleResize = () => setDesktopThemeViewport(isDesktopThemeViewport())
@@ -1519,12 +1517,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
 
     void refreshCpu()
-    const timer = window.setInterval(refreshCpu, config.lowPowerMode ? 120000 : 60000)
+    const timer = window.setInterval(refreshCpu, effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [config.lowPowerMode])
+  }, [effectiveThemeSettings.reduceBrowserActivity])
 
   useEffect(() => {
     let cancelled = false
@@ -1572,7 +1570,7 @@ function App({ config }: { config: RuntimeConfig }) {
         if (!cancelled) {
           timer = window.setTimeout(
             refreshBridgeCards,
-            failureNotified ? BRIDGE_REFRESH_ERROR_BACKOFF_MS : (config.lowPowerMode ? 5000 : BRIDGE_REFRESH_MS),
+            failureNotified ? BRIDGE_REFRESH_ERROR_BACKOFF_MS : (effectiveThemeSettings.reduceBrowserActivity ? 5000 : BRIDGE_REFRESH_MS),
           )
         }
       }
@@ -1592,7 +1590,7 @@ function App({ config }: { config: RuntimeConfig }) {
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [config, applyBridgeConnectionOverrides])
+  }, [config, applyBridgeConnectionOverrides, effectiveThemeSettings.reduceBrowserActivity])
 
   useEffect(() => {
     let cancelled = false
@@ -3284,6 +3282,15 @@ function App({ config }: { config: RuntimeConfig }) {
                       </button>
                     )
                   })}
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={effectiveThemeSettings.reduceBrowserActivity ? 'true' : 'false'}
+                    className={effectiveThemeSettings.reduceBrowserActivity ? 'is-selected' : undefined}
+                    onClick={() => updateTheme({ reduceBrowserActivity: !effectiveThemeSettings.reduceBrowserActivity })}
+                  >
+                    Reduce browser activity
+                  </button>
                 </div>
               </div>
             ) : null}

@@ -112,6 +112,10 @@ python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
+python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
+python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
+python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
@@ -197,6 +201,7 @@ install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
 install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
 install -m 755 scripts/asr-urf-admin.py "$STAGE/payload/scripts/asr-urf-admin.py"
+install -m 755 scripts/asr-asl-ban.py "$STAGE/payload/scripts/asr-asl-ban.py"
 install -m 755 scripts/asr-standalone-admin.py "$STAGE/payload/scripts/asr-standalone-admin.py"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
@@ -287,6 +292,8 @@ from pathlib import Path
 import sys
 
 scripts = Path(sys.argv[1])
+if not (scripts / "asr-asl-ban.py").is_file():
+    raise SystemExit("Native Global Ban helper is missing from the release archive")
 installer_path = scripts / "asr-container-host-install.py"
 tree = ast.parse(installer_path.read_text(encoding="utf-8"), filename=str(installer_path))
 required_groups = {"HOST_FILES", "CONTROL_FILES", "SUPPORT_FILES"}

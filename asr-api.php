@@ -38,8 +38,8 @@ const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.11';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.11';
+const ASR_VERSION = '1.0.0-beta.8.1.5.12';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.12';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -311,8 +311,9 @@ const ASR_STANDALONE_ADMIN_DIR = '/run/asr-standalone-admin';
 const ASR_STANDALONE_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-standalone-admin';
 
 function asr_global_ban_policy_digest(): string {
-    $blacklist = @file_get_contents('/run/urf-wil-config/urfd.blacklist');
-    $timedBans = @file_get_contents('/run/urf-wil-config/asr-timed-bans.json');
+	$root = is_dir('/run/urf-wil-config') ? '/run/urf-wil-config' : '/var/lib/allscan-reimagined/admin';
+	$blacklist = @file_get_contents($root . '/urfd.blacklist');
+	$timedBans = @file_get_contents($root . '/asr-timed-bans.json');
     if (!is_string($blacklist) || !is_string($timedBans)) return '';
     return hash('sha256', "asr-global-ban-v1\0" . $blacklist . "\0" . $timedBans);
 }

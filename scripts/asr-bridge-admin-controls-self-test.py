@@ -70,11 +70,13 @@ check("standalone-client-kick" in LIVE and "bridgeId" in LIVE, "standalone Kick 
 check("reconcile_standalone_bans" in URF and "reconcile-all" in STANDALONE, "global Ban is not reconciled to standalone adapters")
 check("disconnect-until-reconnect" in STANDALONE and "appliedPolicyDigest" in STANDALONE, "standalone acknowledgment contracts are incomplete")
 check("allscan-reimagined-standalone-admin" in REAPPLY, "standalone administration helper is not installed")
-check("asr-standalone-admin.py" in NATIVE_REAPPLY and "asr-urf-admin.py" in NATIVE_REAPPLY,
+check("asr-standalone-admin.py" in NATIVE_REAPPLY and "asr-urf-admin.py" in NATIVE_REAPPLY
+      and "asr-asl-ban.py" in NATIVE_REAPPLY,
       "native installer does not install bridge administration helpers")
 check("allscan-reimagined-standalone-admin kick" in NATIVE_REAPPLY,
       "native sudo policy does not authorize capability-gated standalone Kick")
-check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD_RELEASE,
+check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD_RELEASE
+      and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
 check("Find connected client" in APP and "urfClientFilter" in APP, "URF client search missing")

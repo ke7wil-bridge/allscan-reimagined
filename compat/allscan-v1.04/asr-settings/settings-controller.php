@@ -359,6 +359,44 @@ function asrSettingsCustomYsfReflectorsText($reflectors) {
 	return implode("\n", $lines);
 }
 
+function asrSettingsValidateCustomYsfCatalog($bridges, &$error) {
+	$error = '';
+	foreach((array)$bridges as $bridge) {
+		if(!is_array($bridge) || ($bridge['cardType'] ?? '') !== 'ysf_net' || empty($bridge['ysfCustomReflectors'])) continue;
+		$path = (string)($bridge['ysfHostsPath'] ?? '');
+		if($path === '' || !is_file($path) || is_link($path) || !is_readable($path) || filesize($path) > 2097152) continue;
+		$byId = [];
+		$byName = [];
+		foreach(file($path, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+			if($line === '' || $line[0] === '#') continue;
+			$fields = explode(';', $line);
+			if(count($fields) < 5) continue;
+			$id = trim($fields[0]);
+			$name = strtoupper(trim(preg_replace('/\s+/', ' ', $fields[1])));
+			if(!preg_match('/^[0-9]{5}$/D', $id) || $name === '') continue;
+			$byId[$id] = $name;
+			$byName[strtolower($name)][] = $id;
+		}
+		foreach($bridge['ysfCustomReflectors'] as $custom) {
+			if(!is_array($custom)) continue;
+			$id = (string)($custom['id'] ?? '');
+			$name = strtoupper((string)($custom['name'] ?? ''));
+			$host = strtolower((string)($custom['host'] ?? ''));
+			$localOverride = in_array($host, ['127.0.0.1','localhost','::1'], true);
+			if(isset($byId[$id]) && !$localOverride) {
+				$error = "Custom YSF reflector \"$name\" duplicates installed reflector ID $id. Remove the custom entry and use catalog destination $id.";
+				return false;
+			}
+			$nameIds = $byName[strtolower($name)] ?? [];
+			if(!empty($nameIds)) {
+				$error = "Custom YSF reflector \"$name\" duplicates the installed catalog. Remove the custom entry and use catalog destination " . implode(', ', $nameIds) . '.';
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 function asrSettingsDefaultBridgeTitle($id) {
 	switch($id) {
 		case 'dmr': return 'DMR Bridge';
@@ -1874,8 +1912,10 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			<?php if($cardType === 'dmr_net' && $id !== ''): ?>
 			<div class="asr-dmr-security-maintenance" data-dmr-security-maintenance data-bridge-id="<?php echo asrSettingsH($id); ?>">
 				<div class="asr-bridge-section-copy"><strong>DMR / TGIF Security</strong><span>Replace either TGIF credential without reinstalling the bridge. Leave the other field blank to keep its saved value.</span></div>
+				<p class="asr-bridge-section-note"><strong>TGIF device DMR ID/ESSID:</strong> <code><?php echo asrSettingsH(preg_match('/^[0-9]{6,9}$/D', (string)($bridge['dmrNetworkId'] ?? '')) ? (string)$bridge['dmrNetworkId'] : 'Unavailable - reinstall the DMR Net Bridge'); ?></code>. Create the Static TG token for this exact device in TGIF Self Care; do not create a new ESSID unless another live device already uses it.</p>
 				<label><span>TGIF hotspot key</span><input data-dmr-hotspot-key type="password" maxlength="128" autocomplete="new-password" placeholder="Leave blank to keep the saved key"><small>Copy the current Hotspot Security Key from TGIF Security. Saving a replacement briefly restarts only the DMR bridge.</small></label>
-				<label><span>TGIF Static TG API token</span><input data-dmr-static-token type="password" maxlength="4096" autocomplete="new-password" placeholder="Leave blank to keep the saved token"><small>Create it in TGIF Self Care for this bridge's exact DMR ID/ESSID. ASR stores it root-only and never displays it again.</small></label>
+				<label><span>TGIF Static TG API token</span><input data-dmr-static-token type="password" maxlength="4096" autocomplete="new-password" placeholder="Paste the long TGIFSTG1 secret"><small>Paste the complete one-time secret beginning with TGIFSTG1, not the short hexadecimal Token ID. ASR stores it root-only and never displays it again.</small></label>
+				<p class="asr-bridge-section-note">TGIF does not permit protected destinations such as 9, 777, 4000, 9990, or 31000 through the Static TG API. Test with an authorized ordinary talkgroup.</p>
 				<button type="button" data-dmr-security-update>Save and verify DMR security</button>
 				<p data-dmr-security-status role="status"></p>
 			</div>
@@ -1984,7 +2024,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 			<details class="asr-progressive-details asr-advanced-details">
 				<summary><span class="asr-disclosure-chevron">&gt;</span> Technical bridge identity</summary>
 				<div class="asr-bridge-section-copy"><strong>Internal bridge details</strong><span>These identifiers help diagnostics and installers match this card to its backend. They do not change radio behavior.</span></div>
-				<dl class="asr-bridge-technical-identity"><dt>Bridge ID</dt><dd><code><?php echo asrSettingsH($id !== '' ? $id : 'assigned when saved'); ?></code></dd><dt>Digital mode</dt><dd><?php echo asrSettingsH(strtoupper($mode)); ?></dd><dt>Configuration ownership</dt><dd><?php echo asrSettingsH($ownershipState === 'owned' ? 'ASR managed' : ($ownershipState === 'unknown' ? 'Unable to determine' : 'External or display only')); ?></dd></dl>
+				<dl class="asr-bridge-technical-identity"><dt>Bridge ID</dt><dd><code><?php echo asrSettingsH($id !== '' ? $id : 'assigned when saved'); ?></code></dd><dt>Digital mode</dt><dd><?php echo asrSettingsH(strtoupper($mode)); ?></dd><?php if($cardType === 'dmr_net'): ?><dt>TGIF DMR ID/ESSID</dt><dd><code><?php echo asrSettingsH((string)($bridge['dmrNetworkId'] ?? 'unavailable')); ?></code></dd><?php endif; ?><dt>Configuration ownership</dt><dd><?php echo asrSettingsH($ownershipState === 'owned' ? 'ASR managed' : ($ownershipState === 'unknown' ? 'Unable to determine' : 'External or display only')); ?></dd></dl>
 			</details>
 			<label><span>Client/Talker Heading <small class="asr-field-requirement">Optional</small></span><input name="bridgeDetailTitle[]" type="text" placeholder="Use the mode-specific default" value="<?php echo asrSettingsH($bridge['detailTitle'] ?? ''); ?>"><small>Advanced display-only override for the dashboard heading. It does not change what data the bridge supplies.</small></label>
 		</div>
@@ -2004,6 +2044,10 @@ function asrSettingsUnifiedNetBridgePanel($bridges, $activeMode, $bridgePassword
 	<div class="asr-unified-net-bridge-settings asr-bridge-order-item">
 		<div class="asr-unified-net-bridge-header"><span><strong class="asr-bridge-panel-name">Net Bridge</strong><span>Shared node 1999 · <?php echo asrSettingsH(implode(' · ', $installedLabels)); ?><?php echo isset($byMode[$activeMode]) ? ' · Active: ' . asrSettingsH(strtoupper($activeMode)) : ''; ?></span></span><?php asrSettingsBridgeOrderControls(false, false); ?></div>
 		<p class="asr-settings-inline-note">One private transport is shared by the installed modes. Only the selected dashboard mode runs; each installed mode keeps its own destination.</p>
+		<div class="asr-net-bridge-reset" data-net-bridge-reset>
+			<button type="button" data-net-bridge-reset-button>Reset Net Bridge runtime</button>
+			<span data-net-bridge-reset-status role="status">Disconnects the current digital session, restarts only the Net Bridge services, and restores node 1999. Saved modes, credentials, and other bridges are preserved.</span>
+		</div>
 		<?php foreach($modeLabels as $mode => $label): if(empty($byMode[$mode])) continue; ?>
 		<details class="asr-net-mode-settings"><summary><?php echo $label; ?> configuration</summary>
 			<?php asrSettingsBridgePanel($byMode[$mode], $bridgePasswords, $ysfCatalogStatuses, $lifecycle, true); ?>
@@ -2175,7 +2219,7 @@ function asrSettingsNetBridgeSetupPayload($requireSecret, &$error) {
 	elseif(isset($payload['modes']['m17']) && !preg_match('/^M17-[A-Z0-9]{3}$/D', $payload['modes']['m17']['reflector'])) $error = 'Enter an M17 reflector such as M17-WIL.';
 	elseif(isset($payload['modes']['dmr']) && $payload['modes']['dmr']['authMode'] !== 'secured') $error = 'DMR Net Bridge requires a secured TGIF connection.';
 	elseif(isset($payload['modes']['dmr']) && $requireSecret && $payload['modes']['dmr']['authMode'] === 'secured' && ($payload['modes']['dmr']['tgifPassword'] === '' || strlen($payload['modes']['dmr']['tgifPassword']) > 128 || preg_match('/[\x00-\x1F\x7F]/', $payload['modes']['dmr']['tgifPassword']))) $error = 'Enter a valid TGIF hotspot key.';
-	elseif(isset($payload['modes']['dmr']) && $requireSecret && (strlen($payload['modes']['dmr']['tgifStaticToken']) < 16 || strlen($payload['modes']['dmr']['tgifStaticToken']) > 4096 || preg_match('/[^\x21-\x7E]/', $payload['modes']['dmr']['tgifStaticToken']))) $error = 'Enter the device-scoped TGIF Static TG API token.';
+	elseif(isset($payload['modes']['dmr']) && $requireSecret && !preg_match('/^TGIFSTG1\.[A-F0-9]{16}\.[A-F0-9]{16}\.[A-Za-z0-9_-]{16,4096}$/D', $payload['modes']['dmr']['tgifStaticToken'])) $error = 'Paste the complete TGIF Static TG secret beginning with TGIFSTG1, not the short hexadecimal Token ID.';
 	foreach(['ysf','p25','nxdn','m17'] as $mode) {
 		if($error !== '') break;
 		if(!isset($payload['modes'][$mode])) continue;
@@ -2201,13 +2245,20 @@ function asrSettingsDmrSecurityPayload(&$error) {
 	if($payload['bridgeId'] === '') $error = 'The installed DMR Net Bridge was not identified.';
 	elseif($payload['tgifPassword'] === '' && $payload['tgifStaticToken'] === '') $error = 'Enter a replacement TGIF hotspot key or Static TG API token.';
 	elseif($payload['tgifPassword'] !== '' && (strlen($payload['tgifPassword']) > 128 || preg_match('/[^\x21-\x7E]/', $payload['tgifPassword']))) $error = 'Enter a valid TGIF hotspot key.';
-	elseif($payload['tgifStaticToken'] !== '' && !preg_match('/^TGIFSTG1\.[A-F0-9]{16}\.[A-F0-9]{16}\.[A-Za-z0-9_-]{16,4096}$/D', $payload['tgifStaticToken'])) $error = 'Enter a valid device-scoped TGIF Static TG API token.';
+	elseif($payload['tgifStaticToken'] !== '' && !preg_match('/^TGIFSTG1\.[A-F0-9]{16}\.[A-F0-9]{16}\.[A-Za-z0-9_-]{16,4096}$/D', $payload['tgifStaticToken'])) $error = 'Paste the complete TGIF Static TG secret beginning with TGIFSTG1, not the short hexadecimal Token ID.';
 	return $payload;
+}
+
+function asrSettingsNetBridgeResetPayload(&$error) {
+	$error = '';
+	$confirmation = asrSettingsCleanText($_POST['confirmation'] ?? '', 32);
+	if($confirmation !== 'RESET NET BRIDGE') $error = 'Net Bridge reset confirmation is invalid.';
+	return ['confirmation' => $confirmation];
 }
 
 function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 	$error = '';
-	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
+	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
 	if(!function_exists('proc_open') || !is_executable(ASR_BRIDGE_SETUP_HELPER)) { $error = 'Bridge setup helper is not installed.'; return null; }
 	$hostSocket = '/run/allscan-reimagined-host/bridge-setup.sock';
 	$command = @filetype($hostSocket) === 'socket'
@@ -2574,7 +2625,7 @@ $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
 $urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
 
-$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
+$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
 	header('Content-Type: application/json; charset=utf-8');
 	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
 	$error = '';
@@ -2582,8 +2633,9 @@ $bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nx
 		$error = 'Bridge setup request was not authorized.';
 		$result = null;
 	} else {
-		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0]);
+		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : ($asrAction === 'net-bridge-reset' ? 'net_bridge_reset' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0]));
 		if($mode === 'dmr_security') $payload = asrSettingsDmrSecurityPayload($error);
+		elseif($mode === 'net_bridge_reset') $payload = asrSettingsNetBridgeResetPayload($error);
 		elseif($mode === 'net_bridge') $payload = asrSettingsNetBridgeSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'zello') $payload = asrSettingsZelloSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
@@ -2746,8 +2798,9 @@ if($urfAdminAction !== '') {
 		if($bridgeError) {
 			$saveError = $bridgeError;
 		} else {
+			if($isBridgeSave) asrSettingsValidateCustomYsfCatalog($bridges, $saveError);
 			$postedBridgeIds = is_array($_POST['bridgeId'] ?? null) ? $_POST['bridgeId'] : [];
-			if($isBridgeSave) asrSettingsValidateOwnedBridgeMutations(
+			if($isBridgeSave && $saveError === '') asrSettingsValidateOwnedBridgeMutations(
 				$existingNonUrf, $bridges, $postedBridgeIds,
 				$bridgeLifecyclePreviews, $saveError
 			);
@@ -3157,7 +3210,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="lowPowerMode" type="checkbox" value="1"<?php echo $lowPowerMode ? ' checked' : ''; ?>>
 			<span>Low-Power Node Mode</span>
 		</label>
-		<p class="asr-settings-inline-note">Reduces background work and disables animated themes for smaller nodes.</p>
+		<p class="asr-settings-inline-note">Reduces node-side polling on resource-constrained hosts. Viewer performance is controlled per browser under Menu → Theme.</p>
 	</section>
 	<?php endif; ?>
 
@@ -3211,7 +3264,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="lowPowerMode" type="checkbox" value="1"<?php echo $lowPowerMode ? ' checked' : ''; ?>>
 			<span>Low-Power Node Mode</span>
 		</label>
-		<p class="asr-settings-inline-note">Reduces background work and disables animated themes for smaller nodes.</p>
+		<p class="asr-settings-inline-note">Reduces node-side polling on resource-constrained hosts. Viewer performance is controlled per browser under Menu → Theme.</p>
 		<?php endif; ?>
 	</section>
 
@@ -4191,6 +4244,26 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				.then(function(response) { return response.json().catch(function() { throw new Error('TGIF token update returned an invalid response.'); }).then(function(data) { if(!response.ok || !data.ok) throw new Error(data.error || 'TGIF token update failed.'); return data.result; }); })
 				.then(function(result) { if(password) password.value = ''; input.value = ''; status.textContent = 'Saved for DMR ID/ESSID ' + (result.dmrNetworkId || 'configured on this bridge') + '. Test a talkgroup from the main dashboard.'; })
 				.catch(function(error) { status.textContent = error instanceof Error ? error.message : 'TGIF token update failed.'; })
+				.finally(function() { button.disabled = false; });
+		});
+	});
+	document.querySelectorAll('[data-net-bridge-reset]').forEach(function(panel) {
+		var button = panel.querySelector('[data-net-bridge-reset-button]');
+		var status = panel.querySelector('[data-net-bridge-reset-status]');
+		if(!button || !status) return;
+		button.addEventListener('click', function() {
+			if(!window.confirm('Reset the Net Bridge runtime now? The current digital session will disconnect briefly. Other bridges and saved settings will not be changed.')) return;
+			var csrf = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
+			var values = new URLSearchParams();
+			values.set('asrAction', 'net-bridge-reset');
+			values.set('settingsSaveCsrf', csrf ? csrf.value : '');
+			values.set('confirmation', 'RESET NET BRIDGE');
+			button.disabled = true;
+			status.textContent = 'Resetting the Net Bridge runtime and restoring node 1999…';
+			fetch(window.location.href.split('#')[0], {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:values.toString()})
+				.then(function(response) { return response.json().catch(function() { throw new Error('Net Bridge reset returned an invalid response.'); }).then(function(data) { if(!response.ok || !data.ok) throw new Error(data.error || 'Net Bridge reset failed.'); return data.result; }); })
+				.then(function(result) { status.textContent = 'Reset complete. ' + String(result.mode || 'Selected').toUpperCase() + ' is active and node 1999 is restored.'; })
+				.catch(function(error) { status.textContent = error instanceof Error ? error.message : 'Net Bridge reset failed.'; })
 				.finally(function() { button.disabled = false; });
 		});
 	});

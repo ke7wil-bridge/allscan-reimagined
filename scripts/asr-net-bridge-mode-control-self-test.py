@@ -247,6 +247,17 @@ def main() -> None:
                        for command in runner.commands)
 
         with tempfile.TemporaryDirectory() as temporary:
+            profile, original = fixture(Path(temporary))
+            runner = FakeRunner()
+            reset = control.reset_runtime(profile, runner)
+            assert reset["ok"] and reset["reset"] and reset["mode"] == "dmr"
+            assert reset["transportLinked"] is True
+            assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
+            assert json.loads((profile.asr_config / "config.json").read_text()) == original
+            assert any(command and command[0].endswith("managed-dmr-net-control")
+                       for command in runner.commands)
+
+        with tempfile.TemporaryDirectory() as temporary:
             profile, _original = fixture(Path(temporary))
             runner = FakeRunner(fail_mode="p25")
             rejected(control.switch_mode, "p25", profile, runner)
