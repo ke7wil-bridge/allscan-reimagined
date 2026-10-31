@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.14';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.14';
+const ASR_VERSION = '1.0.0-beta.8.1.5.15';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.15';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -560,6 +560,7 @@ function asr_runtime_config(): array {
         'netBridgeMode' => $selectedNetBridgeMode,
         'storageWarning' => $storageWarning,
         'phpSecurityWarning' => $phpSecurityWarning,
+        'resourceWarnings' => asr_resource_warnings(),
         'headerTitle' => $headerTitle,
         'browserTitle' => $browserTitle,
         'brandByline' => 'by KE7WIL',
@@ -572,6 +573,25 @@ function asr_runtime_config(): array {
         'protectedBanIdentities' => asr_protected_ban_identities(),
         'bridges' => $bridges,
     ];
+}
+
+function asr_resource_warnings(): array {
+    $path = '/run/allscan-reimagined/node-diagnostics.json';
+    if (!is_readable($path)) return [];
+    $payload = json_decode((string) @file_get_contents($path), true);
+    if (!is_array($payload) || !is_array($payload['warnings'] ?? null)) return [];
+    $sample = is_array($payload['sample'] ?? null) ? $payload['sample'] : [];
+    $epoch = (int) ($sample['epoch'] ?? 0);
+    if ($epoch <= 0 || abs(time() - $epoch) > 180) return [];
+    return array_values(array_slice(array_filter($payload['warnings'], static fn($v) => is_string($v) && strlen($v) <= 160), 0, 4));
+}
+
+function asr_node_diagnostics_payload(): array {
+    $path = '/run/allscan-reimagined/node-diagnostics.json';
+    if (!is_readable($path)) return ['ok' => false, 'available' => false, 'warnings' => []];
+    $payload = json_decode((string) @file_get_contents($path), true);
+    if (!is_array($payload)) return ['ok' => false, 'available' => false, 'warnings' => []];
+    return ['ok' => true, 'available' => true] + $payload;
 }
 
 function asr_release_status_payload(): array {
@@ -4153,6 +4173,10 @@ if ($action === 'tgif-user-logout') {
     asr_json(asr_tgif_node_command('logout'));
 }
 if ($action === 'runtime-config') asr_json(asr_runtime_config());
+if ($action === 'node-diagnostics') {
+    asr_require_read();
+    asr_json(asr_node_diagnostics_payload());
+}
 if ($action === 'release-status') {
     asr_require_read();
     asr_json(asr_release_status_payload());

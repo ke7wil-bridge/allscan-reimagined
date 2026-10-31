@@ -1501,11 +1501,11 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [authStatus.loggedIn, config.tgifSessionRequired])
 
   useEffect(() => {
-    const warnings = [config.storageWarning, config.phpSecurityWarning].filter(Boolean) as string[]
+    const warnings = [config.storageWarning, config.phpSecurityWarning, ...(config.resourceWarnings || [])].filter(Boolean) as string[]
     if (!warnings.length) return
     const timer = window.setTimeout(() => warnings.forEach((warning) => appendNodeMessage(warning)), 0)
     return () => window.clearTimeout(timer)
-  }, [config.phpSecurityWarning, config.storageWarning])
+  }, [config.phpSecurityWarning, config.resourceWarnings, config.storageWarning])
 
   useEffect(() => {
     if (!config.node) {
@@ -3391,6 +3391,11 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
 
         <main className="allscan-dashboard mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
+          {config.resourceWarnings?.length ? (
+            <aside className="allscan-resource-notice" role="alert" aria-live="polite" aria-label="Node resource warning">
+              <div><strong>Node resource warning</strong>{config.resourceWarnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+            </aside>
+          ) : null}
           {authStatus.loggedIn && config.tgifSessionRequired && tgifUserStatus && (!tgifUserStatus.configured || tgifUserStatus.reauthRequired) ? (
             <aside className="allscan-tgif-notice" role="alert" aria-live="polite" aria-label="Node-wide TGIF sign-in required">
               <div className="allscan-tgif-notice-copy">

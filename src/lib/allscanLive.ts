@@ -47,6 +47,7 @@ export type RuntimeConfig = {
   bridgeOrderVersion?: number
   storageWarning?: string
   phpSecurityWarning?: string
+  resourceWarnings?: string[]
   headerTitle: string
   browserTitle: string
   brandByline: string
@@ -68,7 +69,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.14'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.15'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',

@@ -128,6 +128,7 @@ python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
+python3 "$ROOT/scripts/asr-node-diagnostics.py" --self-test
 python3 "$ROOT/scripts/asr-apache-listeners.py" self-test
 python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
@@ -199,6 +200,7 @@ install -m 644 asr-api.php "$STAGE/payload/server/asr-api.php"
 install -m 755 allscan_wt_clients.sh "$STAGE/payload/bin/allscan_wt_clients.sh"
 install -m 755 scripts/asr-configure.sh "$STAGE/payload/scripts/asr-configure.sh"
 install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
+install -m 755 scripts/asr-node-diagnostics.py "$STAGE/payload/scripts/asr-node-diagnostics.py"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 install -m 755 scripts/asr-protected-config-metadata.py "$STAGE/payload/scripts/asr-protected-config-metadata.py"
 install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"

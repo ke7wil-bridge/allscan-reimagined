@@ -1220,6 +1220,40 @@ fi
 [ -f "$ALLSCAN_DIR/asr-connected-clients.json" ] && chown "root:$WEB_GROUP" "$ALLSCAN_DIR/asr-connected-clients.json"
 [ -f "$ALLSCAN_DIR/asr-connected-clients.json" ] && chmod 664 "$ALLSCAN_DIR/asr-connected-clients.json"
 
+if [ "$WEB_ONLY" != "1" ]; then
+  install -m 755 "$MASTER_DIR/scripts/asr-node-diagnostics.py" /usr/local/sbin/allscan-reimagined-node-diagnostics
+  install -d -o root -g "$WEB_GROUP" -m 750 /var/lib/allscan-reimagined/diagnostics
+  cat > /etc/systemd/system/allscan-reimagined-node-diagnostics.service <<'EOF'
+[Unit]
+Description=AllScan Reimagined node diagnostics flight recorder
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-node-diagnostics
+Nice=10
+IOSchedulingClass=idle
+EOF
+  cat > /etc/systemd/system/allscan-reimagined-node-diagnostics.timer <<'EOF'
+[Unit]
+Description=Sample ASR node resources every minute
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+  install -d -o root -g root -m 755 /etc/systemd/system/asterisk.service.d
+  cat > /etc/systemd/system/asterisk.service.d/asr-resource-priority.conf <<'EOF'
+[Service]
+OOMScoreAdjust=-750
+Nice=-5
+EOF
+  systemctl daemon-reload
+  systemctl enable --now allscan-reimagined-node-diagnostics.timer >/dev/null 2>&1 || true
+fi
+
 if command -v apache2ctl >/dev/null 2>&1; then
   python3 "$MASTER_DIR/scripts/asr-apache-listeners.py" capture
   cat > /etc/apache2/conf-available/allscan-reimagined.conf <<EOF
@@ -1281,6 +1315,14 @@ if command -v apache2ctl >/dev/null 2>&1; then
     <FilesMatch "\.(png|gif|svg|webp)$">
         Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
+</IfModule>
+
+<IfModule mpm_prefork_module>
+    StartServers 2
+    MinSpareServers 2
+    MaxSpareServers 5
+    MaxRequestWorkers 20
+    MaxConnectionsPerChild 500
 </IfModule>
 
 <IfModule mod_php.c>
