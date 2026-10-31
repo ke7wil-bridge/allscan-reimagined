@@ -915,6 +915,10 @@ def main() -> int:
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
     assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
     assert "layered-asr-state:/var/lib/allscan-reimagined" in compose_source
+    assert "allscan-reimagined-tgif-user-session status node" in layered_reapply
+    assert "allscan-reimagined-tgif-user-session login node" in layered_reapply
+    assert "allscan-reimagined-tgif-user-session logout node" in layered_reapply
+    assert "allscan-reimagined-tgif-user-session status [0-9]*" not in layered_reapply
     host_boundary = "if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then"
     assert layered_reapply.index(host_boundary) < layered_reapply.index(
         "install -d -o root -g root -m 755 /run/allscan-reimagined-m17"
