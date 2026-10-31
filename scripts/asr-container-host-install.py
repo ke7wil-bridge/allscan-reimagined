@@ -29,7 +29,7 @@ SOCKET_TMPFILES = Path("/etc/tmpfiles.d/allscan-reimagined-container-provisionin
 HOST_FILES = (
     "asr-provisioning-backend.py", "asr-container-host-broker.py",
     "asr-container-netns-exec.py", "asr-container-systemctl.py",
-    "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-bridge-setup-core.py",
+    "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
     "asr-bridge-setup-m17.py", "asr-bridge-setup-helper.py",
     "asr-bridge-runtime-sources.py", "asr-bridge-urf-native-runtime.py", "asr-bridge-setup-digital.py",
@@ -809,7 +809,34 @@ ReadWritePaths={run_dir} /var/log/allscan-reimagined
 [Install]
 WantedBy=multi-user.target
 """, 0o644)
+    diagnostics = DEST / "asr-node-diagnostics.py"
+    atomic(Path("/etc/systemd/system/allscan-reimagined-node-diagnostics.service"), f"""[Unit]
+Description=AllScan Reimagined node diagnostics flight recorder
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart={diagnostics}
+Nice=10
+IOSchedulingClass=idle
+""", 0o644)
+    atomic(Path("/etc/systemd/system/allscan-reimagined-node-diagnostics.timer"), """[Unit]
+Description=Sample ASR node resources every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+""", 0o644)
+    Path("/var/lib/allscan-reimagined/diagnostics").mkdir(parents=True, exist_ok=True)
+    os.chmod("/var/lib/allscan-reimagined/diagnostics", 0o750)
     subprocess.run(["systemctl", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "enable", "allscan-reimagined-node-diagnostics.timer"], check=True)
+    subprocess.run(["systemctl", "restart", "allscan-reimagined-node-diagnostics.timer"], check=True)
     # This command is an explicit administrator reapply boundary.  Restart the
     # host-side entry points so newly installed validation and sandbox policy is
     # effective immediately; no web request can invoke this installer.

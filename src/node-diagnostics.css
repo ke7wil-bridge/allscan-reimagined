@@ -1,0 +1,17 @@
+.allscan-resource-notice {
+  display: flex;
+  align-items: center;
+  margin: 6px 0;
+  padding: 9px 12px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: rgba(127, 88, 0, 0.16);
+}
+.allscan-resource-notice > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.allscan-resource-notice strong { flex-basis: 100%; }
+.allscan-resource-notice span { display: block; }
+@media (max-width: 640px) {
+  .allscan-resource-notice { margin: 4px 0; padding: 8px 10px; }
+  .allscan-resource-notice > div { display: block; }
+  .allscan-resource-notice span { margin-top: 3px; }
+}
