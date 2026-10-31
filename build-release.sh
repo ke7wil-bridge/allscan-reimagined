@@ -90,6 +90,10 @@ grep -Fq "const ASR_VERSION = '$VERSION';" "$ROOT/asr-api.php" || {
   echo "asr-api.php ASR_VERSION does not match package.json version: $VERSION" >&2
   exit 1
 }
+grep -Fq "version: '$VERSION'" "$ROOT/src/config/whatsNew.ts" || {
+  echo "What's New version does not match package.json: $VERSION" >&2
+  exit 1
+}
 grep -Fq '<title>AllScan Reimagined</title>' "$ROOT/index.html" || {
   echo "index.html must use the generic pre-configuration browser title." >&2
   exit 1

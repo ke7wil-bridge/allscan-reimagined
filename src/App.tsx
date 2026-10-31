@@ -3,6 +3,7 @@ import { createPortal, flushSync } from 'react-dom'
 import { AlertTriangle, ArrowUpDown, ChevronDown, ChevronLeft, Menu, Pencil, RotateCcw, Search, Trash2, Palette } from 'lucide-react'
 import { headerStats } from './mockData'
 import UpdateAsrDialog from './components/UpdateAsrDialog'
+import { ASR_WHATS_NEW } from './config/whatsNew'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
@@ -82,6 +83,7 @@ const TOUCH_MODULE_DRAG_CANCEL_DISTANCE_PX = 8
 const FAVORITES_OPEN_KEY = 'asrFavoritesOpen.v1'
 const TALKERS_OPEN_KEY = 'asrTalkersOpen.v1'
 const UPDATE_NOTICE_DISMISS_KEY = 'asrUpdateNoticeDismissedVersion.v1'
+const WHATS_NEW_SEEN_KEY = 'asrWhatsNewSeenVersion.v1'
 const FAVORITES_LOAD_ERROR = 'Favorites list could not be loaded.'
 const URF_BAN_DURATIONS = [
   { value: '15m', label: '15 minutes' },
@@ -272,6 +274,24 @@ function writeDismissedUpdateVersion(version: string) {
     window.localStorage.setItem(UPDATE_NOTICE_DISMISS_KEY, version)
   } catch {
     // Ignore update-notice preference write failures.
+  }
+}
+
+function readWhatsNewSeenVersion() {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(WHATS_NEW_SEEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeWhatsNewSeenVersion(version: string) {
+  if (typeof window === 'undefined' || !version) return
+  try {
+    window.localStorage.setItem(WHATS_NEW_SEEN_KEY, version)
+  } catch {
+    // Ignore browser preference write failures.
   }
 }
 
@@ -675,6 +695,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null)
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState(readDismissedUpdateVersion)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [updateDialogView, setUpdateDialogView] = useState<'update' | 'whats-new'>('update')
   const [supportFeedbackOpen, setSupportFeedbackOpen] = useState(false)
   const [donateAsrOpen, setDonateAsrOpen] = useState(false)
   const favoriteTxHistory = useRef<Record<string, { keyups: number; txtime: number; time: number; txPct: number }>>({})
@@ -1340,8 +1361,18 @@ function App({ config }: { config: RuntimeConfig }) {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
     // Opening the requested admin dialog is the purpose of this URL-driven effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUpdateDialogView('update')
     setUpdateDialogOpen(true)
   }, [authStatus.isAdmin])
+
+  useEffect(() => {
+    if (!authStatus.isAdmin || updateDialogOpen || readWhatsNewSeenVersion() === ASR_WHATS_NEW.version) return
+    writeWhatsNewSeenVersion(ASR_WHATS_NEW.version)
+    // A newly installed version opens its plain-language summary once per browser.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUpdateDialogView('whats-new')
+    setUpdateDialogOpen(true)
+  }, [authStatus.isAdmin, updateDialogOpen])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -3298,7 +3329,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-settings/')} onClick={() => setMenuOpen(false)}>Settings</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('cfg/')} onClick={() => setMenuOpen(false)}>Manage Favorites</a> : null}
                   {authStatus.isAdmin ? <a role="menuitem" href={asrPath('asr-instructions/')} onClick={() => setMenuOpen(false)}>Help &amp; Instructions</a> : null}
-                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
+                  {authStatus.isAdmin ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setOpenSubmenu(null); setUpdateDialogView('update'); setUpdateDialogOpen(true) }}>Update ASR</button> : null}
                   <a role="menuitem" href={`http://stats.allstarlink.org/stats/${config.node}`} onClick={() => setMenuOpen(false)}>Node Status</a>
                   {authStatus.canWrite ? <button type="button" role="menuitem" onClick={restartAsterisk}>Restart Asterisk</button> : null}
                   {!authStatus.loggedIn ? (
@@ -3390,7 +3421,7 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
               <div className="allscan-update-actions">
                 {authStatus.isAdmin ? (
-                  <button type="button" onClick={() => setUpdateDialogOpen(true)}>Update in Browser</button>
+                  <button type="button" onClick={() => { setUpdateDialogView('update'); setUpdateDialogOpen(true) }}>Update in Browser</button>
                 ) : null}
                 <button type="button" onClick={() => {
                   writeDismissedUpdateVersion(releaseStatus.availableVersion)
@@ -4298,7 +4329,7 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
       ) : null}
 
-      {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
+      {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog initialView={updateDialogView} onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
       {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
       {donateAsrOpen ? <SupportAsrDialog onClose={() => setDonateAsrOpen(false)} /> : null}

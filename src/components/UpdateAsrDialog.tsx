@@ -3,6 +3,7 @@ import {
   asrPath, checkAsrUpdate, fetchAsrUpdateJob, queueAsrUpdate,
   type UpdateCheck, type UpdateJob,
 } from '../lib/allscanLive'
+import { ASR_WHATS_NEW } from '../config/whatsNew'
 
 const STORED_JOB = 'asrUpdateJobId.v1'
 const ACTIVE = new Set(['queued', 'preflight', 'downloading', 'verifying', 'staging', 'backup', 'installing', 'restoring', 'health'])
@@ -15,7 +16,18 @@ const LABELS: Record<string, string> = {
   failed: 'Update needs attention',
 }
 
-export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onClose: () => void; initialUpdate?: UpdateCheck | null }) {
+type UpdateDialogView = 'update' | 'whats-new'
+
+export default function UpdateAsrDialog({
+  onClose,
+  initialUpdate = null,
+  initialView = 'update',
+}: {
+  onClose: () => void
+  initialUpdate?: UpdateCheck | null
+  initialView?: UpdateDialogView
+}) {
+  const [view, setView] = useState<UpdateDialogView>(initialView)
   const [available, setAvailable] = useState<UpdateCheck | null>(null)
   const [job, setJob] = useState<UpdateJob | null>(null)
   const [jobId, setJobId] = useState(() => window.localStorage.getItem(STORED_JOB) || '')
@@ -110,6 +122,17 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
           <h2 id="asr-update-title">Update ASR</h2>
           <button type="button" aria-label="Close Update ASR" onClick={onClose}>×</button>
         </header>
+        <div className="asr-update-view-tabs" role="tablist" aria-label="Update ASR options">
+          <button type="button" role="tab" aria-selected={view === 'update'} onClick={() => setView('update')}>Update</button>
+          <button type="button" role="tab" aria-selected={view === 'whats-new'} onClick={() => setView('whats-new')}>What’s New</button>
+        </div>
+        {view === 'whats-new' ? (
+          <section className="asr-whats-new" role="tabpanel" aria-label={`What’s New in ${ASR_WHATS_NEW.label}`}>
+            <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
+            <p>{ASR_WHATS_NEW.summary}</p>
+            <ul>{ASR_WHATS_NEW.items.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
+        ) : <>
         <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
@@ -135,6 +158,7 @@ export default function UpdateAsrDialog({ onClose, initialUpdate = null }: { onC
         </> : null}
         {!job && connectionMessage ? <p role="status">{connectionMessage}</p> : null}
         {error ? <p className="asr-update-error" role="alert">{error}</p> : null}
+        </>}
         <footer><a href={asrPath('asr-settings/?section=system')}>System &amp; Recovery</a><span>Safety checks and rollback protection run automatically.</span></footer>
       </section>
     </div>
