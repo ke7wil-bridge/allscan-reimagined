@@ -6,6 +6,7 @@ const source = readFileSync(
   'utf8',
 )
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+const whatsNewSource = readFileSync(new URL('../src/config/whatsNew.ts', import.meta.url), 'utf8')
 const check = (condition, message) => { if (!condition) throw new Error(message) }
 
 check(
@@ -58,6 +59,25 @@ check(
     && appSource.includes('writeDismissedUpdateVersion(releaseStatus.availableVersion)')
     && appSource.includes('Remind me with the next version'),
   'Update notice cannot be dismissed for only the currently offered version.',
+)
+check(
+  source.includes("initialView = 'update'")
+    && source.includes('>What’s New</button>')
+    && source.includes('ASR_WHATS_NEW.items.map'),
+  'Update ASR does not contain a reusable What’s New option.',
+)
+check(
+  appSource.includes("const WHATS_NEW_SEEN_KEY = 'asrWhatsNewSeenVersion.v1'")
+    && appSource.includes("setUpdateDialogView('whats-new')")
+    && appSource.includes('writeWhatsNewSeenVersion(ASR_WHATS_NEW.version)')
+    && appSource.includes('updateAsrParamHandled.current ||\n      readWhatsNewSeenVersion()'),
+  'What’s New does not open once for each newly installed version.',
+)
+check(
+  whatsNewSource.includes("version: '1.0.0-beta.8.1.5.14'")
+    && whatsNewSource.includes('everyday language')
+    && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
+  'What’s New copy is missing, version-mismatched, or too technical.',
 )
 
 console.log('ASR update dialog self-test passed')

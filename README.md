@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.5.13 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.1.5.14 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -9,15 +9,14 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.13** and remains a prerelease. Beta 8.1.5.12 is the
+This archive is **Beta 8.1.5.14** and remains a prerelease. Beta 8.1.5.13 is the
 previous published prerelease.
 
-Beta 8.1.5.13 makes TGIF connected-client sign-in node-wide, warns administrators
-when TGIF requires another login, prevents the bridge's own DMR identity from
-appearing as a connected client, adds monitored Standard Bridge repair actions,
-preserves custom Apache listener ports through updates, repairs duplicate friendly
-names safely, and keeps Node Controls contained on narrow mobile screens. It
-retains the bridge and security fixes from Beta 8.1.5.12.
+Beta 8.1.5.14 fixes the desktop Node Controls overlap across themes and adds a
+plain-language What's New page inside Update ASR. Administrators see it once
+after installing each version and can reopen it later without adding another
+item to the main menu. It retains the bridge, TGIF, and reliability fixes from
+Beta 8.1.5.13.
 
 Beta 8.1.5.7 fixes native installation on nodes whose web server uses a
 nonstandard port, prevents a harmless unloaded DMR worker from rolling back a

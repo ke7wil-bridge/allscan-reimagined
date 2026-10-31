@@ -95,7 +95,7 @@ check(appAdmin.includes('setUpdateDialogOpen(true)') && appAdmin.includes('Updat
 const commonAdmin = common.slice(common.indexOf('$admin = []'), common.indexOf('$returnMainPages'))
 check(commonAdmin.includes('asr-settings/?section=account') && commonAdmin.includes("asr-settings/\", null, 'Settings'"), 'Server-rendered menu does not use canonical Settings routes.')
 for (const duplicate of ['Update ASR','Performance Stats','Users','Configs','Reimagined Settings']) check(!commonAdmin.includes(duplicate), `Server-rendered Admin menu still contains duplicate ${duplicate}.`)
-check(app.includes('Administrators can install this update here in the browser') && app.includes('onClick={() => setUpdateDialogOpen(true)}>Update in Browser</button>') && updateDialog.includes('asr-settings/?section=system'), 'Dashboard update alert does not clearly open the browser updater or its recovery link is wrong.')
+check(app.includes('Administrators can install this update here in the browser') && app.includes("setUpdateDialogView('update'); setUpdateDialogOpen(true)") && app.includes('>Update in Browser</button>') && updateDialog.includes('asr-settings/?section=system'), 'Dashboard update alert does not clearly open the browser updater or its recovery link is wrong.')
 check(modernJs.includes('flattenSections()'), 'Simple Settings categories are not flattened.')
 check(css.includes('max-height:calc(100dvh - 24px)') && css.includes('@media(max-width:760px)') && css.includes('@media(max-width:480px)'), 'Responsive modal/phone structure is incomplete.')
 check(build.includes('public/js/asr-settings-modern.js') && build.includes('payload/compat/allscan-$compat_version/js/asr-settings-modern.js'), 'Settings modal asset is not packaged.')

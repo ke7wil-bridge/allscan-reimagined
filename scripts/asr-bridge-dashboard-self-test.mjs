@@ -341,6 +341,10 @@ try {
     'Commands button no longer inherits the same theme palette as the neighboring action buttons',
   )
   assert(
+    !/@media \(min-width: 1200px\)[\s\S]{0,300}\.allscan-controls-shell > \.allscan-controls-row:first-child[\s\S]{0,200}padding-right:\s*0\s*!important/.test(indexCssSource),
+    'desktop Node Controls remove the space reserved for Commands and overlap Disconnect',
+  )
+  assert(
     asrApiSource.includes("['connected', 'selected-unverified', 'connected-unverified', 'partial-digital-only']"),
     'Protocol-confirmed P25/NXDN connections must remain linked in the production API',
   )
