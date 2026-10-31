@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.1.5.12 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.1.5.13 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -9,14 +9,15 @@ copying credentials between nodes.
 
 AllScan Reimagined is customized by KE7WIL.
 
-This archive is **Beta 8.1.5.12** and remains a prerelease. Beta 8.1.5.11 is the
+This archive is **Beta 8.1.5.13** and remains a prerelease. Beta 8.1.5.12 is the
 previous published prerelease.
 
-Beta 8.1.5.12 repairs native Global Ban storage, preserves portable and mobile
-callsign suffixes on talker cards, clarifies TGIF device-token setup, blocks
-duplicate custom YSF reflectors before activation, and adds a confirmed Net
-Bridge runtime reset that leaves saved modes, credentials, and other bridges
-untouched. It retains the Docker bridge diagnostics repair from Beta 8.1.5.11.
+Beta 8.1.5.13 makes TGIF connected-client sign-in node-wide, warns administrators
+when TGIF requires another login, prevents the bridge's own DMR identity from
+appearing as a connected client, adds monitored Standard Bridge repair actions,
+preserves custom Apache listener ports through updates, repairs duplicate friendly
+names safely, and keeps Node Controls contained on narrow mobile screens. It
+retains the bridge and security fixes from Beta 8.1.5.12.
 
 Beta 8.1.5.7 fixes native installation on nodes whose web server uses a
 nonstandard port, prevents a harmless unloaded DMR worker from rolling back a

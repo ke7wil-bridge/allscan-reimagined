@@ -23,6 +23,7 @@ import {
   fetchFastYsfNetActivity,
   fetchZelloFastRelay,
   fetchAuthStatus,
+  fetchTgifUserStatus,
   fetchCpuTemp,
   fetchCustomCommands,
   fetchDropClients,
@@ -40,6 +41,7 @@ import {
   kickStandaloneClient,
   provisionedNetBridgeModes,
   restartAsteriskCommand,
+  repairStandardBridge,
   saveCustomCommands,
   summarizeConnectionTotal,
   connectBridge,
@@ -50,6 +52,7 @@ import {
   subscribeConnectionFeed,
   type BridgeCardView,
   type AuthStatus,
+  type TgifUserStatus,
   type DropClientEntry,
   type CustomCommand,
   type FavoriteNode,
@@ -557,6 +560,7 @@ function App({ config }: { config: RuntimeConfig }) {
       warning: '-',
       healthSeverity: null,
       healthIssues: [],
+      repairAvailable: false,
       currentTg: '',
       currentDestination: '',
       currentDestinationLabel: '',
@@ -658,6 +662,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [lcarsHeaderNumbers, setLcarsHeaderNumbers] = useState(() => makeLcarsHeaderNumbers())
   const [busy, setBusy] = useState(false)
   const [authStatus, setAuthStatus] = useState<AuthStatus>(loggedOutAuth)
+  const [tgifUserStatus, setTgifUserStatus] = useState<TgifUserStatus | null>(null)
   const [urfAccessOpen, setUrfAccessOpen] = useState(false)
   const [urfBlacklist, setUrfBlacklist] = useState<string[]>([])
   const [urfBans, setUrfBans] = useState<UrfBan[]>([])
@@ -1438,6 +1443,27 @@ function App({ config }: { config: RuntimeConfig }) {
       window.removeEventListener('focus', refreshCustomCommands)
     }
   }, [authStatus.canRead])
+
+  useEffect(() => {
+    if (!authStatus.loggedIn || !config.tgifSessionRequired) return
+    let cancelled = false
+    const refreshTgifStatus = async () => {
+      try {
+        const next = await fetchTgifUserStatus()
+        if (!cancelled) setTgifUserStatus(next)
+      } catch {
+        // A transient status request failure is not proof that another login is required.
+      }
+    }
+    void refreshTgifStatus()
+    window.addEventListener('focus', refreshTgifStatus)
+    const timer = window.setInterval(refreshTgifStatus, 60000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', refreshTgifStatus)
+      window.clearInterval(timer)
+    }
+  }, [authStatus.loggedIn, config.tgifSessionRequired])
 
   useEffect(() => {
     const warnings = [config.storageWarning, config.phpSecurityWarning].filter(Boolean) as string[]
@@ -2485,6 +2511,25 @@ function App({ config }: { config: RuntimeConfig }) {
     setBridgeControlBusy('')
   }
 
+  async function repairBridge(card: BridgeCardView) {
+    const owner = `repair-${card.id}`
+    if (!card.repairAvailable || !beginBridgeControl(owner)) return
+    if (!window.confirm(`Restart only the approved ${card.title} service chain? Other bridges will not be restarted.`)) {
+      endBridgeControl(owner)
+      return
+    }
+    try {
+      const result = await repairStandardBridge(card.id)
+      appendNodeMessage(result.message)
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1500))
+      setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000))))
+    } catch (error) {
+      appendNodeMessage(error instanceof Error ? error.message : 'Bridge repair failed.')
+    } finally {
+      endBridgeControl(owner)
+    }
+  }
+
   async function runNetBridgeModeSwitch(initialMode: string, owner: string) {
     let targetMode = initialMode
     setNetBridgeModeError('')
@@ -3311,6 +3356,17 @@ function App({ config }: { config: RuntimeConfig }) {
         </div>
 
         <main className="allscan-dashboard mx-auto max-w-[1280px] px-1 pt-[2px] sm:px-3">
+          {authStatus.loggedIn && config.tgifSessionRequired && tgifUserStatus && (!tgifUserStatus.configured || tgifUserStatus.reauthRequired) ? (
+            <aside className="allscan-tgif-notice" role="alert" aria-live="polite" aria-label="Node-wide TGIF sign-in required">
+              <div className="allscan-tgif-notice-copy">
+                <strong>Node-wide TGIF sign-in required</strong>
+                <span>{authStatus.isAdmin
+                  ? 'The DMR bridge can remain connected, but ASR cannot show TGIF connected users until an administrator signs this node in again. Enter the TGIF callsign, website password, and session talkgroup, then complete the CAPTCHA if TGIF requests one.'
+                  : 'The DMR bridge can remain connected, but ASR cannot show TGIF connected users until a node administrator signs this node in again.'}</span>
+              </div>
+              {authStatus.isAdmin ? <a href={asrPath('asr-settings/?section=bridges&tgif=login')}>Sign in this node</a> : null}
+            </aside>
+          ) : null}
           {releaseStatus?.updateAvailable && releaseStatus.availableVersion !== dismissedUpdateVersion ? (
             <aside
               className="allscan-update-notice"
@@ -3956,6 +4012,15 @@ function App({ config }: { config: RuntimeConfig }) {
                       </div>
                     ) : null}
                   </div>
+
+                  {card.healthSeverity && card.repairAvailable && authStatus.canModify ? (
+                    <div className="allscan-bridge-repair-alert" role="alert">
+                      <span>{card.healthIssues[0] || `${card.title} needs attention.`}</span>
+                      <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)} onClick={() => void repairBridge(card)}>
+                        {bridgeControlBusy === `repair-${card.id}` ? 'Repairing…' : 'Repair Bridge'}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {card.cardType === 'dmr_net' && authStatus.canModify && (canConnect || canDisconnect || canChangeDestination) ? (
                     <div className="allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-dmr">

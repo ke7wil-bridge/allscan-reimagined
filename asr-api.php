@@ -36,10 +36,12 @@ const ASR_FAVORITES_UPDATE_HELPER = '/usr/local/sbin/allscan-reimagined-favorite
 const ASR_FAVORITES_MANAGER_HELPER = '/usr/local/sbin/allscan-reimagined-favorites-manager';
 const ASR_FAVORITES_USER_STATE = '/etc/allscan/favorites-user.json';
 const ASR_TGIF_USER_HELPER = '/usr/local/sbin/allscan-reimagined-tgif-user-session';
+const ASR_TGIF_NODE_SCOPE = 'node';
+const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.12';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.12';
+const ASR_VERSION = '1.0.0-beta.8.1.5.13';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.13';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -113,17 +115,11 @@ function asr_require_admin(): void {
     if (!asr_logged_in() || !adminUser()) asr_error('Login with admin permission required.', 403);
 }
 
-function asr_tgif_user_id(): string {
-    global $user;
-    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
-    return (string) $user->user_id;
-}
-
-function asr_tgif_user_command(string $verb, array $args = [], string $stdin = ''): array {
+function asr_tgif_node_command(string $verb, array $args = [], string $stdin = ''): array {
     $allowed = ['status', 'login', 'logout'];
     if (!in_array($verb, $allowed, true)) asr_error('Invalid TGIF user-session action.', 400);
     $command = 'sudo -n ' . escapeshellarg(ASR_TGIF_USER_HELPER) . ' ' . escapeshellarg($verb)
-        . ' ' . escapeshellarg(asr_tgif_user_id());
+        . ' ' . escapeshellarg(ASR_TGIF_NODE_SCOPE);
     foreach ($args as $arg) $command .= ' ' . escapeshellarg((string) $arg);
     $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $process = @proc_open($command, $spec, $pipes);
@@ -150,9 +146,8 @@ function asr_tgif_user_command(string $verb, array $args = [], string $stdin = '
     return $payload;
 }
 
-function asr_tgif_user_status(): array {
-    if (!asr_logged_in()) return ['ok' => true, 'configured' => false, 'clients' => [], 'updatedEpoch' => 0];
-    return asr_tgif_user_command('status');
+function asr_tgif_node_status(): array {
+    return asr_tgif_node_command('status');
 }
 
 function asr_origin_host(string $value): string {
@@ -438,6 +433,24 @@ function asr_runtime_config(): array {
     );
 
     $storedBridges = is_array($stored['bridges'] ?? null) ? $stored['bridges'] : asr_detect_bridges();
+    $tgifSessionRequired = false;
+    foreach ($storedBridges as $candidate) {
+        if (!is_array($candidate)) continue;
+        $candidateMode = asr_bridge_mode($candidate);
+        if ($candidateMode === 'dmr' || (string) ($candidate['cardType'] ?? '') === 'dmr_net') {
+            $tgifSessionRequired = true;
+            break;
+        }
+        if (!empty($candidate['urfReflector']) && $candidateMode === 'urf') {
+            $enabledModes = is_array($candidate['modes'] ?? null)
+                ? array_map(static fn ($mode): string => strtolower(trim((string) $mode)), $candidate['modes'])
+                : [];
+            if (!array_key_exists('modes', $candidate) || in_array('dmr', $enabledModes, true)) {
+                $tgifSessionRequired = true;
+                break;
+            }
+        }
+    }
     // Local URF compatibility: expand the original single URF card into one display card per protocol.
     $normalizedStoredBridges = [];
     foreach ($storedBridges as $bridge) {
@@ -555,6 +568,7 @@ function asr_runtime_config(): array {
         'footerLogo' => asr_web_path('asr-logo-bright-r-tight.png'),
         'versionLabel' => ASR_VERSION_LABEL,
         'lowPowerMode' => !empty($stored['lowPowerMode']),
+        'tgifSessionRequired' => $tgifSessionRequired,
         'protectedBanIdentities' => asr_protected_ban_identities(),
         'bridges' => $bridges,
     ];
@@ -1433,6 +1447,16 @@ function asr_bridge_status_payload(): array {
     $clientState = asr_bridge_clients_state();
     $clients = array_merge((array) ($clientState['clients'] ?? []), $urfClients);
     $counts = array_merge((array) ($clientState['counts'] ?? []), $urfCounts);
+    // The URF status feed may publish an empty DMR list even while TGIF has an
+    // authenticated roster. Keep the current TGIF roster authoritative.
+    foreach ((array) ($clientState['meta'] ?? []) as $id => $clientMeta) {
+        if (!is_array($clientMeta)
+            || (string) ($clientMeta['mode'] ?? '') !== 'dmr'
+            || (string) ($clientMeta['kind'] ?? '') !== 'current'
+            || !array_key_exists($id, (array) ($clientState['clients'] ?? []))) continue;
+        $clients[$id] = (array) $clientState['clients'][$id];
+        $counts[$id] = (int) ($clientState['counts'][$id] ?? count($clients[$id]));
+    }
 
     // Zello publishes its own authoritative talker/activity feed.
     $zelloPath = asrRuntimeFilePath('zello-talkers.json');
@@ -1909,6 +1933,7 @@ function asr_standard_bridge_live_statuses(): array {
             'warning' => substr(trim((string) ($entry['warning'] ?? '')), 0, 160),
             'health_severity' => in_array((string) ($entry['health_severity'] ?? ''), ['warning', 'unhealthy', 'offline'], true) ? (string) $entry['health_severity'] : null,
             'health_issues' => array_values(array_slice(array_filter(array_map(static fn($issue) => substr(trim((string) $issue), 0, 160), is_array($entry['health_issues'] ?? null) ? $entry['health_issues'] : [])), 0, 8)),
+            'repair_available' => !empty($entry['repair_available']),
             'linked' => $linked,
             'reflector' => substr(strtoupper(trim((string) ($entry['reflector'] ?? ''))), 0, 8),
             'module' => substr(strtoupper(trim((string) ($entry['module'] ?? ''))), 0, 1),
@@ -2574,12 +2599,14 @@ function asr_bridge_clients_state(): array {
         $counts[$id] = count($clean);
     }
 
-    $tgif = asr_tgif_user_status();
+    $tgif = asr_tgif_node_status();
     $tgifRows = is_array($tgif['clients'] ?? null) ? $tgif['clients'] : [];
     $tgifConfigured = !empty($tgif['configured']);
     $dmrStandardIds = [];
     if (array_key_exists('dmr', $clients)) $dmrStandardIds['dmr'] = true;
-    foreach ((array) (asr_raw_runtime_config()['bridges'] ?? []) as $bridgeConfig) {
+    // Use the normalized dashboard cards here. Aggregate URF records are stored
+    // as one `urf` bridge but displayed as `urf_dmr`, `urf_ysf`, and so on.
+    foreach ((array) (asr_runtime_config()['bridges'] ?? []) as $bridgeConfig) {
         if (!is_array($bridgeConfig)) continue;
         $id = (string) ($bridgeConfig['id'] ?? '');
         $mode = asr_bridge_mode($bridgeConfig);
@@ -3591,16 +3618,16 @@ function asr_root_file_brief(string $path): array {
 
 function asr_tgif_tracking_diagnostics(): array {
     $legacyEnvironment = '/etc/allscan-reimagined/connected-clients-daemon.env';
-    $userStatus = asr_logged_in() ? asr_tgif_user_status() : ['configured' => false, 'callsign' => '', 'updatedEpoch' => 0, 'clients' => []];
+    $nodeStatus = asr_tgif_node_status();
     return [
-        'mode' => 'per_user',
+        'mode' => 'node_wide',
         'helper' => asr_root_file_brief(ASR_TGIF_USER_HELPER),
         'refreshTimer' => asr_unit_state('allscan-reimagined-tgif-user-sessions.timer'),
         'refreshService' => asr_unit_state('allscan-reimagined-tgif-user-sessions.service'),
-        'currentUserConfigured' => !empty($userStatus['configured']),
-        'currentUserCallsign' => substr((string) ($userStatus['callsign'] ?? ''), 0, 20),
-        'currentUserUpdatedEpoch' => max(0, (int) ($userStatus['updatedEpoch'] ?? 0)),
-        'currentUserClientCount' => is_array($userStatus['clients'] ?? null) ? count($userStatus['clients']) : 0,
+        'nodeSessionConfigured' => !empty($nodeStatus['configured']),
+        'nodeSessionCallsign' => substr((string) ($nodeStatus['callsign'] ?? ''), 0, 20),
+        'nodeSessionUpdatedEpoch' => max(0, (int) ($nodeStatus['updatedEpoch'] ?? 0)),
+        'nodeSessionClientCount' => is_array($nodeStatus['clients'] ?? null) ? count($nodeStatus['clients']) : 0,
         'legacyTokenEnvironment' => asr_root_file_brief($legacyEnvironment),
     ];
 }
@@ -3797,6 +3824,18 @@ function asr_bridge_diagnostics(): array {
         'asrConnectedClientsFile' => $asrClientFile,
         'bridges' => $rows,
     ];
+}
+
+function asr_standard_bridge_repair(string $bridgeId): array {
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) asr_error('Invalid bridge id.');
+    $command = 'sudo -n ' . escapeshellarg(ASR_STANDARD_BRIDGE_REPAIR_HELPER) . ' ' . escapeshellarg($bridgeId);
+    $lines = []; $status = 1;
+    exec($command . ' 2>&1', $lines, $status);
+    $payload = json_decode(implode("\n", $lines), true);
+    if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) {
+        asr_error(substr((string) ($payload['error'] ?? 'Bridge repair did not complete.'), 0, 240), 503);
+    }
+    return $payload;
 }
 
 function asr_format_bytes(int|float $bytes): string {
@@ -4087,12 +4126,12 @@ if ($action === 'custom-commands-save') {
 }
 if ($action === 'tgif-user-status') {
     asr_require_read();
-    asr_json(asr_tgif_user_status());
+    asr_json(asr_tgif_node_status());
 }
 if ($action === 'tgif-user-login') {
     asr_require_post();
     asr_require_same_origin();
-    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
+    asr_require_admin();
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'tgif-user-session') asr_error('Invalid TGIF session request.', 403);
     $callsign = strtoupper(trim((string) ($_POST['callsign'] ?? '')));
     $talkgroup = trim((string) ($_POST['talkgroup'] ?? ''));
@@ -4104,14 +4143,14 @@ if ($action === 'tgif-user-login') {
     if ($captcha !== '' && !preg_match('/^[a-z0-9]{1,32}$/D', $captcha)) asr_error('Enter the CAPTCHA text shown.');
     $args = [$callsign, '--talkgroup', $talkgroup];
     if ($captcha !== '') { $args[] = '--captcha'; $args[] = $captcha; }
-    asr_json(asr_tgif_user_command('login', $args, $password . "\n"));
+    asr_json(asr_tgif_node_command('login', $args, $password . "\n"));
 }
 if ($action === 'tgif-user-logout') {
     asr_require_post();
     asr_require_same_origin();
-    if (!asr_logged_in()) asr_error('Login required for TGIF client tracking.', 403);
+    asr_require_admin();
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'tgif-user-session') asr_error('Invalid TGIF session request.', 403);
-    asr_json(asr_tgif_user_command('logout'));
+    asr_json(asr_tgif_node_command('logout'));
 }
 if ($action === 'runtime-config') asr_json(asr_runtime_config());
 if ($action === 'release-status') {
@@ -4328,6 +4367,13 @@ if ($action === 'bridge-diagnostics') {
     asr_require_same_origin();
     asr_require_admin();
     asr_json(asr_bridge_diagnostics());
+}
+if ($action === 'standard-bridge-repair') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'asr-bridge-repair') asr_error('Invalid bridge repair request.', 403);
+    asr_json(asr_standard_bridge_repair((string) ($_POST['bridgeId'] ?? '')));
 }
 if ($action === 'performance-stats') {
     asr_require_same_origin();

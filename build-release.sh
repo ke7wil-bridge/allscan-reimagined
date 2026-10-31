@@ -124,6 +124,8 @@ python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
+python3 "$ROOT/scripts/asr-apache-listeners.py" self-test
+python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
 TMPDIR=$(python3 -c 'import os; print(os.path.realpath("/tmp"))') \
   python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
@@ -200,6 +202,8 @@ install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friend
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
 install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
+install -m 755 scripts/asr-apache-listeners.py "$STAGE/payload/scripts/asr-apache-listeners.py"
+install -m 755 scripts/asr-standard-bridge-repair.py "$STAGE/payload/scripts/asr-standard-bridge-repair.py"
 install -m 755 scripts/asr-urf-admin.py "$STAGE/payload/scripts/asr-urf-admin.py"
 install -m 755 scripts/asr-asl-ban.py "$STAGE/payload/scripts/asr-asl-ban.py"
 install -m 755 scripts/asr-standalone-admin.py "$STAGE/payload/scripts/asr-standalone-admin.py"

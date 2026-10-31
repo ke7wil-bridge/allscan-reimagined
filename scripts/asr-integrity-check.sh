@@ -59,6 +59,11 @@ fi
 [ -x /usr/local/sbin/allscan-reimagined-favorites-update ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-favorites-manager ] || needs_reapply=1
 [ -x /usr/local/sbin/allscan-reimagined-tgif-user-session ] || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-apache-listeners ] || needs_reapply=1
+if [ -s /etc/allscan-reimagined/apache-listeners.json ]; then
+  [ -L /etc/apache2/conf-enabled/allscan-reimagined-listeners.conf ] || needs_reapply=1
+  [ -f /etc/apache2/conf-available/allscan-reimagined-listeners.conf ] || needs_reapply=1
+fi
 [ -f /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer ] || needs_reapply=1
 systemctl is-enabled --quiet allscan-reimagined-tgif-user-sessions.timer || needs_reapply=1
 [ -d /run/allscan-reimagined-bridge-control ] || needs_reapply=1
@@ -102,7 +107,7 @@ grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-br
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle status" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-lifecycle queue-deletion" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
-grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --check-json" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1

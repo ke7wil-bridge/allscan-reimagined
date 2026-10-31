@@ -19,6 +19,28 @@ if (($argv[1] ?? '') === '--self-test') {
     if (!in_array('/var/www/html/asr/astdb.txt', ASR_FRIENDLY_NAME_FILES, true)) {
         throw new RuntimeException('Friendly-name helper does not target the ASR web root.');
     }
+    $sample = [
+        '100|Existing||',
+        '200|Old name||',
+        '300|Unmanaged||',
+        '200|Duplicate||',
+    ];
+    $merged = asrMergeFriendlyNameLines($sample, [
+        '200' => 'New name',
+        '400' => 'Added name',
+    ]);
+    $expected = [
+        '100|Existing||',
+        '200|New name||',
+        '300|Unmanaged||',
+        '400|Added name||',
+    ];
+    if ($merged !== $expected || asrMergeFriendlyNameLines($merged, [
+        '200' => 'New name',
+        '400' => 'Added name',
+    ]) !== $expected) {
+        throw new RuntimeException('Friendly-name merge is not stable and idempotent.');
+    }
     echo "friendly-name stock-isolation self-test: ok" . PHP_EOL;
     exit(0);
 }
@@ -66,18 +88,10 @@ foreach (ASR_FRIENDLY_NAME_FILES as $file) {
         if ($raw === false) continue;
     }
 
-    $lines = [];
-    foreach ($raw as $line) {
-        $node = strtok($line, '|');
-        if ($node !== false && isset($bridges[$node])) continue;
-        $lines[] = $line;
-    }
-
-    foreach ($bridges as $node => $title) {
-        $lines[] = "{$node}|{$title}||";
-    }
-
+    $lines = asrMergeFriendlyNameLines($raw, $bridges);
     $data = implode(PHP_EOL, $lines) . PHP_EOL;
+    $existing = $raw ? implode(PHP_EOL, $raw) . PHP_EOL : '';
+    if ($data === $existing) continue;
     $tmp = $file . '.asr-tmp.' . getmypid();
     if (file_put_contents($tmp, $data) === false) {
         @unlink($tmp);
@@ -95,6 +109,27 @@ foreach (ASR_FRIENDLY_NAME_FILES as $file) {
         @chgrp($file, webGroup());
         @chmod($file, 0664);
     }
+}
+
+function asrMergeFriendlyNameLines(array $raw, array $bridges): array
+{
+    $lines = [];
+    $seen = [];
+    foreach ($raw as $line) {
+        $node = strtok($line, '|');
+        if ($node === false || !isset($bridges[$node])) {
+            $lines[] = $line;
+            continue;
+        }
+        if (isset($seen[$node])) continue;
+        $lines[] = "{$node}|{$bridges[$node]}||";
+        $seen[$node] = true;
+    }
+    foreach ($bridges as $node => $title) {
+        if (isset($seen[$node])) continue;
+        $lines[] = "{$node}|{$title}||";
+    }
+    return $lines;
 }
 
 function webGroup(): string

@@ -50,6 +50,50 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
+.allscan-tgif-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid #e56b6f;
+  border-left: 6px solid #ff8589;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(92, 25, 29, 0.97), rgba(48, 18, 20, 0.97));
+  color: #ffe6e7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.allscan-tgif-notice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.allscan-tgif-notice-copy strong { color: #fff; font-size: 16px; }
+
+.allscan-tgif-notice > a {
+  display: inline-flex;
+  min-height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.allscan-tgif-notice > a:hover,
+.allscan-tgif-notice > a:focus-visible { border-color: #fff; background: rgba(255, 255, 255, 0.18); }
+
 .allscan-update-notice-copy {
   display: grid;
   min-width: 0;
@@ -1597,7 +1641,8 @@ body {
     padding: 4px 6px 3px;
   }
 
-  .allscan-update-notice {
+  .allscan-update-notice,
+  .allscan-tgif-notice {
     align-items: stretch;
     flex-direction: column;
     gap: 8px;
@@ -1605,11 +1650,13 @@ body {
     padding: 9px 10px;
   }
 
-  .allscan-update-notice-copy {
+  .allscan-update-notice-copy,
+  .allscan-tgif-notice-copy {
     font-size: 12px;
   }
 
-  .allscan-update-notice-copy strong {
+  .allscan-update-notice-copy strong,
+  .allscan-tgif-notice-copy strong {
     font-size: 14px;
   }
 
@@ -1622,6 +1669,11 @@ body {
     flex: 1 1 210px;
     min-width: 0;
     text-align: center;
+    white-space: normal;
+  }
+
+  .allscan-tgif-notice > a {
+    width: 100%;
     white-space: normal;
   }
 
@@ -4130,6 +4182,9 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
 .allscan-bridge-health-triangle.is-warning { color: #f2cc60; }
 .allscan-bridge-health-triangle.is-unhealthy { color: #f0883e; }
 .allscan-bridge-health-triangle.is-offline { color: #f85149; }
+.allscan-bridge-repair-alert { margin: 0 10px 10px; padding: 9px 10px; border: 1px solid rgba(248,81,73,.55); border-radius: 8px; background: rgba(248,81,73,.12); display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:.8rem; }
+.allscan-bridge-repair-alert span { min-width:0; }
+.allscan-bridge-repair-alert button { flex:0 0 auto; }
 @media (max-width: 640px) {
   .allscan-bridge-status-control { gap: 3px; }
   .allscan-bridge-health-triangle { width: 13px; height: 13px; }
@@ -5238,6 +5293,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
   flex-direction: column;
 }
 .allscan-dashboard > .allscan-update-notice { order: -10; }
+.allscan-dashboard > .allscan-tgif-notice { order: -11; }
 .allscan-dashboard > .allscan-footer { order: 100; }
 .allscan-dashboard-module {
   position: relative;
@@ -9289,6 +9345,166 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-menu-button { font-size: 19px; padding: 9px 11px; }
 }
 
+/* Mobile Node Controls containment. Fixed 405px-era button reservations caused
+   Commands and Manage Kicks & Bans to overlap controls on narrower phones and
+   when mobile browsers enlarged text. Use intrinsic tracks and real rows on
+   every phone orientation so no control can cover or escape the module. */
+@media (max-width: 520px), (pointer: coarse) and (max-height: 520px) {
+  .allscan-controls-section {
+    box-sizing: border-box !important;
+    width: calc(100vw - 16px) !important;
+    max-width: 430px !important;
+    margin-inline: auto !important;
+  }
+
+  .allscan-controls-shell {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 6px !important;
+  }
+
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 6px !important;
+    padding-right: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-node-field {
+    display: flex !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+  }
+
+  .allscan-controls-shell .allscan-node-input {
+    flex: 1 1 48px !important;
+    width: auto !important;
+    min-width: 42px !important;
+    max-width: 76px !important;
+  }
+
+  .allscan-controls-shell .allscan-connect-button,
+  .allscan-controls-shell .allscan-disconnect-button {
+    width: auto !important;
+    min-width: 0 !important;
+    padding-inline: 8px !important;
+    font-size: clamp(11px, 3.4vw, 14px) !important;
+  }
+
+  .allscan-controls-lower-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    gap: 6px !important;
+    width: 100% !important;
+    margin-top: 6px !important;
+  }
+
+  .allscan-controls-action-group {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-action-field {
+    display: flex !important;
+    min-width: 0 !important;
+    gap: 5px !important;
+  }
+
+  .allscan-controls-shell .allscan-action-select {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+
+  .allscan-controls-shell .allscan-go-button {
+    width: 46px !important;
+    min-width: 46px !important;
+  }
+
+  .allscan-controls-shell .allscan-kicks-bans-button {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    white-space: normal !important;
+  }
+
+  .allscan-controls-shell > .allscan-checks-row.allscan-checks-grid {
+    position: relative !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 6px 10px !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin-top: 7px !important;
+    padding: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-checks-grid > label {
+    justify-self: start !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands {
+    position: static !important;
+    grid-column: 1 / -1 !important;
+    justify-self: stretch !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .allscan-controls-shell .allscan-custom-commands-menu {
+    right: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .allscan-controls-shell > .allscan-node-messages {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 340px) {
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .allscan-controls-shell .allscan-node-field {
+    grid-column: 1 / -1 !important;
+  }
+
+  .allscan-controls-shell .allscan-node-input {
+    max-width: none !important;
+  }
+
+  .allscan-controls-shell .allscan-connect-button,
+  .allscan-controls-shell .allscan-disconnect-button {
+    width: 100% !important;
+  }
+}
+
 /* Beta 8 locked tablet-landscape Talkers: centered title, accepted header clearance, five cards across, readable typography. */
 @media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
   .allscan-talkers-section { margin-top: 20px !important; }
@@ -9561,4 +9777,13 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-bridge-grid .allscan-bridge-client-meta,
   .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
   .allscan-urf-group-title { font-size: 14px !important; }
+}
+/* Desktop Node Controls: center the primary actions while reserving the
+   independent Commands control at the right edge. The old flex-start rule
+   left a large empty gap and made the controls appear split apart. */
+@media (min-width: 1200px) {
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    justify-content: center !important;
+    padding-right: 0 !important;
+  }
 }

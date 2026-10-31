@@ -50,7 +50,11 @@ def clear_health(name):
 
 
 def publish_dmr_client(source, now=None, active=True):
-    if not ROSTER_FILE or not source:
+    # DMR_ID is this bridge runtime's transport identity. It is never a remote
+    # client and must not create either a current row or connect/disconnect
+    # history. Other bridge modes apply the same policy using loopback/service
+    # identity filtering in their collectors.
+    if not ROSTER_FILE or not source or int(source) == DMR_ID:
         return
     epoch = int(time.time() if now is None else now)
     row = {"dmrid": str(source), "id": str(source), "last_seen_epoch": epoch, "connected": True,
@@ -499,11 +503,13 @@ def self_test():
     try:
         with tempfile.TemporaryDirectory() as scratch:
             globals()["ROSTER_FILE"] = os.path.join(scratch, "dmr-clients.json")
+            publish_dmr_client(DMR_ID, 99)
             publish_dmr_client(1234567, 100)
             publish_dmr_client(7654321, 101)
             with open(globals()["ROSTER_FILE"], "r", encoding="utf-8") as handle:
                 roster = json.load(handle)
             assert {row["dmrid"] for row in roster["urf_dmr"]} == {"1234567", "7654321"}
+            assert all(str(item.get("dmrid", "")) != str(DMR_ID) for item in roster["events"])
             globals()["TARGET_FILE"] = os.path.join(scratch, "net-target")
             assert active_tgif_tg() is None
             assert rewrite_for_tgif(bytes(packet)) is None

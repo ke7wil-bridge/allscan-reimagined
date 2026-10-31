@@ -214,6 +214,36 @@ def main() -> None:
             assert result["dmrNetworkId"] == "322493904"
             assert token_path.read_text() == token
             assert token_path.stat().st_mode & 0o777 == 0o600
+
+            # Existing bridges created before Static TG maintenance have no
+            # saved token path. They must use the same fixed canonical path as
+            # the managed DMR controller without trusting an arbitrary path.
+            token_path.unlink()
+            config.write_text(json.dumps({"bridges": [{
+                "id": "dmr_tgif_net", "cardType": "dmr_net", "managedNetControl": True,
+                "dmrNetworkId": "322493904",
+            }]}))
+            legacy = helper.dmr_security_update({
+                "bridgeId": "dmr_tgif_net", "tgifPassword": "", "tgifStaticToken": token,
+            })
+            assert legacy["staticTokenUpdated"] is True
+            assert token_path.read_text() == token
+
+            token_path.unlink()
+            config.write_text(json.dumps({"bridges": [{
+                "id": "dmr_tgif_net", "cardType": "dmr_net", "managedNetControl": True,
+                "dmrNetworkId": "322493904",
+                "tgifStaticTokenPath": "/tmp/untrusted-token",
+            }]}))
+            try:
+                helper.dmr_security_update({
+                    "bridgeId": "dmr_tgif_net", "tgifPassword": "", "tgifStaticToken": token,
+                })
+                raise AssertionError("untrusted TGIF token path was accepted")
+            except helper.HelperError as exc:
+                assert "token path is not trusted" in str(exc)
+            assert not token_path.exists()
+            assert not (root / "tmp/untrusted-token").exists()
         finally:
             helper.provisioning_config_path = original_map
             helper.require_root = original_require_root

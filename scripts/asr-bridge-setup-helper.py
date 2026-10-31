@@ -687,7 +687,13 @@ def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
     if not bridge or bridge.get("cardType") != "dmr_net" or not bridge.get("managedNetControl"):
         raise HelperError("The installed DMR Net Bridge was not found")
     expected_root = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id / "secrets"
-    token_logical = Path(str(bridge.get("tgifStaticTokenPath") or ""))
+    expected_token = expected_root / "tgif-static-token"
+    # DMR Net Bridges installed before Static TG maintenance was added do not
+    # have tgifStaticTokenPath in config.json.  The runtime controller already
+    # derives this fixed path for those records; use the same safe default here.
+    # A non-empty path must still match exactly so config cannot redirect a
+    # root-owned credential write.
+    token_logical = Path(str(bridge.get("tgifStaticTokenPath") or expected_token))
     if token and (not token_logical.is_absolute() or token_logical.parent != expected_root or token_logical.name != "tgif-static-token"):
         raise HelperError("The DMR Net Bridge token path is not trusted")
     secrets_to_write = []

@@ -914,6 +914,7 @@ def main() -> int:
     layered_reapply = (HERE.parent / "docker/layered-reapply.sh").read_text(encoding="utf-8")
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
     assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
+    assert "layered-asr-state:/var/lib/allscan-reimagined" in compose_source
     host_boundary = "if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then"
     assert layered_reapply.index(host_boundary) < layered_reapply.index(
         "install -d -o root -g root -m 755 /run/allscan-reimagined-m17"

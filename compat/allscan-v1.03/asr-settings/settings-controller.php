@@ -1663,7 +1663,7 @@ function asrSettingsRenderTgifAccount($title = 'TGIF Account') {
 	<div class="asr-dmr-tgif-settings">
 		<div class="asr-bridge-section-copy">
 			<strong><?php echo asrSettingsH($title); ?></strong>
-			<span>Sign in with the same TGIF account and callsign used by this bridge. ASR uses the session to show current TGIF users; it does not change the bridge destination.</span>
+			<span>An administrator signs in once for this node. ASR uses that server-side session to show current TGIF users to every authorized dashboard viewer; it does not change the bridge destination.</span>
 		</div>
 		<div class="asr-tgif-card-status" data-tgif-status aria-live="polite">Checking TGIF account status...</div>
 		<details class="asr-progressive-details asr-tgif-configuration">
@@ -1682,7 +1682,7 @@ function asrSettingsRenderTgifAccount($title = 'TGIF Account') {
 				<button type="button" data-tgif-logout>Sign Out</button>
 			</div>
 		</details>
-		<p class="asr-bridge-section-note">This account session is separate from the bridge card save. Root-only TGIF session cookies persist across node reboots until you sign out or TGIF expires them.</p>
+		<p class="asr-bridge-section-note">This node-wide session is separate from the bridge card save. Root-only TGIF session cookies persist across node reboots until an administrator signs out or TGIF expires them.</p>
 	</div>
 	<?php
 }
@@ -3825,10 +3825,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				: '';
 			var dmr = bridge.dmrUdp ? '<div class="asr-diagnostics-block"><h3>DMR Network</h3><div class="asr-diagnostics-mini"><span>Local UDP: <strong>' + escapeHtml(bridge.dmrUdp.localPort || 'unknown') + '</strong></span><span>Master: <strong>' + escapeHtml((bridge.dmrUdp.master || 'unknown') + (bridge.dmrUdp.masterPort ? ':' + bridge.dmrUdp.masterPort : '')) + '</strong></span><span>Listener: <strong>' + escapeHtml(bridge.dmrUdp.listener || 'unknown') + '</strong></span></div></div>' : '';
 			var tgif = bridge.tgif ? '<div class="asr-diagnostics-block"><h3>TGIF Client Tracking</h3><div class="asr-diagnostics-mini">'
-				+ '<span>Mode: <strong>Per-user authentication</strong></span>'
+				+ '<span>Mode: <strong>Node-wide authentication</strong></span>'
 				+ '<span>Refresh timer: <strong>' + escapeHtml((bridge.tgif.refreshTimer || {}).state || 'unknown') + '</strong></span>'
-				+ '<span>This account: <strong>' + escapeHtml(bridge.tgif.currentUserConfigured ? ('signed in' + (bridge.tgif.currentUserCallsign ? ' as ' + bridge.tgif.currentUserCallsign : '')) : 'not signed in') + '</strong></span>'
-				+ '<span>Clients visible to this account: <strong>' + escapeHtml(bridge.tgif.currentUserClientCount || 0) + '</strong></span>'
+				+ '<span>Node session: <strong>' + escapeHtml(bridge.tgif.nodeSessionConfigured ? ('signed in' + (bridge.tgif.nodeSessionCallsign ? ' as ' + bridge.tgif.nodeSessionCallsign : '')) : 'not signed in') + '</strong></span>'
+				+ '<span>Node-wide clients: <strong>' + escapeHtml(bridge.tgif.nodeSessionClientCount || 0) + '</strong></span>'
 				+ '</div></div>' : '';
 			var readiness = bridge.readiness || {};
 			var missing = Array.isArray(readiness.missing) && readiness.missing.length
@@ -4056,9 +4056,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var status = section.querySelector('[data-tgif-status]');
 			if(status) status.textContent = 'Signing in to TGIF...';
 			var body = new URLSearchParams({callsign:callsign.value.trim().toUpperCase(), password:password.value, talkgroup:talkgroup.value.trim(), captcha:captcha ? captcha.value.trim().toLowerCase() : ''});
+			var keepPasswordForCaptcha = false;
 			tgifRequest('tgif-user-login', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-ASR-Requested-With':'tgif-user-session'}, body:body.toString()})
-				.then(renderTgifState).catch(function(error) { renderTgifState({configured:false, error:error.message || 'TGIF sign-in failed.'}); })
-				.finally(function() { password.value = ''; });
+				.then(function(data) { keepPasswordForCaptcha = !!data.captchaRequired; renderTgifState(data); })
+				.catch(function(error) { renderTgifState({configured:false, error:error.message || 'TGIF sign-in failed.'}); })
+				.finally(function() { if(!keepPasswordForCaptcha) password.value = ''; });
 			return;
 		}
 		var logout = event.target.closest('[data-tgif-logout]');

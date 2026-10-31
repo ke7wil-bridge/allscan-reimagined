@@ -13,8 +13,10 @@ def main() -> None:
     block_end = reapply.index("\nfi", block_start)
     apache_block = reapply[block_start:block_end]
 
+    preserve = apache_block.index('asr-apache-listeners.py" capture')
     configtest = apache_block.index("apache2ctl configtest")
     restart = apache_block.index("systemctl restart apache2")
+    assert preserve < configtest, "Custom listeners must be persisted before Apache validation"
     assert configtest < restart, "Apache must pass configtest before restart"
     assert "systemctl reload apache2" not in apache_block, (
         "A graceful reload can preserve stale long-lived PHP/SSE workers"
@@ -26,6 +28,7 @@ def main() -> None:
     assert '<FilesMatch "^(index\\.html|asr-api\\.php)$">' in reapply
     assert 'Header always set Cache-Control "no-store, max-age=0"' in reapply
     assert 'Header set Cache-Control "public, max-age=31536000, immutable"' in reapply
+    assert "allscan-reimagined-apache-listeners" in reapply
     dockerfile_path = ROOT / "Dockerfile.layered"
     layered_entrypoint_path = ROOT / "docker/layered-entrypoint.sh"
     if dockerfile_path.is_file() and layered_entrypoint_path.is_file():

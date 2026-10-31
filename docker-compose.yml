@@ -14,6 +14,8 @@ services:
       - layered-web:/var/www/html
       - layered-allscan-data:/etc/allscan
       - layered-asr-config:/etc/allscan-reimagined
+      # Preserve the root-only node-wide TGIF web session across container recreation.
+      - layered-asr-state:/var/lib/allscan-reimagined
       # Narrow Unix socket only; the web tier never receives Docker's socket.
       - ${ASR_HOST_PROVISIONING_DIR:-/run/allscan-reimagined-host}:/run/allscan-reimagined-host:ro
       - /run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro
@@ -27,6 +29,7 @@ volumes:
   layered-web:
   layered-allscan-data:
   layered-asr-config:
+  layered-asr-state:
 
 networks:
   asl3:
