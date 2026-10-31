@@ -1366,10 +1366,14 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [authStatus.isAdmin])
 
   useEffect(() => {
-    if (!authStatus.isAdmin || updateDialogOpen || readWhatsNewSeenVersion() === ASR_WHATS_NEW.version) return
+    if (
+      !authStatus.isAdmin ||
+      updateDialogOpen ||
+      updateAsrParamHandled.current ||
+      readWhatsNewSeenVersion() === ASR_WHATS_NEW.version
+    ) return
     writeWhatsNewSeenVersion(ASR_WHATS_NEW.version)
     // A newly installed version opens its plain-language summary once per browser.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUpdateDialogView('whats-new')
     setUpdateDialogOpen(true)
   }, [authStatus.isAdmin, updateDialogOpen])

@@ -69,7 +69,8 @@ check(
 check(
   appSource.includes("const WHATS_NEW_SEEN_KEY = 'asrWhatsNewSeenVersion.v1'")
     && appSource.includes("setUpdateDialogView('whats-new')")
-    && appSource.includes('writeWhatsNewSeenVersion(ASR_WHATS_NEW.version)'),
+    && appSource.includes('writeWhatsNewSeenVersion(ASR_WHATS_NEW.version)')
+    && appSource.includes('updateAsrParamHandled.current ||\n      readWhatsNewSeenVersion()'),
   'What’s New does not open once for each newly installed version.',
 )
 check(
