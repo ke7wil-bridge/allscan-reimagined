@@ -130,6 +130,25 @@
     if(source){var del=document.createElement('button');del.type='button';del.dataset.modalDelete='1';del.className='asr-destructive-action';del.textContent=row.dataset.ownershipState==='owned'?'Remove Bridge and Managed Resources':'Remove Bridge from ASR';del.disabled=source.disabled;del.addEventListener('click',function(){source.click();if(!row.isConnected)form.requestSubmit()});footer.insertBefore(del,footer.firstChild)}
     var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=false;document.body.classList.add('asr-modal-open');var first=body.querySelector('select,input,button');if(first)first.focus()
   }
+  function openTgifLoginFromLink() {
+    var params = new URLSearchParams(window.location.search)
+    if (params.get('tgif') !== 'login') return
+    var section = document.querySelector('.asr-dmr-tgif-settings')
+    var row = section && section.closest('.asr-bridge-settings-row')
+    if (!section || !row) return
+    openBridgeEditor(row)
+    var body = row._asrEditorBody || row.querySelector('.asr-bridge-panel-body')
+    if (body && bridgeTabs) bridgeTabs.activate(body, 'clients', false)
+    var cursor = section.parentElement
+    while (cursor && cursor !== body) { if (cursor.tagName === 'DETAILS') cursor.open = true; cursor = cursor.parentElement }
+    var configuration = section.querySelector('.asr-tgif-configuration')
+    if (configuration) configuration.open = true
+    var callsign = section.querySelector('[data-tgif-callsign]')
+    if (callsign) { callsign.focus(); callsign.scrollIntoView({block:'center'}) }
+    params.delete('tgif')
+    var query = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash)
+  }
   function closeBridgeEditor(cancel){if(!activeBridge)return;var row=activeBridge;var body=bridgeHost.querySelector('.asr-bridge-panel-body');if(cancel)restoreState(row,bridgeSnapshot);if(body&&bridgeOrigin.parentNode)bridgeOrigin.parentNode.insertBefore(body,bridgeOrigin);if(bridgeOrigin.parentNode)bridgeOrigin.remove();row.classList.add('is-collapsed');var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=true;activeBridge=null;bridgeOrigin=null;document.body.classList.remove('asr-modal-open')}
   function enhanceUrf(){var panel=document.querySelector('[data-urf-panel]:not([hidden])');var table=document.querySelector('.asr-bridge-settings-table');if(!panel||!table||panel.closest('.asr-bridge-settings-row'))return;var row=document.createElement('div');row.className='asr-bridge-settings-row asr-urf-settings-row is-collapsed';var node=(panel.querySelector('[name="urfNode"]')||{}).value||'not set';row.innerHTML='<div class="asr-bridge-panel-header"><button type="button" class="asr-bridge-toggle"><span class="asr-settings-toggle-icon">&gt;</span><span class="asr-bridge-toggle-copy"><strong class="asr-bridge-panel-name">URFWIL Reflector</strong><span class="asr-bridge-panel-summary">Node '+escapeText(node)+' · Select to configure this reflector.</span></span><span class="asr-bridge-capability-note">Shared reflector</span></button></div><div class="asr-bridge-panel-body"></div>';row.querySelector('.asr-bridge-panel-body').appendChild(panel);table.insertBefore(row,table.firstChild);enhanceBridgeRow(row)}
 
@@ -159,5 +178,5 @@
   document.querySelectorAll('.asr-settings-modal .asr-modal-close').forEach(function(button){button.addEventListener('click',function(){var modal=button.closest('.asr-settings-modal');if(modal===bridgeEditor)closeBridgeEditor(true);else closeModal(modal)})})
   var cancel=bridgeEditor&&bridgeEditor.querySelector('[data-bridge-cancel]');if(cancel)cancel.addEventListener('click',function(){closeBridgeEditor(true)})
   document.addEventListener('keydown',function(event){if(event.key!=='Escape')return;if(activeBridge)closeBridgeEditor(true);else{var open=document.querySelector('.asr-settings-modal:not([hidden])');if(open)closeModal(open)}})
-  loadDiagnostics();loadReleaseStatus();saveLanguage();dirtyState()
+  openTgifLoginFromLink();loadDiagnostics();loadReleaseStatus();saveLanguage();dirtyState()
 })()

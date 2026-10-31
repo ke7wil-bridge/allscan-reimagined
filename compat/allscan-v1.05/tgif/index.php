@@ -1,5 +1,5 @@
 <?php
-// Per-user TGIF authentication for connected-client tracking.
+// Administrator-managed node-wide TGIF authentication for connected-client tracking.
 require_once('../include/common.php');
 $html = new Html();
 $msg = [];
@@ -7,11 +7,13 @@ asInit($msg);
 asrInitAuthenticatedUser($msg);
 if(empty($user) || !isset($user->user_id) || !validDbID($user->user_id))
 	asExit('Login required.');
+if(!adminUser())
+	asExit('Administrator login required.');
 pageInit();
 ?>
 <section class="asr-tgif-page">
 	<h1>TGIF Client Tracking</h1>
-	<p class="asr-tgif-copy">Sign in with your own TGIF Network account to view authenticated DMR connected sessions. Your TGIF password is sent only to TGIF during sign-in and is not stored by ASR. Root-only TGIF session cookies persist across node reboots until you Sign Out or TGIF expires the session.</p>
+	<p class="asr-tgif-copy">An administrator signs in once for this node to supply authenticated DMR connected sessions to every authorized dashboard viewer. The TGIF password is sent only to TGIF during sign-in and is not stored by ASR. Root-only TGIF session cookies persist across node reboots until an administrator signs out or TGIF expires the session.</p>
 	<div id="asrTgifStatus" class="asr-tgif-status" aria-live="polite">Checking TGIF status...</div>
 	<form id="asrTgifForm" class="asr-tgif-form" autocomplete="on">
 		<label><span>Callsign</span><input id="asrTgifCallsign" name="callsign" autocomplete="username" autocapitalize="characters" maxlength="10" required></label>
@@ -19,7 +21,7 @@ pageInit();
 		<label><span>Talkgroup</span><input id="asrTgifTalkgroup" name="talkgroup" inputmode="numeric" pattern="[1-9][0-9]{0,7}" maxlength="8" required></label>
 		<div class="asr-tgif-actions"><button type="submit">Sign In to TGIF</button><button type="button" id="asrTgifLogout">Sign Out</button></div>
 	</form>
-	<p class="asr-tgif-note">Each AllScan user authenticates separately. One user's TGIF session is never used to supply another user's connected-client list.</p>
+	<p class="asr-tgif-note">This is the shared node session. Only administrators can replace or remove it.</p>
 </section>
 <script>
 (function () {

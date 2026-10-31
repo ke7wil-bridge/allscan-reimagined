@@ -82,6 +82,11 @@ def main() -> int:
         "TGIF session collector sandbox must permit its persistent state directory",
     )
     require(
+        "allscan-reimagined-tgif-user-session status node" in reapply
+        and "allscan-reimagined-tgif-user-session login node" in reapply,
+        "web sudo policy must permit only the node-wide TGIF session scope",
+    )
+    require(
         installer.index(root_check) < installer.index('ASR_VERSION=')
         and installer.index("umask 022") < installer.index('ASR_VERSION='),
         "root and umask preflight must run before installer setup",

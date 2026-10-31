@@ -267,6 +267,9 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-favorites-permissions.sh
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-connected-clients.py" /usr/local/sbin/allscan-reimagined-patch-connected-clients
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-migrate-tgif-environment.py" /usr/local/sbin/allscan-reimagined-migrate-tgif-environment
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /usr/local/sbin/allscan-reimagined-tgif-user-session
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-apache-listeners.py" /usr/local/sbin/allscan-reimagined-apache-listeners
+[ -f "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" /usr/local/sbin/allscan-reimagined-standard-bridge-repair
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-urf-admin.py" /usr/local/sbin/allscan-reimagined-urf-admin
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
@@ -955,7 +958,7 @@ WantedBy=timers.target
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service <<'EOF'
 [Unit]
-Description=Refresh per-user TGIF connected-client sessions
+Description=Refresh node-wide TGIF connected-client sessions
 After=network-online.target
 Wants=network-online.target
 
@@ -971,7 +974,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'
 [Unit]
-Description=Refresh per-user TGIF connected-client sessions
+Description=Refresh node-wide TGIF connected-client sessions
 
 [Timer]
 OnBootSec=15s
@@ -1101,10 +1104,10 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin lis
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status [0-9]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login [0-9]* [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session logout node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update add --file /etc/allscan/favorites*.ini --node * --label *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-update delete --file /etc/allscan/favorites*.ini --node *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *
@@ -1157,6 +1160,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --pre
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standard-bridge-repair [a-z]*
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined
 visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null
@@ -1217,6 +1221,7 @@ fi
 [ -f "$ALLSCAN_DIR/asr-connected-clients.json" ] && chmod 664 "$ALLSCAN_DIR/asr-connected-clients.json"
 
 if command -v apache2ctl >/dev/null 2>&1; then
+  python3 "$MASTER_DIR/scripts/asr-apache-listeners.py" capture
   cat > /etc/apache2/conf-available/allscan-reimagined.conf <<EOF
 <Directory "$ALLSCAN_DIR">
     Options -Indexes

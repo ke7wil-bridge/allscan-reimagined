@@ -55,6 +55,7 @@ export type RuntimeConfig = {
   footerLogo: string
   versionLabel: string
   lowPowerMode: boolean
+  tgifSessionRequired: boolean
   protectedBanIdentities: string[]
   bridges: RuntimeBridgeConfig[]
 }
@@ -67,7 +68,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.12'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.13'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -81,6 +82,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   footerLogo: asrPath('asr-logo-bright-r-tight.png'),
   versionLabel: 'Version temporarily unavailable',
   lowPowerMode: false,
+  tgifSessionRequired: false,
   protectedBanIdentities: [],
   bridges: [],
 }
@@ -175,6 +177,7 @@ export type BridgeCardView = {
   warning: string
   healthSeverity: 'warning' | 'unhealthy' | 'offline' | null
   healthIssues: string[]
+  repairAvailable: boolean
   currentTg: string
   currentDestination: string
   currentDestinationLabel: string
@@ -550,6 +553,7 @@ type BridgeEntry = {
   warning?: string
   health_severity?: 'warning' | 'unhealthy' | 'offline' | null
   health_issues?: string[]
+  repair_available?: boolean
   caller?: string
   current_user?: string
   last_user?: string
@@ -1664,6 +1668,7 @@ export async function fetchBridgeCards(
       healthIssues: Array.isArray(entry?.health_issues)
         ? entry.health_issues.map(String)
         : (entry?.warning && entry.warning !== '-' ? [String(entry.warning)] : []),
+      repairAvailable: entry?.repair_available === true,
       currentTg: String(control.currentTg || control.currentDestination || ''),
       currentDestination,
       currentDestinationLabel: String(control.currentDestinationLabel || currentDestination),
@@ -1713,6 +1718,18 @@ export async function fetchBridgeCards(
     : '--:--:--'
 
   return { updatedLabel, cards }
+}
+
+export async function repairStandardBridge(bridgeId: string): Promise<{ ok: boolean; message: string }> {
+  const body = new URLSearchParams({ bridgeId })
+  const response = await fetch(`${ASR_API}?action=standard-bridge-repair`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-ASR-Requested-With': 'asr-bridge-repair' },
+    body: body.toString(),
+  })
+  const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Bridge repair failed.')
+  return { ok: true, message: payload.message || 'Bridge repair completed.' }
 }
 
 export async function fetchFastStandardActivity(signal?: AbortSignal): Promise<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>> {
@@ -1935,6 +1952,32 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
   if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')
   return payload
+}
+
+export type TgifUserStatus = {
+  configured: boolean
+  reauthRequired: boolean
+  callsign: string
+  talkgroup: string
+  stale: boolean
+  error: string
+}
+
+export async function fetchTgifUserStatus(): Promise<TgifUserStatus> {
+  const response = await fetch(`${ASR_API}?action=tgif-user-status`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  })
+  const payload = (await response.json()) as Partial<TgifUserStatus> & { ok?: boolean; error?: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'TGIF account status could not be checked.')
+  return {
+    configured: payload.configured === true,
+    reauthRequired: payload.reauthRequired === true,
+    callsign: String(payload.callsign || ''),
+    talkgroup: String(payload.talkgroup || ''),
+    stale: payload.stale === true,
+    error: String(payload.error || ''),
+  }
 }
 
 export async function sendNodeCommand(args: {

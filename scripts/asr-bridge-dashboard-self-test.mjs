@@ -481,6 +481,9 @@ try {
   const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: qualified')
   const authoritativeNarrowEnd = indexCssSource.indexOf('/* Beta 8 locked non-desktop Connection Status readability. */', authoritativeNarrowStart)
   const authoritativeNarrowControls = indexCssSource.slice(authoritativeNarrowStart, authoritativeNarrowEnd)
+  const mobileContainmentStart = indexCssSource.indexOf('/* Mobile Node Controls containment.')
+  const mobileContainmentEnd = indexCssSource.indexOf('/* Beta 8 locked tablet-landscape Talkers:', mobileContainmentStart)
+  const mobileContainment = indexCssSource.slice(mobileContainmentStart, mobileContainmentEnd)
   assert(
     narrowControlsStart >= 0
       && authoritativeNarrowStart >= 0
@@ -493,6 +496,16 @@ try {
       && authoritativeNarrowControls.includes('width: 407px !important;')
       && authoritativeNarrowControls.includes('padding-right: 102px;'),
     'Node Controls does not preserve its compact accepted geometry across the 521-1199px resize range',
+  )
+  assert(
+    mobileContainmentStart > authoritativeNarrowStart
+      && mobileContainment.includes('@media (max-width: 520px), (pointer: coarse) and (max-height: 520px)')
+      && mobileContainment.includes('grid-template-columns: minmax(0, 1fr) auto auto !important;')
+      && mobileContainment.includes('.allscan-controls-shell .allscan-kicks-bans-button')
+      && mobileContainment.includes('width: 100% !important;')
+      && mobileContainment.includes('position: static !important;')
+      && mobileContainment.includes('@media (max-width: 340px)'),
+    'mobile Node Controls can overlap or escape the module at narrow phone widths',
   )
   assert(
     !appSource.includes('fetchBridgeDestinations')

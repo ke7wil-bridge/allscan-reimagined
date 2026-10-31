@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Per-AllScan-user TGIF authentication and connected-session snapshots.
+"""Node-wide TGIF authentication and connected-session snapshots.
 
 Login secrets are accepted only on stdin and never stored. Root-only TGIF web-session
-cookies persist across reboots until the user signs out or TGIF expires the session.
+cookies persist across reboots until an administrator signs out or TGIF expires them.
 """
 from __future__ import annotations
 
@@ -27,11 +27,14 @@ CHALLENGES = RUNTIME / 'challenges'
 TGIF_BASE = 'https://tgif.network'
 DEFAULT_TG = ''
 USER_AGENT = 'AllScan-Reimagined TGIF client tracking'
+NODE_SCOPE = 'node'
 
 
 def valid_user_id(value: str) -> str:
+    if value == NODE_SCOPE:
+        return value
     if not re.fullmatch(r'[1-9][0-9]{0,9}', value):
-        raise ValueError('invalid AllScan user id')
+        raise ValueError('invalid TGIF session scope')
     return value
 
 def valid_callsign(value: str) -> str:
@@ -58,6 +61,43 @@ def ensure_storage() -> None:
         os.chmod(path, 0o700)
 
 
+def migrate_legacy_node_session() -> None:
+    """Promote the newest legacy per-user session into the one node-wide slot."""
+    target = token_path(NODE_SCOPE)
+    marker = STATE / '.node-scope-migrated.json'
+    if target.is_file():
+        if not marker.is_file():
+            atomic_json(marker, {'schema': 1, 'migratedEpoch': int(time.time())})
+        return
+    if marker.is_file():
+        return
+    candidates = [path for path in TOKENS.glob('*.json') if re.fullmatch(r'[1-9][0-9]{0,9}', path.stem)]
+    if not candidates:
+        return
+    legacy = max(candidates, key=lambda path: path.stat().st_mtime)
+    data = json.loads(legacy.read_text(encoding='utf-8'))
+    if not isinstance(data, dict):
+        return
+    data['userId'] = NODE_SCOPE
+    atomic_json(target, data)
+    for directory in (SNAPSHOTS, CHALLENGES):
+        source = directory / legacy.name
+        destination = directory / f'{NODE_SCOPE}.json'
+        if source.is_file() and not destination.exists():
+            os.replace(source, destination)
+    for candidate in candidates:
+        try:
+            candidate.unlink()
+        except FileNotFoundError:
+            pass
+        for directory in (SNAPSHOTS, CHALLENGES):
+            try:
+                (directory / candidate.name).unlink()
+            except FileNotFoundError:
+                pass
+    atomic_json(marker, {'schema': 1, 'migratedEpoch': int(time.time())})
+
+
 def prior_session_roster(user_id: str, now: int | None = None) -> dict[str, dict]:
     path = snapshot_path(user_id)
     if not path.is_file():
@@ -81,9 +121,15 @@ def prior_session_roster(user_id: str, now: int | None = None) -> dict[str, dict
 def failure_snapshot(user_id: str, callsign: str, talkgroup: str, error: str, now: int | None = None) -> dict:
     current = int(time.time() if now is None else now)
     retained = [row for row in prior_session_roster(user_id, current).values() if str(row.get('talkgroup', '')) == talkgroup]
+    detail = error[:180]
+    reauth_required = any(marker in detail.lower() for marker in (
+        'authentication was rejected', 'authentication token', 'redirected back to sign-in',
+        'web session is missing', 'not authenticated',
+    ))
     return {
         'ok': False, 'configured': True, 'callsign': callsign, 'talkgroup': talkgroup,
-        'updatedEpoch': current, 'clients': retained, 'stale': True, 'error': error[:180],
+        'updatedEpoch': current, 'clients': retained, 'stale': True,
+        'reauthRequired': reauth_required, 'error': detail,
     }
 
 
@@ -261,10 +307,24 @@ def update_session_roster(sessions: dict[str, dict], item: dict, talkgroup: str,
         'name': str(merged.get('name') or merged.get('shortname') or '').strip()[:80],
         'dmrid': session_id, 'id': session_id, 'talkgroup': talkgroup,
         'last_seen_epoch': int(time.time() if now is None else now),
-        'source': 'TGIF per-user authenticated session',
+        'source': 'TGIF node-wide authenticated session',
     })
     sessions[session_id] = merged
     return 'connected'
+
+
+def is_local_bridge_session(item: dict, node_callsign: str) -> bool:
+    """Hide this node's own TGIF transport legs from Connected Clients."""
+    if not isinstance(item, dict):
+        return False
+    callsign = str(item.get('callsign') or '').strip().upper()
+    if not callsign or callsign != node_callsign.strip().upper():
+        return False
+    description = ' '.join(str(item.get('description') or '').strip().lower().split())
+    return (
+        description.startswith(f'{callsign.lower()} asl to dmr b')
+        or description.startswith('asr tgif to urf bri')
+    )
 
 
 def enrich_session_transmissions(sessions: dict[str, dict], talkgroup: str, log_dir: Path = Path('/var/log/mmdvm'), now: int | None = None) -> None:
@@ -308,7 +368,9 @@ def collect_user(user_id: str) -> dict:
     if not re.fullmatch(r'[1-9][0-9]{0,7}', talkgroup):
         raise ValueError('TGIF talkgroup is required; sign in with the configured DMR talkgroup')
     token = current_api_token(data, talkgroup)
-    sessions: dict[str, dict] = {key: row for key, row in prior_session_roster(user_id).items() if str(row.get('talkgroup', '')) == talkgroup}
+    # The sessions request is a complete current roster. Starting with the prior
+    # snapshot retains clients that disappeared without a disconnect event.
+    sessions: dict[str, dict] = {}
     authenticated = False
     sio = socketio.Client(logger=False, engineio_logger=False, reconnection=False)
 
@@ -342,8 +404,13 @@ def collect_user(user_id: str) -> dict:
             except Exception: pass
     if not authenticated:
         raise RuntimeError('TGIF session authentication was rejected')
+    callsign = str(data.get('callsign', '')).strip().upper()
+    sessions = {
+        key: row for key, row in sessions.items()
+        if not is_local_bridge_session(row, callsign)
+    }
     enrich_session_transmissions(sessions, talkgroup)
-    payload = {'ok': True, 'configured': True, 'callsign': str(data.get('callsign', '')),
+    payload = {'ok': True, 'configured': True, 'reauthRequired': False, 'callsign': callsign,
                'talkgroup': talkgroup, 'updatedEpoch': int(time.time()),
                'clients': list(sessions.values()), 'error': ''}
     atomic_json(snapshot_path(user_id), payload)
@@ -364,7 +431,7 @@ def public_status(user_id: str) -> dict:
                 payload['stale'] = bool(payload.get('stale')) or stale
                 return payload
         except Exception: pass
-    return {'ok': True, 'configured': token_file.is_file(), 'callsign': '',
+    return {'ok': True, 'configured': token_file.is_file(), 'reauthRequired': False, 'callsign': '',
             'talkgroup': DEFAULT_TG, 'updatedEpoch': 0, 'clients': [], 'error': ''}
 
 
@@ -398,8 +465,11 @@ def logout_user(user_id: str) -> dict:
 
 def collect_all() -> int:
     TOKENS.mkdir(parents=True, exist_ok=True)
+    migrate_legacy_node_session()
     failures = 0
-    for path in sorted(TOKENS.glob('*.json')):
+    for path in [token_path(NODE_SCOPE)]:
+        if not path.is_file():
+            continue
         try:
             collect_user(path.stem)
         except Exception as exc:
@@ -415,9 +485,12 @@ def collect_all() -> int:
 
 def self_test() -> None:
     assert valid_user_id('12') == '12'
+    assert valid_user_id(NODE_SCOPE) == NODE_SCOPE
     assert valid_callsign('ke7wil') == 'KE7WIL'
     sample = {'cookies': [{'name': 'PHPSESSID', 'value': 'abc123', 'expires': 0}]}
     assert cookie_header(sample) == 'PHPSESSID=abc123'
+    assert failure_snapshot('12', 'KE7WIL', '12345', 'TGIF session authentication was rejected', 100)['reauthRequired']
+    assert not failure_snapshot('12', 'KE7WIL', '12345', 'temporary network timeout', 100)['reauthRequired']
     test_tg = '12345'
     sessions: dict[str, dict] = {}
     for index, call in enumerate(['CLIENT-A', 'CLIENT-B', 'CLIENT-C', 'CLIENT-D', 'CLIENT-E'], 1):
@@ -435,6 +508,10 @@ def self_test() -> None:
     before = dict(sessions)
     assert update_session_roster(sessions, {'uuid': '999', 'callsign': 'TALKER-ONLY', 'state': '1'}, test_tg, 105) == 'talker-only'
     assert sessions == before
+    assert is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'KE7WIL ASL to DMR B'}, 'KE7WIL')
+    assert is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'ASR TGIF to URF bri'}, 'KE7WIL')
+    assert not is_local_bridge_session({'callsign': 'N1ABC', 'description': 'N1ABC ASL to DMR B'}, 'KE7WIL')
+    assert not is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'Personal hotspot'}, 'KE7WIL')
     original_paths = (STATE, RUNTIME, TOKENS, SNAPSHOTS, CHALLENGES)
     original_login = login_to_tgif
     original_collect = collect_user
@@ -451,13 +528,19 @@ def self_test() -> None:
             'cookies': [{'name': 'PHPSESSID', 'value': next(issued), 'domain': 'tgif.network', 'path': '/', 'secure': True, 'expires': 0}],
             'controlUrl': TGIF_BASE + '/tgcontrol.php',
         }
+        atomic_json(token_path('12'), {'userId': '12', 'callsign': 'KE7WIL', 'talkgroup': test_tg,
+                    'cookies': [{'name': 'PHPSESSID', 'value': 'legacy-cookie', 'expires': 0}]})
+        migrate_legacy_node_session()
+        assert token_path(NODE_SCOPE).is_file() and load_token(NODE_SCOPE)['userId'] == NODE_SCOPE
+        assert not token_path('12').exists() and (STATE / '.node-scope-migrated.json').is_file()
+        token_path(NODE_SCOPE).unlink()
         globals()['collect_user'] = lambda user_id: public_status(user_id)
-        first = login_user('12', 'KE7WIL', test_tg, 'first-password')
-        token_file = token_path('12')
+        first = login_user(NODE_SCOPE, 'KE7WIL', test_tg, 'first-password')
+        token_file = token_path(NODE_SCOPE)
         token_text = token_file.read_text(encoding='utf-8')
         assert first['configured'] and 'first-password' not in token_text
         assert token_file.stat().st_mode & 0o777 == 0o600
-        second = login_user('12', 'KE7WIL', test_tg, 'replacement-password')
+        second = login_user(NODE_SCOPE, 'KE7WIL', test_tg, 'replacement-password')
         replacement_text = token_file.read_text(encoding='utf-8')
         assert second['configured'] and 'replacement-password' not in replacement_text
         assert 'first-cookie' not in replacement_text and 'replacement-cookie' in replacement_text
@@ -465,14 +548,14 @@ def self_test() -> None:
         globals()['SNAPSHOTS'] = RUNTIME / 'snapshots'
         globals()['CHALLENGES'] = RUNTIME / 'challenges'
         ensure_storage()
-        atomic_json(snapshot_path('12'), {'ok': True, 'configured': True, 'updatedEpoch': int(time.time()), 'clients': [], 'cookies': ['must-not-leak'], 'token': 'must-not-leak', 'password': 'must-not-leak'})
-        public = public_status('12')
+        atomic_json(snapshot_path(NODE_SCOPE), {'ok': True, 'configured': True, 'updatedEpoch': int(time.time()), 'clients': [], 'cookies': ['must-not-leak'], 'token': 'must-not-leak', 'password': 'must-not-leak'})
+        public = public_status(NODE_SCOPE)
         assert public['configured'] and not any(key in public for key in ('cookies', 'token', 'password', 'secret'))
-        assert not logout_user('12')['configured']
+        assert not logout_user(NODE_SCOPE)['configured']
     globals()['STATE'], globals()['RUNTIME'], globals()['TOKENS'], globals()['SNAPSHOTS'], globals()['CHALLENGES'] = original_paths
     globals()['login_to_tgif'] = original_login
     globals()['collect_user'] = original_collect
-    print('per-user TGIF session helper self-test: ok')
+    print('node-wide TGIF session helper self-test: ok')
 
 
 def main() -> int:
@@ -487,6 +570,7 @@ def main() -> int:
     if args.command == 'self-test': self_test(); return 0
     if os.geteuid() != 0: parser.error('run as root')
     ensure_storage()
+    migrate_legacy_node_session()
     if args.command == 'login':
         secret = sys.stdin.readline().rstrip('\r\n')
         print(json.dumps(login_user(args.user_id, args.callsign, args.talkgroup, secret, args.captcha), separators=(',', ':'))); return 0

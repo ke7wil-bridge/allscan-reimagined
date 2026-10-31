@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import tempfile
 import time
 from typing import Any
@@ -75,6 +76,8 @@ ASTAPI_MAX_AGE_SECONDS = 5.0
 MAX_JSON_BYTES = 2 * 1024 * 1024
 INITIAL_TAIL_BYTES = 262_144
 WATCH_INTERVAL = 0.75
+SERVICE_CHECK_INTERVAL = 5.0
+UNIT_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
 
 
 def clean_caller(value: str, limit: int = 120) -> str:
@@ -570,14 +573,47 @@ class MmdvmFollower:
         return output
 
 
-def public_entry(bridge: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+def parse_service_properties(text: str) -> dict[str, str]:
+    return {key: value for line in text.splitlines() if "=" in line for key, value in [line.split("=", 1)]}
+
+
+def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[str], list[str]]:
+    mapping = config.get("bridgeHealthServices") if isinstance(config.get("bridgeHealthServices"), dict) else {}
+    configured = mapping.get(bridge_id)
+    units = [str(unit).strip() for unit in configured] if isinstance(configured, list) else []
+    units = list(dict.fromkeys(unit for unit in units if UNIT_RE.fullmatch(unit)))[:8]
+    issues = []
+    active_epochs: dict[str, int] = {}
+    for unit in units:
+        result = subprocess.run([
+            "systemctl", "show", unit, "--no-pager",
+            "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic",
+        ], text=True, capture_output=True, timeout=3)
+        details = parse_service_properties(result.stdout)
+        if details.get("ActiveState") != "active":
+            issues.append(unit + " is not active.")
+            continue
+        restarts = int(details.get("NRestarts", "0") or 0)
+        if restarts > 0:
+            issues.append(unit + " restarted unexpectedly; repair the full bridge chain.")
+        active_epochs[unit] = int(details.get("ActiveEnterTimestampMonotonic", "0") or 0)
+    valid_epochs = [epoch for epoch in active_epochs.values() if epoch > 0]
+    if not issues and len(valid_epochs) > 1 and max(valid_epochs) - min(valid_epochs) > 30_000_000:
+        newest = max(active_epochs, key=active_epochs.get)
+        issues.append(newest + " restarted without its companion bridge services; repair the full bridge chain.")
+    return units, issues
+
+
+def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str] | None = None, service_issues: list[str] | None = None) -> dict[str, Any]:
     role = str(state.get("role", "idle"))
     caller = clean_caller(str(state.get("current_user", "")), 120) if role == "source" else ""
     online = state.get("online")
     linked = state.get("linked")
-    warning = ""
-    health_severity = None
-    health_issues: list[str] = []
+    units = units or []
+    service_issues = service_issues or []
+    warning = service_issues[0] if service_issues else ""
+    health_severity = "offline" if service_issues else None
+    health_issues: list[str] = service_issues
     return {
         "active": role != "idle",
         "role": role,
@@ -595,6 +631,7 @@ def public_entry(bridge: dict[str, Any], state: dict[str, Any]) -> dict[str, Any
         "warning": warning,
         "health_severity": health_severity,
         "health_issues": health_issues,
+        "repair_available": bool(units),
         "online": online,
         "linked": linked,
         "reflector": clean_caller(str(state.get("reflector", "")), 8).upper(),
@@ -629,6 +666,7 @@ def standard_live_payload(
                 now,
                 local_identities,
             )
+    health_cache = states.setdefault("__service_health__", {})
     for bridge in bridges.values():
         state = states.setdefault(str(bridge["id"]), initial_activity_state())
         state["tx_events"] = [
@@ -658,10 +696,18 @@ def standard_live_payload(
         bridge_id = str(bridge["id"])
         state = states.setdefault(bridge_id, initial_activity_state())
         reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
-        if state.get("observed"):
-            entries[bridge_id] = public_entry(bridge, state)
-    for bridge_id in set(states) - {str(bridge["id"]) for bridge in bridges.values()}:
+        cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}
+        if now - int(cached.get("epoch", 0) or 0) >= SERVICE_CHECK_INTERVAL:
+            units, issues = bridge_service_health(config, bridge_id)
+            cached = {"epoch": now, "units": units, "issues": issues}
+            health_cache[bridge_id] = cached
+        if state.get("observed") or cached.get("units"):
+            entries[bridge_id] = public_entry(bridge, state, list(cached.get("units", [])), list(cached.get("issues", [])))
+    valid_ids = {str(bridge["id"]) for bridge in bridges.values()}
+    for bridge_id in set(states) - valid_ids - {"__service_health__"}:
         states.pop(bridge_id, None)
+    for bridge_id in set(health_cache) - valid_ids:
+        health_cache.pop(bridge_id, None)
     return {"updated_epoch": now, "bridges": entries}
 
 
