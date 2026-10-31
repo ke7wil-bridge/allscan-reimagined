@@ -9778,12 +9778,3 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
   .allscan-urf-group-title { font-size: 14px !important; }
 }
-/* Desktop Node Controls: center the primary actions while reserving the
-   independent Commands control at the right edge. The old flex-start rule
-   left a large empty gap and made the controls appear split apart. */
-@media (min-width: 1200px) {
-  .allscan-controls-shell > .allscan-controls-row:first-child {
-    justify-content: center !important;
-    padding-right: 0 !important;
-  }
-}
