@@ -485,7 +485,7 @@ try {
   const authoritativeNarrowStart = indexCssSource.indexOf('/* Beta 8 locked narrow/tablet Node Controls: qualified')
   const authoritativeNarrowEnd = indexCssSource.indexOf('/* Beta 8 locked non-desktop Connection Status readability. */', authoritativeNarrowStart)
   const authoritativeNarrowControls = indexCssSource.slice(authoritativeNarrowStart, authoritativeNarrowEnd)
-  const mobileContainmentStart = indexCssSource.indexOf('/* Mobile Node Controls containment.')
+  const mobileContainmentStart = indexCssSource.indexOf('/* Very narrow phone fallback.')
   const mobileContainmentEnd = indexCssSource.indexOf('/* Beta 8 locked tablet-landscape Talkers:', mobileContainmentStart)
   const mobileContainment = indexCssSource.slice(mobileContainmentStart, mobileContainmentEnd)
   assert(
@@ -501,15 +501,24 @@ try {
       && authoritativeNarrowControls.includes('padding-right: 102px;'),
     'Node Controls does not preserve its compact accepted geometry across the 521-1199px resize range',
   )
+  const phonePortraitControlsStart = indexCssSource.indexOf('/* Phone portrait Node Controls: preserve the desktop four-row organization. */')
+  const phonePortraitControlsEnd = indexCssSource.indexOf('/* Phone landscape:', phonePortraitControlsStart)
+  const phonePortraitControls = indexCssSource.slice(phonePortraitControlsStart, phonePortraitControlsEnd)
   assert(
-    mobileContainmentStart > authoritativeNarrowStart
-      && mobileContainment.includes('@media (max-width: 520px), (pointer: coarse) and (max-height: 520px)')
+    phonePortraitControlsStart >= 0
+      && phonePortraitControls.includes('@media (max-width: 520px) and (orientation: portrait)')
+      && phonePortraitControls.includes('flex-wrap: nowrap;')
+      && phonePortraitControls.includes('.allscan-controls-shell .allscan-kicks-bans-button')
+      && phonePortraitControls.includes('white-space: nowrap;')
+      && phonePortraitControls.includes('right: 5px;')
+      && mobileContainmentStart > authoritativeNarrowStart
+      && mobileContainment.includes('@media (max-width: 360px)')
+      && !mobileContainment.includes('pointer: coarse')
       && mobileContainment.includes('grid-template-columns: minmax(0, 1fr) auto auto !important;')
       && mobileContainment.includes('.allscan-controls-shell .allscan-kicks-bans-button')
-      && mobileContainment.includes('width: 100% !important;')
       && mobileContainment.includes('position: static !important;')
       && mobileContainment.includes('@media (max-width: 340px)'),
-    'mobile Node Controls can overlap or escape the module at narrow phone widths',
+    'standard phones must retain the accepted compact Node Controls layout while very narrow phones remain contained',
   )
   assert(
     !appSource.includes('fetchBridgeDestinations')
@@ -667,13 +676,15 @@ try {
     'Zello fast relay polling must reject responses older than the producer event',
   )
   assert(
-    appSource.includes('Math.max(0, 100 - (performance.now() - started))'),
-    'Zello fast relay polling must remain single-flight while preserving its cadence',
+    appSource.includes('const FAST_ACTIVITY_POLL_MS = 250')
+      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5
+      && !appSource.includes('window.setInterval(tick, 100)'),
+    'Every fast activity feed must remain single-flight at the bounded shared cadence',
   )
   assert(
     !appSource.includes('window.setInterval(tick, 100)')
-      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, 100 - \(performance\.now\(\) - started\)\)/g) || []).length === 4,
-    'fast bridge feeds must remain single-flight and back off while the page is hidden',
+      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5,
+    'all five fast bridge feeds must remain single-flight and back off while the page is hidden',
   )
   assert(
     asrApiSource.includes("function asr_m17_runtime_status(string $bridgeId): array")

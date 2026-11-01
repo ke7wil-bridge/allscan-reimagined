@@ -17,6 +17,7 @@ from typing import Callable, Iterable
 
 DEFAULT_CONFIG = Path("/etc/allscan-reimagined/config.json")
 DEFAULT_RPT_CONFIG = Path("/etc/asterisk/rpt.conf")
+MIGRATION_QUIESCE_STATE = Path("/var/lib/allscan-reimagined/bridge-setup/migration-quiesced.json")
 ASTERISK = Path("/usr/sbin/asterisk")
 RUNUSER = Path("/usr/sbin/runuser")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
@@ -92,7 +93,8 @@ def native_permanent_nodes(text: str, main_node: str) -> set[str]:
     )
 
 
-def configured_targets(config: dict) -> tuple[str, list[dict]]:
+def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> tuple[str, list[dict]]:
+    quiesced_nodes = quiesced_nodes or set()
     main_node = str(config.get("node", "")).strip()
     if not NODE_RE.fullmatch(main_node):
         raise RecoveryError("The configured main AllStar node is invalid.")
@@ -106,7 +108,7 @@ def configured_targets(config: dict) -> tuple[str, list[dict]]:
         if bridge.get("fixedBridgeRecovery") is not True:
             continue
         node = str(bridge.get("node", "")).strip()
-        if not NODE_RE.fullmatch(node) or node == main_node:
+        if not NODE_RE.fullmatch(node) or node == main_node or node in quiesced_nodes:
             continue
         targets.append({
             "id": bridge_id or "bridge",
@@ -115,8 +117,8 @@ def configured_targets(config: dict) -> tuple[str, list[dict]]:
     return main_node, targets
 
 
-def recovery_plan(config: dict, rpt_text: str) -> dict:
-    main_node, targets = configured_targets(config)
+def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None = None) -> dict:
+    main_node, targets = configured_targets(config, quiesced_nodes)
     native = native_permanent_nodes(rpt_text, main_node)
     fallback = [target for target in targets if target["node"] not in native]
     return {
@@ -193,12 +195,26 @@ def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asteri
     }
 
 
-def load_plan(config_path: Path, rpt_path: Path) -> dict:
+def load_quiesced_nodes(path: Path = MIGRATION_QUIESCE_STATE) -> set[str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError) as exc:
+        raise RecoveryError(f"Could not read bridge migration quiesce state: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("nodes", []), list):
+        raise RecoveryError("Bridge migration quiesce state is invalid; recovery is stopped safely.")
+    nodes = {str(value).strip() for value in payload.get("nodes", [])}
+    if any(not NODE_RE.fullmatch(node) for node in nodes):
+        raise RecoveryError("Bridge migration quiesce state contains an invalid node; recovery is stopped safely.")
+    return nodes
+
+
+def load_plan(config_path: Path, rpt_path: Path,
+              quiesce_path: Path = MIGRATION_QUIESCE_STATE) -> dict:
     try:
         rpt_text = rpt_path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         raise RecoveryError(f"Could not read Asterisk configuration: {exc}") from exc
-    return recovery_plan(read_json_object(config_path), rpt_text)
+    return recovery_plan(read_json_object(config_path), rpt_text, load_quiesced_nodes(quiesce_path))
 
 
 def self_test() -> None:
@@ -221,6 +237,9 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
     plan = recovery_plan(config, rpt_text)
     assert [item["node"] for item in plan["nativePermanent"]] == ["1201"]
     assert [item["node"] for item in plan["fallback"]] == ["1202"]
+    quiesced_plan = recovery_plan(config, rpt_text, {"1202"})
+    assert [item["node"] for item in quiesced_plan["fallback"]] == []
+    assert all(item["node"] != "1202" for item in quiesced_plan["configured"])
 
     calls: list[tuple[str, ...]] = []
 
@@ -256,6 +275,15 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         config_path.write_text(json.dumps(config), encoding="utf-8")
         rpt_path.write_text(rpt_text, encoding="utf-8")
         assert load_plan(config_path, rpt_path) == plan
+        quiesce_path = root / "quiesced.json"
+        quiesce_path.write_text(json.dumps({"nodes": ["1202"]}), encoding="utf-8")
+        assert load_plan(config_path, rpt_path, quiesce_path)["fallback"] == []
+        quiesce_path.write_text(json.dumps({"nodes": ["bad-node"]}), encoding="utf-8")
+        try:
+            load_plan(config_path, rpt_path, quiesce_path)
+            raise AssertionError("invalid migration quiesce state did not fail closed")
+        except RecoveryError:
+            pass
     print("ASR fixed-bridge recovery self-test: ok")
 
 

@@ -22,6 +22,9 @@ def main() -> None:
         "A graceful reload can preserve stale long-lived PHP/SSE workers"
     )
     assert "systemctl restart asterisk" not in apache_block
+    assert "APACHE_TOTAL_KB" in apache_block and "-ge 1800000" in apache_block
+    assert "APACHE_WORKERS=32" in apache_block and "APACHE_WORKERS=20" in apache_block
+    assert "APACHE_EXISTING" in apache_block and "MaxRequestWorkers $APACHE_WORKERS" in apache_block
     assert "bridge" not in apache_block[restart:], (
         "The Apache refresh must not restart bridge services"
     )

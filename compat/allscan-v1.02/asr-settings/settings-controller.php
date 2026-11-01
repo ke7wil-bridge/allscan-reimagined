@@ -2136,6 +2136,25 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'authMode' => $authMode,
 		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
+		'dmrPublicPort' => (int)($_POST['setupDmrPublicPort'] ?? 0) ?: null,
+		'm17PublicPort' => (int)($_POST['setupM17PublicPort'] ?? 0) ?: null,
+		'p25PublicPort' => (int)($_POST['setupP25PublicPort'] ?? 0) ?: null,
+		'nxdnPublicPort' => (int)($_POST['setupNxdnPublicPort'] ?? 0) ?: null,
+		'ysfPublicPort' => (int)($_POST['setupYsfPublicPort'] ?? 0) ?: null,
+		'urfPublicPort' => (int)($_POST['setupUrfPublicPort'] ?? 0) ?: null,
+		'nxdnReflectorId' => (int)($_POST['setupNxdnReflectorId'] ?? 0) ?: null,
+		'p25ReflectorId' => (int)($_POST['setupP25ReflectorId'] ?? 0) ?: null,
+		'ysfRegistrationId' => (int)($_POST['setupYsfRegistrationId'] ?? 0) ?: null,
+		'nodeTemplate' => asrSettingsCleanText($_POST['setupNodeTemplate'] ?? '', 48) ?: null,
+		'dstarEnabled' => ($_POST['dstarEnabled'] ?? 'true') === 'true',
+		'dmrplusEnabled' => ($_POST['dmrplusEnabled'] ?? 'true') === 'true',
+		'dmrEnabled' => ($_POST['dmrEnabled'] ?? 'true') === 'true',
+		'm17Enabled' => ($_POST['m17Enabled'] ?? 'true') === 'true',
+		'p25Enabled' => ($_POST['p25Enabled'] ?? 'true') === 'true',
+		'nxdnEnabled' => ($_POST['nxdnEnabled'] ?? 'true') === 'true',
+		'ysfEnabled' => ($_POST['ysfEnabled'] ?? 'true') === 'true',
+		'urfEnabled' => ($_POST['urfEnabled'] ?? 'true') === 'true',
+		'legacyBridgeNodes' => asrSettingsCleanText($_POST['legacyBridgeNodes'] ?? '', 80),
 	];
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
 	if($requireSecret && $authMode === 'secured') $payload['tgifPassword'] = $password;
@@ -3152,6 +3171,31 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-tgif-auth hidden><span>TGIF Hotspot ESSID <small>(optional)</small></span><input data-bridge-setup-tgif-essid type="number" min="1" max="99" placeholder="Automatic"><small>Use a unique 1-99 suffix when another hotspot for this DMR ID may be online.</small></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-dmr-username-field hidden><span>Network Username / Callsign</span><input data-bridge-setup-dmr-username type="text" maxlength="80" autocomplete="username" placeholder="Callsign or network username"></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-tgif-key hidden><span>TGIF Hotspot Security Key <small>(not the website password)</small></span><input data-bridge-setup-tgif-password type="password" maxlength="128" autocomplete="new-password"><small>Paste the key copied from TGIF User Security. ASR stores it on the node as a protected credential and does not show it on the dashboard.</small></label>
+				<fieldset class="asr-bridge-fields-grid" data-bridge-setup-urf-advanced hidden><legend>URF public listener ports and protocol identities</legend>
+					<p class="asr-settings-inline-note">Leave ports blank to retain deterministic defaults. Enter the reflector's already-published public ports when migrating an existing URF. These are separate from ASR's private runtime ports.</p>
+					<label><span>DMR / MMDVM public port</span><input data-urf-dmr-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>M17 public port</span><input data-urf-m17-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>P25 public port</span><input data-urf-p25-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>NXDN public port</span><input data-urf-nxdn-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>YSF public port</span><input data-urf-ysf-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>URF / interlink public port</span><input data-urf-urf-public-port type="number" min="1" max="65535" placeholder="Automatic"></label>
+					<label><span>NXDN reflector ID</span><input data-urf-nxdn-id type="number" min="1" max="9999" placeholder="Auto"></label>
+					<label><span>P25 reflector ID</span><input data-urf-p25-id type="number" min="1" max="65535" placeholder="Auto"></label>
+					<label><span>YSF registration ID</span><input data-urf-ysf-id type="number" min="1" max="99999" placeholder="Auto"></label>
+					<label><span>Asterisk node template</span><input data-urf-node-template type="text" maxlength="48" placeholder="Auto-detect (e.g. node-main)"></label>
+				</fieldset>
+				<label class="asr-setup-field" data-bridge-setup-urf-advanced><span>Retired legacy bridge node numbers <small>(comma-separated)</small></span><input data-urf-legacy-nodes type="text" maxlength="80" placeholder="Example: 1883,1886"><small>ASR will prevent its recovery service from reconnecting these nodes and will warn about external scripts that still reference them. Their services/configuration are not deleted.</small></label>
+				<fieldset class="asr-bridge-fields-grid" data-bridge-setup-urf-advanced hidden><legend>URF protocols</legend>
+					<p class="asr-settings-inline-note">Only enabled protocols will bind listeners. Keep separately managed modes disabled here. USRP/AllStar transport remains enabled for the bridge.</p>
+					<label><span><input data-urf-enable-dstar type="checkbox" checked> D-Star (DCS / DExtra / DPlus)</span></label>
+					<label><span><input data-urf-enable-dmrplus type="checkbox" checked> DMRPlus</span></label>
+					<label><span><input data-urf-enable-dmr type="checkbox" checked> DMR / MMDVM</span></label>
+					<label><span><input data-urf-enable-m17 type="checkbox" checked> M17</span></label>
+					<label><span><input data-urf-enable-p25 type="checkbox" checked> P25</span></label>
+					<label><span><input data-urf-enable-nxdn type="checkbox" checked> NXDN</span></label>
+					<label><span><input data-urf-enable-ysf type="checkbox" checked> YSF</span></label>
+					<label><span><input data-urf-enable-urf type="checkbox" checked> URF interlink</span></label>
+				</fieldset>
 				<label data-bridge-setup-zello hidden><span>Zello Username</span><input data-bridge-setup-zello-username type="text" maxlength="80" autocomplete="username"></label>
 				<label data-bridge-setup-zello hidden><span>Zello Password</span><input data-bridge-setup-zello-password type="password" maxlength="256" autocomplete="new-password"></label>
 				<label data-bridge-setup-zello hidden><span>Zello Channel</span><input data-bridge-setup-zello-channel type="text" maxlength="120"></label>
@@ -3401,6 +3445,25 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupTgifEssid: document.querySelector('[data-bridge-setup-tgif-essid]'),
 		setupDmrUsername: document.querySelector('[data-bridge-setup-dmr-username]'),
 		setupTgifPassword: document.querySelector('[data-bridge-setup-tgif-password]'),
+		setupDmrPublicPort: document.querySelector('[data-urf-dmr-public-port]'),
+		setupM17PublicPort: document.querySelector('[data-urf-m17-public-port]'),
+		setupP25PublicPort: document.querySelector('[data-urf-p25-public-port]'),
+		setupNxdnPublicPort: document.querySelector('[data-urf-nxdn-public-port]'),
+		setupYsfPublicPort: document.querySelector('[data-urf-ysf-public-port]'),
+		setupUrfPublicPort: document.querySelector('[data-urf-urf-public-port]'),
+		setupNxdnReflectorId: document.querySelector('[data-urf-nxdn-id]'),
+		setupP25ReflectorId: document.querySelector('[data-urf-p25-id]'),
+		setupYsfRegistrationId: document.querySelector('[data-urf-ysf-id]'),
+		setupNodeTemplate: document.querySelector('[data-urf-node-template]'),
+		setupLegacyBridgeNodes: document.querySelector('[data-urf-legacy-nodes]'),
+		setupDstarEnabled: document.querySelector('[data-urf-enable-dstar]'),
+		setupDmrplusEnabled: document.querySelector('[data-urf-enable-dmrplus]'),
+		setupDmrEnabled: document.querySelector('[data-urf-enable-dmr]'),
+		setupM17Enabled: document.querySelector('[data-urf-enable-m17]'),
+		setupP25Enabled: document.querySelector('[data-urf-enable-p25]'),
+		setupNxdnEnabled: document.querySelector('[data-urf-enable-nxdn]'),
+		setupYsfEnabled: document.querySelector('[data-urf-enable-ysf]'),
+		setupUrfEnabled: document.querySelector('[data-urf-enable-urf]'),
 		setupZelloUsername: document.querySelector('[data-bridge-setup-zello-username]'),
 		setupZelloPassword: document.querySelector('[data-bridge-setup-zello-password]'),
 		setupZelloChannel: document.querySelector('[data-bridge-setup-zello-channel]'),
@@ -4180,6 +4243,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		document.querySelectorAll('[data-bridge-setup-digital]').forEach(function(field) { field.hidden = !isDigital; });
 		if(setupFields.setupDestination && setupFields.setupDestination.closest('label')) setupFields.setupDestination.closest('label').hidden = !isDigital;
 		document.querySelectorAll('[data-bridge-setup-dmr]').forEach(function(field) { field.hidden = !isDmr; });
+		document.querySelectorAll('[data-bridge-setup-urf-advanced]').forEach(function(field) { field.hidden = !(isDmr && path === 'urf'); });
 		document.querySelectorAll('[data-bridge-setup-tgif-auth]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif'); });
 		document.querySelectorAll('[data-bridge-setup-tgif-key]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif' && setupTgifAuthMode && setupTgifAuthMode.value === 'secured'); });
 		document.querySelectorAll('[data-bridge-setup-dmr-username-field]').forEach(function(field) { field.hidden = !isDmr || dmrNetwork === 'tgif'; });
@@ -4282,6 +4346,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			var rawValue = setupFields[key] ? setupFields[key].value : '';
 			values.set(key, ['setupZelloPassword','setupZelloPrivateKey'].indexOf(key) !== -1 ? rawValue : rawValue.trim());
 		});
+		if(currentSetupMode() === 'dmr' && currentSetupPath() === 'urf') {
+			var urfPayloadNames = {setupDmrPublicPort:'dmrPublicPort',setupM17PublicPort:'m17PublicPort',setupP25PublicPort:'p25PublicPort',setupNxdnPublicPort:'nxdnPublicPort',setupYsfPublicPort:'ysfPublicPort',setupUrfPublicPort:'urfPublicPort',setupNxdnReflectorId:'nxdnReflectorId',setupP25ReflectorId:'p25ReflectorId',setupYsfRegistrationId:'ysfRegistrationId',setupNodeTemplate:'nodeTemplate'};
+			Object.keys(urfPayloadNames).forEach(function(key) { var field = setupFields[key]; if(field) values.set(urfPayloadNames[key], field.value.trim()); });
+			var urfFlagNames = {setupDstarEnabled:'dstarEnabled',setupDmrplusEnabled:'dmrplusEnabled',setupDmrEnabled:'dmrEnabled',setupM17Enabled:'m17Enabled',setupP25Enabled:'p25Enabled',setupNxdnEnabled:'nxdnEnabled',setupYsfEnabled:'ysfEnabled',setupUrfEnabled:'urfEnabled'};
+			if(setupFields.setupLegacyBridgeNodes) values.set('legacyBridgeNodes', setupFields.setupLegacyBridgeNodes.value.trim());
+			Object.keys(urfFlagNames).forEach(function(key) { var field = setupFields[key]; if(field) values.set(urfFlagNames[key], field.checked ? 'true' : 'false'); });
+		}
 		if(currentSetupMode() === 'net_bridge') {
 			selectedNetModes(false).forEach(function(mode) { values.append('setupNetModes[]', mode); });
 			values.set('setupCallsign', setupFields.setupNetCallsign ? setupFields.setupNetCallsign.value.trim() : '');
@@ -4325,11 +4396,14 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			details = 'Managed Zello runtime: yes\n' +
 				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx;
 		} else if(mode === 'dmr') {
+			var publicPorts = result.publicPorts || {};
+			var ids = result.protocolIds || {};
 			details = 'Managed URF/TGIF runtime: yes\n' +
 				'TGIF hotspot/network ID: ' + (result.dmrNetworkId || 'automatic') + '\n' +
-				'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +
-				'URF DMR port: ' + ports.dmr + '\n' +
-				'TGIF local ports: ' + ports.tgif_local + ' / ' + ports.tgif_mmdvm;
+				'USRP receive/transmit (private): ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +
+				'Public listeners DMR / M17 / P25 / NXDN / YSF / URF: ' + [publicPorts.dmr, publicPorts.m17, publicPorts.p25, publicPorts.nxdn, publicPorts.ysf, publicPorts.urf].join(' / ') + '\n' +
+				'Protocol IDs NXDN / P25 / YSF: ' + [ids.nxdn, ids.p25, ids.ysf].join(' / ') + '\n' +
+				'TGIF local ports (private): ' + ports.tgif_local + ' / ' + ports.tgif_mmdvm;
 		} else {
 			var services = Array.isArray(result.services) ? result.services.join('\n  ') : '';
 			details = 'USRP receive/transmit: ' + ports.usrp_rx + ' / ' + ports.usrp_tx + '\n' +

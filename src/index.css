@@ -9362,11 +9362,10 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   .allscan-menu-button { font-size: 19px; padding: 9px 11px; }
 }
 
-/* Mobile Node Controls containment. Fixed 405px-era button reservations caused
-   Commands and Manage Kicks & Bans to overlap controls on narrower phones and
-   when mobile browsers enlarged text. Use intrinsic tracks and real rows on
-   every phone orientation so no control can cover or escape the module. */
-@media (max-width: 520px), (pointer: coarse) and (max-height: 520px) {
+/* Very narrow phone fallback. Standard phones retain the previously accepted
+   compact Node Controls layout above; only widths <=360px switch to stacked
+   intrinsic tracks to prevent overlap on genuinely narrow viewports. */
+@media (max-width: 360px) {
   .allscan-controls-section {
     box-sizing: border-box !important;
     width: calc(100vw - 16px) !important;
