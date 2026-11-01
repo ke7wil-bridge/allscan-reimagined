@@ -74,8 +74,9 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.1.5.15'")
-    && whatsNewSource.includes('48 hours')
+  whatsNewSource.includes("version: '1.0.0-beta.8.1.5.16'")
+    && whatsNewSource.includes('keeps Zello on its own node')
+    && whatsNewSource.includes('Restores mobile Node Controls behavior')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
   'What’s New copy is missing, version-mismatched, or too technical.',
 )
