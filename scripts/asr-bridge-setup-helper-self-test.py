@@ -81,6 +81,27 @@ def main() -> None:
     test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
                                            "hotspotEssid": 50})
     assert test_value.dmr_id == 3224939 and test_value.tgif_essid == 50
+    netoholic_value = helper.dmr_settings(dmr, {
+        "bridgeId": "urfnet", "callsign": "KN4EWT", "digitalId": 3135475,
+        "destination": 67498, "bridgeNode": 1002, "hotspotEssid": 11,
+        "dmrPublicPort": 62030, "m17PublicPort": 17000,
+        "p25PublicPort": 41000, "nxdnPublicPort": 41400,
+        "nxdnReflectorId": 6749, "p25ReflectorId": 6749,
+        "nodeTemplate": "node-main",
+    })
+    assert netoholic_value.dmr_public_port == 62030
+    assert netoholic_value.m17_public_port == 17000
+    assert netoholic_value.p25_public_port == 41000
+    assert netoholic_value.nxdn_public_port == 41400
+    assert netoholic_value.nxdn_reflector_id == 6749
+    assert netoholic_value.p25_reflector_id == 6749
+    assert netoholic_value.node_template == "node-main"
+    assert netoholic_value.legacy_bridge_nodes == ()
+    netoholic_with_retired = helper.dmr_settings(dmr, {
+        "bridgeId": "urfnet", "callsign": "KN4EWT", "digitalId": 3135475,
+        "destination": 67498, "bridgeNode": 1001, "legacyBridgeNodes": "1883, 1886",
+    })
+    assert netoholic_with_retired.legacy_bridge_nodes == (1883, 1886)
     assert dmr.tgif_network_id(test_value.dmr_id, 1001, test_value.tgif_essid) == 322493950
     dmr_ports = dmr.port_block("dmr_tgif_net")
     rendered_urf = dmr.urfd_ini({

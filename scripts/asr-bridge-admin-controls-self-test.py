@@ -62,7 +62,7 @@ check("const canDisconnect = bridgeCapabilities.includes('disconnect')" in APP, 
 check("clientAdmin.includes('listBans')" in APP, "Manage Clients is not capability-driven")
 check("Ban is global across ASR bridges" in APP, "global-ban scope warning missing")
 check("Enforcement is applied by each supported backend" in APP, "partial global-ban enforcement warning missing")
-check("URFWIL Bridge" in APP, "URFWIL group title regressed")
+check("urfGroupTitle" in APP and "URFWIL Bridge" not in APP, "URF group title must derive from configured reflector identity")
 check("Kick affects only the selected current bridge session" in APP, "Kick scope semantics are not explained")
 check("allscan-bridge-inline-client-actions" in APP and "allscan-bridge-inline-client-actions" in CSS, "inline client actions are missing")
 check("kickBridgeConnectedClient" in APP and "kickUrfClient" in LIVE and "kickStandaloneClient" in LIVE, "bridge-aware Kick UI/API routing is missing")

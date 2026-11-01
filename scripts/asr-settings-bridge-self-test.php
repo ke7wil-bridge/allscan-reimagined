@@ -616,7 +616,7 @@ check(strpos($settingsSource, "'dmr-security-update'") !== false
 	&& strpos($settingsSource, 'data-dmr-hotspot-key') !== false,
 	'Installed DMR Net Bridge credentials cannot be maintained through Settings.');
 check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
-check(stripos($settingsSource, 'dstar') === false, 'D-Star remains exposed by Settings.');
+check(strpos($settingsSource, 'data-urf-enable-dstar') !== false && strpos($settingsSource, 'D-Star (DCS / DExtra / DPlus)') !== false, 'Standalone URF D-Star protocol toggle is missing from Settings.');
 check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');
 check(strpos($settingsSource, '<option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option>') !== false, 'Standard Bridge/URF choices are incomplete.');
 check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') !== false, 'Unified Net Bridge choice is missing.');

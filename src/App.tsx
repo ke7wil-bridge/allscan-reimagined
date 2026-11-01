@@ -65,6 +65,8 @@ import {
   type UrfAuditEvent,
 } from './lib/allscanLive'
 
+const FAST_ACTIVITY_POLL_MS = 250
+
 const FAVORITES_DISPLAY_CACHE_KEY = 'asrFavoritesDisplayCache.v2'
 const NODE_MESSAGE_LIVE_CACHE_KEY = 'asrNodeMessageState.liveOnly.v1'
 const NODE_MESSAGE_LIVE_TTL = 300000
@@ -1673,7 +1675,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge and connection status remain the fallback */ }
       finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
       }
     }
     void tick()
@@ -1714,7 +1716,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
       finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
       }
     }
     void tick()
@@ -1754,7 +1756,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
       finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), Math.max(0, 100 - (performance.now() - started)))
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
       }
     }
     void tick()
@@ -1784,7 +1786,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available if the fast feed fails */ }
       finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
       }
     }
     void tick()
@@ -1813,7 +1815,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
       } catch { /* full bridge status remains available */ }
       finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, 100 - (performance.now() - started)))
+        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
       }
     }
     void tick()
@@ -3881,6 +3883,11 @@ function App({ config }: { config: RuntimeConfig }) {
 
             {(() => {
               const urfCards = bridgeState.cards.filter((card) => { const bridge = config.bridges.find((candidate) => candidate.id === card.id); return bridge?.urfReflector === true && bridge.cardType === 'standard' })
+              const urfGroupNames = Array.from(new Set(urfCards.map((card) => {
+                const bridge = config.bridges.find((candidate) => candidate.id === card.id)
+                return String(bridge?.urfName || bridge?.friendlyName || card.title.replace(/\s+Bridge$/i, '')).trim()
+              }).filter(Boolean)))
+              const urfGroupTitle = urfGroupNames.length === 1 ? `${urfGroupNames[0]} Bridge` : (urfGroupNames.length > 1 ? 'URF Reflectors' : 'URF Reflector')
               const managedCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listBans'))
               const managedConnectedCards = managedCards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listClients'))
               const zelloTalkers = managedCards
@@ -3890,7 +3897,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   .map((detail) => ({ card, identity: detail.label.trim().toUpperCase(), active: card.lastCaller.trim().toUpperCase() === detail.label.trim().toUpperCase() })))
               if (!urfCards.length && !urfAccessOpen) return null
               return <div className="allscan-urf-group">
-                {urfCards.length ? <div className="allscan-urf-group-title"><span>URFWIL Bridge</span></div> : null}
+                {urfCards.length ? <div className="allscan-urf-group-title"><span>{urfGroupTitle}</span></div> : null}
                 <div className="allscan-urf-mini-grid">
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)

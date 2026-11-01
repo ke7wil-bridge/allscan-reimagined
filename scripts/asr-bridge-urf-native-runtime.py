@@ -162,6 +162,44 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def patch_protocol_enable_flags(urfd: Path) -> None:
+    """Add explicit per-protocol listener enable flags to the pinned URFD source."""
+    configure = urfd / "reflector/Configure.cpp"
+    replace_once(configure, "\tcounter = 0;\n", "\tcounter = 0;\n\t// Old INI files retain the historical all-enabled behavior.\n\tdata[\"DCS.enable\"] = true; data[\"DExtra.enable\"] = true; data[\"DPlus.enable\"] = true;\n\tdata[\"DMRPlus.enable\"] = true; data[\"M17.enable\"] = true; data[\"MMDVM.enable\"] = true;\n\tdata[\"NXDN.enable\"] = true; data[\"P25.enable\"] = true; data[\"URF.enable\"] = true; data[\"YSF.enable\"] = true;\n")
+    edits = [
+        ("case ESection::dcs:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dcs.port] = getUnsigned(value, \"DCS Port\", 1024, 65535, 30051);\n\t\t\t\telse\n", "case ESection::dcs:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dcs.port] = getUnsigned(value, \"DCS Port\", 1024, 65535, 30051);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"DCS.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::dextra:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dextra.port] = getUnsigned(value, \"DExtra Port\", 1024, 65535, 30001);\n\t\t\t\telse\n", "case ESection::dextra:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dextra.port] = getUnsigned(value, \"DExtra Port\", 1024, 65535, 30001);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"DExtra.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::dplus:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dplus.port] = getUnsigned(value, \"DPlus Port\", 1024, 65535, 20001);\n\t\t\t\telse\n", "case ESection::dplus:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dplus.port] = getUnsigned(value, \"DPlus Port\", 1024, 65535, 20001);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"DPlus.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::dmrplus:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dmrplus.port] = getUnsigned(value, \"DMRPlus Port\", 1024, 65535, 8880);\n\t\t\t\telse\n", "case ESection::dmrplus:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.dmrplus.port] = getUnsigned(value, \"DMRPlus Port\", 1024, 65535, 8880);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"DMRPlus.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::m17:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.m17.port] = getUnsigned(value, \"M17 Port\", 1024, 65535, 17000);\n\t\t\t\telse\n", "case ESection::m17:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.m17.port] = getUnsigned(value, \"M17 Port\", 1024, 65535, 17000);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"M17.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::mmdvm:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.mmdvm.port] = getUnsigned(value, \"MMDVM Port\", 1024, 65535, 62030);\n", "case ESection::mmdvm:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.mmdvm.port] = getUnsigned(value, \"MMDVM Port\", 1024, 65535, 62030);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"MMDVM.enable\"] = IS_TRUE(value[0]);\n"),
+        ("case ESection::nxdn:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.nxdn.port] = getUnsigned(value, \"NDXN Port\", 1024, 65535, 41400);\n", "case ESection::nxdn:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.nxdn.port] = getUnsigned(value, \"NDXN Port\", 1024, 65535, 41400);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"NXDN.enable\"] = IS_TRUE(value[0]);\n"),
+        ("case ESection::p25:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.p25.port] = getUnsigned(value, \"P25 Port\", 1024, 65535, 41000);\n", "case ESection::p25:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.p25.port] = getUnsigned(value, \"P25 Port\", 1024, 65535, 41000);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"P25.enable\"] = IS_TRUE(value[0]);\n"),
+        ("case ESection::urf:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.urf.port] = getUnsigned(value, \"URF Port\", 1024, 65535, 10017);\n\t\t\t\telse\n", "case ESection::urf:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.urf.port] = getUnsigned(value, \"URF Port\", 1024, 65535, 10017);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"URF.enable\"] = IS_TRUE(value[0]);\n\t\t\t\telse\n"),
+        ("case ESection::ysf:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.ysf.port] = getUnsigned(value, \"YSF Port\", 1024, 65535, 42000);\n", "case ESection::ysf:\n\t\t\t\tif (0 == key.compare(JPORT))\n\t\t\t\t\tdata[g_Keys.ysf.port] = getUnsigned(value, \"YSF Port\", 1024, 65535, 42000);\n\t\t\t\telse if (0 == key.compare(JENABLE)) data[\"YSF.enable\"] = IS_TRUE(value[0]);\n"),
+    ]
+    for old, new in edits:
+        replace_once(configure, old, new)
+
+    protocols = urfd / "reflector/Protocols.cpp"
+    blocks = [
+        ("CDextraProtocol", '"XRF", EProtocol::dextra, uint16_t(g_Configure.GetUnsigned(g_Keys.dextra.port)), DSTAR_IPV4, DSTAR_IPV6', "DExtra"),
+        ("CDplusProtocol", '"REF", EProtocol::dplus, uint16_t(g_Configure.GetUnsigned(g_Keys.dplus.port)), DSTAR_IPV4, DSTAR_IPV6', "DPlus"),
+        ("CDcsProtocol", '"DCS", EProtocol::dcs, uint16_t(g_Configure.GetUnsigned(g_Keys.dcs.port)), DSTAR_IPV4, DSTAR_IPV6', "DCS"),
+        ("CDmrmmdvmProtocol", "nullptr, EProtocol::dmrmmdvm, uint16_t(g_Configure.GetUnsigned(g_Keys.mmdvm.port)), DMR_IPV4, DMR_IPV6", "MMDVM"),
+        ("CDmrplusProtocol", "nullptr, EProtocol::dmrplus, uint16_t(g_Configure.GetUnsigned(g_Keys.dmrplus.port)), DMR_IPV4, DMR_IPV6", "DMRPlus"),
+        ("CYsfProtocol", '"YSF", EProtocol::ysf, uint16_t(g_Configure.GetUnsigned(g_Keys.ysf.port)), YSF_IPV4, YSF_IPV6', "YSF"),
+        ("CM17Protocol", '"URF", EProtocol::m17, uint16_t(g_Configure.GetUnsigned(g_Keys.m17.port)), M17_IPV4, M17_IPV6', "M17"),
+        ("CP25Protocol", '"P25", EProtocol::p25, uint16_t(g_Configure.GetUnsigned(g_Keys.p25.port)), P25_IPV4, P25_IPV6', "P25"),
+        ("CNXDNProtocol", '"NXDN", EProtocol::nxdn, uint16_t(g_Configure.GetUnsigned(g_Keys.nxdn.port)), NXDN_IPV4, NXDN_IPV6', "NXDN"),
+        ("CURFProtocol", '"URF", EProtocol::urf, uint16_t(g_Configure.GetUnsigned(g_Keys.urf.port)), URF_IPV4, URF_IPV6', "URF"),
+    ]
+    for cls, init, section in blocks:
+        old = f"\t\tm_Protocols.emplace_back(std::unique_ptr<{cls}>(new {cls}));\n\t\tif (! m_Protocols.back()->Initialize({init}))\n\t\t\treturn false;\n"
+        new = f"\t\tif (g_Configure.GetBoolean(\"{section}.enable\"))\n\t\t{{\n\t\t\tm_Protocols.emplace_back(std::unique_ptr<{cls}>(new {cls}));\n\t\t\tif (! m_Protocols.back()->Initialize({init}))\n\t\t\t\treturn false;\n\t\t}}\n"
+        replace_once(protocols, old, new)
+
+
 def build(destination: Path, runtime_source: Path, digital_sources) -> dict:
     if destination.exists() and any(destination.iterdir()):
         raise SourceError("native runtime destination must be empty")
@@ -179,6 +217,7 @@ def build(destination: Path, runtime_source: Path, digital_sources) -> dict:
         md380 = fetch_source(work, MD380)
         for name in ("IP.cpp", "IP.h", "TCPacketDef.h", "TCSocket.cpp", "TCSocket.h", "Timer.h"):
             shutil.copy2(urfd / "reflector" / name, tcd / name)
+        patch_protocol_enable_flags(urfd)
 
         patch_root = runtime_source / "patches"
         for name in ("Reflector.cpp", "AsrPttState.h", "Clients.cpp", "Clients.h",

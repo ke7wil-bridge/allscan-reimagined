@@ -34,6 +34,7 @@ export type RuntimeBridgeConfig = {
   cardType?: BridgeCardType
   urfReflector?: boolean
   urfGroupId?: string
+  urfName?: string
   linkAlias?: string
   m17Module?: string
   backendMode?: 'display_only' | 'managed'
@@ -1428,7 +1429,9 @@ export function netBridgeTalkerDestinationLabel(
 }
 
 function bridgeTalkerNodeLabel(card: BridgeCardView) {
-  if (card.node === '1001') return 'URFWIL'
+  if (card.mode === 'urf') {
+    return String(card.reflector || card.title || card.node || 'URF Reflector').trim()
+  }
   if (card.node === '1999' || card.cardType !== 'standard') return 'Net Bridge'
   return String(card.node || card.title || 'Digital Bridge').trim()
 }

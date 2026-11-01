@@ -399,7 +399,11 @@ def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "title",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
-        "hotspotEssid", "tgifStaticToken",
+        "hotspotEssid", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
+        "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
+        "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
+        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled",
+        "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
     }
     if set(payload) - allowed:
         raise HelperError("DMR request contains unsupported fields")
@@ -414,6 +418,26 @@ def dmr_settings(module, payload: dict[str, Any]):
     reflector = "URF" + re.sub(r"[^A-Z0-9]", "", callsign)[-3:]
     if len(reflector) < 5:
         reflector = "URFASR"
+    raw_legacy_nodes = payload.get("legacyBridgeNodes", "")
+    if isinstance(raw_legacy_nodes, str):
+        legacy_nodes = tuple(int(item.strip()) for item in raw_legacy_nodes.split(",") if item.strip())
+    elif isinstance(raw_legacy_nodes, list):
+        legacy_nodes = tuple(int(item) for item in raw_legacy_nodes)
+    else:
+        raise HelperError("legacyBridgeNodes must be a comma-separated node list")
+
+    def flag(name: str, default: bool = True) -> bool:
+        if name not in payload or payload[name] == "":
+            return default
+        value = payload[name]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.strip().lower() in {"true", "1", "yes", "on"}:
+            return True
+        if isinstance(value, str) and value.strip().lower() in {"false", "0", "no", "off"}:
+            return False
+        raise HelperError(f"{name} must be true or false")
+
     return module.UrfSettings(
         bridge_id=str(payload["bridgeId"]), callsign=callsign,
         dmr_id=int(payload["digitalId"]), tgif_tg=int(payload["destination"]),
@@ -421,6 +445,21 @@ def dmr_settings(module, payload: dict[str, Any]):
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
         tgif_essid=int(payload["hotspotEssid"]) if payload.get("hotspotEssid") else None,
+        dmr_public_port=int(payload["dmrPublicPort"]) if payload.get("dmrPublicPort") else None,
+        m17_public_port=int(payload["m17PublicPort"]) if payload.get("m17PublicPort") else None,
+        p25_public_port=int(payload["p25PublicPort"]) if payload.get("p25PublicPort") else None,
+        nxdn_public_port=int(payload["nxdnPublicPort"]) if payload.get("nxdnPublicPort") else None,
+        ysf_public_port=int(payload["ysfPublicPort"]) if payload.get("ysfPublicPort") else None,
+        urf_public_port=int(payload["urfPublicPort"]) if payload.get("urfPublicPort") else None,
+        nxdn_reflector_id=int(payload["nxdnReflectorId"]) if payload.get("nxdnReflectorId") else None,
+        p25_reflector_id=int(payload["p25ReflectorId"]) if payload.get("p25ReflectorId") else None,
+        ysf_registration_id=int(payload["ysfRegistrationId"]) if payload.get("ysfRegistrationId") else None,
+        node_template=str(payload["nodeTemplate"]) if payload.get("nodeTemplate") else None,
+        dstar_enabled=flag("dstarEnabled"), dmrplus_enabled=flag("dmrplusEnabled"),
+        dmr_enabled=flag("dmrEnabled"), m17_enabled=flag("m17Enabled"),
+        p25_enabled=flag("p25Enabled"), nxdn_enabled=flag("nxdnEnabled"),
+        ysf_enabled=flag("ysfEnabled"), urf_enabled=flag("urfEnabled"),
+        legacy_bridge_nodes=legacy_nodes,
     )
 
 

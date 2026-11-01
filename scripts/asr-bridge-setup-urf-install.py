@@ -707,7 +707,7 @@ def wait_for_active_units(
     return tuple(remaining)
 
 
-def verify_native_runtime(plan: dict[str, Any]) -> None:
+def verify_native_runtime(plan: dict[str, Any], expected_links: set[str] | None = None) -> None:
     identity = plan["settings"]["bridge_id"]
     units = (service_name(identity), *native_service_names(identity))
     inactive = wait_for_active_units(units)
@@ -732,10 +732,67 @@ def verify_native_runtime(plan: dict[str, Any]) -> None:
         text = diagnostic.read_text(encoding="utf-8", errors="replace") if diagnostic.is_file() else ""
         raise native_runtime_failure(identity_state, text, last_error)
     verify_asterisk_node(plan)
+    verify_asterisk_link(plan, expected_links)
+
+
+def established_links(main_node: int) -> set[str]:
+    result = subprocess.run(["asterisk", "-rx", f"rpt lstats {main_node}"],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise InstallError("could not read the main AllStar link state before URF activation")
+    links: set[str] = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[-1].upper() == "ESTABLISHED":
+            identity = fields[0].strip()
+            if identity and identity.upper() not in {"NODE", "----"}:
+                links.add(identity)
+    return links
+
+
+def check_legacy_links(plan: dict[str, Any]) -> set[str]:
+    links = established_links(int(plan["mainNode"]))
+    connected = sorted(set(str(node) for node in plan.get("legacyBridgeNodes", [])) & links)
+    if connected:
+        raise InstallError("legacy bridge path(s) still connected to the main node: "
+                           + ", ".join(connected)
+                           + ". Disconnect them before activating the URF replacement.")
+    return links
+
+
+def verify_asterisk_link(plan: dict[str, Any], expected_links: set[str] | None = None) -> None:
+    if plan["settings"].get("bridge_role") == "net" or int(plan["bridgeNode"]) == 1999:
+        return
+    recovery = "allscan-reimagined-fixed-bridge-recovery.service"
+    subprocess.run(["systemctl", "start", recovery], check=True, capture_output=True, text=True)
+    main_node = int(plan["mainNode"])
+    node = str(plan["bridgeNode"])
+    expected = set(expected_links or ())
+    legacy = {str(value) for value in plan.get("legacyBridgeNodes", [])}
+    last = ""
+    for _ in range(60):
+        links = established_links(main_node)
+        if legacy.intersection(links):
+            raise InstallError("a retired legacy bridge reconnected during URF activation: "
+                               + ", ".join(sorted(legacy.intersection(links))))
+        missing = (expected - legacy) - links
+        if node in links and not missing:
+            return
+        last = "missing established links: " + ", ".join(sorted((missing | ({node} if node not in links else set()))))
+        time.sleep(1)
+    capture_runtime_diagnostics(plan)
+    raise InstallError("URF transport node did not establish its AllStar link; " + last)
 
 
 def verify_asterisk_node(plan: dict[str, Any]) -> None:
     node = plan["bridgeNode"]
+    rpt_path = rooted(Path("/"), planner.RPT)
+    try:
+        planner.validate_node_inheritance(
+            rpt_path.read_text(encoding="utf-8"), node, plan["asteriskNodeTemplate"])
+    except (OSError, planner.PlanError) as exc:
+        capture_runtime_diagnostics(plan)
+        raise InstallError(f"URF Asterisk node inheritance verification failed: {exc}") from exc
     last_error = ""
     for _ in range(20):
         result = subprocess.run(["asterisk", "-rx", f"rpt stats {node}"],
@@ -757,6 +814,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     plan = planner.plan(root, settings)
     if plan["digest"] != expected_digest:
         raise InstallError("preview is stale; preview again")
+    preexisting_links = check_legacy_links(plan) if manage_services else set()
     outputs = file_spec(root, plan, password, static_token)
     runtime_root_was_present = rooted(root, plan["resources"]["root"]).exists()
     identity = settings.bridge_id
@@ -810,6 +868,11 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
             if (not target.is_file() or target.read_bytes() != data
                     or stat.S_IMODE(target.stat().st_mode) != mode):
                 raise InstallError(f"managed file verification failed: {logical}")
+        changed_proxy_modes = {
+            Path(logical).stem for logical in outputs
+            if logical.startswith(planner.ADMIN_ENV_DIR + "/")
+            and before[logical] != (outputs[logical][0], outputs[logical][1])
+        }
         net_inactive = (str(plan["settings"].get("bridge_role") or "standard") == "net"
                         and json.loads(rooted(root, planner.CONFIG).read_text()).get("netBridgeMode") != "dmr")
         if manage_services:
@@ -842,11 +905,27 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
                 if plan["backend"] == "container":
                     verify_container_runtime(plan)
                 else:
-                    verify_native_runtime(plan)
+                    verify_native_runtime(plan, preexisting_links)
+                for mode in sorted(changed_proxy_modes):
+                    unit = f"allscan-reimagined-native-admin@{mode}.service"
+                    if subprocess.run(["systemctl", "cat", unit], capture_output=True, text=True).returncode != 0:
+                        raise InstallError(f"native {mode.upper()} public-port proxy unit is not installed")
+                    subprocess.run(["systemctl", "restart", unit], check=True, capture_output=True, text=True)
+                    if subprocess.run(["systemctl", "is-active", "--quiet", unit], check=False).returncode != 0:
+                        raise InstallError(f"native {mode.upper()} public-port proxy did not become active")
         owned = sorted(path for path in outputs if path not in (planner.CONFIG, planner.RPT, planner.MODULES))
-        record_data = {"schema": 2, "bridgeType": "dmr", "runtime": "urf-tgif",
+        record_data = {"schema": 3, "bridgeType": "dmr", "architecture": "urf-reflector",
+                       "urfReflector": True, "runtime": "urf-native",
                        "backend": plan["backend"], "bridgeId": identity,
-                       "bridgeNode": plan["bridgeNode"], "ports": plan["ports"], "service": service,
+                       "bridgeNode": plan["bridgeNode"], "ports": plan["ports"],
+                       "publicPorts": plan.get("publicPorts", {}),
+                       "listenerPorts": plan.get("listenerPorts", {}),
+                       "protocolIds": plan.get("protocolIds", {}),
+                       "enabledProtocols": plan.get("enabledProtocols", {}),
+                       "asteriskNodeTemplate": plan.get("asteriskNodeTemplate", "node-main"),
+                       "retiredBridgeNodes": plan.get("legacyBridgeNodes", []),
+                       "migrationWarnings": plan.get("migrationWarnings", []),
+                       "service": service,
                        "services": plan["services"],
                        "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False,
                        "committedAt": old_record.get("committedAt", int(time.time())) if old_record else int(time.time()),
@@ -856,7 +935,9 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
         finish_native_runtime(native_transaction)
         return {"ok": True, "digest": plan["digest"], "bridgeId": identity, "bridgeNode": plan["bridgeNode"],
                 "service": service, "changedFiles": changed, "backup": str(backup),
-                "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False}
+                "provisioningVerified": manage_services and not net_inactive,
+                "allstarLinkVerified": manage_services and not net_inactive and plan["settings"].get("bridge_role") != "net",
+                "liveAudioVerified": False, "migrationWarnings": plan.get("migrationWarnings", [])}
     except Exception as original:
         rollback_errors = []
         if manage_services:
