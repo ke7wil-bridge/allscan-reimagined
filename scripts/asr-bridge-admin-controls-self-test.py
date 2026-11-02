@@ -36,7 +36,9 @@ check("array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'lis
 check("'managementScope' => $globalAdmin ? 'asr-global' : 'bridge'" in API, "ASR-global management scope missing")
 check("'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none'" in API, "global-ban authority scope missing")
 check("'banScopeLabel' => $globalAdmin ? 'GLOBAL' : ''" in API, "global ban scope label missing")
-check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API and "is_dir('/run/dmr-bridge')" in API, "URF Kick capability is not runtime-gated")
+check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API and "asr_dmr_admin_runtime_available()" in API and "'/run/tgif-dmr'" in API and "'/run/dmr-bridge'" in API and "'/opt/allscan-reimagined-bridges/urf/*/tgif-run'" in API, "URF DMR admin capability is not runtime-gated across native/container paths")
+check("asr_native_urf_client_admin($mode)" in API and "asr_runtime_client_admin" in API,
+      "native aggregate URF capability manifests are not used")
 if ZELLO:
     check('"ZELLO": "ZELLO"' in URF, "Zello helper protocol missing")
 check("dstar" not in URF.lower(), "D-Star administration remains in the URF helper")
@@ -49,8 +51,13 @@ if ZELLO:
     check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP, "Zello Kick button remains")
 check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', 'listBans']" in API, "DMR client administration capability missing")
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
-check("request_urf_disconnect(rule, \"*\", \"ban\", False)" in URF, "global Ban does not remove active URFD sessions")
-check("request_urf_disconnect(callsign, runtime_protocol, \"kick\", True)" in URF, "session-specific URFD Kick verification missing")
+check("/run/tgif-dmr" in URF and "/run/dmr-bridge" in URF and "/opt/allscan-reimagined-bridges/urf/*/tgif-run" in URF and "ASR_DMR_RUNTIME_DIR" in URF, "DMR admin helper does not resolve native/container runtime paths")
+check("request_urf_disconnect(rule, \"*\", \"ban\", False, args.actor)" in URF, "global Ban does not remove active URFD sessions")
+check("request_urf_disconnect(callsign, runtime_protocol, \"kick\", True, args.actor)" in URF, "session-specific URFD Kick verification missing")
+check("native_admin_kick" in URF and "native_required <= native_modes" in URF,
+      "native aggregate URF administration routing is missing")
+check("aggregateId" in STANDALONE and "bridge_ids.extend" in STANDALONE,
+      "aggregate URF modes are not mapped to native administration proxies")
 capability = re.search(r"\$bridgeControl\s*=.*?;", API, re.DOTALL)
 check(capability is not None and "'restart'" not in capability.group(0)
       and "'recover'" not in capability.group(0),

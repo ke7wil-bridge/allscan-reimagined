@@ -92,6 +92,23 @@ def bridge_config(bridge_id: str) -> dict[str, Any]:
         if not mode or bridge.get("urfReflector") or bridge.get("cardType", "standard") != "standard":
             raise AdminError("Bridge is not an administrable standalone digital card.")
         return {**bridge, "_mode": mode}
+    # Native URF reflectors expose one verified administration proxy per mode,
+    # while the dashboard stores them as one aggregate URF bridge. Treat a
+    # mode name as a virtual bridge ID only when that aggregate enables it.
+    if bridge_id in SUPPORTED_MODES:
+        for bridge in payload["bridges"]:
+            if not isinstance(bridge, dict) or not bridge.get("urfReflector"):
+                continue
+            enabled = bridge.get("modes", bridge.get("urfModes", []))
+            if not isinstance(enabled, list) or bridge_id not in {
+                str(value).strip().lower() for value in enabled
+            }:
+                continue
+            if bridge.get("cardType", "standard") != "standard":
+                continue
+            return {"id": bridge_id, "mode": bridge_id, "_mode": bridge_id,
+                    "urfReflector": True,
+                    "aggregateId": str(bridge.get("id") or "urf")}
     raise AdminError("Configured standalone bridge was not found.")
 
 
@@ -246,7 +263,9 @@ def reconcile(bridge_id: str, actor: str = "system") -> dict[str, Any]:
     result = request(bridge, "reconcile", actor, policy=policy)
     if result.get("appliedPolicyDigest") != policy["digest"]:
         raise AdminError("Standalone bridge did not apply the current Global Ban policy.")
-    return {"bridgeId": bridge_id, "mode": bridge["_mode"], "appliedPolicyDigest": policy["digest"]}
+    return {"bridgeId": bridge_id, "mode": bridge["_mode"],
+            "appliedPolicyDigest": policy["digest"],
+            "removed": int(result.get("removed") or 0)}
 def reconcile_all(actor: str = "system") -> dict[str, Any]:
     try:
         config = read_json(CONFIG_PATH)
@@ -259,6 +278,16 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         and not item.get("urfReflector") and item.get("cardType", "standard") == "standard"
         and any(str(item.get("mode") or item.get("type") or item.get("id", "")).lower().startswith(mode) for mode in SUPPORTED_MODES)
     ]
+    for item in config.get("bridges", []):
+        if not isinstance(item, dict) or not item.get("urfReflector"):
+            continue
+        enabled = item.get("modes", item.get("urfModes", []))
+        if isinstance(enabled, list):
+            normalized = {str(value).strip().lower() for value in enabled}
+            # Aggregate DMR uses the TGIF roster/control runtime. The native
+            # mode proxy set covers the four UDP reflector protocols.
+            bridge_ids.extend(mode for mode in SUPPORTED_MODES - {"dmr"} if mode in normalized)
+    bridge_ids = list(dict.fromkeys(bridge_ids))
     applied = []
     for bridge_id in bridge_ids:
         try:

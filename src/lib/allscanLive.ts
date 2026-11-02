@@ -64,13 +64,35 @@ export type RuntimeConfig = {
 
 const NET_BRIDGE_MODES = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'] as const
 
+export function isUrfReflectorBridge(bridge?: RuntimeBridgeConfig): boolean {
+  if (!bridge || bridge.cardType !== 'standard') return false
+  return bridge.urfReflector === true || Boolean(String(bridge.urfGroupId || '').trim())
+}
+
+export function urfReflectorDisplayName(bridges: RuntimeBridgeConfig[]): string {
+  const names = Array.from(new Set(bridges
+    .filter(isUrfReflectorBridge)
+    .map((bridge) => {
+      const explicitName = String(bridge.urfName || '').trim()
+      const friendlyName = String(bridge.friendlyName || '').trim()
+      const sourceName = explicitName || friendlyName
+      return sourceName
+        .replace(/\s+Multi-Mode Bridge$/i, '')
+        .replace(/\s+Multi\s+Mode\s+Bridge$/i, '')
+        .replace(/\s+Bridge$/i, '')
+        .trim()
+    })
+    .filter(Boolean)))
+  return names.length === 1 ? `${names[0]} Bridge` : names.length > 1 ? 'URF Reflectors' : 'URF Bridge'
+}
+
 export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<string> {
   return new Set<string>(NET_BRIDGE_MODES.filter((mode) => bridges.some((bridge) =>
     bridge.node === '1999' && bridge.cardType === `${mode}_net`,
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.16'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.2'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -231,7 +253,7 @@ export function orderedVisibleBridgeCards(
       && normalizedBridgeMode(card.mode, card.id) === selectedMode,
   )
   const hiddenStandardIds = new Set(bridges
-    .filter((bridge) => bridge.urfReflector === true && bridge.cardType === 'standard')
+    .filter((bridge) => isUrfReflectorBridge(bridge))
     .map((bridge) => bridge.id))
   const ordered: BridgeCardView[] = []
   const included = new Set<string>()
@@ -247,7 +269,7 @@ export function orderedVisibleBridgeCards(
       }
       return
     }
-    if (bridge.urfReflector === true && bridge.cardType === 'standard') return
+    if (isUrfReflectorBridge(bridge)) return
     const card = cardsById.get(bridge.id)
     if (card && card.cardType === 'standard' && !included.has(card.id)) {
       ordered.push(card)

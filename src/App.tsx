@@ -36,6 +36,8 @@ import {
   normalizedBridgeMode,
   netBridgeTalkerDestinationLabel,
   orderedVisibleBridgeCards,
+  isUrfReflectorBridge,
+  urfReflectorDisplayName,
   fetchUrfBlacklist,
   updateUrfBlacklist,
   kickUrfClient,
@@ -3882,12 +3884,10 @@ function App({ config }: { config: RuntimeConfig }) {
             </p>
 
             {(() => {
-              const urfCards = bridgeState.cards.filter((card) => { const bridge = config.bridges.find((candidate) => candidate.id === card.id); return bridge?.urfReflector === true && bridge.cardType === 'standard' })
-              const urfGroupNames = Array.from(new Set(urfCards.map((card) => {
-                const bridge = config.bridges.find((candidate) => candidate.id === card.id)
-                return String(bridge?.urfName || bridge?.friendlyName || card.title.replace(/\s+Bridge$/i, '')).trim()
-              }).filter(Boolean)))
-              const urfGroupTitle = urfGroupNames.length === 1 ? `${urfGroupNames[0]} Bridge` : (urfGroupNames.length > 1 ? 'URF Reflectors' : 'URF Reflector')
+              const urfBridgeConfigs = config.bridges.filter(isUrfReflectorBridge)
+              const urfBridgeIds = new Set(urfBridgeConfigs.map((bridge) => bridge.id))
+              const urfCards = bridgeState.cards.filter((card) => urfBridgeIds.has(card.id))
+              const urfGroupTitle = urfReflectorDisplayName(urfBridgeConfigs)
               const managedCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listBans'))
               const managedConnectedCards = managedCards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listClients'))
               const zelloTalkers = managedCards

@@ -25,8 +25,38 @@ CONFIG = "/etc/allscan-reimagined/config.json"
 RUNTIME_DIR = "/run/urf-wil"
 KICK_REQUEST = os.path.join(RUNTIME_DIR, "asr-kick-client.request")
 KICK_RESULT = os.path.join(RUNTIME_DIR, "asr-kick-client.result")
-DMR_ROSTER = "/run/dmr-bridge/dmr-clients.json"
-DMR_CONTROL = "/run/dmr-bridge/dmr-admin.json"
+def dmr_runtime_dir():
+    """Resolve the shared TGIF/URF DMR runtime on native and containerized nodes.
+
+    The bridge writes to /run/tgif-dmr on the host; the ASR web container may
+    expose that same directory as /run/dmr-bridge. Prefer a writable host path
+    so administrative changes reach the bridge rather than a read-only mount.
+    """
+    configured = os.environ.get("ASR_DMR_RUNTIME_DIR", "").strip()
+    candidates = [configured] if configured else []
+    candidates.extend(["/run/tgif-dmr", "/run/dmr-bridge"])
+    # Some native URF installs keep the TGIF runtime inside the per-URF
+    # bridge directory rather than bind-mounting it into /run.
+    candidates.extend(sorted(__import__("glob").glob(
+        "/opt/allscan-reimagined-bridges/urf/*/tgif-run"
+    )))
+    seen = set()
+    existing = []
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isdir(candidate):
+            existing.append(candidate)
+            if os.access(candidate, os.W_OK):
+                return candidate
+    return existing[0] if existing else (configured or "/run/tgif-dmr")
+
+
+DMR_RUNTIME_DIR = dmr_runtime_dir()
+DMR_ROSTER = os.environ.get("ASR_DMR_ROSTER_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-clients.json"))
+DMR_CONTROL = os.environ.get("ASR_DMR_CONTROL_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-admin.json"))
+DMR_DIRECTORY_ROSTER = os.environ.get("ASR_DMR_DIRECTORY_ROSTER_FILE", "/var/www/html/allscan/connected-clients.json")
 ZELLO_RUNTIME_DIR = "/var/www/html/asr"
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
@@ -121,6 +151,51 @@ def reconcile_standalone_bans(actor="system"):
             break
     if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("verified") is not True:
         raise RuntimeError(str((payload or {}).get("error") or "Standalone bridge Global Ban reconciliation failed."))
+    return payload
+
+
+def native_admin_modes():
+    root = Path("/run/asr-standalone-admin")
+    return {
+        mode for mode in ("dmr", "ysf", "p25", "nxdn", "m17")
+        if (root / mode / "capabilities.json").is_file()
+    }
+
+
+def configured_urf_modes():
+    try:
+        payload = json.loads(Path(CONFIG).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    modes = set()
+    for bridge in payload.get("bridges", []):
+        if not isinstance(bridge, dict) or not bridge.get("urfReflector"):
+            continue
+        enabled = bridge.get("modes", bridge.get("urfModes", []))
+        if isinstance(enabled, list):
+            modes.update(str(value).strip().lower() for value in enabled)
+    return modes & {"dmr", "ysf", "p25", "nxdn", "m17"}
+
+
+def native_admin_kick(mode, callsign, actor):
+    try:
+        completed = subprocess.run(
+            [STANDALONE_ADMIN_HELPER, "kick", mode, callsign, "--actor", actor],
+            check=False, capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("Native URF Kick did not complete.") from exc
+    payload = None
+    for line in reversed(completed.stdout.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+            break
+    if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("verified") is not True:
+        raise RuntimeError(str((payload or {}).get("error") or "Native URF Kick failed."))
     return payload
 
 
@@ -282,21 +357,27 @@ def ban_payload(rules, timed, now=None):
 
 
 def dmr_client_id(callsign):
-    try:
-        with open(DMR_ROSTER, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (OSError, ValueError):
-        raise RuntimeError("DMR client roster is unavailable.")
     target = callsign.strip().upper()
     if target.isdigit():
         return int(target)
-    for row in payload.get("urf_dmr", []):
-        if not isinstance(row, dict):
+    readable = False
+    for path in (DMR_ROSTER, DMR_DIRECTORY_ROSTER):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
             continue
-        dmrid = str(row.get("dmrid") or row.get("id") or "").strip()
-        row_call = str(row.get("callsign") or "").strip().upper()
-        if dmrid.isdigit() and (target == row_call or target == dmrid):
-            return int(dmrid)
+        readable = True
+        rows = payload.get("urf_dmr", payload.get("dmr", [])) if isinstance(payload, dict) else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            dmrid = str(row.get("dmrid") or row.get("id") or "").strip()
+            row_call = str(row.get("callsign") or "").strip().upper()
+            if dmrid.isdigit() and (target == row_call or target == dmrid):
+                return int(dmrid)
+    if not readable:
+        raise RuntimeError("DMR client roster is unavailable.")
     raise RuntimeError("DMR client is no longer in the current TGIF roster.")
 
 
@@ -336,9 +417,10 @@ def write_dmr_kick(callsign, actor="system"):
     banned = sorted({int(value) for value in payload.get("banned_ids", []) if str(value).isdigit()})
     kicked = {str(key): int(value) for key, value in payload.get("kicked_ids", {}).items() if str(key).isdigit()}
     clients = {str(key): str(value).upper() for key, value in payload.get("banned_clients", {}).items() if str(key).isdigit()}
-    # Kick is disconnect-only: remove the current roster entry without adding
-    # a quiet-period suppression, so the client may reconnect immediately.
-    kicked.pop(str(dmrid), None)
+    # The TGIF master owns the remote session, so local Disconnect is enforced
+    # at the inbound adapter. Its rolling quiet-gap contract blocks the current
+    # stream and treats later traffic after the disconnect gap as a reconnect.
+    kicked[str(dmrid)] = int(time.time())
     remove_dmr_roster_client(dmrid, "kick")
     directory = os.path.dirname(DMR_CONTROL)
     if not os.path.isdir(directory) or not os.access(directory, os.W_OK):
@@ -423,9 +505,32 @@ def roster_contains(xml, callsign, protocol):
     return False
 
 
-def request_urf_disconnect(callsign, protocol, event, require_connected):
+def request_urf_disconnect(callsign, protocol, event, require_connected, actor="system"):
     if event not in {"kick", "ban", "unban"}:
         raise ValueError("Unsupported URF administrative event.")
+    protocol_mode = {
+        "DMRMMDVM": "dmr", "YSF": "ysf", "P25": "p25",
+        "NXDN": "nxdn", "M17": "m17",
+    }.get(protocol.upper(), "")
+    native_modes = native_admin_modes()
+    if event == "kick" and protocol_mode in native_modes and protocol_mode != "dmr":
+        return int(native_admin_kick(protocol_mode, callsign, actor).get("removed") or 0)
+    if protocol == "*":
+        enabled = configured_urf_modes()
+        native_required = enabled - {"dmr"}
+        dmr_ready = "dmr" not in enabled or os.path.isfile(DMR_ROSTER)
+        if native_required and native_required <= native_modes and dmr_ready:
+            payload = reconcile_standalone_bans(actor)
+            applied = {
+                str(item.get("mode")) for item in payload.get("applied", [])
+                if isinstance(item, dict)
+            }
+            if not native_required <= applied:
+                raise RuntimeError("Native URF administration did not acknowledge every enabled protocol.")
+            return sum(
+                int(item.get("removed") or 0) for item in payload.get("applied", [])
+                if isinstance(item, dict)
+            )
     if not os.path.isdir(RUNTIME_DIR) or not os.access(RUNTIME_DIR, os.W_OK):
         if "urf" not in configured_backends() and not require_connected:
             return 0
@@ -589,7 +694,7 @@ def main():
             return
         if protocol == "ZELLO":
             raise ValueError("Zello does not support disconnecting a channel user.")
-        count = request_urf_disconnect(callsign, runtime_protocol, "kick", True)
+        count = request_urf_disconnect(callsign, runtime_protocol, "kick", True, args.actor)
         append_audit_event("kick", args.actor, callsign=callsign, protocol=protocol, removed=count)
         emit(ok=True, action="kick", callsign=callsign, protocol=protocol, audit=read_audit_events(), verified=True, removed=count, enforcement="disconnect_only", quietSeconds=0)
         return
@@ -622,7 +727,7 @@ def main():
         expected = sorted(set(rules))
         if read_rules() != expected:
             raise RuntimeError("URF blacklist write could not be verified.")
-        removed = request_urf_disconnect(rule, "*", "ban", False)
+        removed = request_urf_disconnect(rule, "*", "ban", False, args.actor)
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
         removed += int(asl.get("applied", {}).get("removed", 0))
@@ -633,7 +738,7 @@ def main():
     # Clear known backend enforcement before removing the logical entry. If
     # backend synchronization fails, the visible Global Ban List must remain
     # authoritative instead of falsely claiming that the identity is unbanned.
-    request_urf_disconnect(rule, "*", "unban", False)
+    request_urf_disconnect(rule, "*", "unban", False, args.actor)
     sync_dmr_ban(rule, False)
     next_rules = [item for item in rules if item != rule]
     rules = next_rules

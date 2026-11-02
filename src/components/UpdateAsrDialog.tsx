@@ -131,6 +131,7 @@ export default function UpdateAsrDialog({
             <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
             <p>{ASR_WHATS_NEW.summary}</p>
             <ul>{ASR_WHATS_NEW.items.map((item) => <li key={item}>{item}</li>)}</ul>
+            <p>If you’re using AllScan Reimagined, Josh (KE7WIL) would appreciate a quick email letting him know you’re running it. <a href="mailto:ke7wil@gmail.com">ke7wil@gmail.com</a>.</p>
           </section>
         ) : <>
         <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>

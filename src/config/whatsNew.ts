@@ -1,6 +1,6 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.1.5.16',
-  label: 'Beta 8.1.5.16',
+  version: '1.0.0-beta.8.2',
+  label: 'Beta 8.2',
   summary: 'This update hardens URF provisioning, keeps Zello on its own node, and improves bridge reliability.',
   items: [
     'Treats the configured URF transport node as authoritative and repairs stale managed Asterisk blocks without consuming another bridge node.',

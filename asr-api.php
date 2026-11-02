@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.1.5.16';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.1.5.16';
+const ASR_VERSION = '1.0.0-beta.8.2';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.2';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -313,12 +313,9 @@ function asr_global_ban_policy_digest(): string {
     return hash('sha256', "asr-global-ban-v1\0" . $blacklist . "\0" . $timedBans);
 }
 
-function asr_standalone_client_admin(array $bridge): array {
-    $id = (string) ($bridge['id'] ?? '');
-    $mode = asr_bridge_mode($bridge);
+function asr_runtime_client_admin(string $id, string $mode): array {
     if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
         || !in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
-        || !empty($bridge['urfReflector'])
         || !is_executable(ASR_STANDALONE_ADMIN_HELPER)) return [];
 
     $root = @realpath(ASR_STANDALONE_ADMIN_DIR);
@@ -367,6 +364,33 @@ function asr_standalone_client_admin(array $bridge): array {
     return array_values(array_unique($result));
 }
 
+function asr_standalone_client_admin(array $bridge): array {
+    if (!empty($bridge['urfReflector'])) return [];
+    return asr_runtime_client_admin((string) ($bridge['id'] ?? ''), asr_bridge_mode($bridge));
+}
+
+function asr_native_urf_client_admin(string $mode): array {
+    return asr_runtime_client_admin($mode, $mode);
+}
+
+function asr_dmr_admin_runtime_available(): bool {
+    // Native URF/TGIF nodes publish on /run/tgif-dmr. Containerized ASR
+    // deployments expose the same runtime as /run/dmr-bridge.
+    $directories = array_merge(
+        ['/run/tgif-dmr', '/run/dmr-bridge'],
+        glob('/opt/allscan-reimagined-bridges/urf/*/tgif-run', GLOB_ONLYDIR) ?: []
+    );
+    foreach (array_unique($directories) as $directory) {
+        if (is_readable($directory . '/dmr-clients.json')) return true;
+        // Native TGIF runtimes are intentionally not traversable by Apache;
+        // the root-owned helper validates and accesses the roster at action
+        // time. The managed tgif-run directory itself is the capability gate.
+        if (str_starts_with($directory, '/opt/allscan-reimagined-bridges/urf/')
+            && is_dir($directory)) return true;
+    }
+    return false;
+}
+
 function asr_bridge_admin_capabilities(array $bridge): array {
     $cardType = (string) ($bridge['cardType'] ?? 'standard');
     $urf = !empty($bridge['urfReflector']);
@@ -377,8 +401,14 @@ function asr_bridge_admin_capabilities(array $bridge): array {
     if (!$urf) $clientAdmin = array_merge($clientAdmin, asr_standalone_client_admin($bridge));
     $globalAdmin = $urf || $mode === 'zello'
         || in_array('banClient', $clientAdmin, true);
-    if ($urf && $mode === 'dmr' && is_dir('/run/dmr-bridge')) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
-    if ($urf && $mode !== 'dmr' && is_readable('/run/urf-wil/asr-admin-capabilities.json')) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+    if ($urf && $mode === 'dmr' && asr_dmr_admin_runtime_available()) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+    if ($urf && $mode !== 'dmr') {
+        if (is_readable('/run/urf-wil/asr-admin-capabilities.json')) {
+            $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
+        } else {
+            $clientAdmin = array_merge($clientAdmin, asr_native_urf_client_admin($mode));
+        }
+    }
     if ($mode === 'zello' && is_dir('/var/www/html/asr')) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
     $clientAdmin = array_values(array_unique($clientAdmin));
     return [
@@ -469,6 +499,7 @@ function asr_runtime_config(): array {
                     $expanded['friendlyName'] = trim((string) ($bridge['title'] ?? 'URF Multi-Mode Bridge'));
                 }
                 $expanded['urfGroupId'] = (string) ($bridge['urfGroupId'] ?? 'urf');
+                $expanded['urfName'] = trim((string) ($bridge['urfName'] ?? ''));
                 $normalizedStoredBridges[] = $expanded;
             }
             continue;
@@ -500,6 +531,7 @@ function asr_runtime_config(): array {
             'linkAlias' => $linkAlias,
             'urfReflector' => !empty($bridge['urfReflector']),
             'urfGroupId' => !empty($bridge['urfReflector']) ? (string) ($bridge['urfGroupId'] ?? 'urf') : '',
+            'urfName' => !empty($bridge['urfReflector']) ? substr(trim((string) ($bridge['urfName'] ?? '')), 0, 80) : '',
             'title' => substr(trim((string) ($bridge['title'] ?? 'Bridge')), 0, 80),
             'detailTitle' => substr(trim((string) ($bridge['detailTitle'] ?? 'Connected Clients')), 0, 80),
             'friendlyName' => $bridgeNode === '1999' && $cardType !== 'standard'
@@ -1236,10 +1268,17 @@ function asr_standard_urf_runtime_paths(): array {
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
         $base = '/opt/allscan-reimagined-bridges/urf/' . $id . '/data';
         if (is_readable($base . '/urfd.xml')) {
+            $nativeUnit = '/etc/systemd/system/allscan-reimagined-urfd-' . $id . '.service';
+            $eventBase = is_readable($base . '/asr-live-events.jsonl')
+                ? $base
+                : (is_readable($nativeUnit) && is_readable($legacy . '/asr-live-events.jsonl') ? $legacy : $base);
+            $pttBase = is_readable($base . '/asr-live-state.json')
+                ? $base
+                : (is_readable($nativeUnit) && is_readable($legacy . '/asr-live-state.json') ? $legacy : $base);
             return [
                 'status' => $base . '/urfd.xml',
-                'events' => $base . '/asr-live-events.jsonl',
-                'ptt' => $base . '/asr-live-state.json',
+                'events' => $eventBase . '/asr-live-events.jsonl',
+                'ptt' => $pttBase . '/asr-live-state.json',
             ];
         }
     }
@@ -1264,10 +1303,15 @@ function asr_urf_status_payload(): array {
     if (preg_match_all('#<NODE>(.*?)</NODE>#s', $raw, $matches)) foreach ($matches[1] as $node) {
         $protocol = strtoupper(asr_urf_first_element((string)$node, 'Protocol'));
         $mode = str_starts_with($protocol, 'DMR') ? 'DMR' : $protocol;
-        $callsign = asr_urf_normalize_callsign(asr_urf_first_element((string)$node, 'Callsign'));
+        $rawCallsign = asr_urf_first_element((string)$node, 'Callsign');
+        $callsign = asr_urf_normalize_callsign($rawCallsign);
         $ip = trim(asr_urf_first_element((string)$node, 'IP'));
-        // Loopback entries are ASR/URFD transport legs, not remotely connected clients.
-        if ($ip === '127.0.0.1' || $ip === '::1') continue;
+        // Native protocol adapters proxy real clients over loopback too. Hide
+        // only the fixed ASR transport legs; keep proxied M17/YSF/P25/NXDN
+        // stations visible as connected clients.
+        $loopback = $ip === '127.0.0.1' || $ip === '::1';
+        if ($loopback && ($mode === 'USRP' || $mode === 'DMR'
+            || ($mode === 'M17' && preg_match('/\s+N$/D', strtoupper($rawCallsign))))) continue;
         if (asr_urf_is_service_identity($callsign, $mode)) continue;
         $clients[] = ['callsign' => $callsign, 'mode' => $mode, 'module' => asr_urf_first_element((string)$node, 'LinkedModule'), 'connected' => asr_urf_first_element((string)$node, 'ConnectTime'), 'lastHeard' => asr_urf_first_element((string)$node, 'LastHeardTime')];
     }
