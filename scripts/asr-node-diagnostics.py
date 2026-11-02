@@ -119,7 +119,10 @@ def recover(sample, rows, state, runner=subprocess.run, sleeper=time.sleep):
 
 def sample_once(allow_recovery=True):
     STATE_DIR.mkdir(parents=True, exist_ok=True); os.chmod(STATE_DIR, 0o750)
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True); os.chmod(RUNTIME_DIR, 0o755)
+    # ASTAPI (www-data) publishes its shared feed and talker history here with
+    # atomic create-and-rename writes. Preserve the group-writable sticky mode
+    # established by the installer instead of revoking it every minute.
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True); os.chmod(RUNTIME_DIR, 0o1775)
     m = meminfo(); epoch = int(time.time()); rows = processes(); grouped = aggregate(rows)
     swap_used = max(0, m.get("SwapTotal", 0) - m.get("SwapFree", 0)); load = os.getloadavg()
     sample = {"epoch": epoch, "memAvailableKb": m.get("MemAvailable", 0), "swapUsedKb": swap_used,

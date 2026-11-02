@@ -23,8 +23,11 @@ def main() -> None:
     )
     assert "systemctl restart asterisk" not in apache_block
     assert "APACHE_TOTAL_KB" in apache_block and "-ge 1800000" in apache_block
-    assert "APACHE_WORKERS=32" in apache_block and "APACHE_WORKERS=20" in apache_block
+    assert "APACHE_WORKERS=10" in apache_block and "APACHE_WORKERS=20" in apache_block and "APACHE_WORKERS=32" in apache_block
+    assert "APACHE_MAX_CONNECTIONS=200" in apache_block and "APACHE_MAX_CONNECTIONS=500" in apache_block
+    assert "MaxConnectionsPerChild $APACHE_MAX_CONNECTIONS" in apache_block
     assert "APACHE_EXISTING" in apache_block and "MaxRequestWorkers $APACHE_WORKERS" in apache_block
+    assert "${APACHE_TOTAL_KB:-0}" in apache_block and "-ge 1800000 ]; then APACHE_WORKERS=$APACHE_EXISTING" in apache_block, "low-RAM profiles must not inherit unsafe higher worker overrides"
     assert "bridge" not in apache_block[restart:], (
         "The Apache refresh must not restart bridge services"
     )

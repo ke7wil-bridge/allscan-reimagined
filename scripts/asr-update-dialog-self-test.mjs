@@ -61,6 +61,12 @@ check(
   'Update notice cannot be dismissed for only the currently offered version.',
 )
 check(
+  source.includes('If you’re using AllScan Reimagined')
+    && source.includes('mailto:ke7wil@gmail.com')
+    && source.includes('KE7WIL'),
+  'What’s New does not invite ASR users to email KE7WIL.',
+)
+check(
   source.includes("initialView = 'update'")
     && source.includes('>What’s New</button>')
     && source.includes('ASR_WHATS_NEW.items.map'),
@@ -74,7 +80,7 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.1.5.16'")
+  whatsNewSource.includes("version: '1.0.0-beta.8.2'")
     && whatsNewSource.includes('keeps Zello on its own node')
     && whatsNewSource.includes('Restores mobile Node Controls behavior')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),

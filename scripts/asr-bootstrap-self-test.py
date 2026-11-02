@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 source = (ROOT / "bootstrap.sh").read_text()
 assert "apt-get install -y unzip" in source, "bootstrap must provision upstream AllScan unzip dependency"
 code = source.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-VERSION = "1.0.0-beta.8.1.5.16"
+VERSION = "1.0.0-beta.8.2"
 NAME = "allscan-reimagined-" + VERSION + ".tar.gz"
 PREFIX = "https://github.com/ke7wil-bridge/allscan-reimagined/releases/download/v" + VERSION + "/"
 

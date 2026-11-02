@@ -1256,16 +1256,24 @@ fi
 
 if command -v apache2ctl >/dev/null 2>&1; then
   python3 "$MASTER_DIR/scripts/asr-apache-listeners.py" capture
-  # Use the 2 GiB profile only when the host has that physical memory. Keep
-  # any administrator-configured higher MaxRequestWorkers value found in the
-  # active Apache configuration; never lower it during an ASR update.
+  # Size prefork to physical RAM so Apache cannot crowd out Asterisk on
+  # small nodes. Keep larger-machine capacity, and preserve administrator
+  # overrides only when they fit within the selected RAM profile.
   APACHE_TOTAL_KB=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-  APACHE_WORKERS=20
-  if [ "${APACHE_TOTAL_KB:-0}" -ge 1800000 ]; then APACHE_WORKERS=32; fi
+  APACHE_WORKERS=10
+  APACHE_MAX_CONNECTIONS=200
+  if [ "${APACHE_TOTAL_KB:-0}" -ge 1800000 ]; then
+    APACHE_WORKERS=20
+    APACHE_MAX_CONNECTIONS=500
+  fi
+  if [ "${APACHE_TOTAL_KB:-0}" -ge 3800000 ]; then
+    APACHE_WORKERS=32
+    APACHE_MAX_CONNECTIONS=500
+  fi
   while IFS= read -r APACHE_CONF; do
     [ -r "$APACHE_CONF" ] || continue
     APACHE_EXISTING=$(awk 'tolower($1)=="maxrequestworkers" && $2 ~ /^[0-9]+$/ { if ($2>m) m=$2 } END { print m+0 }' "$APACHE_CONF")
-    if [ "${APACHE_EXISTING:-0}" -gt "$APACHE_WORKERS" ]; then APACHE_WORKERS=$APACHE_EXISTING; fi
+    if [ "${APACHE_EXISTING:-0}" -gt "$APACHE_WORKERS" ] && [ "${APACHE_TOTAL_KB:-0}" -ge 1800000 ]; then APACHE_WORKERS=$APACHE_EXISTING; fi
   done < <(find /etc/apache2 -type f \( -name '*.conf' -o -name '*.load' \) -print 2>/dev/null)
   cat > /etc/apache2/conf-available/allscan-reimagined.conf <<EOF
 <Directory "$ALLSCAN_DIR">
@@ -1333,7 +1341,7 @@ if command -v apache2ctl >/dev/null 2>&1; then
     MinSpareServers 2
     MaxSpareServers 5
     MaxRequestWorkers $APACHE_WORKERS
-    MaxConnectionsPerChild 500
+    MaxConnectionsPerChild $APACHE_MAX_CONNECTIONS
 </IfModule>
 
 <IfModule mod_php.c>

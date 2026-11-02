@@ -65,7 +65,8 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
 
     def adapter():
         while not stop.is_set():
-            for request_path in bridge_dir.glob("request-*.json"):
+            for request_path in runtime.glob("*/request-*.json"):
+                active_manifest_path = request_path.parent / "capabilities.json"
                 try:
                     request = json.loads(request_path.read_text(encoding="utf-8"))
                 except FileNotFoundError:
@@ -83,11 +84,11 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
                 else:
                     digest = request["policy"]["digest"]
                     result["appliedPolicyDigest"] = digest
-                    current = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    current = json.loads(active_manifest_path.read_text(encoding="utf-8"))
                     current["appliedPolicyDigest"] = digest
                     current["heartbeatEpoch"] = int(time.time())
-                    write_json(manifest_path, current)
-                result_path = bridge_dir / f"result-{request['nonce']}.json"
+                    write_json(active_manifest_path, current)
+                result_path = request_path.parent / f"result-{request['nonce']}.json"
                 write_json(result_path, result)
             time.sleep(0.01)
 
@@ -130,6 +131,27 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
         except admin.AdminError as error:
             check("wrong bridge" in str(error).lower(), "bridge binding failure was not explicit")
         check(audit.is_file(), "Kick audit was not written")
+
+        # A native URF aggregate uses mode-named runtime proxies even though
+        # only one aggregate bridge is stored in config.json.
+        aggregate_dir = runtime / "ysf"
+        aggregate_dir.mkdir()
+        aggregate_dir.chmod(0o755)
+        aggregate_manifest = {
+            **manifest, "bridgeId": "ysf", "mode": "ysf",
+            "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64,
+        }
+        write_json(aggregate_dir / "capabilities.json", aggregate_manifest)
+        write_json(config, {"bridges": [{
+            "id": "urfnet", "mode": "urf", "cardType": "standard",
+            "urfReflector": True, "modes": ["ysf"],
+        }]})
+        kicked = admin.kick("ysf", "N7URF", "admin")
+        check(kicked["bridgeId"] == "ysf" and kicked["removed"] == 1,
+              "aggregate URF Kick did not use its native mode proxy")
+        reconciled = admin.reconcile_all("admin")
+        check([item["mode"] for item in reconciled["applied"]] == ["ysf"],
+              "aggregate URF policy did not reconcile through its native proxy")
     finally:
         stop.set()
         worker.join(timeout=1)

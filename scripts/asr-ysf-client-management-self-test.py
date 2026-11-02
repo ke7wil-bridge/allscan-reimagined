@@ -138,15 +138,16 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     with contextlib.redirect_stdout(io.StringIO()):
         urf.write_dmr_kick("KE7WIL")
     backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
-    check("3224939" not in backend.get("kicked_ids", {}), "DMR Kick retained a reconnection quiet period")
+    check(int(backend.get("kicked_ids", {}).get("3224939", 0)) > 0,
+          "DMR Kick did not publish active-stream suppression")
     roster = json.loads(Path(urf.DMR_ROSTER).read_text(encoding="utf-8"))
     check(not roster.get("urf_dmr"), "DMR Kick did not remove the current roster entry")
 
 check("asr_urf_is_service_identity($callsign, $mode)" in API, "connected-client probe filter missing")
 check("asr_urf_is_service_identity($eventCallsign" in API, "event probe filter missing")
 check("foreach (array_reverse($lines) as $line)" in API and "if (count($events) >= 100) break;" in API, "probe traffic can evict meaningful activity history")
-check("request_urf_disconnect(rule, \"*\", \"ban\", False)" in URF_PATH.read_text(encoding="utf-8"), "Ban does not request immediate URFD removal")
-check("request_urf_disconnect(rule, \"*\", \"unban\", False)" in URF_PATH.read_text(encoding="utf-8"), "Unban does not clear URFD session suppression")
+check("request_urf_disconnect(rule, \"*\", \"ban\", False, args.actor)" in URF_PATH.read_text(encoding="utf-8"), "Ban does not request immediate URFD removal")
+check("request_urf_disconnect(rule, \"*\", \"unban\", False, args.actor)" in URF_PATH.read_text(encoding="utf-8"), "Unban does not clear URFD session suppression")
 check("BAN_DURATIONS" in URF_PATH.read_text(encoding="utf-8") and "expire_timed_bans" in URF_PATH.read_text(encoding="utf-8"), "timed Ban lifecycle is missing")
 check("['15m', '1h', '1w', '30d', 'permanent']" in API, "API Ban-duration allowlist is missing")
 check("URF_BAN_DURATIONS" in APP and "formatUrfBanRemaining" in APP, "timed Ban controls/countdown are missing")
