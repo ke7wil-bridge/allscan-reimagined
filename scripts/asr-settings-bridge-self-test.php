@@ -666,6 +666,13 @@ check(strpos($settingsSource, "Promise.resolve().then(function() { return bridge
 	&& strpos($settingsSource, 'function renderBridgeSetupError(error, fallback)') !== false
 	&& strpos($settingsSource, "setupOutput.setAttribute('role', 'alert')") !== false,
 	'Bridge setup synchronous or request failures can still bypass visible error reporting.');
+check(strpos($settingsSource, "values.set('setupRequestId', setupLastRequestId)") !== false
+	&& strpos($settingsSource, "\$payload['_requestId'] = \$requestId") !== false
+	&& strpos($settingsSource, "'installation_request_not_submitted'") !== false
+	&& strpos($settingsSource, "'api_response_unavailable'") !== false
+	&& strpos($settingsSource, "'dmr-diagnose'") !== false
+	&& strpos($settingsSource, 'Runtime diagnosis: ') !== false,
+	'URF install requests do not carry end-to-end stage diagnostics.');
 check(strpos($settingsSource, 'setupOutput.innerHTML') === false,
 	'Bridge installation status still uses a failure-prone HTML sink before request dispatch.');
 check(strpos($settingsSource, "[data-bridge-setup-tgif-password], [data-net-tgif-password]") !== false,

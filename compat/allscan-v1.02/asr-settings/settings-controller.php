@@ -2277,9 +2277,10 @@ function asrSettingsNetBridgeResetPayload(&$error) {
 	return ['confirmation' => $confirmation];
 }
 
-function asrSettingsRunBridgeSetup($action, $payload, &$error) {
+function asrSettingsRunBridgeSetup($action, $payload, &$error, &$diagnostic = null) {
 	$error = '';
-	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
+	$diagnostic = ['stage' => 'privileged_helper_not_executed'];
+	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'dmr-diagnose', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
 	if(!function_exists('proc_open') || !is_executable(ASR_BRIDGE_SETUP_HELPER)) { $error = 'Bridge setup helper is not installed.'; return null; }
 	$hostSocket = '/run/allscan-reimagined-host/bridge-setup.sock';
 	$command = @filetype($hostSocket) === 'socket'
@@ -2289,6 +2290,7 @@ function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 		0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
 	], $pipes);
 	if(!is_resource($process)) { $error = 'Bridge setup helper could not be started.'; return null; }
+	$diagnostic = ['stage' => 'privileged_helper_started'];
 	fwrite($pipes[0], json_encode($payload, JSON_UNESCAPED_SLASHES));
 	fclose($pipes[0]);
 	$output = stream_get_contents($pipes[1]); fclose($pipes[1]);
@@ -2298,8 +2300,10 @@ function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 	if(!is_array($data)) $data = json_decode((string)$stderr, true);
 	if($status !== 0 || !is_array($data)) {
 		$error = asrSettingsCleanText($data['error'] ?? 'Bridge setup helper failed.', 240);
+		$diagnostic = is_array($data['diagnostic'] ?? null) ? $data['diagnostic'] : ['stage' => 'privileged_helper_failure'];
 		return null;
 	}
+	$diagnostic = ['stage' => $action === 'dmr-diagnose' ? 'diagnostic_collection_complete' : 'privileged_helper_completed'];
 	return $data;
 }
 
@@ -2665,22 +2669,31 @@ $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
 $urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
 
-$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
+$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'dmr-diagnose', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
 	header('Content-Type: application/json; charset=utf-8');
 	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
+	$requestId = asrSettingsCleanText($_POST['setupRequestId'] ?? '', 48);
+	if(!preg_match('/^[a-zA-Z0-9._:-]{8,48}$/D', $requestId)) $requestId = 'server-' . bin2hex(random_bytes(8));
+	$diagnostic = ['requestId' => $requestId, 'stage' => 'api_request_received'];
 	$error = '';
 	if(($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !asrSettingsRollbackPostIsSameOrigin(true) || $saveCsrfToken === '' || !hash_equals($saveCsrfToken, $postedToken)) {
 		$error = 'Bridge setup request was not authorized.';
+		$diagnostic['stage'] = 'api_authorization_failure';
 		$result = null;
 	} else {
-		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : ($asrAction === 'net-bridge-reset' ? 'net_bridge_reset' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0]));
+		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : ($asrAction === 'dmr-diagnose' ? 'dmr_diagnose' : ($asrAction === 'net-bridge-reset' ? 'net_bridge_reset' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0])));
 		if($mode === 'dmr_security') $payload = asrSettingsDmrSecurityPayload($error);
+		elseif($mode === 'dmr_diagnose') $payload = ['bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? '')];
 		elseif($mode === 'net_bridge_reset') $payload = asrSettingsNetBridgeResetPayload($error);
 		elseif($mode === 'net_bridge') $payload = asrSettingsNetBridgeSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'zello') $payload = asrSettingsZelloSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		else $payload = asrSettingsDigitalSetupPayload($mode, $error);
-		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error) : null;
+		$helperDiagnostic = null;
+		$payload['_requestId'] = $requestId;
+		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error, $helperDiagnostic) : null;
+		if($error !== '' && $helperDiagnostic === null) $diagnostic['stage'] = 'configuration_validation_failure';
+		elseif(is_array($helperDiagnostic)) $diagnostic = array_merge($diagnostic, $helperDiagnostic);
 		// Guided provisioning writes the canonical bridge title directly into
 		// config.json, bypassing the normal Settings save path.  Reconcile the
 		// private-node database immediately so a recycled node number cannot keep
@@ -2697,9 +2710,9 @@ $bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nx
 	}
 	if($result === null) {
 		http_response_code(400);
-		echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_SLASHES);
+		echo json_encode(['ok' => false, 'error' => $error, 'diagnostic' => $diagnostic], JSON_UNESCAPED_SLASHES);
 	} else {
-		echo json_encode(['ok' => true, 'result' => $result], JSON_UNESCAPED_SLASHES);
+		echo json_encode(['ok' => true, 'result' => $result, 'diagnostic' => $diagnostic], JSON_UNESCAPED_SLASHES);
 	}
 	exit;
 }
@@ -3529,6 +3542,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var setupDmrNetwork = document.querySelector('[data-bridge-setup-dmr-network]');
 	var setupTgifAuthMode = setupFields.setupTgifAuthMode;
 	var setupPlanDigest = '';
+	var setupLastRequestId = '';
 	var addUrfButton = document.querySelector('.asr-add-urf-button');
 	var urfPanel = document.querySelector('[data-urf-panel]');
 	var urfEnabled = document.querySelector('[data-urf-enabled]');
@@ -4407,15 +4421,37 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(!setupOutput) return;
 		setupOutput.hidden = false;
 		setupOutput.setAttribute('role', 'alert');
-		setupOutput.textContent = error && error.message ? error.message : fallback;
+		var diagnostic = error && error.diagnostic ? error.diagnostic : {};
+		var stage = diagnostic.stage ? ' [' + diagnostic.stage + (diagnostic.requestId ? ' · ' + diagnostic.requestId : '') + ']' : '';
+		var runtime = error && error.runtimeDiagnostic && error.runtimeDiagnostic.classification
+			? '\nRuntime diagnosis: ' + error.runtimeDiagnostic.classification.replace(/_/g, ' ') : '';
+		setupOutput.textContent = 'Installation failed' + stage + ':\n' + (error && error.message ? error.message : fallback) + runtime;
 		if(setupInstall) {
 			setupInstall.hidden = false;
 			setupInstall.disabled = !/^[a-f0-9]{64}$/.test(setupPlanDigest);
 		}
 	}
+	function bridgeSetupRequestId() {
+		if(window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+		return 'asr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+	}
+	function collectDmrInstallDiagnostics(requestId) {
+		var values = new URLSearchParams();
+		var token = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
+		values.set('asrAction', 'dmr-diagnose');
+		values.set('settingsSaveCsrf', token ? token.value : '');
+		values.set('setupRequestId', requestId || bridgeSetupRequestId());
+		values.set('setupBridgeId', setupFields.setupBridgeId ? setupFields.setupBridgeId.value.trim() : '');
+		return fetch(window.location.href.split('#')[0], {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:values.toString()})
+			.then(function(response) { return response.json().then(function(data) { return data && data.ok ? data.result : null; }); })
+			.catch(function() { return null; });
+	}
 	function bridgeSetupRequest(action) {
+		var requestDispatched = false;
 		var values = new URLSearchParams();
 		values.set('asrAction', action);
+		setupLastRequestId = bridgeSetupRequestId();
+		values.set('setupRequestId', setupLastRequestId);
 		var token = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
 		values.set('settingsSaveCsrf', token ? token.value : '');
 		values.set('setupBridgeRole', currentSetupPath() === 'net' ? 'net' : 'standard');
@@ -4452,16 +4488,20 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var modeLabel = currentSetupMode().toUpperCase();
 		setupOutput.removeAttribute('role');
 		if(action.endsWith('-plan')) setupOutput.textContent = 'Detecting this ASL3 system and validating the ' + modeLabel + ' installation plan…'; else setupOutput.textContent = 'Installing the ' + modeLabel + ' bridge. This may compile pinned software; DO NOT CLOSE THIS PAGE…';
+		requestDispatched = true;
 		return fetch(window.location.href.split('#')[0], {
 			method: 'POST', credentials: 'same-origin', cache: 'no-store',
 			headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
 			body: values.toString()
 		}).then(function(response) {
-			return response.json().catch(function() { throw new Error('Bridge setup returned an invalid response.'); })
+			return response.json().catch(function() { var invalidResponse = new Error('Bridge setup returned an invalid response.'); invalidResponse.diagnostic = {requestId:setupLastRequestId, stage:'api_invalid_response'}; throw invalidResponse; })
 				.then(function(data) {
-					if(!response.ok || !data.ok) throw new Error(data.error || 'Bridge setup failed.');
+					if(!response.ok || !data.ok) { var requestError = new Error(data.error || 'Bridge setup failed.'); requestError.diagnostic = data.diagnostic || {requestId:setupLastRequestId, stage:'api_rejection'}; throw requestError; }
 					return data.result;
 				});
+		}).catch(function(error) {
+			if(!error.diagnostic) error.diagnostic = {requestId:setupLastRequestId, stage:requestDispatched ? 'api_response_unavailable' : 'installation_request_not_submitted'};
+			throw error;
 		}).finally(function() { setupPreview.disabled = false; });
 	}
 	function renderBridgeSetupPlan(result) {
@@ -4542,7 +4582,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(mode === 'dmr' && setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = '';
 			if(mode === 'net_bridge') { if(setupFields.setupNetTgifPassword) setupFields.setupNetTgifPassword.value = ''; if(setupFields.setupNetTgifStaticToken) setupFields.setupNetTgifStaticToken.value = ''; }
 			if(mode === 'zello') { if(setupFields.setupZelloPassword) setupFields.setupZelloPassword.value=''; if(setupFields.setupZelloPrivateKey) setupFields.setupZelloPrivateKey.value=''; }
-		}).catch(function(error) { renderBridgeSetupError(error, label + ' installation failed and was rolled back.'); });
+		}).catch(function(error) {
+			if(mode !== 'dmr') { renderBridgeSetupError(error, label + ' installation failed and was rolled back.'); return; }
+			collectDmrInstallDiagnostics(setupLastRequestId).then(function(runtimeDiagnostic) {
+				error.runtimeDiagnostic = runtimeDiagnostic;
+				renderBridgeSetupError(error, label + ' installation failed and was rolled back.');
+			});
+		});
 	});
 	Object.keys(setupFields).forEach(function(key) {
 		if(setupFields[key]) setupFields[key].addEventListener('input', function() {

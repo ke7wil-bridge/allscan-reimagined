@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.3.4 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.3.5 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -11,13 +11,13 @@ AllScan Reimagined is customized by KE7WIL.
 
 If you're using AllScan Reimagined, I'd appreciate a quick email letting me know you're running it. It helps me understand how ASR is being used and support its continued development. [Email KE7WIL](mailto:ke7wil@gmail.com).
 
-This archive is **Beta 8.3.4** and remains a prerelease. Beta 8.3.3 is the
-previous published prerelease.
+This archive is **Beta 8.3.5**, an unpublished release candidate. Beta 8.2 is
+the latest published prerelease.
 
-Beta 8.3.4 corrects the URF Install Bridge workflow by preserving a validated
-plan while an install-only TGIF hotspot key is entered, preflighting that key,
-and keeping actionable installation errors visible. It retains Beta 8.3.3's
-fresh-install ownership and Debian 13 corrections and the Beta 8.3 provisioning behavior for an ASR-managed URF
+Beta 8.3.5 adds end-to-end URF installation request correlation, helper
+lifecycle auditing, bounded read-only runtime diagnostics, and persistent
+failure classification in the Bridge Setup Wizard. It retains the fresh-install
+ownership and Debian 13 corrections and the Beta 8.3 provisioning behavior for an ASR-managed URF
 transport block back to its authoritative node without taking over a Zello
 node. It also restores mobile Node Controls behavior, corrects Netoholics
 dashboard polling, and improves native URF runtime and Docker Apache/AMI

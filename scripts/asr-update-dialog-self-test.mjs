@@ -80,9 +80,9 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.3.4'")
-    && whatsNewSource.includes('TGIF hotspot security key')
-    && whatsNewSource.includes('errors visible')
+  whatsNewSource.includes("version: '1.0.0-beta.8.3.5'")
+    && whatsNewSource.includes('privileged helper stage')
+    && whatsNewSource.includes('runtime diagnosis')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
   'What’s New copy is missing, version-mismatched, or too technical.',
 )

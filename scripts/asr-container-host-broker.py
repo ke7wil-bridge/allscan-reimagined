@@ -22,7 +22,7 @@ MAX_CONTROL_STDIN = 2 * 1024 * 1024
 COMMANDS = frozenset({
     "m17-plan", "m17-install", "p25-plan", "p25-install",
     "nxdn-plan", "nxdn-install", "ysf-plan", "ysf-install",
-    "dmr-plan", "dmr-install",
+    "dmr-plan", "dmr-install", "dmr-diagnose",
     "dmr-security-update",
     "net-bridge-plan", "net-bridge-install", "net-bridge-reset",
 })

@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3.4',
-  label: 'Beta 8.3.4',
-  summary: 'Corrects the URF Install Bridge workflow and makes failures visible.',
+  version: '1.0.0-beta.8.3.5',
+  label: 'Beta 8.3.5',
+  summary: 'Adds end-to-end diagnostics for URF installation failures.',
   items: [
-    'Keeps the validated setup plan when you enter the install-only TGIF hotspot security key.',
-    'Explains that requirement before installation instead of silently stopping before the helper runs.',
-    'Keeps browser, network, and server errors visible so failed installations can be corrected safely.',
-    'Preserves URF073, private node 1001, TGIF talkgroup 42450, and the DMR-only selection.',
+    'Correlates the browser request, API validation, and privileged helper stage without recording credentials.',
+    'Records whether installation started, failed, or completed instead of logging only successful installs.',
+    'Automatically checks runtime files, managed services, startup state, and bounded TGIF authentication evidence after a failure.',
+    'Shows the supported failure stage and runtime diagnosis directly in the Bridge Setup Wizard.',
   ],
 } as const

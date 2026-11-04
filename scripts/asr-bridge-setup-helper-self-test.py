@@ -321,6 +321,55 @@ def main() -> None:
             helper.MQTT_SECRETS_PATH = original_path
             helper.subprocess.run = original_run
 
+    original_audit = helper.append_audit
+    helper.append_audit = lambda event: None
+    try:
+        class DiagnosticResult:
+            returncode = 0
+            stdout = "LoadState=not-found\nActiveState=inactive\n"
+            stderr = ""
+        diagnostic = helper.dmr_diagnose(
+            {"bridgeId": "urf"}, runner=lambda *args, **kwargs: DiagnosticResult())
+        assert diagnostic["readOnly"] is True
+        assert diagnostic["classification"] == "missing_runtime_files"
+        assert "password" not in json.dumps(diagnostic).lower()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "runtime"
+            (base / "urf").mkdir(parents=True)
+            (base / "urf" / "runtime.conf").write_text("managed\n")
+            class FailedServiceResult:
+                returncode = 0
+                stderr = ""
+                stdout = ("LoadState=loaded\nActiveState=failed\nSubState=failed\n"
+                          "Result=failed\nExecMainStatus=1\n")
+            failed = helper.dmr_diagnose(
+                {"bridgeId": "urf"}, runner=lambda *args, **kwargs: FailedServiceResult(),
+                runtime_base=base, state_root=Path(tmp) / "state")
+            assert failed["classification"] == "service_startup_failure"
+
+            class AuthResult:
+                returncode = 0
+                stderr = ""
+                stdout = ""
+            def auth_runner(command, **kwargs):
+                result = AuthResult()
+                result.stdout = ("authentication failed\n" if "journalctl" in command[0] else
+                                 "LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n")
+                return result
+            auth = helper.dmr_diagnose(
+                {"bridgeId": "urf"}, runner=auth_runner,
+                runtime_base=base, state_root=Path(tmp) / "state")
+            assert auth["classification"] == "tgif_authentication_failure"
+            assert "authentication failed" not in json.dumps(auth).lower()
+        try:
+            helper.dmr_diagnose({"bridgeId": "urf", "secret": "unsafe"})
+            raise AssertionError("URF diagnostics accepted a secret-bearing payload")
+        except helper.HelperError:
+            pass
+    finally:
+        helper.append_audit = original_audit
+
     print("bridge setup helper self-test: PASS")
 
 

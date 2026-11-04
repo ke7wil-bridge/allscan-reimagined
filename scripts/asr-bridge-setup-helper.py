@@ -800,12 +800,82 @@ def net_bridge_reset(payload: dict[str, Any],
     return result
 
 
+def dmr_diagnose(payload: dict[str, Any], runner=subprocess.run,
+                 runtime_base: Path = Path("/opt/allscan-reimagined-bridges/urf"),
+                 state_root: Path = STATE_ROOT) -> dict[str, Any]:
+    """Collect bounded, read-only URF runtime evidence without returning secrets."""
+    if set(payload) != {"bridgeId"}:
+        raise HelperError("URF diagnostics require only a bridge ID")
+    bridge_id = str(payload.get("bridgeId") or "")
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", bridge_id):
+        raise HelperError("URF diagnostic bridge ID is invalid")
+    runtime = runtime_base / bridge_id
+    record = state_root / f"{bridge_id}.json"
+    services = [
+        f"allscan-reimagined-urfd-{bridge_id}.service",
+        f"allscan-reimagined-tcd-{bridge_id}.service",
+        f"allscan-reimagined-tgif-{bridge_id}.service",
+        f"allscan-reimagined-urf-tgif-{bridge_id}.service",
+    ]
+    service_states: list[dict[str, Any]] = []
+    for service in services:
+        shown = runner([
+            "/usr/bin/systemctl", "show", service,
+            "--property=LoadState,ActiveState,SubState,Result,ExecMainStatus",
+            "--no-pager",
+        ], capture_output=True, text=True, timeout=5)
+        values = dict(line.split("=", 1) for line in shown.stdout.splitlines() if "=" in line)
+        if values.get("LoadState", "not-found") == "not-found":
+            continue
+        service_states.append({
+            "service": service, "loadState": values.get("LoadState", "unknown"),
+            "activeState": values.get("ActiveState", "unknown"),
+            "subState": values.get("SubState", "unknown"),
+            "result": values.get("Result", "unknown"),
+            "execMainStatus": int(values.get("ExecMainStatus", "0"))
+                if values.get("ExecMainStatus", "0").isdigit() else None,
+        })
+    authentication_failure = False
+    tgif_units = [item["service"] for item in service_states if "tgif" in item["service"]]
+    for service in tgif_units:
+        journal = runner([
+            "/usr/bin/journalctl", "--no-pager", "--quiet", "-n", "40",
+            "-o", "cat", "-u", service,
+        ], capture_output=True, text=True, timeout=5)
+        text = (journal.stdout + "\n" + journal.stderr).lower()
+        if re.search(r"auth(?:entication)? failed|login failed|invalid (?:password|key)|access denied", text):
+            authentication_failure = True
+            break
+    runtime_files = runtime.is_dir() and any(runtime.iterdir())
+    if not runtime_files:
+        classification = "missing_runtime_files"
+    elif not service_states:
+        classification = "missing_systemd_services"
+    elif authentication_failure:
+        classification = "tgif_authentication_failure"
+    elif any(item["activeState"] == "failed" or item["result"] == "failed"
+             for item in service_states):
+        classification = "service_startup_failure"
+    elif not any(item["activeState"] == "active" for item in service_states):
+        classification = "runtime_services_inactive"
+    else:
+        classification = "runtime_present"
+    result = {
+        "ok": True, "readOnly": True, "bridgeId": bridge_id,
+        "classification": classification, "runtimePresent": runtime_files,
+        "ownershipRecordPresent": record.is_file(), "services": service_states,
+        "tgifAuthenticationFailureDetected": authentication_failure,
+    }
+    return result
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("command", choices=(
         "validate", "backup", "m17-plan", "m17-install",
         "p25-plan", "p25-install", "nxdn-plan", "nxdn-install",
         "ysf-plan", "ysf-install", "dmr-plan", "dmr-install",
+        "dmr-diagnose",
         "zello-plan", "zello-install",
         "net-bridge-plan", "net-bridge-install",
         "net-bridge-reset",
@@ -818,6 +888,9 @@ def main() -> int:
     args = parser().parse_args()
     try:
         payload = read_request()
+        request_id = str(payload.pop("_requestId", ""))
+        if request_id and not re.fullmatch(r"[a-zA-Z0-9._:-]{8,48}", request_id):
+            raise HelperError("setup request identifier is invalid")
         if args.command == "validate":
             result = validate(payload)
         else:
@@ -838,7 +911,12 @@ def main() -> int:
                 elif args.command == "dmr-security-update":
                     result = dmr_security_update(payload)
                 elif args.command in ("dmr-plan", "dmr-install"):
+                    if args.command == "dmr-install":
+                        append_audit({"action": "dmr-install", "bridgeId": str(payload.get("bridgeId") or ""),
+                                      "requestId": request_id, "result": "started"})
                     result = dmr_command(payload, args.command == "dmr-install")
+                elif args.command == "dmr-diagnose":
+                    result = dmr_diagnose(payload)
                 elif args.command in ("zello-plan", "zello-install"):
                     result = zello_command(payload, args.command == "zello-install")
                 else:
@@ -847,7 +925,23 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     except (HelperError, OSError, ValueError, Exception) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        message = str(exc)
+        diagnostic: dict[str, Any] = {"stage": "privileged_helper_failure"}
+        if 'args' in locals() and args.command == "dmr-install":
+            lowered = message.lower()
+            if "service" in lowered or "systemctl" in lowered or "active" in lowered:
+                diagnostic["stage"] = "service_startup_failure"
+            elif "auth" in lowered or "credential" in lowered or "hotspot key" in lowered:
+                diagnostic["stage"] = "tgif_authentication_failure"
+            elif "runtime" in lowered or "managed file" in lowered:
+                diagnostic["stage"] = "runtime_installation_failure"
+            try:
+                append_audit({"action": "dmr-install", "bridgeId": str(locals().get("payload", {}).get("bridgeId") or ""),
+                              "requestId": locals().get("request_id", ""),
+                              "result": "failed", "stage": diagnostic["stage"]})
+            except Exception:
+                pass
+        print(json.dumps({"ok": False, "error": message, "diagnostic": diagnostic}), file=sys.stderr)
         return 1
 
 
