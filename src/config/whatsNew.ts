@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3.3',
-  label: 'Beta 8.3.3',
-  summary: 'Allows a display-only URF card to become a fresh managed installation safely.',
+  version: '1.0.0-beta.8.3.4',
+  label: 'Beta 8.3.4',
+  summary: 'Corrects the URF Install Bridge workflow and makes failures visible.',
   items: [
-    'Treats an explicit display-only URF card with no runtime as a fresh install instead of an ownership recovery.',
-    'Preserves the selected reflector, private node, TGIF talkgroup, and DMR-only protocol choice.',
-    'Still rejects partial managed ownership, conflicting runtime files, and unsafe existing installations.',
-    'Explicitly verifies native URF installation compatibility with Debian 13.',
+    'Keeps the validated setup plan when you enter the install-only TGIF hotspot security key.',
+    'Explains that requirement before installation instead of silently stopping before the helper runs.',
+    'Keeps browser, network, and server errors visible so failed installations can be corrected safely.',
+    'Preserves URF073, private node 1001, TGIF talkgroup 42450, and the DMR-only selection.',
   ],
 } as const

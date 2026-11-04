@@ -97,7 +97,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3.3'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3.4'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',

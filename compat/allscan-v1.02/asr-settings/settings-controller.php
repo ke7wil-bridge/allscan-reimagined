@@ -4317,7 +4317,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(isUnifiedNet) document.querySelectorAll('.asr-bridge-fields-grid > label').forEach(function(field) {
 			if(!field.querySelector('[data-bridge-setup-mode]')) field.hidden = true;
 		});	}
-	if(setupPanel) setupPanel.addEventListener('input', function(event) { if(event.target === setupTitle) setupTitle.dataset.userEdited = '1'; setupPlanDigest = ''; if(setupPreview) setupPreview.hidden = false; if(setupInstall) { setupInstall.hidden = true; setupInstall.disabled = true; } });
+	if(setupPanel) setupPanel.addEventListener('input', function(event) {
+		if(event.target === setupTitle) setupTitle.dataset.userEdited = '1';
+		if(event.target && event.target.matches('[data-bridge-setup-tgif-password], [data-net-tgif-password], [data-net-tgif-static-token], [data-bridge-setup-zello-password], [data-bridge-setup-zello-private-key]')) return;
+		setupPlanDigest = '';
+		if(setupPreview) setupPreview.hidden = false;
+		if(setupInstall) { setupInstall.hidden = true; setupInstall.disabled = true; }
+	});
 	document.querySelectorAll('[data-net-mode-choice]').forEach(function(input) { input.addEventListener('change', updateNetModeSelection); });
 	if(setupDmrNetwork) setupDmrNetwork.addEventListener('change', function(){ if(setupTitle) delete setupTitle.dataset.userEdited; updateSetupMode(); });
 	if(setupTgifAuthMode) setupTgifAuthMode.addEventListener('change', function(){ if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = ''; updateSetupMode(); });
@@ -4397,6 +4403,16 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				.finally(function() { button.disabled = false; });
 		});
 	});
+	function renderBridgeSetupError(error, fallback) {
+		if(!setupOutput) return;
+		setupOutput.hidden = false;
+		setupOutput.setAttribute('role', 'alert');
+		setupOutput.textContent = error && error.message ? error.message : fallback;
+		if(setupInstall) {
+			setupInstall.hidden = false;
+			setupInstall.disabled = !/^[a-f0-9]{64}$/.test(setupPlanDigest);
+		}
+	}
 	function bridgeSetupRequest(action) {
 		var values = new URLSearchParams();
 		values.set('asrAction', action);
@@ -4434,7 +4450,8 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(setupInstall) setupInstall.disabled = true;
 		if(setupOutput) setupOutput.hidden = false;
 		var modeLabel = currentSetupMode().toUpperCase();
-		if(action.endsWith('-plan')) setupOutput.textContent = 'Detecting this ASL3 system and validating the ' + modeLabel + ' installation plan…'; else setupOutput.innerHTML = '<span>Installing the ' + modeLabel + ' bridge. This may compile pinned software; </span><strong class="asr-install-warning">DO NOT CLOSE THIS PAGE</strong><span>…</span>';
+		setupOutput.removeAttribute('role');
+		if(action.endsWith('-plan')) setupOutput.textContent = 'Detecting this ASL3 system and validating the ' + modeLabel + ' installation plan…'; else setupOutput.textContent = 'Installing the ' + modeLabel + ' bridge. This may compile pinned software; DO NOT CLOSE THIS PAGE…';
 		return fetch(window.location.href.split('#')[0], {
 			method: 'POST', credentials: 'same-origin', cache: 'no-store',
 			headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
@@ -4502,21 +4519,30 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			return;
 		}
 		var action = mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan';
-		bridgeSetupRequest(action).then(renderBridgeSetupPlan)			.catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || mode.toUpperCase() + ' plan failed.'; });
+		Promise.resolve().then(function() { return bridgeSetupRequest(action); }).then(renderBridgeSetupPlan)
+			.catch(function(error) { renderBridgeSetupError(error, mode.toUpperCase() + ' plan failed.'); });
 	});
 	if(setupInstall && setupOutput) setupInstall.addEventListener('click', function () {
 		var mode = currentSetupMode();
 		if(currentSetupPath() === 'urf' && mode !== 'dmr') { setupOutput.textContent = 'URF modes are applied with Save Reimagined Settings above.'; return; }
 		var label = mode.toUpperCase();
+		if(mode === 'dmr' && setupTgifAuthMode && setupTgifAuthMode.value === 'secured') {
+			var hotspotKey = setupFields.setupTgifPassword ? setupFields.setupTgifPassword.value : '';
+			if(!hotspotKey || hotspotKey.length > 128 || /[\x00-\x1F\x7F]/.test(hotspotKey)) {
+				renderBridgeSetupError(new Error('Enter the TGIF hotspot security key before installing. Check Setup does not send or validate this secret.'), label + ' installation cannot start.');
+				if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.focus();
+				return;
+			}
+		}
 		if(!window.confirm('Install this ' + label + ' bridge using the validated plan?')) return;
 		var action = mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install';
-		bridgeSetupRequest(action).then(function(result) {			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
+		Promise.resolve().then(function() { return bridgeSetupRequest(action); }).then(function(result) {			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
 			setupOutput.textContent = label + ' bridge installation committed successfully.\nBridge node: ' + result.bridgeNode +
 				'\n\n' + qualification + ' Reload Settings to view the new bridge card.';
 			if(mode === 'dmr' && setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = '';
 			if(mode === 'net_bridge') { if(setupFields.setupNetTgifPassword) setupFields.setupNetTgifPassword.value = ''; if(setupFields.setupNetTgifStaticToken) setupFields.setupNetTgifStaticToken.value = ''; }
 			if(mode === 'zello') { if(setupFields.setupZelloPassword) setupFields.setupZelloPassword.value=''; if(setupFields.setupZelloPrivateKey) setupFields.setupZelloPrivateKey.value=''; }
-		}).catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || label + ' installation failed and was rolled back.'; });
+		}).catch(function(error) { renderBridgeSetupError(error, label + ' installation failed and was rolled back.'); });
 	});
 	Object.keys(setupFields).forEach(function(key) {
 		if(setupFields[key]) setupFields[key].addEventListener('input', function() {

@@ -615,6 +615,11 @@ check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hot
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';
+unset($_POST['setupTgifPassword']);
+$dmrPreview = asrSettingsDmrSetupPayload(false, $setupError);
+check($setupError === '' && !isset($dmrPreview['tgifPassword']), 'Secured DMR preview unexpectedly required or exposed the TGIF hotspot key.');
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'hotspot key') !== false, 'Secured DMR install without a hotspot key reached the helper boundary.');
 $_POST['setupTgifPassword'] = 'secret-123';
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['tgifPassword'] === 'secret-123', 'Secured TGIF hotspot key was not accepted.');
@@ -654,6 +659,17 @@ check(count($preservedUrf) === 1 && $preservedUrf[0] === $managedUrf[0], 'Manage
 $settingsSource = file_get_contents($settingsDir . '/settings-controller.php');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan'") !== false, 'Bridge setup preview is not wired to the selected helper endpoint.');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install'") !== false, 'Bridge setup install is not wired to the selected helper endpoint.');
+check(strpos($settingsSource, "Enter the TGIF hotspot security key before installing.") !== false
+	&& strpos($settingsSource, "Check Setup does not send or validate this secret.") !== false,
+	'Secured DMR install does not explain its install-only hotspot-key requirement before dispatch.');
+check(strpos($settingsSource, "Promise.resolve().then(function() { return bridgeSetupRequest(action); })") !== false
+	&& strpos($settingsSource, 'function renderBridgeSetupError(error, fallback)') !== false
+	&& strpos($settingsSource, "setupOutput.setAttribute('role', 'alert')") !== false,
+	'Bridge setup synchronous or request failures can still bypass visible error reporting.');
+check(strpos($settingsSource, 'setupOutput.innerHTML') === false,
+	'Bridge installation status still uses a failure-prone HTML sink before request dispatch.');
+check(strpos($settingsSource, "[data-bridge-setup-tgif-password], [data-net-tgif-password]") !== false,
+	'Entering an install-only bridge secret still invalidates the validated setup plan.');
 check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helper actions are unavailable.');
 check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN helper actions are unavailable.');
 check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');
