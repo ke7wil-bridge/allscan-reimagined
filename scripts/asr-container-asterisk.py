@@ -18,6 +18,8 @@ SOCKET = "/run/allscan-reimagined-bridge-rpc/asterisk.sock"
 SERVICE_USER = "asr-bridge"
 MAX_MESSAGE = 64 * 1024
 INSTALLATIONS = Path("/var/lib/allscan-reimagined/bridge-setup/installations")
+HOST_COMMAND_TIMEOUT = 5
+CLIENT_SOCKET_TIMEOUT = 6
 
 
 def backend():
@@ -61,10 +63,11 @@ def run_host(command: str, *, allow_pending: bool = False) -> subprocess.Complet
         raise RuntimeError("container profile unavailable")
     module.validate_active_profile(profile)
     authorize_command(command, profile, allow_pending=allow_pending)
+    argv = ["/usr/bin/docker", "exec", profile.asterisk_container,
+            "/usr/sbin/asterisk", "-rx", command]
     return subprocess.run(
-        ["/usr/bin/docker", "exec", profile.asterisk_container,
-         "/usr/sbin/asterisk", "-rx", command],
-        capture_output=True, text=True, timeout=15, check=False,
+        argv, capture_output=True, text=True,
+        timeout=HOST_COMMAND_TIMEOUT, check=False,
     )
 
 
@@ -164,7 +167,7 @@ def client_main(args: list[str]) -> int:
     validate_command(args)
     request = json.dumps({"schema": 1, "args": args}, separators=(",", ":")).encode()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(20)
+        connection.settimeout(CLIENT_SOCKET_TIMEOUT)
         connection.connect(SOCKET)
         connection.sendall(request)
         connection.shutdown(socket.SHUT_WR)

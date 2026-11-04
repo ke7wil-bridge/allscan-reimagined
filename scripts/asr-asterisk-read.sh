@@ -13,35 +13,14 @@ run_asterisk() {
   exec /usr/bin/python3 "$client" --asr-program asterisk-read "$@"
 }
 
-sanitize_echolink_nodes() {
-  LC_ALL=C /usr/bin/awk '
-    $1 ~ /^[0-9]+$/ && length($1) <= 6 \
-      && $2 ~ /^[A-Za-z0-9*][A-Za-z0-9*\/-]+$/ \
-      && length($2) >= 2 && length($2) <= 11 {
-        print $1, toupper($2), "-"
-        if(++count >= 256) exit
-      }
-  '
-}
-
 case "$cmd" in
   --self-test)
     [ "$#" -eq 1 ] || exit 2
-    actual=$(printf '%s\n' \
-      '   Node  Call Sign  IP Address  Name' \
-      ' 123456  N0TEST-L   hidden-host Test station' \
-      ' 222222  BAD<script> hidden-host Rejected' \
-      | sanitize_echolink_nodes)
-    [ "$actual" = '123456 N0TEST-L -' ]
+    if "$0" echolink-nodes >/dev/null 2>&1; then
+      echo "Unsafe EchoLink CLI operation is still enabled." >&2
+      exit 1
+    fi
     echo "restricted Asterisk reader self-test: ok"
-    ;;
-  echolink-nodes)
-    [ "$#" -eq 1 ] || { echo "Unexpected argument." >&2; exit 2; }
-    raw=$(mktemp /run/allscan-reimagined-echolink.XXXXXX)
-    trap 'rm -f -- "$raw"' EXIT HUP INT TERM
-    /usr/bin/timeout 3 /usr/sbin/asterisk -rx "echolink show nodes" \
-      >"$raw" 2>/dev/null
-    sanitize_echolink_nodes < "$raw"
     ;;
   nodes|lstats)
     [ "$#" -eq 2 ] || { echo "Unexpected argument count." >&2; exit 2; }

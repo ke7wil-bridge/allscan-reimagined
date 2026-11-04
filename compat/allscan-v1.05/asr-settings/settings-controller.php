@@ -2127,6 +2127,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	$payload = [
 		'bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''),
 		'title' => asrSettingsCleanText($_POST['setupTitle'] ?? '', 80),
+		'reflector' => strtoupper(asrSettingsCleanText($_POST['setupReflector'] ?? '', 8)),
 		'bridgeNode' => trim((string)($_POST['setupBridgeNode'] ?? '')),
 		'bridgeRole' => strtolower(asrSettingsCleanText($_POST['setupBridgeRole'] ?? 'standard', 12)),
 		'callsign' => strtoupper(asrSettingsCleanText($stationCallsign ?: ($_POST['setupCallsign'] ?? ''), 10)),
@@ -2137,11 +2138,20 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
 	];
+	foreach(['dstar','dmrplus','dmr','m17','p25','nxdn','ysf','urf'] as $protocol) {
+		$key = $protocol . 'Enabled';
+		if(!array_key_exists($key, $_POST)) continue;
+		$value = strtolower(trim((string)$_POST[$key]));
+		if(!in_array($value, ['true','false','1','0'], true)) { $error = 'The URF protocol selection is invalid.'; break; }
+		$payload[$key] = in_array($value, ['true','1'], true);
+	}
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
 	if($requireSecret && $authMode === 'secured') $payload['tgifPassword'] = $password;
-	if(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
+	if($error !== '') { /* protocol validation already supplied an actionable error */ }
+	elseif(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
 	elseif($payload['bridgeId'] === '') $error = 'Bridge ID must begin with a letter and use only lowercase letters, numbers, _ or -.';
 	elseif($payload['title'] === '') $error = 'Bridge title is required.';
+	elseif($payload['reflector'] !== '' && !preg_match('/^URF[A-Z0-9]{2,5}$/D', $payload['reflector'])) $error = 'URF reflector identity must be URF followed by 2-5 letters or numbers.';
 	elseif(!in_array($authMode, ['legacy', 'secured'], true)) $error = 'Select a valid TGIF DMR connection method.';
 	elseif($payload['callsign'] === '') $error = 'The node callsign is not configured.';
 	elseif($payload['digitalId'] < 1 || $payload['digitalId'] > 9999999) $error = 'Enter a valid 1-7 digit DMR ID.';
@@ -2487,6 +2497,9 @@ function asrSettingsUrfApplyModePost($record, &$error, $onlyMode = '') {
 function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 	$enabled = !empty($_POST['urfEnabled']);
 	$node = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
+	$existingUrf = asrSettingsExistingUrfConfig($config);
+	$displayNamePosted = array_key_exists('urfDisplayName', $_POST);
+	$displayName = asrSettingsCleanText($_POST['urfDisplayName'] ?? ($existingUrf['displayName'] ?? 'URF Reflector'), 80);
 	$modes = is_array($_POST['urfModes'] ?? null) ? $_POST['urfModes'] : [];
 	$modes = array_values(array_intersect(['dmr', 'ysf', 'p25', 'nxdn', 'm17'], array_map('strtolower', array_map('strval', $modes))));
 	if(!$enabled) return ['enabled' => false, 'node' => '', 'modes' => []];	if(!preg_match('/^[0-9]{3,10}$/D', $node)) {
@@ -2497,17 +2510,21 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		$error = 'URF Reflector needs at least one enabled digital mode.';
 		return [];
 	}
-	$existingUrf = asrSettingsExistingUrfConfig($config);
+	if($displayName === '') {
+		$error = 'URF Reflector needs a display name.';
+		return [];
+	}
 	$record = is_array($existingUrf['record'] ?? null) ? $existingUrf['record'] : [];
 	$records = is_array($existingUrf['records'] ?? null) ? $existingUrf['records'] : [];
 	if(!$record && empty($existingUrf['enabled'])) $record = [
-		'id'=>'urf', 'mode'=>'urf', 'node'=>$node, 'title'=>'URFWIL Reflector',
-		'detailTitle'=>'URF Clients & Activity', 'friendlyName'=>'URFWIL Multi-Mode Bridge',
+		'id'=>'urf', 'mode'=>'urf', 'node'=>$node, 'title'=>$displayName,
+		'detailTitle'=>'URF Clients & Activity', 'friendlyName'=>$displayName,
 		'clientSource'=>'auto', 'clientUrl'=>'', 'clientUsername'=>'', 'cardType'=>'standard',
 		'backendMode'=>'display_only', 'allowTune'=>false, 'fixedBridgeRecovery'=>false,
 		'urfReflector'=>true, 'urfGroupId'=>'urf',
 	];
 	if($record) {
+		if($displayNamePosted) { $record['title'] = $displayName; $record['friendlyName'] = $displayName; }
 		$record = asrSettingsUrfApplyModePost($record, $error);
 		if($error !== '') return [];
 	}
@@ -2521,9 +2538,12 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		if($error !== '') return [];
 		$fixedRecovery = is_array($_POST['urfFixedRecovery'] ?? null) ? $_POST['urfFixedRecovery'] : [];
 		$modeRecord['fixedBridgeRecovery'] = !empty($fixedRecovery[$mode]);
+		if($displayNamePosted) $modeRecord['friendlyName'] = $displayName;
 		$records[$mode] = $modeRecord;
 	}
-	return ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record, 'records' => $records];
+	$result = ['enabled' => true, 'node' => $node, 'modes' => $modes, 'record' => $record, 'records' => $records];
+	if($displayNamePosted || empty($existingUrf['enabled'])) $result['displayName'] = $displayName;
+	return $result;
 }
 
 function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
@@ -2531,6 +2551,7 @@ function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
 	if(is_array($urf['record'] ?? null) && !empty($urf['record'])) {
 		$record = $urf['record'];
 		$record['node'] = (string)$urf['node'];
+		if(!empty($urf['displayName'])) { $record['title'] = (string)$urf['displayName']; $record['friendlyName'] = (string)$urf['displayName']; }
 		$allUrfModes = ['dmr','ysf','p25','nxdn','m17'];
 		if(array_key_exists('modes', $record) || array_values($urf['modes']) !== $allUrfModes) $record['modes'] = array_values($urf['modes']);
 		return [$record];
@@ -2545,7 +2566,7 @@ function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
 			'node' => (string)($urf['node'] ?? ''),
 			'title' => $label . ' Bridge',
 			'detailTitle' => 'Connected Clients',
-			'friendlyName' => $label . ' Bridge',
+			'friendlyName' => (string)($urf['displayName'] ?? ($label . ' Bridge')),
 			'clientSource' => 'auto',
 			'clientUrl' => '',
 			'clientUsername' => '',
@@ -2562,6 +2583,9 @@ function asrSettingsUrfModeBridges($urf, $managedBridges = []) {
 
 function asrSettingsExistingUrfConfig($config) {
 	$node = '';
+	$displayName = '';
+	$bridgeId = 'urf';
+	$runtimeName = '';
 	$modes = [];
 	$aggregate = false;
 	$records = [];
@@ -2569,9 +2593,12 @@ function asrSettingsExistingUrfConfig($config) {
 		if(!is_array($bridge) || empty($bridge['urfReflector'])
 			|| (string)($bridge['cardType'] ?? 'standard') !== 'standard') continue;
 		if($node === '') $node = (string)($bridge['node'] ?? '');
+		if($displayName === '') $displayName = trim((string)($bridge['friendlyName'] ?? $bridge['title'] ?? ''));
+		if($runtimeName === '') $runtimeName = trim((string)($bridge['urfName'] ?? ''));
 		$mode = strtolower((string)($bridge['mode'] ?? ''));
 
 		if($mode === 'urf') {
+			$bridgeId = (string)($bridge['id'] ?? 'urf');
 			$aggregate = true;
 			$configuredModes = is_array($bridge['modes'] ?? null) ? $bridge['modes'] : ['dmr','ysf','p25','nxdn','m17'];
 			foreach($configuredModes as $configuredMode) {
@@ -2579,11 +2606,13 @@ function asrSettingsExistingUrfConfig($config) {
 				if(in_array($configuredMode, ['dmr','ysf','p25','nxdn','m17'], true)) $modes[] = $configuredMode;
 			}
 		} elseif(in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)) {
+			if($mode === 'dmr') $bridgeId = (string)($bridge['id'] ?? 'urf');
 			$modes[] = $mode;
 			$records[$mode] = $bridge;
 		}
 
 	}
+	if(in_array(strtolower($displayName), ['urfwil multi-mode bridge', 'urfwil reflector', 'urfwil bridge', 'urfwil'], true)) $displayName = 'URF Reflector';
 	$record = $aggregate ? asrSettingsUrfAggregateRecord($config) : [];
 	$modeConfig = [];
 	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) {
@@ -2591,7 +2620,7 @@ function asrSettingsExistingUrfConfig($config) {
 		$modeConfig[$mode] = asrSettingsUrfModeConfig($modeRecord, $mode);
 		if(!$aggregate && is_array($modeRecord)) $modeConfig[$mode]['fixedBridgeRecovery'] = !empty($modeRecord['fixedBridgeRecovery']);
 	}
-	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'aggregate' => $aggregate, 'record' => $record, 'records' => $records, 'modeConfig' => $modeConfig];
+	return ['enabled' => !empty($modes), 'node' => $node, 'modes' => array_values(array_unique($modes)), 'displayName' => $displayName ?: 'URF Reflector', 'bridgeId' => $bridgeId, 'runtimeName' => $runtimeName, 'aggregate' => $aggregate, 'record' => $record, 'records' => $records, 'modeConfig' => $modeConfig];
 }
 
 function asrSettingsUrfBridgesForSave($config, $urf) {
@@ -2962,6 +2991,20 @@ $lowPowerMode = !empty($config['lowPowerMode']);
 $filterServiceStations = !array_key_exists('filterServiceStations', $config) || !empty($config['filterServiceStations']);
 $filteredStations = asrSettingsCleanFilteredStations(implode("\n", (array)($config['filteredStations'] ?? [])));
 $urfConfig = asrSettingsExistingUrfConfig($config);
+if($settingsSaveRequested && $saveError !== '' && array_key_exists('urfEnabled', $_POST)) {
+	// A rejected save must remain editable. Overlay the submitted URF values
+	// without treating them as persisted or bypassing validation.
+	$urfConfig['enabled'] = !empty($_POST['urfEnabled']);
+	$urfConfig['node'] = asrSettingsCleanText($_POST['urfNode'] ?? '', 10);
+	$urfConfig['displayName'] = asrSettingsCleanText($_POST['urfDisplayName'] ?? ($urfConfig['displayName'] ?? ''), 80);
+	$postedModes = is_array($_POST['urfModes'] ?? null) ? array_map('strtolower', array_map('strval', $_POST['urfModes'])) : [];
+	$urfConfig['modes'] = array_values(array_intersect(['dmr','ysf','p25','nxdn','m17'], $postedModes));
+	$postedModeConfig = is_array($_POST['urfConfig'] ?? null) ? $_POST['urfConfig'] : [];
+	foreach(asrSettingsUrfModeFields() as $mode => $fields) foreach($fields as $field) {
+		if(array_key_exists($field, (array)($postedModeConfig[$mode] ?? [])))
+			$urfConfig['modeConfig'][$mode][$field] = asrSettingsCleanText($postedModeConfig[$mode][$field], $field === 'host' ? 253 : 80);
+	}
+}
 $allBridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || empty($bridge['urfReflector']) || ($bridge['cardType'] ?? '') === 'dmr_net'));
 $netCardTypes = ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'];
 $netBridgeRows = array_values(array_filter($allBridgeRows, static fn($bridge) => is_array($bridge) && in_array(($bridge['cardType'] ?? ''), $netCardTypes, true)));
@@ -3074,16 +3117,18 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	<section class="asr-settings-section is-collapsed" data-settings-section="bridges"<?php echo asrSettingsModernHidden('bridges', $modernSettingsSection); ?>>
 		<div class="asr-settings-section-heading"><button class="asr-settings-section-toggle" type="button" aria-expanded="false">Bridge Cards <span class="asr-settings-toggle-icon" aria-hidden="true">+</span></button></div>
 		<div class="asr-settings-section-lead"><div><h3>Configured Bridges</h3><p>Select a bridge row to configure it. Reorder controls affect dashboard order.</p></div><button class="asr-settings-help-button" type="button" data-open-modal="asrBridgeHelpDialog">Bridge Setup Help</button></div>
-		<div class="asr-urf-inline-panel" data-urf-panel<?php echo !empty($urfConfig['enabled']) ? '' : ' hidden'; ?>>
+		<div class="asr-urf-inline-panel" data-urf-panel data-urf-bridge-id="<?php echo asrSettingsH($urfConfig['bridgeId'] ?? 'urf'); ?>" data-urf-runtime-name="<?php echo asrSettingsH($urfConfig['runtimeName'] ?? ''); ?>"<?php echo !empty($urfConfig['enabled']) ? '' : ' hidden'; ?>>
 			<div class="asr-bridge-section-copy"><strong>URF Reflector</strong><span>One shared AllStar transport with mode cards for DMR, YSF, P25, NXDN, and M17.</span></div>
 			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
+			<div class="asr-settings-row"><label for="urfDisplayName">Display Name</label><input id="urfDisplayName" name="urfDisplayName" type="text" maxlength="80" placeholder="URF073" value="<?php echo asrSettingsH($urfConfig['displayName'] ?? 'URF Reflector'); ?>"><small>Dashboard label only; changing it does not change the bridge ID or shared AllStar node.</small></div>
 			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
-			<p class="asr-settings-inline-note">The shared node is transport health only; it never determines which URF mode is transmitting.</p>
+			<p class="asr-settings-inline-note">Save stores these settings; it does not install runtime services. After saving, use Install or Repair URF Runtime below. The shared node is transport health only; it never determines which URF mode is transmitting.</p>
 			<div class="asr-urf-mode-list">
 			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
 			<?php asrSettingsRenderUrfMode($urfMode, $urfLabel, (array)($urfConfig['modeConfig'][$urfMode] ?? []), in_array($urfMode,(array)($urfConfig['modes'] ?? []),true)); ?>
 			<?php endforeach; ?>
 			</div>
+			<div class="asr-settings-actions"><button type="button" class="asr-primary-action" data-urf-install-runtime>Install or Repair URF Runtime</button><span data-urf-install-note>Opens a validated preview before any system changes.</span></div>
 			<div class="asr-urf-destructive-actions"><span><strong>Remove reflector configuration</strong><small>This removes the aggregate URFWIL card when bridge changes are saved.</small></span><button type="button" class="asr-remove-urf-button">Remove URF Reflector</button></div>
 			<?php if(!$modernSettings): ?>
 			<div class="asr-settings-row"><label for="urfAdminRule">URF Access Control</label><input id="urfAdminRule" name="urfAdminRule" type="text" maxlength="16" placeholder="CALLSIGN or PREFIX*"></div>
@@ -4176,7 +4221,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			zello: {port: '', destination: '', host: ''}
 		};
 		var selected = defaults[mode] || defaults.m17;
-		document.querySelectorAll('[data-bridge-setup-reflector-field],[data-bridge-setup-module-field]').forEach(function(field) { field.hidden = !isM17; });
+		document.querySelectorAll('[data-bridge-setup-reflector-field]').forEach(function(field) { field.hidden = !(isM17 || (isDmr && path === 'urf')); });
+		document.querySelectorAll('[data-bridge-setup-module-field]').forEach(function(field) { field.hidden = !isM17; });
+		var setupNodeField = setupFields.setupBridgeNode ? setupFields.setupBridgeNode.closest('label') : null;
+		if(setupNodeField) setupNodeField.hidden = path !== 'urf';
 		document.querySelectorAll('[data-bridge-setup-digital]').forEach(function(field) { field.hidden = !isDigital; });
 		if(setupFields.setupDestination && setupFields.setupDestination.closest('label')) setupFields.setupDestination.closest('label').hidden = !isDigital;
 		document.querySelectorAll('[data-bridge-setup-dmr]').forEach(function(field) { field.hidden = !isDmr; });
@@ -4225,6 +4273,29 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(setupMode) setupMode.focus();
 		});
 	}
+	var urfInstallRuntime = document.querySelector('[data-urf-install-runtime]');
+	if(urfInstallRuntime && urfPanel && setupPanel && setupMode && setupPath) urfInstallRuntime.addEventListener('click', function () {
+		setupMode.value = 'dmr';
+		setupPath.value = 'urf';
+		if(setupTitle) delete setupTitle.dataset.userEdited;
+		updateSetupMode();
+		var display = urfPanel.querySelector('input[name="urfDisplayName"]');
+		var node = urfPanel.querySelector('input[name="urfNode"]');
+		var dmrId = urfPanel.querySelector('input[name="urfConfig[dmr][dmrId]"]');
+		var talkgroup = urfPanel.querySelector('input[name="urfConfig[dmr][talkgroup]"]');
+		if(setupFields.setupBridgeId) setupFields.setupBridgeId.value = urfPanel.getAttribute('data-urf-bridge-id') || 'urf';
+		if(setupFields.setupTitle) setupFields.setupTitle.value = display && display.value.trim() ? display.value.trim() : 'URF Reflector';
+		if(setupFields.setupBridgeNode) setupFields.setupBridgeNode.value = node ? node.value.trim() : '';
+		if(setupFields.setupReflector) setupFields.setupReflector.value = urfPanel.getAttribute('data-urf-runtime-name') || (/^URF[A-Z0-9]{2,5}$/i.test(display ? display.value.trim() : '') ? display.value.trim().toUpperCase() : '');
+		if(setupFields.setupDigitalId) setupFields.setupDigitalId.value = dmrId ? dmrId.value.trim() : '';
+		if(setupFields.setupDestination) setupFields.setupDestination.value = talkgroup ? talkgroup.value.trim() : '';
+		var activeEditor = urfInstallRuntime.closest('#asrBridgeEditorDialog');
+		var editorCancel = activeEditor && !activeEditor.hidden ? activeEditor.querySelector('[data-bridge-cancel]') : null;
+		if(editorCancel) editorCancel.click();
+		setupPanel.hidden = false;
+		setupPanel.scrollIntoView({behavior:'smooth', block:'start'});
+		if(setupPreview) setupPreview.focus();
+	});
 	if(setupCancel && setupPanel) setupCancel.addEventListener('click', function () { setupPanel.hidden = true; });
 	document.querySelectorAll('[data-dmr-security-maintenance]').forEach(function(panel) {
 		var button = panel.querySelector('[data-dmr-security-update]');
@@ -4275,6 +4346,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		var token = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
 		values.set('settingsSaveCsrf', token ? token.value : '');
 		values.set('setupBridgeRole', currentSetupPath() === 'net' ? 'net' : 'standard');
+		if(currentSetupPath() === 'urf' && currentSetupMode() === 'dmr' && urfPanel) {
+			var selectedUrfModes = Array.prototype.slice.call(urfPanel.querySelectorAll('input[name="urfModes[]"]:checked')).map(function(input) { return input.value; });
+			['dmr','m17','p25','nxdn','ysf'].forEach(function(protocol) { values.set(protocol + 'Enabled', selectedUrfModes.indexOf(protocol) !== -1 ? 'true' : 'false'); });
+			values.set('dstarEnabled', 'false'); values.set('dmrplusEnabled', 'false'); values.set('urfEnabled', 'true');
+		}
 		// Callsign belongs to the node, not the bridge form. Always send the server-derived node callsign.
 		if(setupCallsign && <?php echo $setupCallsignDefault === 'SCRATCH' ? 'false' : 'true'; ?>) setupCallsign.value = <?php echo json_encode($setupCallsignDefault, JSON_UNESCAPED_SLASHES); ?>;
 		Object.keys(setupFields).forEach(function(key) {
@@ -4354,7 +4430,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			if(wanted) wanted.checked = true;
 			setupPlanDigest = '';
 			if(setupInstall) setupInstall.disabled = true;
-			setupOutput.textContent = mode.toUpperCase() + ' is selected for the shared URF reflector. Enter the shared URF AllStar node above and save Reimagined Settings. The Standard installer will not run.';
+			setupOutput.textContent = mode.toUpperCase() + ' is selected for the shared URF reflector. Save the reflector settings, then use Install or Repair URF Runtime in the URF editor to preview and apply the shared runtime.';
 			urfPanel.scrollIntoView({behavior:'smooth', block:'start'});
 			return;
 		}

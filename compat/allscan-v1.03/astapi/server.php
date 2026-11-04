@@ -57,8 +57,7 @@ if($sharedHandle !== false && !$sharedLeader) {
 }
 
 $ami = new AMI();
-$asrEchoLinkConnectedCache = ['expires' => 0.0, 'rows' => []];
-$asrEchoLinkCliCache = ['expires' => 0.0, 'output' => ''];
+$asrEchoLinkOfficialCache = [];
 $fp = [];
 $chandriver = 'Unknown';
 $amicd = '';
@@ -283,8 +282,13 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 		if(!is_array($payload))
 			$payload = [];
 	}
-	if(!empty($payload['current']))
+	if(!empty($payload['current'])) {
+		$payload['current'] = asrStatusForAmiAvailability($payload['current'], true);
+		// Publish the loss of AMI evidence to every consumer, including the
+		// bridge watchdog which reads this cache directly instead of SSE.
+		writeSharedStatus($cachePath, $payload['current'], $payload['nodeTime'] ?? []);
 		sendData($payload['current'], 'nodes');
+	}
 	if(!empty($payload['nodeTime']))
 		sendData($payload['nodeTime'], 'nodetimes');
 	$lastProbe = 0;
@@ -293,10 +297,13 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 		$now = time();
 		if($now - $lastProbe >= 15) {
 			$lastProbe = $now;
+			$state = asrAmiGuardLoad($guardPath);
+			$probeDue = asrAmiGuardRecoveryDue($state);
 			$probe = new AMI();
 			$probeFp = $probe->connect($host, $port);
+			$probeConnected = $probeFp !== false;
 			$currentBootId = '';
-			$probeLoggedIn = $probeFp !== false && $probe->login($probeFp, $user, $pass, false) !== false;
+			$probeLoggedIn = $probeConnected && $probe->login($probeFp, $user, $pass, false) !== false;
 			if($probeLoggedIn)
 				$currentBootId = $probe->coreStartupId($probeFp);
 			if($currentBootId !== '' && $bootId !== '' && !hash_equals($bootId, $currentBootId)) {
@@ -305,21 +312,19 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 					return;
 				continue;
 			}
-			$state = asrAmiGuardLoad($guardPath);
 			$probeOk = false;
-			$probeAttempted = false;
-			$probeError = '';
-			if($probeLoggedIn && $node !== '' && $currentBootId !== '' &&
-				$bootId !== '' && hash_equals($bootId, $currentBootId) &&
-				asrAmiGuardRecoveryDue($state)) {
-				$probeAttempted = true;
+			$result = null;
+			if($probeDue && $probeLoggedIn && $node !== '' && $currentBootId !== '' &&
+				$bootId !== '' && hash_equals($bootId, $currentBootId)) {
 				$result = getNode($probeFp, $node, $probe, false);
-				$probeOk = !empty($result['ok']);
-				$probeError = (string) ($result['error'] ?? 'Asterisk status recovery probe failed');
 			}
 			if(is_resource($probeFp)) @fclose($probeFp);
-			if($probeAttempted && !$probeOk)
-				asrAmiGuardRecordProbeFailure($guardPath, $state, $probeError);
+			if($probeDue) {
+				$attempt = asrAmiGuardClassifyRecoveryAttempt($probeConnected, $probeLoggedIn, $node, $bootId, $currentBootId, $result);
+				$probeOk = $attempt['outcome'] === 'success';
+				if($attempt['outcome'] === 'failure')
+					asrAmiGuardRecordProbeFailure($guardPath, $state, $attempt['error']);
+			}
 			$recoverySuccesses = asrAmiGuardRecoveryAdvance($recoverySuccesses, $probeOk);
 			if(asrAmiGuardRecoveryReady($recoverySuccesses)) {
 				if(asrAmiGuardClear($guardPath)) {
@@ -402,6 +407,8 @@ function writeSharedStatus($path, $current, $nodeTime) {
 function streamSharedStatus($lockHandle, $cachePath) {
 	$lastUpdate = '';
 	$lastCurrent = '';
+	$lastGuarded = null;
+	$guardFile = dirname($cachePath) . '/' . basename($cachePath, '.json') . '.breaker';
 	$messagePath = $cachePath . '.messages';
 	$messageOffset = is_file($messagePath) ? (int) @filesize($messagePath) : 0;
 	sendData(['status' => 'Shared Asterisk status feed connected'], 'connection');
@@ -413,16 +420,21 @@ function streamSharedStatus($lockHandle, $cachePath) {
 				$payload = [];
 		}
 		$updated = isset($payload['updated']) ? (string) $payload['updated'] : '';
-		if($updated !== '' && $updated !== $lastUpdate) {
+		$guarded = asrAmiGuardBlocks(asrAmiGuardLoad($guardFile), '');
+		$cacheChanged = $updated !== '' && $updated !== $lastUpdate;
+		$guardOpened = $lastGuarded === false && $guarded;
+		if($cacheChanged || ($guardOpened && $updated !== '')) {
 			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents(), '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $guarded);
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {
 				sendData($cleanCurrent, 'nodes');
 				$lastCurrent = $currentHash;
 			}
 			sendData($payload['nodeTime'] ?? [], 'nodetimes');
-			$lastUpdate = $updated;
+			if($cacheChanged) $lastUpdate = $updated;
 		}
+		$lastGuarded = $guarded;
 		if(is_readable($messagePath)) {
 			$messages = @fopen($messagePath, 'r');
 			if($messages !== false) {
@@ -524,23 +536,10 @@ function sortNodes($nodes) {
 }
 
 function asrGetAstInfo($fp, $node) {
-	global $ami, $asrEchoLinkConnectedCache, $asrEchoLinkCliCache;
-	$number = asrEchoLinkNodeNumber($node);
-	if($number !== '') {
-		$rows = asrEchoLinkConnectedRowsCached(
-			$asrEchoLinkConnectedCache,
-			function() use ($ami, $fp, &$asrEchoLinkCliCache) {
-				return asrEchoLinkConnectedOutput(
-					$ami->commandOutput($fp, 'echolink show nodes'),
-					'asrEchoLinkCliOutput',
-					$asrEchoLinkCliCache
-				);
-			}
-		);
-		$label = asrEchoLinkConnectedLabel($rows, $node);
-		if($label !== '')
-			return $label;
-	}
+	global $asrEchoLinkOfficialCache;
+	// chan_echolink's node-table command can block its AMI worker indefinitely.
+	$label = asrEchoLinkOfficialLabelCached($asrEchoLinkOfficialCache, $node);
+	if($label !== '') return $label;
 	return getAstInfo($fp, $node);
 }
 

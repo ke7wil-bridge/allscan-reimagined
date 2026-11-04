@@ -342,6 +342,8 @@ def test_broker(broker) -> None:
     rejected(broker.read_request, io.BytesIO(b"x" * (broker.MAX_REQUEST + 1)))
     for program, args in (
         ("asterisk-read", ["-rx", "rpt lstats 641890; id"]),
+        ("asterisk-read", ["-rx", "echolink show nodes"]),
+        ("asterisk-read", ["-rx", "echolink show nodes; id"]),
         ("managed-dmr", ["--bridge", "qa_dmr;id", "--status"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111;id"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "4000"]),
@@ -378,6 +380,8 @@ def test_broker(broker) -> None:
 
 
 def test_asterisk_adapter(adapter) -> None:
+    assert adapter.HOST_COMMAND_TIMEOUT <= 5
+    assert adapter.CLIENT_SOCKET_TIMEOUT <= 6
     for args in (
         ["-rx", "rpt stats 1001"],
         ["-rx", "rpt lstats 123456"],
@@ -389,6 +393,7 @@ def test_asterisk_adapter(adapter) -> None:
         assert adapter.validate_command(args)
     for args in (
         [], ["-r"], ["-rx", "core stop now"],
+        ["-rx", "echolink show nodes"],
         ["-rx", "rpt cmd 1 ilink 3 1001"],
         ["-rx", "rpt cmd 123456 ilink 3 1001;id"],
         ["-rx", "rpt lstats 1001\ncore stop now"],
@@ -418,6 +423,7 @@ def test_asterisk_adapter(adapter) -> None:
                     "rpt cmd 1001 ilink 3 123456"):
         adapter.authorize_command(command, profile, loader, records)
     for command in ("rpt stats 1001", "rpt lstats 999999",
+                    "echolink show nodes",
                     "rpt cmd 123456 ilink 3 1002",
                     "rpt cmd 123456 ilink 3 9999"):
         rejected(adapter.authorize_command, command, profile, loader, records)
@@ -439,6 +445,10 @@ def test_asterisk_adapter(adapter) -> None:
     adapter.authorize_command("rpt cmd 123456 ilink 3 1999", profile, loader, records)
     values[Path("/state/asr/config.json")]["netBridgeMode"] = "p25"
     rejected(adapter.authorize_command, "rpt cmd 123456 ilink 3 1999", profile, loader, records)
+
+    reader = (HERE / "asr-asterisk-read.sh").read_text(encoding="utf-8")
+    assert 'run_asterisk -rx "echolink show nodes"' not in reader
+    assert 'Unsafe EchoLink CLI operation is still enabled.' in reader
 
 
 def test_payload_validators(digital, urf) -> None:

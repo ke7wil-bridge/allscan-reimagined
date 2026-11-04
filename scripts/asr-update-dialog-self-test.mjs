@@ -80,9 +80,9 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.2'")
-    && whatsNewSource.includes('keeps Zello on its own node')
-    && whatsNewSource.includes('Restores mobile Node Controls behavior')
+  whatsNewSource.includes("version: '1.0.0-beta.8.3'")
+    && whatsNewSource.includes('configurable URF reflector display name')
+    && whatsNewSource.includes('mobile Node Controls layout')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
   'What’s New copy is missing, version-mismatched, or too technical.',
 )

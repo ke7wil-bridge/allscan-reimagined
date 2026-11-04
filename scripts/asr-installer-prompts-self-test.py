@@ -55,6 +55,13 @@ def main() -> int:
         "installer must provision the upstream AllScan unzip dependency on clean nodes",
     )
     require(
+        "ensure_tgif_python_runtime" in installer
+        and "python3-socketio" in installer
+        and "python3-websocket" in installer
+        and "import socketio, websocket" in installer,
+        "installer must provision and verify TGIF authentication dependencies on clean nodes",
+    )
+    require(
         "apt-get install -y libapache2-mod-php" in installer
         and "php_web_runtime_ok" in installer
         and "ensure_php_web_runtime\nensure_php_security_updates" in installer,
@@ -63,7 +70,7 @@ def main() -> int:
     require(
         "php_has_critical_security_fix" in installer
         and "apt-get install -y --only-upgrade" in installer
-        and "ensure_php_security_updates\nSTOCK_ALLSCAN_DIR=" in installer
+        and "ensure_php_security_updates\nensure_tgif_python_runtime\nSTOCK_ALLSCAN_DIR=" in installer
         and "PHP security baseline satisfied" in installer,
         "installer must refresh vulnerable native PHP runtimes before exposing ASR",
     )
