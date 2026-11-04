@@ -810,12 +810,16 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
             manage_services: bool = False, fail_after: int | None = None) -> dict[str, Any]:
     if manage_services and root != Path("/"):
         raise InstallError("service management is only valid for the real host")
-    password = validate_password(password)
     plan = planner.plan(root, settings)
+    password = validate_password(password)
     if plan["digest"] != expected_digest:
         raise InstallError("preview is stale; preview again")
     preexisting_links = check_legacy_links(plan) if manage_services else set()
     outputs = file_spec(root, plan, password, static_token)
+    if plan.get("ownershipRecovery"):
+        secret = rooted(root, plan["resources"]["tgifSecret"])
+        outputs[plan["resources"]["tgifSecret"]] = (
+            secret.read_bytes(), stat.S_IMODE(secret.stat().st_mode))
     runtime_root_was_present = rooted(root, plan["resources"]["root"]).exists()
     identity = settings.bridge_id
     service = service_name(identity)
@@ -824,7 +828,9 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
     old_record = json.loads(existing.read_text()) if existing.is_file() else None
     if old_record and old_record.get("bridgeType") != "dmr":
         raise InstallError("existing installation belongs to another bridge type")
-    allowed = set(old_record.get("ownedFiles", [])) if old_record else set()
+    recovered = plan.get("ownershipRecovery", {})
+    allowed = (set(old_record.get("ownedFiles", [])) if old_record else
+               set(recovered.get("ownedFiles", [])) if recovered else set())
     for logical in (*outputs, record):
         target = rooted(root, logical)
         legacy_static_token = (
@@ -929,6 +935,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
                        "services": plan["services"],
                        "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False,
                        "committedAt": old_record.get("committedAt", int(time.time())) if old_record else int(time.time()),
+                       "ownershipRecovered": bool(recovered),
                        "ownedFiles": owned}
         atomic(existing, (json.dumps(record_data, indent=2, sort_keys=True) + "\n").encode(), 0o600)
         cleanup_image_transaction(prior_images)
@@ -936,6 +943,7 @@ def install(root: Path, settings, password: str, *, expected_digest: str,
         return {"ok": True, "digest": plan["digest"], "bridgeId": identity, "bridgeNode": plan["bridgeNode"],
                 "service": service, "changedFiles": changed, "backup": str(backup),
                 "provisioningVerified": manage_services and not net_inactive,
+                "ownershipRecovered": bool(recovered),
                 "allstarLinkVerified": manage_services and not net_inactive and plan["settings"].get("bridge_role") != "net",
                 "liveAudioVerified": False, "migrationWarnings": plan.get("migrationWarnings", [])}
     except Exception as original:

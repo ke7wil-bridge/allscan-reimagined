@@ -52,3 +52,34 @@ function asrClientIdentityKeys(array $row): array {
 	}
 	return array_values(array_unique($keys));
 }
+
+function asrExpandUrfProtocolBridges(array $bridges): array {
+	$protocols = ['dmr' => 'DMR', 'ysf' => 'YSF', 'p25' => 'P25', 'nxdn' => 'NXDN', 'm17' => 'M17'];
+	$expandedBridges = [];
+	foreach($bridges as $bridge) {
+		if(!is_array($bridge) || empty($bridge['urfReflector']) || strtolower(trim((string)($bridge['mode'] ?? ''))) !== 'urf') {
+			$expandedBridges[] = $bridge;
+			continue;
+		}
+		// Missing modes is the legacy all-protocol default. An explicit field,
+		// including an empty or invalid value, enables only listed protocols.
+		$selectedModes = array_key_exists('modes', $bridge) && is_array($bridge['modes'])
+			? array_map(static fn($mode): string => strtolower(trim((string)$mode)), $bridge['modes'])
+			: (array_key_exists('modes', $bridge) ? [] : array_keys($protocols));
+		foreach($protocols as $mode => $label) {
+			if(!in_array($mode, $selectedModes, true)) continue;
+			$expanded = $bridge;
+			$expanded['id'] = 'urf_' . $mode;
+			$expanded['mode'] = $mode;
+			$expanded['title'] = $label . ' Bridge';
+			$expanded['detailTitle'] = 'Connected Clients';
+			$expanded['friendlyName'] = trim((string)($bridge['friendlyName'] ?? ''));
+			if($expanded['friendlyName'] === '')
+				$expanded['friendlyName'] = trim((string)($bridge['title'] ?? 'URF Multi-Mode Bridge'));
+			$expanded['urfGroupId'] = (string)($bridge['urfGroupId'] ?? 'urf');
+			$expanded['urfName'] = trim((string)($bridge['urfName'] ?? ''));
+			$expandedBridges[] = $expanded;
+		}
+	}
+	return $expandedBridges;
+}

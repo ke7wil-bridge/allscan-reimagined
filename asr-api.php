@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.3';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.3';
+const ASR_VERSION = '1.0.0-beta.8.3.1';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.3.1';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -481,32 +481,9 @@ function asr_runtime_config(): array {
             }
         }
     }
-    // Local URF compatibility: expand the original single URF card into one display card per protocol.
-    $normalizedStoredBridges = [];
-    foreach ($storedBridges as $bridge) {
-        if (is_array($bridge) && !empty($bridge['urfReflector']) && asr_bridge_mode($bridge) === 'urf') {
-            foreach (['dmr' => 'DMR', 'ysf' => 'YSF', 'p25' => 'P25', 'nxdn' => 'NXDN', 'm17' => 'M17'] as $urfMode => $urfLabel) {
-                $expanded = $bridge;
-                $expanded['id'] = 'urf_' . $urfMode;
-                $expanded['mode'] = $urfMode;
-                $expanded['title'] = $urfLabel . ' Bridge';
-                $expanded['detailTitle'] = 'Connected Clients';
-                // All protocol cards share the same physical AllStar node.
-                // Preserve its parent identity for Connection Status instead
-                // of allowing the last expanded mode (M17) to win by node.
-                $expanded['friendlyName'] = trim((string) ($bridge['friendlyName'] ?? ''));
-                if ($expanded['friendlyName'] === '') {
-                    $expanded['friendlyName'] = trim((string) ($bridge['title'] ?? 'URF Multi-Mode Bridge'));
-                }
-                $expanded['urfGroupId'] = (string) ($bridge['urfGroupId'] ?? 'urf');
-                $expanded['urfName'] = trim((string) ($bridge['urfName'] ?? ''));
-                $normalizedStoredBridges[] = $expanded;
-            }
-            continue;
-        }
-        $normalizedStoredBridges[] = $bridge;
-    }
-    $storedBridges = $normalizedStoredBridges;
+    // Local URF compatibility: expand the original aggregate card into only
+    // the protocols explicitly enabled in Settings.
+    $storedBridges = asrExpandUrfProtocolBridges($storedBridges);
     $bridges = [];
     foreach ($storedBridges as $bridge) {
         if (!is_array($bridge) || !preg_match('/^[a-z][a-z0-9_-]{1,31}$/', (string) ($bridge['id'] ?? ''))) continue;

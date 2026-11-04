@@ -255,6 +255,120 @@ def migration_warnings(root: Path, rpt_text: str, nodes: tuple[int, ...]) -> lis
     return warnings
 
 
+def recover_legacy_ownership(root: Path, settings: UrfSettings, bridge: dict[str, Any],
+                             rpt_text: str) -> dict[str, Any]:
+    """Reconstruct ownership only from a complete, ASR-specific runtime fingerprint."""
+    required_markers = {
+        "architecture": "urf-reflector", "bridgeType": "urf-reflector",
+        "backendMode": "managed", "bridgePermission": "self_owned",
+    }
+    if any(bridge.get(key) != value for key, value in required_markers.items()):
+        raise PlanError("cannot recover URF ownership: saved bridge is not proven ASR-managed")
+    try:
+        node = int(bridge["node"])
+        dmr_id = int(bridge["dmrId"])
+        talkgroup = int(bridge["tgifTalkgroup"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PlanError("cannot recover URF ownership: saved managed identity is incomplete") from exc
+    if (node < 1001 or node > 1999 or dmr_id != settings.dmr_id
+            or talkgroup != settings.tgif_tg
+            or str(bridge.get("urfName", "")).upper() != settings.reflector):
+        raise PlanError("cannot recover URF ownership: saved runtime identity conflicts with Check Setup")
+    if settings.bridge_node is not None and node != settings.bridge_node:
+        raise PlanError("cannot recover URF ownership: saved transport node conflicts with Check Setup")
+    expected_card_type = "dmr_net" if settings.bridge_role == "net" else "standard"
+    if str(bridge.get("cardType", "standard")) != expected_card_type:
+        raise PlanError("cannot recover URF ownership: saved bridge role conflicts with Check Setup")
+    configured_modes = bridge.get("urfModes")
+    requested_modes = [mode for mode, enabled in (
+        ("dmr", settings.dmr_enabled), ("m17", settings.m17_enabled),
+        ("p25", settings.p25_enabled), ("nxdn", settings.nxdn_enabled),
+        ("ysf", settings.ysf_enabled),
+    ) if enabled]
+    normalized_modes = [str(mode).lower() for mode in configured_modes] if isinstance(configured_modes, list) else []
+    if (not isinstance(configured_modes, list) or len(normalized_modes) != len(set(normalized_modes))
+            or set(normalized_modes) != set(requested_modes)):
+        raise PlanError("cannot recover URF ownership: enabled protocols conflict with Check Setup")
+    if managed_block_node(rpt_text, settings.bridge_id) != node:
+        raise PlanError("cannot recover URF ownership: ASR-managed Asterisk block is missing or conflicting")
+
+    runtime = runtime_root(settings.bridge_id)
+    required_files = [
+        f"{runtime}/config/urfd.ini", f"{runtime}/config/tcd.ini",
+        f"{runtime}/secrets/tgif-password",
+    ]
+    for logical in required_files:
+        path = rooted(root, logical)
+        if (not path.is_file() or path.is_symlink() or path.stat().st_nlink != 1):
+            raise PlanError(f"cannot recover URF ownership: required ASR runtime file is missing or unsafe: {logical}")
+    urfd = rooted(root, required_files[0]).read_text(encoding="utf-8", errors="replace")
+    if (f"Callsign = {settings.reflector}" not in urfd
+            or f"DefaultId = {settings.dmr_id}" not in urfd):
+        raise PlanError("cannot recover URF ownership: URFD identity does not match saved ASR configuration")
+
+    native_units = [
+        f"/etc/systemd/system/allscan-reimagined-urf-tgif-{settings.bridge_id}.service",
+        f"/etc/systemd/system/allscan-reimagined-urfd-{settings.bridge_id}.service",
+        f"/etc/systemd/system/allscan-reimagined-tcd-{settings.bridge_id}.service",
+        f"/etc/systemd/system/allscan-reimagined-tgif-{settings.bridge_id}.service",
+    ]
+    container_files = [
+        f"{runtime}/compose.yml",
+        f"/etc/systemd/system/allscan-reimagined-urf-tgif-{settings.bridge_id}.service",
+    ]
+    def proven(paths: list[str], phrases: tuple[str, ...]) -> bool:
+        texts = []
+        for logical in paths:
+            path = rooted(root, logical)
+            if not path.is_file() or path.is_symlink() or path.stat().st_nlink != 1:
+                return False
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
+        joined = "\n".join(texts)
+        return all(phrase in joined for phrase in phrases)
+    if proven(native_units, ("ASR managed", settings.bridge_id, runtime,
+                             f"DMR_ID={settings.dmr_id}", f"TGIF_TG={settings.tgif_tg}")):
+        backend = "native"
+        owned_files = required_files + native_units
+    elif proven(container_files, ("ASR managed", settings.bridge_id, runtime,
+                                  f'DMR_ID: "{settings.dmr_id}"', f'TGIF_TG: "{settings.tgif_tg}"')):
+        backend = "container"
+        owned_files = required_files + container_files
+    else:
+        raise PlanError("cannot recover URF ownership: no matching ASR-managed service set was found")
+
+    for logical in (f"{runtime}/config/urfd.blacklist", f"{runtime}/secrets/tgif-static-token"):
+        path = rooted(root, logical)
+        if path.is_file() and not path.is_symlink() and path.stat().st_nlink == 1:
+            owned_files.append(logical)
+    for mode in ("m17", "p25", "nxdn", "ysf"):
+        logical = f"{ADMIN_ENV_DIR}/{mode}.env"
+        path = rooted(root, logical)
+        if path.is_file() and not path.is_symlink() and path.stat().st_nlink == 1:
+            owned_files.append(logical)
+    ports = bridge.get("setupPorts")
+    public_ports = bridge.get("setupPublicPorts", bridge.get("publicPorts", {}))
+    listener_ports = bridge.get("setupListenerPorts", {})
+    if not isinstance(ports, dict) or not all(isinstance(value, int) for value in ports.values()):
+        raise PlanError("cannot recover URF ownership: saved ASR port ownership is incomplete")
+    mmdvm = section_values(urfd, "MMDVM")
+    usrp = section_values(urfd, "USRP")
+    expected_runtime = {
+        "dmr": mmdvm.get("port"), "usrp_rx": usrp.get("rxport"),
+        "usrp_tx": usrp.get("txport"),
+    }
+    if any(str(ports.get(key, "")) != value for key, value in expected_runtime.items()):
+        raise PlanError("cannot recover URF ownership: saved ASR ports do not match URFD")
+    return {
+        "schema": 3, "bridgeType": "dmr", "architecture": "urf-reflector",
+        "urfReflector": True, "runtime": "urf-native", "backend": backend,
+        "bridgeId": settings.bridge_id, "bridgeNode": node, "ports": ports,
+        "publicPorts": public_ports if isinstance(public_ports, dict) else {},
+        "listenerPorts": listener_ports if isinstance(listener_ports, dict) else {},
+        "enabledProtocols": bridge.get("enabledProtocols", {}),
+        "ownedFiles": sorted(set(owned_files)), "recovered": True,
+    }
+
+
 def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
     settings = validate(settings)
     config_path = safe_regular(root, CONFIG)
@@ -282,6 +396,8 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
     if settings.bridge_role == "net" and not 100 <= main_node <= 999999:
         raise PlanError("DMR Net Bridge requires a 3-6 digit main AllStar node")
     owned = [b for b in config["bridges"] if isinstance(b, dict) and b.get("id") == settings.bridge_id and b.get("urfReflector")]
+    if len(owned) > 1:
+        raise PlanError("cannot recover URF ownership: duplicate saved reflector identities")
     record = rooted(root, f"{STATE}/{settings.bridge_id}.json")
     previous_record: dict[str, Any] = {}
     if record.exists():
@@ -291,10 +407,24 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
             previous_record = json.loads(record.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise PlanError("existing URF ownership record is invalid") from exc
-        if not isinstance(previous_record, dict) or previous_record.get("bridgeId") not in (None, settings.bridge_id):
+        if not isinstance(previous_record, dict) or not previous_record or previous_record.get("bridgeId") not in (None, settings.bridge_id):
             raise PlanError("existing URF ownership record does not match this reflector")
+        try:
+            record_node = int(previous_record["bridgeNode"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PlanError("existing URF ownership record is incomplete") from exc
+        record_ports = previous_record.get("ports")
+        if (not 1001 <= record_node <= 1999 or not isinstance(record_ports, dict)
+                or not record_ports or not all(isinstance(value, int) for value in record_ports.values())
+                or previous_record.get("bridgeType", "dmr") != "dmr"):
+            raise PlanError("existing URF ownership record is incomplete")
     if owned and not previous_record:
-        raise PlanError("cannot replace an unowned URF reflector")
+        previous_record = recover_legacy_ownership(
+            root, settings, owned[0], rpt_path.read_text(encoding="utf-8", errors="replace"))
+        expected_backend = "container" if containerized else "native"
+        if previous_record.get("backend") != expected_backend:
+            raise PlanError("cannot recover URF ownership: installed backend conflicts with this host")
+    ownership_recovery = previous_record if previous_record.get("recovered") is True else None
     managed_existing = bool(owned or previous_record)
     previous_node = previous_record.get("bridgeNode")
     try:
@@ -469,6 +599,12 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
             "modulesSha256": hashlib.sha256(modules_path.read_bytes()).hexdigest(),
         },
     }
+    if ownership_recovery:
+        result["ownershipRecovery"] = {
+            "recovered": True,
+            "backend": ownership_recovery["backend"],
+            "ownedFiles": ownership_recovery["ownedFiles"],
+        }
     result["digest"] = hashlib.sha256(json.dumps(result, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return result
 

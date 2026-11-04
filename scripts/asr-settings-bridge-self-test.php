@@ -44,6 +44,36 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 	}
 	$wizardOpen = "setupButton.addEventListener('click', function () {\n\t\t\tupdateSetupMode();\n\t\t\tsetupPanel.hidden = false;";
 	check(strpos($controllerSource, $wizardOpen) !== false, "$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
+	check(str_contains($controllerSource, "setupFields.setupReflector.placeholder = path === 'urf' ? 'URF123' : 'M17-WIL'"),
+		"$compatVersion URF Reflector Name still uses the M17 placeholder.");
+}
+
+// Execute the same helper used by runtime-config. Johnny2's saved aggregate
+// format is mode=urf with an explicit modes list.
+$runtimeHelper = $root . '/compat/allscan-v1.02/include/asrRuntime.php';
+require_once $runtimeHelper;
+$aggregate = [
+	'id'=>'urf', 'mode'=>'urf', 'node'=>'1001', 'urfReflector'=>true,
+	'title'=>'URF Bridge', 'modes'=>['DMR'],
+];
+$dmrOnly = asrExpandUrfProtocolBridges([$aggregate]);
+check(count($dmrOnly) === 1
+	&& ($dmrOnly[0]['id'] ?? '') === 'urf_dmr'
+	&& ($dmrOnly[0]['mode'] ?? '') === 'dmr'
+	&& ($dmrOnly[0]['node'] ?? '') === '1001',
+	'DMR-only aggregate URF configuration did not produce exactly one DMR card.');
+$legacy = $aggregate;
+unset($legacy['modes']);
+check(array_column(asrExpandUrfProtocolBridges([$legacy]), 'mode') === ['dmr','ysf','p25','nxdn','m17'],
+	'Legacy aggregate URF configuration no longer defaults to all protocols.');
+$explicitEmpty = $aggregate;
+$explicitEmpty['modes'] = [];
+check(asrExpandUrfProtocolBridges([$explicitEmpty]) === [],
+	'Explicitly disabled URF protocols still produce dashboard cards.');
+foreach(['v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
+	$helperSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/include/asrRuntime.php');
+	check(is_string($helperSource) && str_contains($helperSource, 'function asrExpandUrfProtocolBridges'),
+		"$compatVersion runtime is missing selected-protocol expansion.");
 }
 
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,

@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3',
-  label: 'Beta 8.3',
-  summary: 'Improves URF configuration, bridge activity reliability, and mobile controls.',
+  version: '1.0.0-beta.8.3.1',
+  label: 'Beta 8.3.1',
+  summary: 'Corrects URF recovery, protocol visibility, and connection-management menus.',
   items: [
-    'Adds a configurable URF reflector display name and prevents legacy installation defaults from appearing as another reflector identity.',
-    'Improves browser-based URF runtime installation and repair while preserving the configured shared transport node.',
-    'Prevents blocking EchoLink CLI operations from stalling live Asterisk status and restores bounded callsign lookup.',
-    'Improves bridge activity reporting, status recovery, and mobile Node Controls layout.',
+    'Shows only the URF protocols enabled in Settings while retaining legacy all-protocol configurations.',
+    'Keeps authorized Disconnect and Ban menus visible above dashboard stacking contexts on desktop and mobile.',
+    'Safely restores missing ownership records only when an existing URF runtime is proven to be ASR-managed.',
+    'Preserves the existing URF installation, transport node, protocol settings, and bridge credentials during browser updates.',
   ],
 } as const
