@@ -397,7 +397,7 @@ def digital_command(payload: dict[str, Any], mode: str, apply: bool) -> dict[str
 
 def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
-        "bridgeId", "callsign", "digitalId", "destination", "title",
+        "bridgeId", "callsign", "digitalId", "destination", "title", "reflector",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
         "hotspotEssid", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
         "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
@@ -415,9 +415,11 @@ def dmr_settings(module, payload: dict[str, Any]):
     if payload.get("authMode", "legacy") not in ("legacy", "secured"):
         raise HelperError("Unsupported TGIF DMR connection method")
     callsign = str(payload["callsign"]).strip().upper()
-    reflector = "URF" + re.sub(r"[^A-Z0-9]", "", callsign)[-3:]
-    if len(reflector) < 5:
-        reflector = "URFASR"
+    reflector = str(payload.get("reflector") or "").strip().upper()
+    if not reflector:
+        reflector = "URF" + re.sub(r"[^A-Z0-9]", "", callsign)[-3:]
+        if len(reflector) < 5:
+            reflector = "URFASR"
     raw_legacy_nodes = payload.get("legacyBridgeNodes", "")
     if isinstance(raw_legacy_nodes, str):
         legacy_nodes = tuple(int(item.strip()) for item in raw_legacy_nodes.split(",") if item.strip())

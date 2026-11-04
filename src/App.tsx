@@ -475,6 +475,7 @@ const bridgeHealthTriangleClasses = {
 
 const rowClasses = {
   idle: 'bg-[#133a21] text-[#ecf8ee]',
+  unknown: 'bg-transparent text-[#f1f6fb]',
   talking: 'bg-[maroon] text-[yellow]',
   relay: 'bg-[#74560b] text-[#ffe37a]',
   both: 'bg-[#74560b] text-[#ffe37a]',
@@ -484,6 +485,7 @@ const rowClasses = {
 
 const localRowStyles = {
   idle: { backgroundColor: 'hsl(150, 50%, 15%)', color: '#eaf4f8' },
+  unknown: { backgroundColor: '#383838', color: '#f1f6fb' },
   talking: { backgroundColor: 'maroon', color: '#eaf4f8' },
   relay: { backgroundColor: 'green', color: '#eaf4f8' },
   both: { backgroundColor: '#660', color: '#eaf4f8' },
@@ -3753,8 +3755,11 @@ function App({ config }: { config: RuntimeConfig }) {
                       const configuredBridgeState = row.bridgeId
                         ? bridgeConnectionStates.byId.get(row.bridgeId)
                         : bridgeConnectionStates.byNode.get(row.node)
+                      const statusUnknown = rows.some((item) => item.node === config.node && item.state === 'unknown')
                       const displayState = isLocalRow
                         ? row.state
+                        : statusUnknown
+                          ? 'unknown'
                         : row.state === 'talking'
                           ? row.state
                           : configuredBridgeState || row.state
@@ -3955,7 +3960,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     <button type="button" disabled={urfAccessBusy || !urfAccessRule.trim()} onClick={() => void changeUrfBlacklist('ban', urfAccessRule, urfBanDuration)}>Ban</button>
                   </div>
                   <div className="allscan-urf-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!urfClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-urf-client-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setUrfAccessOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{connectionCallsign(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setUrfAccessOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
-                  <div className="allscan-urf-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.flatMap((managedCard) => { const canKick = managedCard.mode.toUpperCase() !== 'ZELLO' && config.bridges.find((bridge) => bridge.id === managedCard.id)?.adminCapabilities?.clientAdmin.includes('kickClient') === true; return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick })) }).filter((detail) => !urfClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = urfBlacklist.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-urf-client-actions">{detail.canKick ? <button type="button" disabled={urfAccessBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(callsign)}</span></span> })}</div>
+                  <div className="allscan-urf-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.flatMap((managedCard) => { const clientAdmin = config.bridges.find((bridge) => bridge.id === managedCard.id)?.adminCapabilities?.clientAdmin || []; const canKick = managedCard.mode.toUpperCase() !== 'ZELLO' && clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan })) }).filter((detail) => !urfClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = urfBlacklist.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-urf-client-actions">{detail.canKick ? <button type="button" disabled={urfAccessBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode)}>Kick</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign) : null}</span></span> })}</div>
                   {zelloTalkers.length ? <div className="allscan-urf-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !urfClientFilter.trim() || `${identity} ZELLO`.includes(urfClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const banned = urfBlacklist.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-urf-client-actions">{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
                   </> : <div className="allscan-management-bans">
                     <button type="button" className="allscan-action-button" onClick={() => { setUrfAccessOpen(false); openParticipantBan() }}>Add ban…</button>

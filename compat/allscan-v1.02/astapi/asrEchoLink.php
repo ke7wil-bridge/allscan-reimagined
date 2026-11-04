@@ -29,6 +29,40 @@ function asrEchoLinkConnectedLabel($rows, $node) {
 	return $rows[$number] . ' [EchoLink ' . $number . ']';
 }
 
+function asrEchoLinkOfficialCallsignFromHtml($html, $number) {
+	$number = trim((string)$number);
+	if(!preg_match('/^[0-9]{1,6}$/D', $number) || !is_string($html)) return '';
+	$pattern = '~<tr[^>]*>\s*<td[^>]*>\s*([A-Z0-9*][A-Z0-9*\/-]{1,10})\s*</td>\s*<td[^>]*>\s*' . preg_quote($number, '~') . '\s*</td>\s*</tr>~i';
+	if(preg_match($pattern, $html, $match) !== 1) return '';
+	$callsign = strtoupper($match[1]);
+	return preg_match('/^[A-Z0-9*][A-Z0-9*\/-]{1,10}$/D', $callsign) ? $callsign : '';
+}
+
+function asrEchoLinkOfficialLookup($number) {
+	$number = trim((string)$number);
+	if(!preg_match('/^[0-9]{1,6}$/D', $number)) return '';
+	$context = stream_context_create([
+		'http' => ['method' => 'POST', 'header' => "Content-Type: application/x-www-form-urlencoded\r\nConnection: close\r\n", 'content' => http_build_query(['call' => $number], '', '&', PHP_QUERY_RFC3986), 'timeout' => 2, 'ignore_errors' => true],
+		'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+	]);
+	$html = @file_get_contents('https://www.echolink.org/validation/node_lookup.jsp', false, $context);
+	return asrEchoLinkOfficialCallsignFromHtml($html, $number);
+}
+
+function asrEchoLinkOfficialLabelCached(&$cache, $node, $loader=null, $now=null) {
+	$number = asrEchoLinkNodeNumber($node);
+	if($number === '') return '';
+	$checkTime = $now === null ? microtime(true) : (float)$now;
+	if(isset($cache[$number]) && is_array($cache[$number]) && (float)($cache[$number]['expires'] ?? 0) > $checkTime) {
+		$callsign = (string)($cache[$number]['callsign'] ?? '');
+	} else {
+		$lookup = is_callable($loader) ? $loader : 'asrEchoLinkOfficialLookup';
+		$callsign = (string)call_user_func($lookup, $number);
+		$cache[$number] = ['expires' => $checkTime + ($callsign !== '' ? 3600.0 : 60.0), 'callsign' => $callsign];
+	}
+	return $callsign === '' ? '' : $callsign . ' [EchoLink ' . $number . ']';
+}
+
 function asrEchoLinkConnectedOutput($amiOutput, $fallbackLoader, &$fallbackCache, $now = null) {
 	$output = is_string($amiOutput) ? $amiOutput : '';
 	if(count(asrEchoLinkConnectedCallsigns($output)) > 0)

@@ -75,7 +75,12 @@ export function urfReflectorDisplayName(bridges: RuntimeBridgeConfig[]): string 
     .map((bridge) => {
       const explicitName = String(bridge.urfName || '').trim()
       const friendlyName = String(bridge.friendlyName || '').trim()
-      const sourceName = explicitName || friendlyName
+      // The operator-facing name is intentionally independent of URFD's
+      // protocol identity. Keep urfName as a fallback for older installs.
+      const sourceName = friendlyName || explicitName
+      // Beta 8.2 shipped these installation-specific defaults on other nodes.
+      // Never present them as the operator's reflector identity.
+      if (/^URFWIL(?:\s+(?:Multi-Mode Bridge|Reflector|Bridge))?$/i.test(sourceName)) return /^URF[A-Z0-9]{2,8}$/i.test(explicitName) ? explicitName : ''
       return sourceName
         .replace(/\s+Multi-Mode Bridge$/i, '')
         .replace(/\s+Multi\s+Mode\s+Bridge$/i, '')
@@ -92,7 +97,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.2'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -111,7 +116,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   bridges: [],
 }
 
-export type RowState = 'idle' | 'talking' | 'relay' | 'both' | 'normal' | 'message'
+export type RowState = 'idle' | 'unknown' | 'talking' | 'relay' | 'both' | 'normal' | 'message'
 
 export type LiveConnectionRow = {
   node: string
@@ -705,6 +710,9 @@ function normalizeFeedTime(value: string | undefined, fallback = '') {
 }
 
 function buildLocalRow(node: string, remoteNodes: FeedNode[]): LiveConnectionRow {
+  if (remoteNodes.some((row) => row.keyed === 'unknown')) {
+    return { node, info: 'Status Unknown', received: '', direction: '', connected: '', mode: '', state: 'unknown' }
+  }
   let cosKeyed = 0
   let txKeyed = 0
 

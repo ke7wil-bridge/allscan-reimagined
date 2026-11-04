@@ -77,6 +77,13 @@ def main() -> None:
     }
     dmr_value = helper.dmr_settings(dmr, dmr_request)
     assert dmr_value.reflector == "URFWIL" and dmr_value.tgif_tg == 86753
+    named_dmr = helper.dmr_settings(dmr, {
+        **dmr_request, "reflector": "URF073", "bridgeNode": 1001,
+        "dmrEnabled": True, "m17Enabled": False, "p25Enabled": False,
+        "nxdnEnabled": False, "ysfEnabled": False,
+    })
+    assert named_dmr.reflector == "URF073" and named_dmr.bridge_node == 1001
+    assert named_dmr.dmr_enabled is True and named_dmr.m17_enabled is False
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
     test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
                                            "hotspotEssid": 50})

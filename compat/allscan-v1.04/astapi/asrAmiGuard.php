@@ -84,6 +84,26 @@ function asrAmiGuardRecordProbeFailure($path, $state, $error='', $now=null) {
 	return asrAmiGuardStore($path, $state);
 }
 
+function asrAmiGuardClassifyRecoveryAttempt($connected, $loggedIn, $node, $blockedBootId, $currentBootId, $result=null) {
+	if(!$connected)
+		return ['outcome' => 'failure', 'error' => 'Asterisk recovery connection failed'];
+	if(!$loggedIn)
+		return ['outcome' => 'failure', 'error' => 'Asterisk recovery login failed'];
+	$blockedBootId = trim((string) $blockedBootId);
+	$currentBootId = trim((string) $currentBootId);
+	if($blockedBootId === '' || $currentBootId === '')
+		return ['outcome' => 'failure', 'error' => 'Asterisk recovery boot identity is unavailable'];
+	if(!hash_equals($blockedBootId, $currentBootId))
+		return ['outcome' => 'restarted', 'error' => ''];
+	if(trim((string) $node) === '')
+		return ['outcome' => 'failure', 'error' => 'Asterisk recovery node is unavailable'];
+	if(!is_array($result) || empty($result['ok'])) {
+		$error = is_array($result) ? trim((string) ($result['error'] ?? '')) : '';
+		return ['outcome' => 'failure', 'error' => $error !== '' ? $error : 'Asterisk status recovery probe failed'];
+	}
+	return ['outcome' => 'success', 'error' => ''];
+}
+
 function asrAmiGuardRecoveryAdvance($successes, $probeOk) {
 	if(!$probeOk)
 		return 0;
@@ -102,4 +122,28 @@ function asrAmiGuardResponseOk($response, $actionId) {
 			return false;
 	}
 	return true;
+}
+
+function asrStatusWithoutStaleKeying($current) {
+	if(!is_array($current)) return [];
+	foreach($current as &$entry) {
+		if(!is_array($entry)) continue;
+		$entry['current_talker'] = null;
+		if(is_array($entry['remote_nodes'] ?? null)) {
+			foreach($entry['remote_nodes'] as &$remote) {
+				if(!is_array($remote)) continue;
+				$remote['keyed'] = 'unknown';
+				$remote['cos_keyed'] = 0;
+				$remote['tx_keyed'] = 0;
+				unset($remote['keyed_started_epoch']);
+			}
+			unset($remote);
+		}
+	}
+	unset($entry);
+	return $current;
+}
+
+function asrStatusForAmiAvailability($current, $guarded) {
+	return $guarded ? asrStatusWithoutStaleKeying($current) : $current;
 }

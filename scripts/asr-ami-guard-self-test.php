@@ -66,6 +66,24 @@ asrAmiGuardTest(!asrAmiGuardRecoveryDue($failedState, 1299) && asrAmiGuardRecove
 asrAmiGuardTest(asrAmiGuardRecordProbeFailure($path, $failedState, 'SawStat response timed out', 1300), 'Second failed probe state was not recorded.');
 $failedState = asrAmiGuardLoad($path);
 asrAmiGuardTest(!asrAmiGuardRecoveryDue($failedState, 2199) && asrAmiGuardRecoveryDue($failedState, 2200), 'Second failed probe did not apply fifteen-minute backoff.');
+asrAmiGuardTest(asrAmiGuardRecordProbeFailure($path, $failedState, 'Asterisk recovery connection failed', 2200), 'Third failed probe state was not recorded.');
+$failedState = asrAmiGuardLoad($path);
+asrAmiGuardTest(!asrAmiGuardRecoveryDue($failedState, 5799) && asrAmiGuardRecoveryDue($failedState, 5800), 'Third failed probe did not apply one-hour backoff.');
+$attemptCases = [
+	[false, false, '641890', 'boot-one', '', null, 'failure', 'connection'],
+	[true, false, '641890', 'boot-one', '', null, 'failure', 'login'],
+	[true, true, '641890', 'boot-one', '', null, 'failure', 'identity'],
+	[true, true, '', 'boot-one', 'boot-one', null, 'failure', 'node'],
+	[true, true, '641890', 'boot-one', 'boot-one', ['ok' => false, 'error' => 'XStat response timed out'], 'failure', 'XStat'],
+	[true, true, '641890', 'boot-one', 'boot-one', ['ok' => true], 'success', ''],
+	[true, true, '641890', 'boot-one', 'boot-two', null, 'restarted', ''],
+];
+foreach($attemptCases as [$connected, $loggedIn, $testNode, $blockedId, $currentId, $result, $outcome, $errorPart]) {
+	$attempt = asrAmiGuardClassifyRecoveryAttempt($connected, $loggedIn, $testNode, $blockedId, $currentId, $result);
+	asrAmiGuardTest($attempt['outcome'] === $outcome, "Recovery attempt was not classified as $outcome.");
+	if($errorPart !== '')
+		asrAmiGuardTest(stripos($attempt['error'], $errorPart) !== false, "Recovery $errorPart failure was not identified.");
+}
 asrAmiGuardTest(asrAmiGuardResponseOk(['Response: Success', 'ActionID: probe1'], 'probe1'), 'Successful AMI response was rejected.');
 asrAmiGuardTest(!asrAmiGuardResponseOk(['Response: Error', 'ActionID: probe1'], 'probe1'), 'AMI error response was accepted.');
 asrAmiGuardTest(!asrAmiGuardResponseOk(['Response: Success'], 'probe1'), 'AMI response without matching ActionID was accepted.');
@@ -77,6 +95,41 @@ $successes = asrAmiGuardRecoveryAdvance($successes, false);
 asrAmiGuardTest($successes === 0, 'Failed probe did not reset recovery progress.');
 $successes = asrAmiGuardRecoveryAdvance(asrAmiGuardRecoveryAdvance(asrAmiGuardRecoveryAdvance(0, true), true), true);
 asrAmiGuardTest(asrAmiGuardRecoveryReady($successes), 'Guard did not recover after three probes.');
+
+$confirmed = ['641890' => [
+	'current_talker' => ['node' => '123456', 'info' => 'N0TEST'],
+	'remote_nodes' => [
+		['node' => '123456', 'keyed' => 'yes', 'cos_keyed' => 1, 'tx_keyed' => 1, 'keyed_started_epoch' => 1234],
+		['node' => '654321', 'keyed' => 'no', 'cos_keyed' => 0, 'tx_keyed' => 0],
+	],
+]];
+$unavailable = asrStatusWithoutStaleKeying($confirmed);
+$healthy = asrStatusForAmiAvailability($confirmed, false);
+$guarded = asrStatusForAmiAvailability($confirmed, true);
+asrAmiGuardTest($confirmed['641890']['remote_nodes'][0]['keyed'] === 'yes', 'Unavailable-state conversion mutated confirmed AMI data.');
+asrAmiGuardTest($healthy === $confirmed, 'Healthy AMI projection altered confirmed keyed or idle state.');
+asrAmiGuardTest($guarded === $unavailable, 'Guarded AMI projection did not remove stale key evidence.');
+asrAmiGuardTest($unavailable['641890']['current_talker'] === null, 'Unavailable AMI state retained a stale current talker.');
+foreach($unavailable['641890']['remote_nodes'] as $row) {
+	asrAmiGuardTest($row['keyed'] === 'unknown', 'Unavailable AMI state did not use the explicit unknown key state.');
+	asrAmiGuardTest($row['cos_keyed'] === 0 && $row['tx_keyed'] === 0, 'Unavailable AMI state retained stale local key flags.');
+	asrAmiGuardTest(!isset($row['keyed_started_epoch']), 'Unavailable AMI state retained a stale key start time.');
+}
+
+foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
+	$server = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/server.php");
+	$guard = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/asrAmiGuard.php");
+	asrAmiGuardTest(str_contains($server, 'writeSharedStatus($cachePath, $payload[\'current\']'), "$compatVersion does not publish AMI unavailability to the shared cache.");
+	asrAmiGuardTest(str_contains($server, '$guardOpened = $lastGuarded === false && $guarded;'), "$compatVersion shared viewers do not observe breaker transitions.");
+	asrAmiGuardTest(str_contains($server, 'asrStatusForAmiAvailability($cleanCurrent, $guarded)'), "$compatVersion shared viewers do not preserve healthy AMI state.");
+	asrAmiGuardTest(str_contains($guard, 'function asrStatusForAmiAvailability'), "$compatVersion does not expose the guarded AMI status projection.");
+	asrAmiGuardTest(str_contains($guard, 'function asrAmiGuardClassifyRecoveryAttempt'), "$compatVersion does not expose pure recovery-attempt classification.");
+	asrAmiGuardTest(str_contains($server, '$probeDue = asrAmiGuardRecoveryDue($state);'), "$compatVersion does not capture whether each recovery attempt is due.");
+	asrAmiGuardTest(str_contains($server, 'if($probeDue && $probeLoggedIn'), "$compatVersion can run XStat/SawStat while recovery is not due.");
+	asrAmiGuardTest(str_contains($server, 'if($probeDue) {') && str_contains($server, 'asrAmiGuardClassifyRecoveryAttempt('), "$compatVersion does not classify every due recovery attempt.");
+	asrAmiGuardTest(str_contains($server, "if(\$attempt['outcome'] === 'failure')\n\t\t\t\t\tasrAmiGuardRecordProbeFailure"), "$compatVersion does not record backoff for every classified due-attempt failure.");
+	asrAmiGuardTest(strpos($server, 'if($currentBootId !== \'\' && $bootId !== \'\' && !hash_equals') < strpos($server, 'if($probeDue && $probeLoggedIn'), "$compatVersion no longer clears a confirmed restarted Asterisk before recovery probe/backoff handling.");
+}
 asrAmiGuardTest(asrAmiGuardClear($path) && !file_exists($path), 'Guard did not clear.');
 rmdir($dir);
 

@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.2',
-  label: 'Beta 8.2',
-  summary: 'This update hardens URF provisioning, keeps Zello on its own node, and improves bridge reliability.',
+  version: '1.0.0-beta.8.3',
+  label: 'Beta 8.3',
+  summary: 'Improves URF configuration, bridge activity reliability, and mobile controls.',
   items: [
-    'Treats the configured URF transport node as authoritative and repairs stale managed Asterisk blocks without consuming another bridge node.',
-    'Preserves and rebuilds Zello independently on its configured node, with validation that both node mappings remain present and distinct.',
-    'Restores mobile Node Controls behavior and corrects fast dashboard polling for the Netoholics layout.',
-    'Improves protocol enable and listener handling, legacy bridge recovery, native runtime checks, and Docker Apache/AMI reliability.',
+    'Adds a configurable URF reflector display name and prevents legacy installation defaults from appearing as another reflector identity.',
+    'Improves browser-based URF runtime installation and repair while preserving the configured shared transport node.',
+    'Prevents blocking EchoLink CLI operations from stalling live Asterisk status and restores bounded callsign lookup.',
+    'Improves bridge activity reporting, status recovery, and mobile Node Controls layout.',
   ],
 } as const

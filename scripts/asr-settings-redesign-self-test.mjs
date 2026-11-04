@@ -46,7 +46,7 @@ check(settings.includes("$mode === 'urf'") && settings.includes("$aggregate = tr
 check(settings.includes('asrSettingsRenderUrfMode') && settings.includes('asr-urf-mode-list') && settings.includes('Configure <span aria-hidden="true">›</span>'), 'URFWIL mode configuration disclosures are missing.')
 check(settings.includes("'talkgroup' => [['talkgroup','tgifTalkgroup','fixedDestination']") && settings.includes("'m17' => ['reflector','host','port','module','callsign','bindPort','usrpRxPort','usrpTxPort']"), 'URFWIL DMR destination or M17 runtime fields are missing.')
 check(settings.includes('asrSettingsUrfApplyModePost') && settings.includes("$record[$container][$mode][$key] = $value"), 'URFWIL mode settings are not saved into the aggregate record.')
-check(modernJs.includes('URFWIL Reflector') && modernJs.includes('asr-urf-settings-row'), 'URF is not represented in bridge management.')
+check(modernJs.includes('urfDisplayName') && modernJs.includes('display.value.trim()') && modernJs.includes('asr-urf-settings-row'), 'URF custom display name is not represented in bridge management.')
 check(modernJs.includes("rowIcon.textContent='>'") && !modernJs.includes("icon.textContent='v'"), 'Bridge rows do not use consistent closed-row chevrons.')
 check(settings.includes("icon.textContent = expanded ? 'v' : '>'"), 'Dynamically added bridge rows do not follow the chevron convention.')
 check(modernJs.includes('Shared reflector') && !modernJs.includes('asr-urf-settings-row asr-bridge-panel-actions'), 'URF capability differences are not explained.')

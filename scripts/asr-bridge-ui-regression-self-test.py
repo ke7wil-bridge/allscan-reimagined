@@ -22,6 +22,12 @@ if not client_starts:
 elif not any("Kick</button>" in app[start:start + 2200] for start in client_starts):
     errors.append("Connected Clients lost capability-gated Kick")
 
+managed_clients = app[app.find('<b>Digital bridge clients</b>'):app.find('Recent Zello Talkers')]
+if ("clientAdmin.includes('kickClient')" not in managed_clients
+        or "clientAdmin.includes('banClient')" not in managed_clients
+        or "detail.canBan && !banned" not in managed_clients):
+    errors.append("Digital bridge client Kick/Ban actions are not independently capability-gated")
+
 node_cell = app.find('className="allscan-connection-node-cell"')
 more = app.find('className="allscan-connection-more"', node_cell)
 if node_cell < 0 or more < 0:

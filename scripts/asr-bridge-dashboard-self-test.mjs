@@ -152,6 +152,11 @@ try {
   assert(urfGroup.every(isUrfReflectorBridge), 'expanded URF protocol cards were not recognized as URF group members')
   assert(!isUrfReflectorBridge(standaloneZello), 'standalone Zello was incorrectly classified as an URF card')
   assert(urfReflectorDisplayName(urfGroup) === 'URFNET Bridge', 'URF group heading did not use the configured reflector name')
+  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: '' }))) === 'URF Bridge', 'legacy URFWIL default leaked into a different reflector dashboard')
+  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073', urfName: '' }))) === 'URF073 Bridge', 'explicit URF073 label was not honored')
+  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URF073' }))) === 'URF073 Bridge', 'legacy label did not yield to an authoritative URF073 reflector identity')
+  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URFWIL' }))) === 'URFWIL Bridge', 'actual URFWIL reflector identity was incorrectly suppressed')
+  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073' }))) === 'URF073 Bridge', 'operator URF display name did not override the runtime identity')
   assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading duplicated a configured Multi-Mode Bridge suffix')
   assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'Desert Link Bridge' }))) === 'Desert Link Bridge', 'URF group heading duplicated a configured Bridge suffix')
   assert(urfReflectorDisplayName(urfGroup.map(({ urfName, ...bridge }) => ({ ...bridge, friendlyName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading did not derive the reflector name from its friendly name')
@@ -339,6 +344,13 @@ try {
   const runtimeBootstrapSource = readFileSync(new URL('../src/RuntimeBootstrap.tsx', import.meta.url), 'utf8')
   const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+  assert(
+    allscanLiveSource.includes("remoteNodes.some((row) => row.keyed === 'unknown')")
+      && allscanLiveSource.includes("info: 'Status Unknown'")
+      && appSource.includes("item.state === 'unknown'")
+      && appSource.includes("? 'unknown'"),
+    'AMI-unavailable connection status must never be displayed as idle or keyed',
+  )
   const asrApiSource = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
   const runtimeV102 = readFileSync(new URL('../compat/allscan-v1.02/include/asrRuntime.php', import.meta.url), 'utf8')
   const runtimeV103 = readFileSync(new URL('../compat/allscan-v1.03/include/asrRuntime.php', import.meta.url), 'utf8')
@@ -364,6 +376,10 @@ try {
   assert(
     !/@media \(min-width: 1200px\)[\s\S]{0,300}\.allscan-controls-shell > \.allscan-controls-row:first-child[\s\S]{0,200}padding-right:\s*0\s*!important/.test(indexCssSource),
     'desktop Node Controls remove the space reserved for Commands and overlap Disconnect',
+  )
+  assert(
+    /\.allscan-node-messages-summary\s*>\s*\.allscan-node-messages-text\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*\}/s.test(indexCssSource),
+    'Node Messages text can force the Node Controls panel wider than its container',
   )
   assert(
     asrApiSource.includes("['connected', 'selected-unverified', 'connected-unverified', 'partial-digital-only']"),

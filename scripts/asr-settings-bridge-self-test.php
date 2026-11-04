@@ -48,6 +48,14 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
 	'Add Bridge does not expose exactly one unified Net Bridge choice.');
+check(str_contains($settingsSource, 'data-urf-install-runtime')
+	&& str_contains($settingsSource, 'Save stores these settings; it does not install runtime services.')
+	&& str_contains($settingsSource, "values.set(protocol + 'Enabled'")
+	&& str_contains($settingsSource, "setupFields.setupBridgeNode.value = node ? node.value.trim() : ''")
+	&& str_contains($settingsSource, 'if(editorCancel) editorCancel.click();'),
+	'URF Settings does not expose a complete shared-node runtime installation workflow.');
+check(str_contains($settingsSource, "if(\$settingsSaveRequested && \$saveError !== '' && array_key_exists('urfEnabled', \$_POST))"),
+	'Rejected URF saves do not retain the submitted editor values.');
 check(!str_contains($settingsSource, '<option value="net">Net Bridge</option>'),
 	'Add Bridge still exposes per-mode Net Bridge installation.');
 foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
@@ -261,6 +269,14 @@ $loadedUrf = asrSettingsExistingUrfConfig($configuredAggregate);
 check($loadedUrf['modeConfig']['dmr']['talkgroup'] === '86753' && $loadedUrf['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF', 'URF mode-specific values did not load.');
 check($loadedUrf['modeConfig']['p25']['destination'] === '64189' && $loadedUrf['modeConfig']['nxdn']['destination'] === '15846', 'P25/NXDN destinations did not load.');
 check($loadedUrf['modeConfig']['m17']['reflector'] === 'M17-WIL' && $loadedUrf['modeConfig']['m17']['module'] === 'A', 'M17 configuration did not load.');
+
+$_POST['urfDisplayName'] = 'URF073';
+$urfError = '';
+$renamedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
+$renamedRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $renamedUrf)[0];
+check($urfError === '' && $renamedRecord['title'] === 'URF073' && $renamedRecord['friendlyName'] === 'URF073', 'Custom URF display name did not persist.');
+check($renamedRecord['id'] === 'urf' && $renamedRecord['node'] === '1001', 'Custom URF display name changed bridge identity or transport node.');
+unset($_POST['urfDisplayName']);
 
 $_POST['urfConfig']['dmr']['talkgroup'] = '86754';
 $_POST['urfConfig']['ysf']['reflector'] = 'US-KE7WIL-YSF2';
@@ -559,11 +575,13 @@ check($setupError === '' && $setup['callsign'] === 'N0CALL' && $setup['destinati
 
 $_POST = [
 	'setupBridgeId' => 'urf_dmr', 'setupTitle' => 'DMR Bridge',
+	'setupReflector' => 'urf073',
 	'setupCallsign' => 'ke7wil', 'setupDigitalId' => '3224939',
 	'setupDestination' => '86753', 'setupTgifEssid' => '50',
+	'dmrEnabled' => 'true', 'm17Enabled' => 'false',
 ];
 $dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
-check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hotspotEssid'] === '50' && $dmrSetup['digitalId'] === 3224939 && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR preview request was not normalized or leaked a password field.');
+check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hotspotEssid'] === '50' && $dmrSetup['digitalId'] === 3224939 && $dmrSetup['reflector'] === 'URF073' && $dmrSetup['dmrEnabled'] === true && $dmrSetup['m17Enabled'] === false && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR/URF preview request was not normalized or leaked a password field.');
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';

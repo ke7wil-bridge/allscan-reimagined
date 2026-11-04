@@ -548,6 +548,22 @@ ensure_php_security_updates() {
   fail "PHP $php_version predates the critical security release. Update to vendor-patched PHP 8.2.35, 8.3.36, 8.4.27, or 8.5.12 or newer, then retry."
 }
 
+ensure_tgif_python_runtime() {
+  local -a missing=()
+  python3 -c 'import socketio' >/dev/null 2>&1 || missing+=(python3-socketio)
+  python3 -c 'import websocket' >/dev/null 2>&1 || missing+=(python3-websocket)
+  [ "${#missing[@]}" -eq 0 ] && return 0
+  command -v apt-get >/dev/null 2>&1 \
+    || fail "TGIF authentication requires ${missing[*]}, but apt-get is unavailable"
+  echo "Installing TGIF authentication dependencies: ${missing[*]}"
+  DEBIAN_FRONTEND=noninteractive apt-get update \
+    || fail "Could not refresh package metadata for TGIF authentication"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" \
+    || fail "Could not install TGIF authentication dependencies: ${missing[*]}"
+  python3 -c 'import socketio, websocket' >/dev/null 2>&1 \
+    || fail "TGIF authentication Python dependencies are still unavailable after installation"
+}
+
 prune_old_backups() {
   local backup_root="/root/allscan-reimagined-backups" removed=0 remove_count index
   local -a backups=()
@@ -599,6 +615,7 @@ python3 "$PAYLOAD_DIR/scripts/asr-apache-listeners.py" capture \
   || fail "Could not preserve active custom Apache listeners"
 ensure_php_web_runtime
 ensure_php_security_updates
+ensure_tgif_python_runtime
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1
@@ -1294,8 +1311,6 @@ validate_command "restricted Asterisk reader shell syntax" \
   sh -n /usr/local/sbin/allscan-reimagined-asterisk-read
 validate_command "restricted Asterisk reader self-test" \
   /usr/local/sbin/allscan-reimagined-asterisk-read --self-test >/dev/null
-validate_command "restricted EchoLink reader access" \
-  sudo -u "$WEB_GROUP" sudo -n /usr/local/sbin/allscan-reimagined-asterisk-read echolink-nodes >/dev/null
 echo "  Enabling the daily release-notification timer..."
 validate_command "enable/start release-check timer" \
   systemctl enable --now allscan-reimagined-release-check.timer >/dev/null

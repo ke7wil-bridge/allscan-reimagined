@@ -11,6 +11,23 @@ function asrEchoLinkCheck($condition, $message) {
 		throw new RuntimeException($message);
 }
 
+// Regression: invoking chan_echolink's node-table command from the long-lived
+// ASTAPI AMI session can deadlock the EchoLink channel and leave app_rpt's
+// telemetry channel permanently keyed. Callsign enrichment must remain
+// independent of Asterisk status polling.
+foreach(['1.02', '1.03', '1.04', '1.05'] as $version) {
+	$serverSource = file_get_contents(dirname(__DIR__) . '/compat/allscan-v' . $version . '/astapi/server.php');
+	asrEchoLinkCheck(is_string($serverSource), "AllScan $version ASTAPI server source was unavailable.");
+	asrEchoLinkCheck(
+		strpos($serverSource, "commandOutput(\$fp, 'echolink show nodes')") === false,
+		"AllScan $version reintroduced the blocking EchoLink command into ASTAPI."
+	);
+	asrEchoLinkCheck(
+		strpos($serverSource, 'asrEchoLinkOfficialLabelCached') !== false,
+		"AllScan $version is missing independent EchoLink callsign enrichment."
+	);
+}
+
 $fixture = "   Node  Call Sign  IP Address        Name\r\n"
 	. " 123456  N0TEST-L   host-one          Test station\r\n"
 	. " 654321  *EXAMPLE*  host-two\r\n"
@@ -31,6 +48,34 @@ asrEchoLinkCheck(
 	'Connected EchoLink callsign label was not produced.'
 );
 asrEchoLinkCheck(asrEchoLinkConnectedLabel($rows, '3999999') === '', 'Unknown EchoLink row did not preserve the stock fallback.');
+
+$officialFixture = '<table><tr><th>Callsign</th><th>Node Number</th></tr>'
+	. '<tr><td>M6PBY</td><td align="right">934210</td></tr></table>';
+asrEchoLinkCheck(
+	asrEchoLinkOfficialCallsignFromHtml($officialFixture, '934210') === 'M6PBY',
+	'Official EchoLink lookup response was not parsed.'
+);
+asrEchoLinkCheck(
+	asrEchoLinkOfficialCallsignFromHtml('<tr><td>BAD&lt;TAG&gt;</td><td>934210</td></tr>', '934210') === '',
+	'Unsafe official EchoLink callsign was accepted.'
+);
+$officialLoads = 0;
+$officialCache = [];
+$officialLoader = function($number) use (&$officialLoads) {
+	$officialLoads++;
+	return $number === '934210' ? 'M6PBY' : '';
+};
+asrEchoLinkCheck(
+	asrEchoLinkOfficialLabelCached($officialCache, '3934210', $officialLoader, 10.0)
+		=== 'M6PBY [EchoLink 934210]',
+	'Official EchoLink label was not produced.'
+);
+asrEchoLinkOfficialLabelCached($officialCache, '3934210', $officialLoader, 20.0);
+asrEchoLinkCheck($officialLoads === 1, 'Successful official EchoLink lookup was not cached.');
+asrEchoLinkCheck(
+	asrEchoLinkOfficialLabelCached($officialCache, '3123456', $officialLoader, 20.0) === '',
+	'Failed official lookup did not preserve the honest fallback.'
+);
 
 $loads = 0;
 $cache = [];
