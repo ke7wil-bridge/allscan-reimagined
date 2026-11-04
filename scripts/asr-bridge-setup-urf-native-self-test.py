@@ -9,6 +9,7 @@ import os
 import stat
 import sys
 import tempfile
+from dataclasses import asdict
 from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,6 +82,109 @@ def rejected(function, *args, contains: str = "", **kwargs) -> None:
     raise AssertionError("invalid operation was accepted")
 
 
+def legacy_recovery_fixture(root: Path):
+    fixture(root)
+    settings = planner.UrfSettings(
+        "urf", "N1YKT", 1234567, 42450, "URF073", "URF073", 1001,
+        "standard", None, None, None, None, None, None, None, None, None,
+        None, "node-main", False, False, True, False, False, False, False, True,
+    )
+    ports = planner.port_block("urf")
+    config_path = root / planner.CONFIG.lstrip("/")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["node"] = "623123"
+    config["bridges"] = [{
+        "id": "urf", "mode": "dmr", "node": "1001", "urfReflector": True,
+        "architecture": "urf-reflector", "bridgeType": "urf-reflector",
+        "backendMode": "managed", "bridgePermission": "self_owned",
+        "urfName": "URF073", "urfModes": ["dmr"], "dmrId": "1234567",
+        "tgifTalkgroup": "42450", "setupPorts": ports,
+        "setupPublicPorts": {"dmr": ports["dmr"], "urf": ports["urf"]},
+        "setupListenerPorts": {"dmr": ports["dmr"], "urf": ports["urf"]},
+        "enabledProtocols": {"dstar": False, "dmrplus": False, "dmr": True,
+                             "m17": False, "p25": False, "nxdn": False,
+                             "ysf": False, "urf": True},
+        "title": "URF073", "friendlyName": "URF073",
+    }]
+    config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
+    rpt_path = root / planner.RPT.lstrip("/")
+    rpt_path.write_text(rpt_path.read_text(encoding="utf-8") + (
+        "; ASR BRIDGE SETUP BEGIN urf\n[1001](node-main) ; DMR/URF Bridge (urf)\n"
+        f"rxchannel = USRP/127.0.0.1:{ports['usrp_rx']}:{ports['usrp_tx']}\n"
+        "; ASR BRIDGE SETUP END urf\n"
+    ), encoding="utf-8")
+    runtime = planner.runtime_root("urf")
+    put(root, f"{runtime}/config/urfd.ini",
+        f"[Names]\nCallsign = URF073\n[MMDVM]\nPort = {ports['dmr']}\nDefaultId = 1234567\n"
+        f"[USRP]\nRxPort = {ports['usrp_rx']}\nTxPort = {ports['usrp_tx']}\n")
+    put(root, f"{runtime}/config/tcd.ini", "Port = 1\n")
+    secret = put(root, f"{runtime}/secrets/tgif-password", "preserve-this-key\n")
+    os.chmod(secret, 0o640)
+    unit_text = (f"# ASR managed urf {runtime}\nEnvironment=DMR_ID=1234567\n"
+                 "Environment=TGIF_TG=42450\n")
+    for name in (
+        "allscan-reimagined-urf-tgif-urf.service",
+        "allscan-reimagined-urfd-urf.service",
+        "allscan-reimagined-tcd-urf.service",
+        "allscan-reimagined-tgif-urf.service",
+    ):
+        put(root, f"/etc/systemd/system/{name}", unit_text)
+    return settings, secret
+
+
+def test_legacy_ownership_recovery() -> None:
+    with tempfile.TemporaryDirectory(prefix="asr-urf-ownership-recovery-") as temporary:
+        root = Path(temporary)
+        settings, secret = legacy_recovery_fixture(root)
+        recovered = planner.plan(root, settings)
+        assert recovered["ownershipRecovery"]["recovered"] is True
+        assert recovered["bridgeNode"] == 1001
+        assert recovered["settings"]["tgif_tg"] == 42450
+        assert recovered["enabledProtocols"] == {
+            "dstar": False, "dmrplus": False, "dmr": True, "m17": False,
+            "p25": False, "nxdn": False, "ysf": False, "urf": True,
+        }
+        result = installer.install(
+            root, settings, "replacement-must-not-be-used",
+            expected_digest=recovered["digest"], manage_services=False)
+        assert result["ownershipRecovered"] is True
+        assert secret.read_text(encoding="utf-8") == "preserve-this-key\n"
+        record = json.loads((root / planner.STATE.lstrip("/") / "urf.json").read_text())
+        assert record["bridgeNode"] == 1001 and record["ownershipRecovered"] is True
+        repeated = planner.plan(root, settings)
+        assert "ownershipRecovery" not in repeated
+        rendered = planner.integration_files(root, repeated)[planner.CONFIG][0]
+        bridges = json.loads(rendered)["bridges"]
+        assert len([item for item in bridges if item.get("id") == "urf"]) == 1
+        renamed = planner.plan(root, planner.UrfSettings(
+            **{**asdict(settings), "title": "N1YKT URF073"}))
+        renamed_config = json.loads(planner.integration_files(root, renamed)[planner.CONFIG][0])
+        renamed_bridge = next(item for item in renamed_config["bridges"] if item["id"] == "urf")
+        assert renamed_bridge["title"] == "N1YKT URF073"
+        assert renamed_bridge["node"] == "1001" and renamed_bridge["tgifTalkgroup"] == "42450"
+
+    with tempfile.TemporaryDirectory(prefix="asr-urf-unowned-") as temporary:
+        root = Path(temporary)
+        settings, _ = legacy_recovery_fixture(root)
+        config_path = root / planner.CONFIG.lstrip("/")
+        config = json.loads(config_path.read_text())
+        del config["bridges"][0]["bridgePermission"]
+        config_path.write_text(json.dumps(config))
+        rejected(planner.plan, root, settings, contains="not proven ASR-managed")
+
+    with tempfile.TemporaryDirectory(prefix="asr-urf-record-errors-") as temporary:
+        root = Path(temporary)
+        settings, _ = legacy_recovery_fixture(root)
+        record = root / planner.STATE.lstrip("/") / "urf.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text("not-json", encoding="utf-8")
+        rejected(planner.plan, root, settings, contains="ownership record is invalid")
+        record.write_text(json.dumps({"bridgeId": "other"}), encoding="utf-8")
+        rejected(planner.plan, root, settings, contains="does not match")
+        record.write_text(json.dumps({"bridgeId": "urf"}), encoding="utf-8")
+        rejected(planner.plan, root, settings, contains="record is incomplete")
+
+
 def test_protocol_enable_source_patch() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-urf-protocol-source-test-") as temporary:
         root = Path(temporary)
@@ -145,6 +249,7 @@ def test_protocol_enable_source_patch() -> None:
 
 def main() -> None:
     test_protocol_enable_source_patch()
+    test_legacy_ownership_recovery()
     # Exercise the deployable runtime path even when this offline test runs on
     # an Apple Silicon workstation, which is not itself an ASL3 target.
     machine_patch = mock.patch("platform.machine", return_value="x86_64")

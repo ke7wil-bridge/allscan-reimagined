@@ -608,10 +608,12 @@ function connectionFeed(state?: MockBridgeControlState) {
   return JSON.stringify({
     100000: {
       remote_nodes: [
-        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 3 + ysfNetRows.length, lnodes: ['100010', '100011', '100004', ...ysfNetRows.map((row) => row.node)] },
+        { node: '1', info: 'LOCAL', keyed: 'no', mode: 'T', num_alinks: 5 + ysfNetRows.length, lnodes: ['100010', '100011', '100004', '123456', '3M6PBY', ...ysfNetRows.map((row) => row.node)] },
         { node: '100010', info: 'Public Test Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:02:00', last_keyed: 'Never', lnodes: [] },
         { node: '100011', info: 'Private Bridge Node', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:01:00', last_keyed: 'Never', lnodes: [] },
         { node: '100004', info: 'Node not in database', keyed: 'no', mode: 'T', direction: 'OUT', elapsed: '00:00:45', last_keyed: 'Never', lnodes: [] },
+        { node: '123456', info: 'External AllStar Test', keyed: 'no', mode: 'T', direction: 'IN', elapsed: '00:00:20', last_keyed: 'Never', lnodes: [] },
+        { node: '3M6PBY', info: 'M6PBY [EchoLink 934210]', keyed: 'no', mode: 'T', direction: 'IN', elapsed: '00:00:10', last_keyed: 'Never', lnodes: [] },
         ...ysfNetRows,
       ],
     },

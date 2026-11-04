@@ -521,6 +521,16 @@ try {
     'unified Net Bridge controls do not keep mode/destination on top and actions on the bottom row',
   )
   assert(
+    appSource.includes('{rowActions ? createPortal(')
+      && appSource.includes('</>, document.body'),
+    'Connection actions menu must render above the dashboard stacking context',
+  )
+  for (const api of ['asr-api.php', 'server/asr-api.php']) {
+    const apiSource = readFileSync(new URL(`../${api}`, import.meta.url), 'utf8')
+    assert(apiSource.includes('asrExpandUrfProtocolBridges($storedBridges)'),
+      `${api} displays unchecked URF protocols`)
+  }
+  assert(
     appSource.includes('allscan-controls-lower-row')
       && appSource.includes('Manage Kicks & Bans')
       && indexCssSource.includes('.allscan-controls-lower-row'),

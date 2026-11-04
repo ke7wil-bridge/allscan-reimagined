@@ -3851,7 +3851,7 @@ function App({ config }: { config: RuntimeConfig }) {
             </div>
           </section>
 
-          {rowActions ? (
+          {rowActions ? createPortal(
             <>
               <button type="button" className="allscan-connection-menu-backdrop" aria-label="Close connection actions" onClick={() => setRowActions(null)} />
               <div role="menu" className="allscan-connection-menu" style={{ left: rowActions.left, top: rowActions.top }}>
@@ -3870,7 +3870,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 )}
                 {connectionCallsign(rowActions.row) && !isProtectedBanConnection(rowActions.row) ? <button type="button" role="menuitem" onClick={() => openParticipantBan(rowActions.row)}>Ban…</button> : null}
               </div>
-            </>
+            </>, document.body
           ) : null}
 
           {bridgeState.cards.length || urfAccessOpen ? <section

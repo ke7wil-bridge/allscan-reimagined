@@ -4297,6 +4297,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(digitalLabel) digitalLabel.textContent = isDmr ? 'DMR ID' : 'Digital ID';
 		var reflectorLabel = document.querySelector('[data-bridge-setup-reflector-label]');
 		if(reflectorLabel) reflectorLabel.textContent = path === 'urf' ? 'URF Reflector Name' : mode.toUpperCase() + ' Reflector Name';
+		if(setupFields.setupReflector) setupFields.setupReflector.placeholder = path === 'urf' ? 'URF123' : 'M17-WIL';
 		if(destinationLabel) destinationLabel.textContent = isDmr ? 'TGIF Talkgroup' : 'Destination / Reflector';
 		if(setupPreview) setupPreview.textContent = 'Check Setup'; if(setupInstall) { setupInstall.textContent = 'Install Bridge'; setupInstall.hidden = true; }
 		if(setupFields.setupHost) setupFields.setupHost.placeholder = selected.host;
