@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.3.1';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.3.1';
+const ASR_VERSION = '1.0.0-beta.8.3.2';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.3.2';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -374,21 +374,16 @@ function asr_native_urf_client_admin(string $mode): array {
 }
 
 function asr_dmr_admin_runtime_available(): bool {
-    // Native URF/TGIF nodes publish on /run/tgif-dmr. Containerized ASR
-    // deployments expose the same runtime as /run/dmr-bridge.
-    $directories = array_merge(
-        ['/run/tgif-dmr', '/run/dmr-bridge'],
-        glob('/opt/allscan-reimagined-bridges/urf/*/tgif-run', GLOB_ONLYDIR) ?: []
-    );
-    foreach (array_unique($directories) as $directory) {
-        if (is_readable($directory . '/dmr-clients.json')) return true;
-        // Native TGIF runtimes are intentionally not traversable by Apache;
-        // the root-owned helper validates and accesses the roster at action
-        // time. The managed tgif-run directory itself is the capability gate.
-        if (str_starts_with($directory, '/opt/allscan-reimagined-bridges/urf/')
-            && is_dir($directory)) return true;
-    }
-    return false;
+    static $available = null;
+    if (is_bool($available)) return $available;
+    if (!is_executable(ASR_URF_ADMIN_HELPER)) return $available = false;
+    $lines = []; $status = 1;
+    exec('sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' capabilities 2>/dev/null', $lines, $status);
+    $payload = json_decode((string) end($lines), true);
+    return $available = $status === 0 && is_array($payload)
+        && ($payload['available'] ?? false) === true
+        && in_array('kickClient', $payload['capabilities'] ?? [], true)
+        && in_array('banClient', $payload['capabilities'] ?? [], true);
 }
 
 function asr_bridge_admin_capabilities(array $bridge): array {
@@ -1104,13 +1099,17 @@ function asr_next_mode_disconnect(string $bridgeId): array {
         : asr_next_mode_helper($mode, $bridgeId, ['disconnect', $bridgeId], strtoupper($mode) . ' Net Bridge disconnect failed.');
 }
 
-function asr_urf_admin_command(string $verb, string $rule = '', string $detail = ''): array {
+function asr_urf_admin_command(string $verb, string $rule = '', string $detail = '', string $dmrId = ''): array {
     global $user;
     if (!in_array($verb, ['list', 'ban', 'unban', 'dmr-list', 'dmr-ban', 'dmr-unban'], true)) asr_error('Invalid Global Ban action.');
     if (!is_executable(ASR_URF_ADMIN_HELPER)) asr_error('Global Ban helper is unavailable.', 503);
     $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' ' . escapeshellarg($verb);
     if ($rule !== '') $command .= ' ' . escapeshellarg($rule);
     if ($detail !== '') $command .= ' ' . escapeshellarg($detail);
+    if ($dmrId !== '') {
+        if (!preg_match('/^\d{1,8}$/D', $dmrId) || (int) $dmrId < 1 || (int) $dmrId > 16777215) asr_error('Invalid DMR client ID.');
+        $command .= ' --dmr-id ' . escapeshellarg($dmrId);
+    }
     if (!str_starts_with($verb, 'dmr-')) {
         $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
         $command .= ' --actor ' . escapeshellarg($actor ?: 'unknown');
@@ -1199,15 +1198,18 @@ function asr_urf_is_service_identity(string $callsign, string $mode): bool {
     return isset($policy['custom'][$normalized]);
 }
 
-function asr_urf_kick_command(string $callsign, string $protocol): array {
+function asr_urf_kick_command(string $callsign, string $protocol, string $dmrId = ''): array {
     global $user;
     if (!is_executable(ASR_URF_ADMIN_HELPER)) asr_error('Bridge client administration helper is unavailable.', 503);
     $callsign = strtoupper(trim($callsign));
     $protocol = strtoupper(trim($protocol));
     if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
     if (!in_array($protocol, ['DMRMMDVM', 'YSF', 'P25', 'NXDN', 'M17'], true)) asr_error('Invalid bridge client protocol.');
+    if ($protocol === 'DMRMMDVM' && (!preg_match('/^\d{1,8}$/D', $dmrId) || (int) $dmrId < 1 || (int) $dmrId > 16777215)) asr_error('A current DMR client ID is required.');
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
-    $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' kick ' . escapeshellarg($callsign) . ' ' . escapeshellarg($protocol) . ' --actor ' . escapeshellarg($actor ?: 'unknown');
+    $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' kick ' . escapeshellarg($callsign) . ' ' . escapeshellarg($protocol);
+    if ($dmrId !== '') $command .= ' --dmr-id ' . escapeshellarg($dmrId);
+    $command .= ' --actor ' . escapeshellarg($actor ?: 'unknown');
     $output = []; $code = 0; exec($command . ' 2>/dev/null', $output, $code);
     $payload = json_decode((string) end($output), true);
     if ($code !== 0 || !is_array($payload) || empty($payload['ok'])) asr_error((string) ($payload['error'] ?? 'Bridge client kick failed.'), 500);
@@ -4277,9 +4279,11 @@ if ($action === 'urf-access-control') {
     $verb = strtolower(trim((string) ($_POST['verb'] ?? '')));
     $rule = strtoupper(trim((string) ($_POST['rule'] ?? '')));
     $duration = strtolower(trim((string) ($_POST['duration'] ?? 'permanent')));
+    $mode = strtolower(trim((string) ($_POST['mode'] ?? '')));
+    $dmrId = $mode === 'dmr' ? trim((string) ($_POST['clientId'] ?? '')) : '';
     if (!in_array($verb, ['ban', 'unban'], true)) asr_error('Invalid Global Ban action.');
     if ($verb === 'ban' && !in_array($duration, ['15m', '1h', '1w', '30d', 'permanent'], true)) asr_error('Invalid Global Ban duration.');
-    asr_json(asr_urf_admin_command($verb, $rule, $verb === 'ban' ? $duration : ''));
+    asr_json(asr_urf_admin_command($verb, $rule, $verb === 'ban' ? $duration : '', $verb === 'ban' ? $dmrId : ''));
 }
 if ($action === 'urf-client-kick') {
     asr_require_post();
@@ -4288,7 +4292,7 @@ if ($action === 'urf-client-kick') {
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'urf-client-kick') asr_error('Invalid URF client-kick request.', 403);
     $callsign = strtoupper(trim((string) ($_POST['callsign'] ?? '')));
     $protocol = strtoupper(trim((string) ($_POST['protocol'] ?? '')));
-    asr_json(asr_urf_kick_command($callsign, $protocol));
+    asr_json(asr_urf_kick_command($callsign, $protocol, trim((string) ($_POST['clientId'] ?? ''))));
 }
 if ($action === 'standalone-client-kick') {
     asr_require_post();

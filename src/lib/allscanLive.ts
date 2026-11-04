@@ -97,7 +97,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3.1'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3.2'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -328,8 +328,8 @@ export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
 
 export type UrfBlacklistMutation = UrfAccessList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
 
-export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, duration = 'permanent', mode = ''): Promise<UrfBlacklistMutation> {
-  const body = new URLSearchParams({ verb, rule, duration, mode })
+export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, duration = 'permanent', mode = '', clientId = ''): Promise<UrfBlacklistMutation> {
+  const body = new URLSearchParams({ verb, rule, duration, mode, clientId })
   const response = await fetch(`${ASR_API}?action=urf-access-control`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-access-control' },
@@ -374,8 +374,8 @@ export async function changeAslBan(verb: 'ban' | 'unban', kind: AslBanKind, valu
   return payload
 }
 
-export async function kickUrfClient(callsign: string, protocol: string): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ callsign, protocol })
+export async function kickUrfClient(callsign: string, protocol: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ callsign, protocol, clientId })
   const response = await fetch(`${ASR_API}?action=urf-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-client-kick' },
@@ -409,6 +409,7 @@ export type BridgeDetailItem = {
   key: string
   label: string
   meta: string
+  clientId?: string
   empty?: boolean
 }
 
@@ -1591,9 +1592,10 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
       const label = mode === 'dmr' && id ? `${user} · ${id}` : user
       const age = relativeBridgeTime(bridgeClientEpoch(record))
       return {
-        key: `${mode}-${label}-${index}`,
+        key: `${mode}-${label}-${id || index}`,
         label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
         meta: age ? `Last TX ${age}` : 'No recent TX',
+        clientId: mode === 'dmr' && /^\d{1,8}$/.test(id) ? id : undefined,
       }
     })
 

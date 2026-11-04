@@ -44,10 +44,13 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     urf.TIMED_BANS = str(tmp / "asr-timed-bans.json")
     urf.AUDIT_LOG = str(tmp / "asr-admin-audit.jsonl")
     urf.DMR_ROSTER = str(tmp / "dmr-clients.json")
+    urf.DMR_DIRECTORY_ROSTER = str(tmp / "connected-clients.json")
     urf.DMR_CONTROL = str(tmp / "dmr-admin.json")
+    urf.DMR_RUNTIME_DIR = str(tmp)
     urf.CONFIG = str(tmp / "config.json")
     Path(urf.CONFIG).write_text(json.dumps({"bridges": [], "filteredStations": ["FEEDALIAS"]}), encoding="utf-8")
     Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": [], "events": []}), encoding="utf-8")
+    Path(urf.DMR_DIRECTORY_ROSTER).write_text(json.dumps({"urf_dmr": []}), encoding="utf-8")
     Path(urf.DMR_CONTROL).write_text(json.dumps({
         "banned_ids": [3224939],
         "banned_clients": {"3224939": "KE7WIL"},
@@ -129,23 +132,83 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     check(3224939 not in backend.get("banned_ids", []), "unban left a hidden DMR ID ban")
     check("3224939" not in backend.get("banned_clients", {}), "unban left hidden DMR identity metadata")
 
-    Path(urf.DMR_ROSTER).write_text(json.dumps({
-        "urf_dmr": [{"dmrid": "3224939", "callsign": "KE7WIL"}], "events": [],
-    }), encoding="utf-8")
+    clients = [
+        {"dmrid": "3224939", "callsign": "KE7WIL"},
+        {"dmrid": "3101001", "callsign": "N1AAA"},
+        {"dmrid": "3101002", "callsign": "N2BBB"},
+        {"dmrid": "3101003", "callsign": "N3CCC"},
+    ]
+    Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": clients, "events": []}), encoding="utf-8")
+    Path(urf.DMR_DIRECTORY_ROSTER).write_text(json.dumps({"urf_dmr": clients}), encoding="utf-8")
     Path(urf.DMR_CONTROL).write_text(json.dumps({
         "banned_ids": [], "banned_clients": {}, "kicked_ids": {"3224939": now},
     }), encoding="utf-8")
     with contextlib.redirect_stdout(io.StringIO()):
-        urf.write_dmr_kick("KE7WIL")
+        urf.write_dmr_kick("KE7WIL", expected_id="3224939")
     backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
     check(int(backend.get("kicked_ids", {}).get("3224939", 0)) > 0,
           "DMR Kick did not publish active-stream suppression")
     roster = json.loads(Path(urf.DMR_ROSTER).read_text(encoding="utf-8"))
-    check(not roster.get("urf_dmr"), "DMR Kick did not remove the current roster entry")
+    remaining_ids = {row["dmrid"] for row in roster.get("urf_dmr", [])}
+    check(remaining_ids == {"3101001", "3101002", "3101003"},
+          "DMR Kick changed an unrelated connected client")
+
+    before_control = Path(urf.DMR_CONTROL).read_text(encoding="utf-8")
+    before_roster = Path(urf.DMR_ROSTER).read_text(encoding="utf-8")
+    for callsign, dmrid in (("KE7WIL", "3101001"), ("GONE", "3999999")):
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                urf.write_dmr_kick(callsign, expected_id=dmrid)
+            raise AssertionError("stale or mismatched DMR client reference was accepted")
+        except RuntimeError:
+            pass
+        check(Path(urf.DMR_CONTROL).read_text(encoding="utf-8") == before_control,
+              "rejected DMR Kick changed administration state")
+        check(Path(urf.DMR_ROSTER).read_text(encoding="utf-8") == before_roster,
+              "rejected DMR Kick changed connected clients")
+
+    ambiguous = clients[1:] + [{"dmrid": "3101999", "callsign": "N1AAA"}]
+    Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": ambiguous, "events": []}), encoding="utf-8")
+    Path(urf.DMR_DIRECTORY_ROSTER).write_text(json.dumps({"urf_dmr": ambiguous}), encoding="utf-8")
+    try:
+        urf.dmr_client_id("N1AAA")
+        raise AssertionError("ambiguous DMR callsign was accepted without an exact client ID")
+    except RuntimeError as error:
+        check("ambiguous" in str(error), "ambiguous DMR callsign failure was not explicit")
+    check(urf.dmr_client_id("N1AAA", "3101001") == 3101001,
+          "current callsign+DMR-ID pair did not target the selected client")
+
+    Path(urf.DMR_ROSTER).write_text(json.dumps({"urf_dmr": clients[1:], "events": []}), encoding="utf-8")
+    Path(urf.DMR_DIRECTORY_ROSTER).write_text(json.dumps({"urf_dmr": clients[1:]}), encoding="utf-8")
+    Path(urf.DMR_CONTROL).write_text(json.dumps({
+        "banned_ids": [3101003], "banned_clients": {"3101003": "N3CCC"}, "kicked_ids": {},
+    }), encoding="utf-8")
+    urf.sync_dmr_ban("N1AAA", True, "3101001")
+    backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
+    check(backend["banned_ids"] == [3101001, 3101003], "targeted DMR Ban did not preserve another ban")
+    roster = json.loads(Path(urf.DMR_ROSTER).read_text(encoding="utf-8"))
+    check({row["dmrid"] for row in roster["urf_dmr"]} == {"3101002", "3101003"},
+          "targeted DMR Ban removed an unrelated client")
+    urf.sync_dmr_ban("N1AAA", False)
+    backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
+    check(backend["banned_ids"] == [3101003] and backend["banned_clients"] == {"3101003": "N3CCC"},
+          "DMR Unban changed an unrelated persistent ban")
+
+    capabilities = urf.dmr_admin_capabilities()
+    check(capabilities["available"] and capabilities["controlWritable"] and capabilities["rosterReadable"],
+          "writable DMR runtime was not advertised as actionable")
+    original_statvfs = urf.os.statvfs
+    urf.os.statvfs = lambda _path: type("ReadOnlyFs", (), {"f_flag": getattr(urf.os, "ST_RDONLY", 1)})()
+    try:
+        capabilities = urf.dmr_admin_capabilities()
+        check(not capabilities["available"] and not capabilities["controlWritable"] and not capabilities["capabilities"],
+              "read-only DMR runtime advertised actions that cannot work")
+    finally:
+        urf.os.statvfs = original_statvfs
 
 check("asr_urf_is_service_identity($callsign, $mode)" in API, "connected-client probe filter missing")
-check("asr_urf_is_service_identity($eventCallsign" in API, "event probe filter missing")
-check("foreach (array_reverse($lines) as $line)" in API and "if (count($events) >= 100) break;" in API, "probe traffic can evict meaningful activity history")
+check("asr_urf_is_service_identity($normalizedCallsign" in API, "event probe filter missing")
+check("foreach (array_reverse($modeEvents) as $event)" in API and "asr_urf_is_service_identity($normalizedCallsign" in API, "probe traffic can evict meaningful activity history")
 check("request_urf_disconnect(rule, \"*\", \"ban\", False, args.actor)" in URF_PATH.read_text(encoding="utf-8"), "Ban does not request immediate URFD removal")
 check("request_urf_disconnect(rule, \"*\", \"unban\", False, args.actor)" in URF_PATH.read_text(encoding="utf-8"), "Unban does not clear URFD session suppression")
 check("BAN_DURATIONS" in URF_PATH.read_text(encoding="utf-8") and "expire_timed_bans" in URF_PATH.read_text(encoding="utf-8"), "timed Ban lifecycle is missing")

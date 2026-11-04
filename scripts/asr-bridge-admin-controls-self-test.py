@@ -36,7 +36,11 @@ check("array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'lis
 check("'managementScope' => $globalAdmin ? 'asr-global' : 'bridge'" in API, "ASR-global management scope missing")
 check("'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none'" in API, "global-ban authority scope missing")
 check("'banScopeLabel' => $globalAdmin ? 'GLOBAL' : ''" in API, "global ban scope label missing")
-check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API and "asr_dmr_admin_runtime_available()" in API and "'/run/tgif-dmr'" in API and "'/run/dmr-bridge'" in API and "'/opt/allscan-reimagined-bridges/urf/*/tgif-run'" in API, "URF DMR admin capability is not runtime-gated across native/container paths")
+check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API
+      and "asr_dmr_admin_runtime_available()" in API
+      and "ASR_URF_ADMIN_HELPER) . ' capabilities" in API
+      and "($payload['available'] ?? false) === true" in API,
+      "URF DMR admin capability is not gated by an authoritative backend probe")
 check("asr_native_urf_client_admin($mode)" in API and "asr_runtime_client_admin" in API,
       "native aggregate URF capability manifests are not used")
 if ZELLO:
@@ -52,6 +56,12 @@ if ZELLO:
 check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', 'listBans']" in API, "DMR client administration capability missing")
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
 check("/run/tgif-dmr" in URF and "/run/dmr-bridge" in URF and "/opt/allscan-reimagined-bridges/urf/*/tgif-run" in URF and "ASR_DMR_RUNTIME_DIR" in URF, "DMR admin helper does not resolve native/container runtime paths")
+check("dmr_admin_capabilities" in URF and "ST_RDONLY" in URF and "controlSafe" in URF,
+      "DMR helper does not reject read-only or unsafe administration state")
+check(":/run/dmr-bridge:rw" in COMPOSE and ":/run/dmr-bridge:ro" not in COMPOSE,
+      "container DMR administration runtime remains read-only")
+check("clientId" in LIVE and "expected_id" in URF and "identity is ambiguous" in URF,
+      "DMR actions are not bound to an exact current client identity")
 check("request_urf_disconnect(rule, \"*\", \"ban\", False, args.actor)" in URF, "global Ban does not remove active URFD sessions")
 check("request_urf_disconnect(callsign, runtime_protocol, \"kick\", True, args.actor)" in URF, "session-specific URFD Kick verification missing")
 check("native_admin_kick" in URF and "native_required <= native_modes" in URF,

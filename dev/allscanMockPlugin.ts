@@ -18,7 +18,7 @@ const runtimeConfig = {
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   versionLabel: 'v1.0.0 Beta 8.1.5.11',
   bridges: [
-    { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard' },
+    { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard', urfReflector: 'URF073', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
     { id: 'dmr_net', mode: 'dmr', node: '100004', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
     { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
     { id: 'ysf_net', mode: 'ysf', node: '100005', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
@@ -576,9 +576,16 @@ function bridgeLive(state?: MockBridgeControlState) {
   })
 }
 
-function connectedClients() {
+const defaultDmrClients = [
+  { callsign: 'N0TEST', dmrid: '3100001', room: 'TG 3100', connected: '00:12:04' },
+  { callsign: 'N1TEST', dmrid: '3100002', room: 'TG 3100', connected: '00:08:12' },
+  { callsign: 'N2TEST', dmrid: '3100003', room: 'TG 3100', connected: '00:05:19' },
+  { callsign: 'N3TEST', dmrid: '3100004', room: 'TG 3100', connected: '00:01:03' },
+]
+
+function connectedClients(dmrClients = defaultDmrClients) {
   return jsonResponse({
-    dmr: [{ callsign: 'N0TEST', room: 'TG 3100', connected: '00:12:04' }],
+    dmr: dmrClients,
     dmr_net: [{ callsign: 'N0CALL', room: 'TG 12345', connected: '00:03:16' }],
     ysf: [{ callsign: 'N1TEST', room: 'TEST-CHARLIE', connected: '00:03:41' }],
     ysf_net: [{ callsign: 'N2TEST', room: 'TEST-ALPHA', connected: '00:01:18' }],
@@ -661,6 +668,8 @@ export function allscanMockPlugin(): Plugin {
     configureServer(server) {
       const projectRoot = server.config.root
       let favoritesFailuresRemaining = process.env.ASR_MOCK_FAVORITES_FAIL_ONCE === '1' ? 1 : 0
+      const dmrClients = defaultDmrClients.map((client) => ({ ...client }))
+      let urfBans: string[] = []
       const bridgeControlState: MockBridgeControlState = {
         dmrNetDestination: '12345',
         dmrNetLinked: true,
@@ -676,7 +685,7 @@ export function allscanMockPlugin(): Plugin {
         if (requestPath === `${ASR_BASE}/asr-api.php`) {
           const action = url.searchParams.get('action')
           if (action === 'runtime-config') return serveText(res, jsonResponse(runtimeConfig), 'application/json; charset=utf-8')
-          if (action === 'auth-status') return serveText(res, jsonResponse(authStatus), 'application/json; charset=utf-8')
+          if (action === 'auth-status') return serveText(res, jsonResponse(process.env.ASR_MOCK_UNAUTHORIZED === '1' ? { ...authStatus, permission: 1, canModify: false, canWrite: false, isAdmin: false } : authStatus), 'application/json; charset=utf-8')
           if (action === 'release-status') return serveText(res, jsonResponse(releaseStatus), 'application/json; charset=utf-8')
           if (action === 'favorites') {
             if (favoritesFailuresRemaining > 0) {
@@ -698,9 +707,9 @@ export function allscanMockPlugin(): Plugin {
             return serveText(res, jsonResponse({
               ok: true,
               bridge: JSON.parse(bridgeLive(bridgeControlState)),
-              clients: JSON.parse(connectedClients()),
+              clients: JSON.parse(connectedClients(dmrClients)),
               clientCounts: {
-                dmr: 1,
+                dmr: dmrClients.length,
                 dmr_net: 1,
                 ysf: 1,
                 ysf_net: 1,
@@ -726,6 +735,33 @@ export function allscanMockPlugin(): Plugin {
                 },
               },
             }), 'application/json; charset=utf-8')
+          }
+          if (action === 'urf-access-list') return serveText(res, jsonResponse({ ok: true, rules: urfBans, bans: urfBans.map((rule) => ({ rule, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+          if (action === 'urf-client-kick') {
+            return void readFormBody(req).then((form) => {
+              const callsign = String(form.get('callsign') || '').toUpperCase()
+              const clientId = String(form.get('clientId') || '')
+              const index = dmrClients.findIndex((client) => client.callsign === callsign && client.dmrid === clientId)
+              if (index < 0) return serveText(res, jsonResponse({ ok: false, error: 'DMR client is no longer in the current TGIF roster.' }), 'application/json; charset=utf-8')
+              dmrClients.splice(index, 1)
+              return serveText(res, jsonResponse({ ok: true, verified: true, removed: 1, dmrid: clientId }), 'application/json; charset=utf-8')
+            })
+          }
+          if (action === 'urf-access-control') {
+            return void readFormBody(req).then((form) => {
+              const verb = String(form.get('verb') || '')
+              const rule = String(form.get('rule') || '').toUpperCase()
+              const clientId = String(form.get('clientId') || '')
+              if (verb === 'ban') {
+                const index = dmrClients.findIndex((client) => client.callsign === rule && client.dmrid === clientId)
+                if (index < 0) return serveText(res, jsonResponse({ ok: false, error: 'DMR client is no longer in the current TGIF roster.' }), 'application/json; charset=utf-8')
+                dmrClients.splice(index, 1)
+                urfBans = [...new Set([...urfBans, rule])]
+              } else if (verb === 'unban') {
+                urfBans = urfBans.filter((item) => item !== rule)
+              }
+              return serveText(res, jsonResponse({ ok: true, verified: true, enforcement: 'immediate', reloadSeconds: 0, removed: verb === 'ban' ? 1 : 0, rules: urfBans, bans: urfBans.map((item) => ({ rule: item, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+            })
           }
           if (action === 'bridge-destinations') {
             const bridgeId = url.searchParams.get('bridgeId') || ''

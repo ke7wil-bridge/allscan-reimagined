@@ -19,14 +19,14 @@ for start in recent_starts:
 client_starts = [m.start() for m in re.finditer(r"card\.detailRows\.map", app)]
 if not client_starts:
     errors.append("Connected Clients rendering path missing")
-elif not any("Kick</button>" in app[start:start + 2200] for start in client_starts):
-    errors.append("Connected Clients lost capability-gated Kick")
+elif not any("'Disconnect' : 'Kick'" in app[start:start + 2600] for start in client_starts):
+    errors.append("Connected Clients lost capability-gated Disconnect/Kick")
 
 managed_clients = app[app.find('<b>Digital bridge clients</b>'):app.find('Recent Zello Talkers')]
 if ("clientAdmin.includes('kickClient')" not in managed_clients
         or "clientAdmin.includes('banClient')" not in managed_clients
         or "detail.canBan && !banned" not in managed_clients):
-    errors.append("Digital bridge client Kick/Ban actions are not independently capability-gated")
+    errors.append("Digital bridge client Disconnect/Ban actions are not independently capability-gated")
 
 node_cell = app.find('className="allscan-connection-node-cell"')
 more = app.find('className="allscan-connection-more"', node_cell)

@@ -23,7 +23,9 @@ services:
       - /run/allscan-reimagined-p25-bridge-control:/run/allscan-reimagined-p25-bridge-control:ro
       - /run/allscan-reimagined-nxdn-bridge-control:/run/allscan-reimagined-nxdn-bridge-control:ro
       - /run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro
-      - ${ASR_DMR_STATUS_DIR:-/run/tgif-dmr}:/run/dmr-bridge:ro
+      # The root-owned URF admin helper atomically updates dmr-admin.json here.
+      # Capability probing keeps the UI disabled if this bind is not writable.
+      - ${ASR_DMR_STATUS_DIR:-/run/tgif-dmr}:/run/dmr-bridge:rw
 
 volumes:
   layered-web:
