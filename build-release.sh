@@ -145,6 +145,7 @@ sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
 python3 "$ROOT/scripts/asr-bridge-ui-regression-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
+python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"

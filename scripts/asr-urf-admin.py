@@ -356,11 +356,36 @@ def ban_payload(rules, timed, now=None):
     ]
 
 
-def dmr_client_id(callsign):
+def dmr_admin_capabilities():
+    directory = os.path.dirname(DMR_CONTROL)
+    roster_readable = any(os.path.isfile(path) and os.access(path, os.R_OK)
+                          for path in (DMR_ROSTER, DMR_DIRECTORY_ROSTER))
+    writable = False
+    if os.path.isdir(directory):
+        flags = os.statvfs(directory).f_flag
+        writable = not bool(flags & getattr(os, "ST_RDONLY", 1)) and os.access(directory, os.W_OK)
+    control_safe = not os.path.lexists(DMR_CONTROL) or (
+        os.path.isfile(DMR_CONTROL) and not os.path.islink(DMR_CONTROL)
+    )
+    available = roster_readable and writable and control_safe
+    return {
+        "ok": True,
+        "available": available,
+        "runtime": DMR_RUNTIME_DIR,
+        "rosterReadable": roster_readable,
+        "controlWritable": writable,
+        "controlSafe": control_safe,
+        "capabilities": ["kickClient", "banClient", "unbanClient", "listBans"] if available else [],
+    }
+
+
+def dmr_client_id(callsign, expected_id=""):
     target = callsign.strip().upper()
-    if target.isdigit():
-        return int(target)
+    expected = str(expected_id or "").strip()
+    if expected and (not expected.isdigit() or not 1 <= int(expected) <= 16777215):
+        raise ValueError("DMR client ID is invalid.")
     readable = False
+    matches = set()
     for path in (DMR_ROSTER, DMR_DIRECTORY_ROSTER):
         try:
             with open(path, "r", encoding="utf-8") as handle:
@@ -374,10 +399,19 @@ def dmr_client_id(callsign):
                 continue
             dmrid = str(row.get("dmrid") or row.get("id") or "").strip()
             row_call = str(row.get("callsign") or "").strip().upper()
-            if dmrid.isdigit() and (target == row_call or target == dmrid):
-                return int(dmrid)
+            if dmrid.isdigit() and 1 <= int(dmrid) <= 16777215 and (target == row_call or target == dmrid):
+                if not expected or dmrid == expected:
+                    matches.add(int(dmrid))
+        # The live TGIF roster is authoritative. The web-directory roster is
+        # only a fallback when the live roster cannot be read, never a second
+        # source that can resurrect a stale session.
+        break
     if not readable:
         raise RuntimeError("DMR client roster is unavailable.")
+    if len(matches) > 1:
+        raise RuntimeError("DMR client identity is ambiguous in the current TGIF roster.")
+    if len(matches) == 1:
+        return matches.pop()
     raise RuntimeError("DMR client is no longer in the current TGIF roster.")
 
 
@@ -407,8 +441,8 @@ def remove_dmr_roster_client(dmrid, reason):
         if os.path.exists(tmp): os.unlink(tmp)
 
 
-def write_dmr_kick(callsign, actor="system"):
-    dmrid = dmr_client_id(callsign)
+def write_dmr_kick(callsign, actor="system", expected_id=""):
+    dmrid = dmr_client_id(callsign, expected_id)
     try:
         with open(DMR_CONTROL, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
@@ -438,7 +472,7 @@ def write_dmr_kick(callsign, actor="system"):
     emit(ok=True, action="kick", callsign=callsign, protocol="DMRMMDVM", audit=read_audit_events(), verified=True, dmrid=str(dmrid), enforcement="disconnect_only", quietSeconds=0)
 
 
-def sync_dmr_ban(rule, banned_state):
+def sync_dmr_ban(rule, banned_state, expected_id=""):
     """Mirror an exact URFWIL callsign ban into the DMR-ID enforcement store."""
     if rule.endswith("*") or not os.path.isdir(os.path.dirname(DMR_CONTROL)):
         return
@@ -454,9 +488,11 @@ def sync_dmr_ban(rule, banned_state):
     ids = {int(key) for key, call in clients.items() if call == target}
     if banned_state:
         try:
-            ids.add(dmr_client_id(target))
+            ids.add(dmr_client_id(target, expected_id))
         except RuntimeError:
-            if not ids:
+            if expected_id or not ids:
+                if expected_id:
+                    raise
                 return
         for dmrid in ids:
             banned.add(dmrid); kicked.pop(str(dmrid), None); clients[str(dmrid)] = target
@@ -466,7 +502,7 @@ def sync_dmr_ban(rule, banned_state):
             # Use only an authoritative current roster mapping; never infer a
             # DMR ID from a callsign or from unrelated banned numeric IDs.
             try:
-                current_id = dmr_client_id(target)
+                current_id = dmr_client_id(target, expected_id)
                 if current_id in banned:
                     ids.add(current_id)
             except RuntimeError:
@@ -635,11 +671,15 @@ def expire_timed_bans(rules, timed):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire", "dmr-ban", "dmr-unban", "dmr-list"])
+    parser.add_argument("action", choices=["capabilities", "list", "ban", "unban", "kick", "expire", "dmr-ban", "dmr-unban", "dmr-list"])
     parser.add_argument("rule", nargs="?")
     parser.add_argument("protocol", nargs="?")
     parser.add_argument("--actor", default="system")
+    parser.add_argument("--dmr-id", default="")
     args = parser.parse_args()
+    if args.action == "capabilities":
+        emit(**dmr_admin_capabilities())
+        return
     if args.action in {"dmr-list", "dmr-ban", "dmr-unban"}:
         try:
             with open(DMR_CONTROL, "r", encoding="utf-8") as handle:
@@ -654,7 +694,7 @@ def main():
             return
         if not args.rule:
             raise ValueError("A current DMR callsign or DMR ID is required.")
-        dmrid = dmr_client_id(args.rule)
+        dmrid = dmr_client_id(args.rule, args.dmr_id)
         if args.action == "dmr-ban":
             banned.add(dmrid)
             kicked.pop(str(dmrid), None)
@@ -690,7 +730,7 @@ def main():
             raise ValueError("Unsupported bridge client protocol.")
         runtime_protocol = PROTOCOLS[protocol]
         if protocol == "DMRMMDVM":
-            write_dmr_kick(callsign, args.actor)
+            write_dmr_kick(callsign, args.actor, args.dmr_id)
             return
         if protocol == "ZELLO":
             raise ValueError("Zello does not support disconnecting a channel user.")
@@ -718,12 +758,14 @@ def main():
         assert_ban_allowed(rule)
         duration = (args.protocol or "permanent").strip().lower()
         now = int(time.time())
+        if args.dmr_id:
+            dmr_client_id(rule, args.dmr_id)
         if rule not in rules:
             rules.append(rule)
         timed = set_ban_expiration(timed, rule, duration, now)
         write_rules(rules)
         write_timed_bans(timed)
-        sync_dmr_ban(rule, True)
+        sync_dmr_ban(rule, True, args.dmr_id)
         expected = sorted(set(rules))
         if read_rules() != expected:
             raise RuntimeError("URF blacklist write could not be verified.")
