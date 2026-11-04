@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3.2',
-  label: 'Beta 8.3.2',
-  summary: 'Restores safe, targeted URF DMR client Disconnect and Ban controls.',
+  version: '1.0.0-beta.8.3.3',
+  label: 'Beta 8.3.3',
+  summary: 'Allows a display-only URF card to become a fresh managed installation safely.',
   items: [
-    'Shows Disconnect and Ban controls only when the DMR administration runtime is actually writable.',
-    'Targets the selected current callsign and DMR ID while rejecting stale or ambiguous client references.',
-    'Refreshes Connected Clients after each action without disturbing unrelated clients.',
-    'Preserves Beta 8.3.1 URF ownership recovery, protocol visibility, and existing bridge configuration.',
+    'Treats an explicit display-only URF card with no runtime as a fresh install instead of an ownership recovery.',
+    'Preserves the selected reflector, private node, TGIF talkgroup, and DMR-only protocol choice.',
+    'Still rejects partial managed ownership, conflicting runtime files, and unsafe existing installations.',
+    'Explicitly verifies native URF installation compatibility with Debian 13.',
   ],
 } as const

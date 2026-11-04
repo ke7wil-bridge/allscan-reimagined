@@ -395,9 +395,22 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         raise PlanError("main AllStar node is missing") from exc
     if settings.bridge_role == "net" and not 100 <= main_node <= 999999:
         raise PlanError("DMR Net Bridge requires a 3-6 digit main AllStar node")
-    owned = [b for b in config["bridges"] if isinstance(b, dict) and b.get("id") == settings.bridge_id and b.get("urfReflector")]
-    if len(owned) > 1:
+    saved = [b for b in config["bridges"] if isinstance(b, dict) and b.get("id") == settings.bridge_id and b.get("urfReflector")]
+    if len(saved) > 1:
         raise PlanError("cannot recover URF ownership: duplicate saved reflector identities")
+    display_only = saved[0] if saved and saved[0].get("backendMode") == "display_only" else None
+    if display_only is not None:
+        ownership_markers = (
+            "bridgePermission", "instance", "setupPorts", "setupPublicPorts",
+            "setupListenerPorts", "managedTargetFile", "tgifStaticTokenPath",
+        )
+        if any(display_only.get(key) not in (None, "", [], {}) for key in ownership_markers):
+            raise PlanError("cannot install URF: display-only bridge contains managed ownership markers")
+        runtime_path = rooted(root, runtime_root(settings.bridge_id))
+        if runtime_path.exists() or managed_block_node(
+                rpt_path.read_text(encoding="utf-8", errors="replace"), settings.bridge_id) is not None:
+            raise PlanError("cannot install URF: display-only bridge has an existing runtime footprint")
+    owned = [] if display_only is not None else saved
     record = rooted(root, f"{STATE}/{settings.bridge_id}.json")
     previous_record: dict[str, Any] = {}
     if record.exists():
@@ -418,6 +431,8 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
                 or not record_ports or not all(isinstance(value, int) for value in record_ports.values())
                 or previous_record.get("bridgeType", "dmr") != "dmr"):
             raise PlanError("existing URF ownership record is incomplete")
+    if display_only is not None and previous_record:
+        raise PlanError("cannot install URF: display-only bridge conflicts with an ownership record")
     if owned and not previous_record:
         previous_record = recover_legacy_ownership(
             root, settings, owned[0], rpt_path.read_text(encoding="utf-8", errors="replace"))
@@ -433,12 +448,23 @@ def plan(root: Path, settings: UrfSettings) -> dict[str, Any]:
         previous_node = None
     used = set(facts.node_numbers) | {main_node}
     for bridge in config["bridges"]:
-        if isinstance(bridge, dict):
+        if isinstance(bridge, dict) and bridge is not display_only:
             try: used.add(int(bridge.get("node")))
             except (TypeError, ValueError): pass
+    display_node = None
+    if display_only is not None:
+        try:
+            display_node = int(display_only.get("node"))
+        except (TypeError, ValueError):
+            pass
+        if display_node is not None and not 1001 <= display_node <= 1999:
+            raise PlanError("cannot install URF: display-only private node is invalid")
+        if (display_node is not None and settings.bridge_node is not None
+                and display_node != settings.bridge_node):
+            raise PlanError("cannot install URF: display-only private node conflicts with Check Setup")
     node = (1999 if settings.bridge_role == "net" else
             (int(owned[0]["node"]) if owned else
-             (settings.bridge_node or previous_node or core.allocate_node(used))))
+             (settings.bridge_node or previous_node or display_node or core.allocate_node(used))))
     shared_net_node = (settings.bridge_role == "net" and node == 1999
                        and any(isinstance(item, dict)
                                and item.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}

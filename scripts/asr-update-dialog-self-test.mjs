@@ -80,9 +80,9 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.3.2'")
-    && whatsNewSource.includes('Disconnect and Ban controls')
-    && whatsNewSource.includes('stale or ambiguous client references')
+  whatsNewSource.includes("version: '1.0.0-beta.8.3.3'")
+    && whatsNewSource.includes('display-only URF card')
+    && whatsNewSource.includes('Debian 13')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
   'What’s New copy is missing, version-mismatched, or too technical.',
 )
