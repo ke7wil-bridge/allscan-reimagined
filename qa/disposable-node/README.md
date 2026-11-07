@@ -33,3 +33,11 @@ Created separate `asr-qa-debian-staging` libvirt guest, booted with 2 vCPU, 1536
 ## Verified ASL3 template and first clone (2026-11-06)
 
 Official AllStarLink Debian 12 repository package `asl-apt-repos` was installed; `asl3` 3.18.2-2.deb12 and `asl3-asterisk` 2:22.10.1+asl3-3.10.8-1.deb12 installed successfully. Asterisk 22.10.1 and `app_rpt.so` were verified running in staging; `rpt nodes 1999` showed no connected nodes, and sample IAX registration lines were commented out. To prevent any unintended RF/network activity in clones, Asterisk was **disabled and stopped** before sealing the template. Staging guest was shut down, its standalone qcow2 image promoted to `asr-qa-asl3-template.qcow2`, and the powered-off libvirt template defined. Disposable overlay guest `asr-qa-disposable` was created and booted; private NAT DHCP and SSH work, packages were verified, and Asterisk remains inactive. The host readiness report is at `$HOME/vms/asr-qa/reports/host-ready-20261106.json` with `ready=true`, `releaseQualified=false`, `releaseTests=not-run`. Release tests have NOT run; no production nodes touched. Template SSH host keys and machine identity are currently inherited by clones; regenerate per clone before any wider distribution or parallel VM use.
+
+## Guest qualification report (Issue #129)
+
+Run `python3 qa/disposable-node/asr-guest-qualification.py --output "$HOME/vms/asr-qa/reports/guest-qualification.json"` from the development host. This verifies the named isolated ASL3 guest's baseline via libvirt NAT and SSH, records the temporary filesystem characteristics, and **fails closed** while install, upgrade, rollback, reboot, asset-integrity, and bridge-lifecycle tests remain unexecuted. A ready VM is never treated as a qualified release. No production host is contacted.
+
+### Temporary filesystem preflight (Doug's node 67098)
+
+Doug reported `/tmp` as a 128-MiB `tmpfs` mounted `noexec`, despite having nearly all bytes and inodes free. This does **not** prove a disk-full failure. The installer preflight now rejects `noexec` temporary staging with an actionable diagnostic, in addition to checking space and inodes. Future integration tests must cover both a constrained `noexec` `/tmp` and a usable alternate staging directory; never remount a production node as part of a test.

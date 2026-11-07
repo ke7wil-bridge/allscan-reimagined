@@ -22,6 +22,13 @@ with tempfile.TemporaryDirectory() as root:
         assert available == 102400 and inodes == 2
         assert len(problems) == 2
         assert module.check(p, 1000, 1)[2] == []
+# Doug's ASL3 node had a 128-MiB /tmp tmpfs mounted noexec. Free bytes
+# alone cannot establish that executable staging is safe.
+mounts = ('36 22 0:31 / / rw,relatime - ext4 /dev/vda1 rw\n'
+          '41 36 0:50 / /tmp rw,nosuid,nodev,noexec,size=131072k - tmpfs tmpfs rw\n')
+assert 'noexec' in module.temporary_mount_problems('/tmp', mounts)[0]
+assert module.temporary_mount_problems('/var/tmp', mounts) == []
+assert module.temporary_mount_problems('/tmp', mounts.replace('noexec,', '')) == []
 good = SimpleNamespace(returncode=0, stdout='', stderr='')
 bad = SimpleNamespace(returncode=0, stdout='unpacked package', stderr='')
 with patch.object(module.Path, 'is_file', return_value=True):
