@@ -4198,13 +4198,6 @@ function App({ config }: { config: RuntimeConfig }) {
                           {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}
                         </span>
                       </button>
-                      {standardLinkMissing && authStatus.canModify ? (
-                        <button type="button" className="allscan-action-button" disabled={busy}
-                          title={`Reconnect ${card.title} using AllStar node ${card.node}`}
-                          onClick={() => void runCommandForNode('connect', card.node, false, false)}>
-                          {busy ? 'Working…' : 'Reconnect'}
-                        </button>
-                      ) : null}
                     </span>
                   </div>
 
@@ -4234,6 +4227,18 @@ function App({ config }: { config: RuntimeConfig }) {
                       </div>
                     ) : null}
                   </div>
+
+                  {standardLinkMissing && authStatus.canModify ? (
+                    <div className="allscan-bridge-row allscan-bridge-status-row">
+                      <span>AllStar link · Node {card.node}</span>
+                      <b>Not linked</b>
+                      <button type="button" className="allscan-action-button" disabled={busy}
+                        title={`Reconnect ${card.title} using AllStar node ${card.node}`}
+                        onClick={() => void runCommandForNode('connect', card.node, false, false)}>
+                        {busy ? 'Working…' : 'Reconnect'}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {card.healthSeverity && card.repairAvailable && authStatus.canModify ? (
                     <div className="allscan-bridge-repair-alert" role="alert">
