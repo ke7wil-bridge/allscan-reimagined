@@ -119,6 +119,10 @@ with tempfile.TemporaryDirectory() as root:
 # Bootstrap and installer must propagate the same alternate staging directory
 # into preflight and the official AllScan installer.
 root = Path(__file__).resolve().parent.parent
+# Release archives place scripts under payload/scripts, while bootstrap and
+# install.sh remain at the archive root. Support both source and staged tests.
+if not (root / 'bootstrap.sh').is_file():
+    root = root.parent
 bootstrap = (root / 'bootstrap.sh').read_text()
 installer = (root / 'install.sh').read_text()
 selection = '${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}'
