@@ -37,6 +37,33 @@ def check(path, required_bytes, required_inodes=1024):
     return available, inodes, problems
 
 
+def temporary_mount_problems(path='/tmp', mountinfo=None):
+    """Report temporary filesystems that cannot safely stage executable installers."""
+    if mountinfo is None:
+        try:
+            mountinfo = Path('/proc/self/mountinfo').read_text()
+        except OSError:
+            return ['Cannot inspect temporary filesystem mount options']
+    target = str(Path(path).resolve())
+    mounts = []
+    for line in mountinfo.splitlines():
+        fields = line.split(' - ', 1)
+        if len(fields) != 2:
+            continue
+        left = fields[0].split()
+        if len(left) < 6:
+            continue
+        mountpoint = left[4].replace('\\040', ' ')
+        if target == mountpoint or target.startswith(mountpoint.rstrip('/') + '/'):
+            mounts.append((len(mountpoint), set(left[5].split(',')), mountpoint))
+    if not mounts:
+        return ['Cannot identify temporary filesystem mount']
+    _, options, mountpoint = max(mounts)
+    if 'noexec' in options:
+        return [f'{path}: temporary filesystem {mountpoint} is mounted noexec; installer scripts or binaries staged there may fail (configure a sufficiently large executable staging directory)']
+    return []
+
+
 def package_health(run=subprocess.run):
     """Reject unfinished Debian package transactions before apt mutations."""
     if not Path('/var/lib/dpkg/status').is_file():
@@ -69,9 +96,16 @@ def main():
     size = payload_bytes(args.payload)
     # Reserve room for a staged copy, rollback copy, package downloads, and
     # temporary files; these are conservative estimates, not exact forecasts.
+    # Installer and bootstrap stage release assets on the persistent filesystem.
+    # /tmp is frequently a 128-MiB noexec tmpfs on ASL3 nodes; do not require
+    # 128 MiB free there when no installer staging uses it.
+    staging = os.environ.get('ASR_STAGE_DIR', '/var/tmp')
+    if not Path(staging).is_dir() or not Path(staging).is_absolute():
+        print('ERROR: ASR_STAGE_DIR must be an existing absolute directory', file=sys.stderr)
+        return 1
     requirements = {'/opt/allscan-reimagined': max(256 * MIB, size * 3),
                     '/root/allscan-reimagined-backups': max(128 * MIB, size * 2),
-                    '/tmp': max(128 * MIB, size)}
+                    staging: max(128 * MIB, size)}
     # Multiple install paths commonly share the root filesystem. Sum their
     # reservations so each individually passing check cannot overcommit it.
     grouped = {}
@@ -104,6 +138,7 @@ def main():
             problems.append('Unsupported operating system: Debian-family Linux required')
     except OSError:
         problems.append('Cannot determine operating system from /etc/os-release')
+    problems.extend(temporary_mount_problems(staging))
     problems.extend(package_health())
     for issue in problems:
         print('ERROR: ' + issue, file=sys.stderr)
