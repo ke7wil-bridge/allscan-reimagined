@@ -1,0 +1,1061 @@
+/* Drop Client dialog rows and actions. */
+
+.allscan-drop-client-help,
+.allscan-drop-client-status {
+  margin: 8px 0 12px;
+  color: rgb(172, 193, 203);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.allscan-drop-client-list {
+  display: grid;
+  gap: 0;
+}
+
+.allscan-drop-client-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.allscan-drop-client-meta {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+  text-align: center;
+}
+
+.allscan-drop-client-name {
+  color: rgb(230, 242, 247);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.allscan-drop-client-caller {
+  display: block;
+  margin-top: 3px;
+  color: rgb(214, 225, 231);
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.allscan-drop-client-channel {
+  display: block;
+  margin-top: 3px;
+  color: rgb(172, 193, 203);
+  font-family: monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.allscan-drop-client-drop {
+  min-width: 74px;
+  padding: 7px 12px;
+  border: 1px solid #c45858;
+  border-radius: 6px;
+  background: #632323;
+  color: #ffe7e7;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.allscan-drop-client-drop:disabled {
+  opacity: 0.65;
+}
+
+/* Shared form widgets and sort controls. */
+
+.allscan-checkbox {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 2px;
+  background: #ffffff;
+  position: relative;
+}
+
+.allscan-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  inset: 1px 3px 2px 3px;
+  border-right: 2px solid #111111;
+  border-bottom: 2px solid #111111;
+  transform: rotate(45deg);
+}
+
+.allscan-sort-badge {
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  background: #000000;
+  color: #ffffff;
+  vertical-align: middle;
+  flex: 0 0 20px;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.allscan-sort-icon {
+  width: 13px;
+  height: 13px;
+  stroke: #ffffff;
+  stroke-width: 2.35;
+}
+
+.allscan-main-section {
+  margin-bottom: 18px;
+}
+
+.allscan-section-title {
+  margin: 10px auto 8px;
+  color: #dce6ec;
+  text-align: center;
+  font-size: 20px;
+  line-height: 1.15;
+  font-style: italic;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.allscan-section-subtitle {
+  margin: -4px auto 9px;
+  color: #7f8488;
+  text-align: center;
+  font-size: 11px;
+  line-height: 11px;
+  font-weight: 600;
+}
+
+.allscan-action-button {
+  @apply inline-flex min-h-[30px] min-w-[46px] items-center justify-center rounded-[6px] border px-[8px] py-[4px] text-[14px] leading-[1.1] font-semibold transition;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(28, 28, 30, 0.96);
+  color: rgb(230, 242, 247);
+  font-weight: 900;
+  line-height: 15.4px;
+  box-shadow: none;
+}
+
+.allscan-connect-button {
+  width: 84px;
+  min-width: 84px;
+  padding-inline: 8px;
+}
+
+.allscan-disconnect-button {
+  width: 100px;
+  min-width: 100px;
+  padding-inline: 8px;
+}
+
+.allscan-favs-button {
+  @apply inline-flex min-h-[30px] min-w-[70px] items-center justify-center gap-1 rounded-[6px] border px-[8px] py-[4px] text-[14px] leading-[1.1] font-semibold transition hover:text-[#ffffff];
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(28, 28, 30, 0.96);
+  color: rgb(230, 242, 247);
+  font-weight: 900;
+  line-height: 15.4px;
+  box-shadow: none;
+}
+
+.allscan-favs-button.is-open {
+  background: #f7fbff;
+  color: rgb(5, 11, 16);
+  border-color: rgb(85, 199, 255);
+  box-shadow: 0 0 0 1px rgba(85, 199, 255, 0.24);
+}
+
+.allscan-checks-row {
+  column-gap: 28px;
+  color: rgb(234, 244, 248);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 14.3px;
+}
+
+.allscan-checks-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0 3px 0 0;
+  border: 1px solid #111;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: none;
+  cursor: default;
+  position: relative;
+}
+
+.allscan-checks-row input[type="checkbox"]:checked {
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.2l2.5 2.6L12.8 4.9' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+}
+
+.allscan-node-messages {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgb(5, 5, 5);
+  border-radius: 7px;
+  min-height: 22px;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.allscan-node-messages-label {
+  color: rgb(234, 244, 248);
+  font-weight: 800;
+}
+
+.allscan-node-messages-text {
+  color: rgb(234, 244, 248);
+  font-weight: 800;
+}
+
+.allscan-node-messages-summary {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 498px;
+  max-width: 100%;
+  height: 22px;
+  min-height: 22px;
+  gap: 12px;
+  padding: 2px 7px;
+  background: rgb(36, 40, 46);
+  color: rgb(234, 244, 248);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 10.5px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.allscan-node-messages summary::-webkit-details-marker {
+  display: none;
+}
+
+.allscan-node-messages-summary::after {
+  content: "▼";
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: rgb(234, 244, 248);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.allscan-node-messages[open] .allscan-node-messages-summary::after {
+  content: "▲";
+}
+
+.allscan-node-messages-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 5px 7px;
+  background: rgb(5, 5, 5);
+  color: rgb(234, 244, 248);
+  font-size: 11px;
+  line-height: 1.22;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: min(360px, 52vh);
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app {
+    padding-top: 68px;
+  }
+
+  .allscan-header {
+    grid-template-columns: 60px minmax(0, 1fr) 60px;
+    grid-template-rows: auto;
+    gap: 4px 6px;
+    padding: 4px 6px 3px;
+  }
+
+  .allscan-update-notice,
+  .allscan-tgif-notice {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 9px 10px;
+  }
+
+  .allscan-update-notice-copy,
+  .allscan-tgif-notice-copy {
+    font-size: 12px;
+  }
+
+  .allscan-update-notice-copy strong,
+  .allscan-tgif-notice-copy strong {
+    font-size: 14px;
+  }
+
+  .allscan-update-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .allscan-update-actions a {
+    flex: 1 1 210px;
+    min-width: 0;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .allscan-tgif-notice > a {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .allscan-brand {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    width: 60px;
+    height: 44px;
+    overflow: visible;
+  }
+
+  .allscan-brand-main {
+    transform: scale(0.78);
+    transform-origin: left center;
+  }
+
+  .allscan-wordmark-mark {
+    font-size: 28px;
+  }
+
+  .allscan-wordmark-bolt-wrap {
+    width: 14px;
+    height: 25px;
+  }
+
+  .allscan-tagline {
+    font-size: 9px;
+  }
+
+  .allscan-brand-version,
+  .allscan-byline {
+    font-size: 8px;
+  }
+
+  .allscan-section-title {
+    font-size: 18px;
+  }
+
+  .allscan-header-center {
+    transform: translateY(-1px);
+    justify-self: center;
+  }
+
+  .allscan-header-ke7wil-logo {
+    width: 24px;
+    height: 24px;
+    margin: -1px auto -2px;
+  }
+
+  .allscan-title {
+    font-size: 13px;
+    line-height: 1.05;
+  }
+
+  .allscan-cpu {
+    margin-top: 1px;
+  }
+
+  .allscan-cpu-pill {
+    padding: 1px 3px;
+    font-size: 8px;
+  }
+
+  .allscan-cpu,
+  .allscan-clockline,
+  .allscan-status-label {
+    font-size: 8px;
+  }
+
+  .allscan-clockline {
+    gap: 5px;
+    margin-top: 1px;
+    font-size: 8px;
+  }
+
+  .allscan-status-row {
+    width: min(210px, 100%);
+    gap: 1px;
+    margin-top: 1px;
+    margin-right: auto;
+    margin-left: auto;
+    flex-wrap: nowrap;
+  }
+
+  .allscan-pill {
+    padding: 1px 4px;
+    font-size: 8px;
+    white-space: nowrap;
+  }
+
+  .allscan-status-label {
+    font-size: 8px;
+  }
+
+  .allscan-lookup-main-button {
+    display: none;
+  }
+
+  .allscan-menu-button {
+    width: auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    align-self: center;
+    justify-self: end;
+    padding: 7px;
+    border-color: #5c889f;
+    background: #183750;
+    color: #7fd0ff;
+  }
+
+  .allscan-menu-desktop {
+    display: none;
+  }
+
+  .allscan-menu-mobile {
+    display: inline-flex;
+  }
+
+  .allscan-menu-panel {
+    position: fixed;
+    top: 58px;
+    left: 8px;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 8px;
+  }
+
+  .allscan-menu-proxy-list {
+    gap: 5px;
+  }
+
+  .allscan-menu-panel .allscan-menu-direct-row {
+    display: flex;
+  }
+
+  .allscan-menu-proxy-row,
+  .allscan-submenu a,
+  .allscan-submenu button {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .allscan-menu-row-icon {
+    display: block;
+  }
+
+  .allscan-submenu-back {
+    display: none;
+    width: 100%;
+    min-height: 34px;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 5px;
+    background: var(--theme-hover);
+    color: var(--theme-text);
+    padding: 0 10px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 850;
+    text-align: left;
+  }
+
+  .allscan-submenu-back-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .allscan-menu-panel.has-active-submenu .allscan-menu-proxy-list {
+    display: none;
+  }
+
+  .allscan-menu-panel.has-active-submenu .allscan-submenu-back {
+    display: flex;
+  }
+
+  .allscan-submenu {
+    position: static;
+    width: 100%;
+    margin-top: 6px;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .allscan-submenu.is-open {
+    display: grid;
+    gap: 5px;
+  }
+
+  .allscan-menu-proxy-row::before {
+    content: none;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app {
+    padding-top: 51px;
+  }
+
+  .allscan-header {
+    gap: 2px 6px;
+    padding: 2px 6px 3px;
+  }
+
+  .allscan-brand {
+    height: 42px;
+  }
+
+  .allscan-brand-main {
+    transform: scale(0.72);
+  }
+
+  .allscan-header-ke7wil-logo {
+    width: 20px;
+    height: 20px;
+    margin: -2px auto -3px;
+  }
+
+  .allscan-title {
+    font-size: 12px;
+  }
+
+  .allscan-cpu {
+    margin-top: 0;
+  }
+
+  .allscan-clockline,
+  .allscan-status-row {
+    margin-top: 0;
+  }
+
+  .allscan-menu-button {
+    padding: 6px;
+  }
+
+  .allscan-menu-panel {
+    top: 47px;
+    right: 6px;
+    left: auto;
+    width: min(360px, calc(100vw - 12px));
+    max-height: none;
+    padding: 5px;
+  }
+
+  .allscan-menu-proxy-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .allscan-menu-proxy-row,
+  .allscan-submenu a,
+  .allscan-submenu button {
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .allscan-menu-panel.has-active-submenu .allscan-menu-proxy-list {
+    display: grid;
+  }
+
+  .allscan-menu-panel.has-active-submenu .allscan-submenu-back {
+    display: none;
+  }
+
+  .allscan-menu-proxy-list,
+  .allscan-submenu.is-open {
+    gap: 2px;
+  }
+
+  .allscan-submenu {
+    margin-top: 4px;
+    padding: 4px;
+  }
+
+  .allscan-submenu.is-open {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.allscan-drop-client-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* ==========================================================================
+   Theme Tokens
+
+   These variables control page chrome only. Connection Status and Bridge
+   Status state colors intentionally stay global so Idle, Relay, and TX match
+   across every theme.
+   ========================================================================== */
+
+html[data-asr-theme] {
+  --theme-bg: #151515;
+  --theme-panel: rgba(11, 11, 13, 0.95);
+  --theme-panel-solid: #09090b;
+  --theme-panel-2: #202024;
+  --theme-control: #1c1c1e;
+  --theme-border: rgba(255, 255, 255, 0.18);
+  --theme-border-strong: rgba(255, 255, 255, 0.34);
+  --theme-text: #eaf4f8;
+  --theme-muted: #acc1cb;
+  --theme-accent: #55c7ff;
+  --theme-hover: rgba(255, 255, 255, 0.12);
+  --theme-favs-active-color: #f4f7f9;
+  --theme-favs-active-border: rgba(255, 255, 255, 0.74);
+  --theme-favs-active-ring: rgba(255, 255, 255, 0.82);
+  --theme-favs-active-glow: rgba(255, 255, 255, 0.5);
+  --theme-shadow: rgba(0, 0, 0, 0.42);
+  --theme-status-bg: var(--theme-panel-solid);
+  --theme-status-head-bg: var(--theme-panel-2);
+  --theme-status-row-bg: var(--theme-panel-solid);
+  --theme-status-border: var(--theme-border);
+  --theme-status-shadow: 0 8px 24px var(--theme-shadow);
+  --theme-bridge-bg: var(--theme-panel-solid);
+  --theme-bridge-head-bg: var(--theme-panel-2);
+  --theme-bridge-border: var(--theme-border);
+  --theme-bridge-client-bg: var(--theme-panel-2);
+  --theme-bridge-shadow: 0 10px 26px var(--theme-shadow);
+  --theme-bridge-text: var(--theme-text);
+  --theme-bridge-muted: var(--theme-text);
+  --theme-bridge-meta: var(--theme-muted);
+  color-scheme: dark;
+  background: var(--theme-bg);
+}
+
+html[data-asr-theme][data-asr-mode="light"] {
+  --theme-bg: #c9d0d4;
+  --theme-panel: rgba(215, 220, 223, 0.98);
+  --theme-panel-solid: #d5dade;
+  --theme-panel-2: #b9c2c8;
+  --theme-control: #c5cdd2;
+  --theme-border: rgba(67, 82, 91, 0.5);
+  --theme-border-strong: rgba(45, 61, 70, 0.72);
+  --theme-text: #10181c;
+  --theme-muted: #59646a;
+  --theme-accent: #006b9b;
+  --theme-hover: rgba(31, 43, 49, 0.12);
+  --theme-favs-active-color: #10181c;
+  --theme-favs-active-border: rgba(45, 61, 70, 0.62);
+  --theme-favs-active-ring: rgba(255, 255, 255, 0.92);
+  --theme-favs-active-glow: rgba(255, 255, 255, 0.66);
+  --theme-shadow: rgba(20, 42, 53, 0.18);
+  --theme-status-bg: #c8d0d5;
+  --theme-status-head-bg: #b9c2c8;
+  --theme-status-row-bg: #d4dadd;
+  --theme-status-border: rgba(69, 82, 89, 0.42);
+  --theme-status-shell-border: #87939a;
+  --theme-status-shadow: 0 6px 18px rgba(31, 43, 49, 0.16);
+  --theme-bridge-bg: #d7dcdf;
+  --theme-bridge-head-bg: #b9c2c8;
+  --theme-bridge-border: #aab3b8;
+  --theme-bridge-shell-border: #a0aaaf;
+  --theme-bridge-client-bg: #bac3c9;
+  --theme-bridge-client-border: #9da8ae;
+  --theme-bridge-shadow: 0 8px 20px rgba(31, 43, 49, 0.16);
+  --theme-bridge-text: #10181c;
+  --theme-bridge-muted: #10181c;
+  --theme-bridge-meta: #10181c;
+  color-scheme: light;
+}
+
+html[data-asr-theme="deep-ocean-animated"] {
+  --theme-bg: #050b10;
+  --theme-panel: rgba(10, 23, 32, 0.91);
+  --theme-panel-solid: rgba(7, 18, 26, 0.97);
+  --theme-panel-2: rgba(16, 45, 66, 0.94);
+  --theme-control: rgba(17, 43, 58, 0.96);
+  --theme-border: rgba(85, 199, 255, 0.3);
+  --theme-border-strong: rgba(85, 199, 255, 0.62);
+  --theme-text: #eaf4f8;
+  --theme-muted: #acc1cb;
+  --theme-accent: #55c7ff;
+  --theme-hover: rgba(85, 199, 255, 0.16);
+  --theme-favs-active-color: var(--theme-accent);
+  --theme-favs-active-border: rgba(85, 199, 255, 0.86);
+  --theme-favs-active-ring: rgba(85, 199, 255, 0.86);
+  --theme-favs-active-glow: rgba(85, 199, 255, 0.62);
+  --theme-status-bg: rgba(7, 21, 30, 0.94);
+  --theme-status-head-bg: #11364d;
+  --theme-status-row-bg: rgba(8, 24, 34, 0.96);
+  --theme-status-border: rgba(52, 105, 133, 0.62);
+  --theme-status-shell-border: #285a73;
+  --theme-status-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+  --theme-bridge-bg: rgba(7, 21, 30, 0.96);
+  --theme-bridge-head-bg: #11364d;
+  --theme-bridge-border: #214b62;
+  --theme-bridge-shell-border: #285a73;
+  --theme-bridge-client-bg: #10354b;
+  --theme-bridge-client-border: #2d6683;
+  --theme-bridge-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+}
+
+html[data-asr-theme="matrix"] {
+  --theme-bg: #000500;
+  --theme-panel: rgba(2, 13, 4, 0.93);
+  --theme-panel-solid: rgba(2, 13, 4, 0.98);
+  --theme-panel-2: rgba(9, 43, 16, 0.96);
+  --theme-control: rgba(6, 59, 22, 0.94);
+  --theme-border: rgba(25, 230, 95, 0.42);
+  --theme-border-strong: rgba(25, 230, 95, 0.78);
+  --theme-text: #d8ffe1;
+  --theme-muted: #80d790;
+  --theme-accent: #00ff66;
+  --theme-hover: rgba(0, 255, 102, 0.14);
+  --theme-favs-active-color: var(--theme-accent);
+  --theme-favs-active-border: rgba(0, 255, 102, 0.86);
+  --theme-favs-active-ring: rgba(0, 255, 102, 0.84);
+  --theme-favs-active-glow: rgba(0, 255, 102, 0.58);
+  --theme-shadow: rgba(0, 255, 102, 0.14);
+  --theme-status-bg: rgb(2, 13, 4);
+  --theme-status-head-bg: rgb(9, 43, 16);
+  --theme-status-row-bg: rgb(2, 13, 4);
+  --theme-status-border: rgba(0, 255, 102, 0.28);
+  --theme-status-shell-border: rgb(25, 230, 95);
+  --theme-status-shadow: 0 0 0 1px rgba(0, 255, 102, 0.1), 0 0 20px rgba(0, 255, 102, 0.1);
+  --theme-bridge-bg: rgb(2, 13, 4);
+  --theme-bridge-head-bg: rgb(9, 43, 16);
+  --theme-bridge-border: rgba(0, 255, 102, 0.28);
+  --theme-bridge-shell-border: rgba(0, 255, 102, 0.28);
+  --theme-bridge-client-bg: rgb(9, 43, 16);
+  --theme-bridge-client-border: rgba(0, 255, 102, 0.28);
+  --theme-bridge-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --theme-bridge-text: #d8ffe1;
+  --theme-bridge-muted: #f2f2f2;
+  --theme-bridge-meta: #d8ffe1;
+  --theme-bridge-value: #9ef0a0;
+}
+
+html[data-asr-theme="lcars-frame"] {
+  --lcars-tan: #cc9966;
+  --lcars-gold: #ccaa44;
+  --lcars-cream: #ddcc99;
+  --lcars-blue: #7799bb;
+  --lcars-brown: #887755;
+  --lcars-module-band-height: 28px;
+  --lcars-node-controls-top-band: linear-gradient(
+    90deg,
+    var(--lcars-tan) 0 16%,
+    var(--lcars-gold) 16% 34%,
+    var(--lcars-cream) 34% 60%,
+    var(--lcars-blue) 60% 80%,
+    var(--lcars-tan) 80% 100%
+  );
+  --lcars-node-controls-bottom-band: linear-gradient(
+    90deg,
+    var(--lcars-gold) 0 15%,
+    var(--lcars-blue) 15% 33%,
+    var(--lcars-tan) 33% 58%,
+    var(--lcars-cream) 58% 81%,
+    var(--lcars-brown) 81% 100%
+  );
+  --theme-bg: #050407;
+  --theme-panel: rgba(12, 12, 16, 0.94);
+  --theme-panel-solid: rgba(12, 12, 16, 0.99);
+  --theme-panel-2: #34271d;
+  --theme-control: #211b20;
+  --theme-border: rgba(204, 153, 102, 0.5);
+  --theme-border-strong: #cc9966;
+  --theme-text: #f5eadc;
+  --theme-muted: #c2aa94;
+  --theme-accent: #ffbd46;
+  --theme-hover: rgba(204, 153, 102, 0.18);
+}
+
+/* ==========================================================================
+   Theme Backgrounds And Shared Theme Chrome
+   ========================================================================== */
+
+html[data-asr-theme="lcars-frame"],
+html[data-asr-theme="lcars-frame"] body {
+  background-color: #050407;
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(204, 153, 102, 0.1), rgba(0, 0, 0, 0) 26%),
+    radial-gradient(circle at 84% 18%, rgba(156, 120, 255, 0.12), rgba(0, 0, 0, 0) 30%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.024) 0, rgba(255, 255, 255, 0.024) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 7px);
+}
+
+html[data-asr-theme]::before,
+html[data-asr-theme]::after {
+  content: none;
+}
+
+html[data-asr-theme="deep-ocean-animated"]::before,
+html[data-asr-theme="matrix"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+html[data-asr-theme="deep-ocean-animated"]::before {
+  background-image: url("/img/deep-blue-animated.gif");
+  opacity: 0.52;
+  filter: brightness(0.78) saturate(1.05) contrast(0.95);
+}
+
+html[data-asr-theme="matrix"]::before {
+  background-image: url("/img/matrix-rain.gif");
+  background-repeat: repeat;
+  opacity: 0.39;
+  filter: brightness(1.18) saturate(1.1);
+}
+
+html[data-asr-theme="deep-ocean-animated"][data-asr-reduce-activity="true"]::before {
+  background-image:
+    radial-gradient(circle at 30% 20%, rgba(34, 134, 190, 0.42), transparent 42%),
+    linear-gradient(145deg, #04111a, #09283a 52%, #02090e);
+}
+
+html[data-asr-theme="matrix"][data-asr-reduce-activity="true"]::before {
+  background-image:
+    repeating-linear-gradient(90deg, rgba(0, 255, 102, 0.035) 0 1px, transparent 1px 24px),
+    linear-gradient(180deg, #000500, #021306 55%, #000500);
+}
+
+html[data-asr-theme="matrix"]::after {
+  background: transparent;
+}
+
+html[data-asr-theme="deep-ocean-animated"]::after,
+html[data-asr-theme="matrix"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(5, 11, 16, 0.28);
+}
+
+html[data-asr-theme] body {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-app {
+  background: transparent !important;
+  color: var(--theme-text) !important;
+}
+
+html[data-asr-theme] .allscan-header {
+  background: var(--theme-panel);
+  border-color: var(--theme-border);
+  box-shadow: 0 14px 34px var(--theme-shadow);
+}
+
+html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app {
+  padding-top: 154px;
+}
+
+html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin: 0;
+}
+
+html[data-asr-theme] .allscan-title,
+html[data-asr-theme] .allscan-control-label,
+html[data-asr-theme] .allscan-checks-row,
+html[data-asr-theme] .allscan-section-title,
+html[data-asr-theme] .allscan-clockline,
+html[data-asr-theme] .allscan-node-messages-label,
+html[data-asr-theme] .allscan-node-messages-text {
+  color: var(--theme-text);
+}
+
+html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-controls-section > .allscan-section-title,
+html[data-asr-theme="deep-ocean-animated"] .allscan-controls-section > .allscan-section-title {
+  color: #ffffff !important;
+}
+
+html[data-asr-theme] .allscan-meta-label,
+html[data-asr-theme] .allscan-status-label,
+html[data-asr-theme] .allscan-section-subtitle,
+html[data-asr-theme] .allscan-favorites-legend,
+html[data-asr-theme] .allscan-favorites-file-form,
+html[data-asr-theme] .allscan-favorites-placement {
+  color: var(--theme-muted);
+}
+
+html[data-asr-theme] .allscan-tagline,
+html[data-asr-theme] .allscan-submenu button.is-selected::after {
+  color: var(--theme-accent);
+}
+
+html[data-asr-theme] .allscan-menu-button,
+html[data-asr-theme] .allscan-action-button,
+html[data-asr-theme] .allscan-favs-button,
+html[data-asr-theme] .allscan-node-input,
+html[data-asr-theme] .allscan-action-select,
+html[data-asr-theme] .allscan-favorites-file-form select {
+  background: var(--theme-control);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-menu-button:hover,
+html[data-asr-theme] .allscan-menu-slot.is-open .allscan-menu-button {
+  background: var(--theme-panel-2);
+  border-color: var(--theme-border-strong);
+}
+
+html[data-asr-theme] .allscan-menu-panel,
+html[data-asr-theme] .allscan-submenu {
+  background: var(--theme-panel-solid);
+  border-color: var(--theme-border);
+  box-shadow: 0 18px 36px var(--theme-shadow);
+}
+
+html[data-asr-theme] .allscan-menu-proxy-row,
+html[data-asr-theme] .allscan-submenu a,
+html[data-asr-theme] .allscan-submenu button {
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-menu-proxy-row:hover,
+html[data-asr-theme] .allscan-menu-proxy-row.is-active,
+html[data-asr-theme] .allscan-submenu a:hover,
+html[data-asr-theme] .allscan-submenu button:hover {
+  background: var(--theme-hover);
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-controls-shell,
+html[data-asr-theme] .allscan-favorites-panel,
+html[data-asr-theme] .allscan-favorites-inner,
+html[data-asr-theme] .allscan-node-messages,
+html[data-asr-theme] .allscan-node-messages-body,
+html[data-asr-theme] .allscan-drop-client-box,
+html[data-asr-theme] .allscan-footer {
+  background: var(--theme-panel-solid);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-status-shell,
+html[data-asr-theme] .allscan-bridge-card {
+  color: var(--theme-bridge-text);
+}
+
+html[data-asr-theme] .allscan-status-shell {
+  border-color: var(--theme-status-shell-border, var(--theme-status-border)) !important;
+  background: var(--theme-status-bg) !important;
+  box-shadow: var(--theme-status-shadow) !important;
+}
+
+html[data-asr-theme] .allscan-status-shell thead tr {
+  background: var(--theme-status-head-bg) !important;
+  color: var(--theme-bridge-text) !important;
+}
+
+html[data-asr-theme] .allscan-status-shell th,
+html[data-asr-theme] .allscan-status-shell td {
+  border-color: var(--theme-status-border) !important;
+}
+
+html[data-asr-theme] .allscan-connection-row-normal,
+html[data-asr-theme] .allscan-connection-row-message,
+html[data-asr-theme] .allscan-status-count-row {
+  background: var(--theme-status-row-bg) !important;
+  color: var(--theme-bridge-text) !important;
+}
+
+html[data-asr-theme] .allscan-bridge-card {
+  border-color: var(--theme-bridge-shell-border, var(--theme-bridge-border));
+  background: var(--theme-bridge-bg);
+  box-shadow: var(--theme-bridge-shadow);
+}
+
+html[data-asr-theme] .allscan-bridge-head {
+  background: var(--theme-bridge-head-bg);
+}
+
+html[data-asr-theme] .allscan-bridge-head-title,
+html[data-asr-theme] .allscan-bridge-row span,
+html[data-asr-theme] .allscan-bridge-detail-title,
+html[data-asr-theme] .allscan-bridge-client-user {
+  color: var(--theme-bridge-muted);
+}
+
+html[data-asr-theme] .allscan-bridge-row b {
+  color: var(--theme-bridge-value, var(--theme-bridge-muted));
+}
+
+html[data-asr-theme] .allscan-bridge-client-meta {
+  color: var(--theme-bridge-meta);
+}
+
+html[data-asr-theme] .allscan-bridge-body,
+html[data-asr-theme] .allscan-bridge-row,
+html[data-asr-theme] .allscan-bridge-detail-wrap {
+  border-color: var(--theme-bridge-border);
+  background: var(--theme-bridge-bg);
+}
+
+html[data-asr-theme] .allscan-bridge-detail-box {
+  border: 0 !important;
+  background: transparent;
+}
+
+html[data-asr-theme] .allscan-bridge-client {
+  border-color: var(--theme-bridge-client-border, var(--theme-bridge-border));
+  background: var(--theme-bridge-client-bg);
+}
+
+html[data-asr-theme] .allscan-node-messages-summary,
+html[data-asr-theme] .allscan-favorites-table thead th {
+  background: var(--theme-panel-2);
+  color: var(--theme-text);
+}
+
+html[data-asr-theme] .allscan-favorites-table tbody td {
+  background: var(--theme-panel-solid);
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+}
+
+html[data-asr-theme] .allscan-favorites-table tbody td a {
+  color: inherit;
+}

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+const css = readdirSync(new URL('../src/styles/asr/', import.meta.url)).filter((name) => name.endsWith('.css')).sort().map((name) => readFileSync(new URL('../src/styles/asr/' + name, import.meta.url), 'utf8')).join('\n')
 const api = readFileSync(new URL('../asr-api.php', import.meta.url), 'utf8')
 const adminFavorites = readFileSync(new URL('../compat/allscan-v1.02/js/asr-favorites-config.js', import.meta.url), 'utf8')
 const common = readFileSync(new URL('../compat/allscan-v1.02/include/common.php', import.meta.url), 'utf8')
