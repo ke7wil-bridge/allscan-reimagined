@@ -32,6 +32,12 @@ ASR_WEB_DIR="${ASR_WEB_DIR:-$WEB_ROOT/asr}"
 
 [ -d "$MASTER_DIR/web" ] || { echo "Reimagined master web files are missing." >&2; exit 1; }
 [ -f "$MASTER_DIR/server/asr-api.php" ] || { echo "Reimagined API is missing." >&2; exit 1; }
+# Restore the privileged updater from the pinned authoritative release if absent.
+# Web-only reapply cannot install host executables.
+if [ "$WEB_ONLY" != "1" ] && [ ! -x /usr/local/sbin/allscan-reimagined-updater ]; then
+  [ -f "$MASTER_DIR/scripts/asr-updater.py" ] || { echo "Updater source is missing." >&2; exit 1; }
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-updater.py" /usr/local/sbin/allscan-reimagined-updater
+fi
 
 WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
