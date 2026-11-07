@@ -1,0 +1,522 @@
+/* Beta 8 locked non-desktop Connection Status readability. */
+@media (max-width: 1199px) {
+  .allscan-connection-table thead th {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+    font-size: 12px !important;
+    line-height: 14px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 22px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table .allscan-connection-row-local > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 11px !important;
+    line-height: 15px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child {
+    font-size: 11.5px !important;
+  }
+}
+
+/* Beta 8 locked tablet-portrait bridge layout: equal standard cards, centered partial rows, wider Net Bridge. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex: 0 0 calc((100% - 18px) / 4) !important;
+    width: calc((100% - 18px) / 4) !important;
+    max-width: calc((100% - 18px) / 4) !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 min(92%, 340px) !important;
+    width: min(92%, 340px) !important;
+    max-width: 340px !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > span {
+    transform: translateX(-8px);
+    white-space: nowrap;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > svg {
+    position: relative;
+    left: 3px;
+  }
+}
+
+/* Beta 8 locked tablet-landscape header: match accepted tablet-portrait proportions. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app { padding-top: 130px; }
+  .allscan-brand { width: 78px; height: 52px; }
+  .allscan-brand-main { transform: scale(1.08); transform-origin: left center; }
+  .allscan-header-ke7wil-logo { width: 51px; height: 51px; }
+  .allscan-title { font-size: 22px; }
+  .allscan-cpu,
+  .allscan-clockline,
+  .allscan-status-label { font-size: 13px; }
+  .allscan-cpu-pill,
+  .allscan-pill { font-size: 12px; }
+  .allscan-menu-button { font-size: 19px; padding: 9px 11px; }
+}
+
+/* Very narrow phone fallback. Standard phones retain the previously accepted
+   compact Node Controls layout above; only widths <=360px switch to stacked
+   intrinsic tracks to prevent overlap on genuinely narrow viewports. */
+@media (max-width: 360px) {
+  .allscan-controls-section {
+    box-sizing: border-box !important;
+    width: calc(100vw - 16px) !important;
+    max-width: 430px !important;
+    margin-inline: auto !important;
+  }
+
+  .allscan-controls-shell {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 6px !important;
+  }
+
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 6px !important;
+    padding-right: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-node-field {
+    display: flex !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+  }
+
+  .allscan-controls-shell .allscan-node-input {
+    flex: 1 1 48px !important;
+    width: auto !important;
+    min-width: 42px !important;
+    max-width: 76px !important;
+  }
+
+  .allscan-controls-shell .allscan-connect-button,
+  .allscan-controls-shell .allscan-disconnect-button {
+    width: auto !important;
+    min-width: 0 !important;
+    padding-inline: 8px !important;
+    font-size: clamp(11px, 3.4vw, 14px) !important;
+  }
+
+  .allscan-controls-lower-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    gap: 6px !important;
+    width: 100% !important;
+    margin-top: 6px !important;
+  }
+
+  .allscan-controls-action-group {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-action-field {
+    display: flex !important;
+    min-width: 0 !important;
+    gap: 5px !important;
+  }
+
+  .allscan-controls-shell .allscan-action-select {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+
+  .allscan-controls-shell .allscan-go-button {
+    width: 46px !important;
+    min-width: 46px !important;
+  }
+
+  .allscan-controls-shell .allscan-kicks-bans-button {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    white-space: normal !important;
+  }
+
+  .allscan-controls-shell > .allscan-checks-row.allscan-checks-grid {
+    position: relative !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 6px 10px !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin-top: 7px !important;
+    padding: 0 !important;
+  }
+
+  .allscan-controls-shell .allscan-checks-grid > label {
+    justify-self: start !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands {
+    position: static !important;
+    grid-column: 1 / -1 !important;
+    justify-self: stretch !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .allscan-controls-shell .allscan-custom-commands-menu {
+    right: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .allscan-controls-shell > .allscan-node-messages {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 340px) {
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .allscan-controls-shell .allscan-node-field {
+    grid-column: 1 / -1 !important;
+  }
+
+  .allscan-controls-shell .allscan-node-input {
+    max-width: none !important;
+  }
+
+  .allscan-controls-shell .allscan-connect-button,
+  .allscan-controls-shell .allscan-disconnect-button {
+    width: 100% !important;
+  }
+}
+
+/* Beta 8 locked tablet-landscape Talkers: centered title, accepted header clearance, five cards across, readable typography. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-talkers-section { margin-top: 20px !important; }
+
+  .allscan-talkers-section > .allscan-section-title {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap {
+    grid-column: 2 !important;
+    position: relative !important;
+    display: inline-block !important;
+    width: max-content !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title .allscan-module-drag-handle {
+    position: absolute !important;
+    top: 50% !important;
+    right: calc(100% + 7px) !important;
+    left: auto !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .allscan-talker-cards {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  .allscan-talker-card,
+  .allscan-talker-card:nth-child(4),
+  .allscan-talker-card:nth-child(5) { grid-column: auto !important; }
+
+  .allscan-talker-card-title { font-size: 14px; }
+  .allscan-talker-callsign { font-size: 17px; }
+  .allscan-talker-source,
+  .allscan-talker-description,
+  .allscan-talker-location,
+  .allscan-talker-duration { font-size: 13px; }
+}
+
+/* Beta 8 locked tablet-landscape Favorites: centered title, enlarged legend, accepted entry typography. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-favorites-panel > .allscan-section-title {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+    grid-column: 2 !important;
+    position: relative !important;
+    display: inline-block !important;
+    width: max-content !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    text-align: center !important;
+  }
+
+  .allscan-favorites-panel > .allscan-section-title .allscan-module-drag-handle {
+    position: absolute !important;
+    top: 50% !important;
+    right: calc(100% + 7px) !important;
+    left: auto !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .allscan-favorites-legend { gap: 7px 14px; font-size: 14px; line-height: 1.2; }
+  .allscan-favorites-legend span { gap: 6px; }
+  .allscan-fav-dot { width: 11px; height: 11px; }
+  .allscan-fav-rxbar { width: 18px; height: 6px; }
+  .allscan-fav-underline { width: 18px; height: 10px; }
+
+  .allscan-favorites-table tbody tr { font-size: 15px; }
+  .allscan-favorites-table tbody td:nth-child(2) { font-size: 20px; }
+  .allscan-favorite-description { font-size: 15px; }
+  .allscan-favorites-table tbody td:nth-child(4),
+  .allscan-favorite-frequency,
+  .allscan-favorite-location,
+  .allscan-favorite-description small { font-size: 13px; }
+}
+
+/* Beta 8 locked tablet-landscape Connection Status: compact accepted geometry with readable rows. */
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-connection-table thead th {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+    font-size: 12px !important;
+    line-height: 14px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-sort-button {
+    min-height: 22px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr.allscan-connection-row-local > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+    white-space: normal !important;
+  }
+
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child {
+    font-size: 13.5px !important;
+  }
+}
+
+/* Beta 8 locked tablet bridge presentation: accepted portrait and landscape bridge geometry/typography. */
+@media (min-width: 701px) and (max-width: 1199px) {
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row {
+    transform: translateX(-6px) !important;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 320px !important;
+    width: 320px !important;
+    min-width: 320px !important;
+    max-width: 320px !important;
+  }
+
+  .allscan-talker-card-title { font-size: 14px !important; }
+  .allscan-talker-callsign { font-size: 17px !important; }
+  .allscan-talker-source,
+  .allscan-talker-description,
+  .allscan-talker-location,
+  .allscan-talker-duration { font-size: 13px !important; }
+
+  .allscan-favorites-legend { font-size: 14px !important; }
+  .allscan-favorites-table tbody tr { font-size: 15px !important; }
+  .allscan-favorites-table tbody td:nth-child(2) { font-size: 20px !important; }
+  .allscan-favorite-description { font-size: 15px !important; }
+  .allscan-favorites-table tbody td:nth-child(4),
+  .allscan-favorite-frequency,
+  .allscan-favorite-location,
+  .allscan-favorite-description small { font-size: 13px !important; }
+
+  .allscan-connection-table thead th { font-size: 12px !important; line-height: 14px !important; }
+  .allscan-connection-table tbody tr.allscan-connection-row-local > td,
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td {
+    font-size: 13px !important;
+    line-height: 16px !important;
+  }
+  .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child { font-size: 13.5px !important; }
+
+  .allscan-bridge-grid .allscan-bridge-head-title,
+  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status { font-size: 12px !important; }
+  .allscan-bridge-grid .allscan-bridge-row,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-bridge-grid .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-client-user,
+  .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
+  .allscan-bridge-grid .allscan-bridge-client-meta,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
+  .allscan-urf-group-title { font-size: 14px !important; }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b { transform: translateX(3px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-row > b:last-child { left: calc(50% + 12px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+    transform: translateX(10px) !important;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-bridge-section {
+    box-sizing: border-box !important;
+    width: min(1280px, calc(100vw - 24px)) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .allscan-bridge-section .allscan-urf-group {
+    box-sizing: border-box !important;
+    left: auto !important;
+    width: calc(100% - 16px) !important;
+    max-width: calc(100% - 16px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle { transform: translateX(-9px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > svg,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b,
+  .allscan-urf-mini-card .allscan-bridge-detail-toggle > svg { transform: translateX(11px) !important; }
+
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
+  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+    transform: translateX(11px) !important;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-urf-mini-grid,
+  .allscan-bridge-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .allscan-urf-mini-grid > .allscan-urf-mini-card,
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex: 0 0 calc((100% - 24px) / 5) !important;
+    width: calc((100% - 24px) / 5) !important;
+    max-width: calc((100% - 24px) / 5) !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid > .allscan-net-bridge-card {
+    flex: 0 0 320px !important;
+    width: 320px !important;
+    min-width: 320px !important;
+    max-width: 320px !important;
+    margin: 0 !important;
+  }
+
+  .allscan-bridge-grid .allscan-bridge-head-title,
+  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status {
+    min-width: 64px !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding-inline: 8px !important;
+    font-size: 12px !important;
+  }
+  .allscan-bridge-grid .allscan-bridge-row,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-bridge-grid .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-client-user,
+  .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
+  .allscan-bridge-grid .allscan-bridge-client-meta,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
+  .allscan-urf-group-title { font-size: 14px !important; }
+}

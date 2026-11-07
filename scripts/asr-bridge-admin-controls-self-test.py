@@ -20,7 +20,7 @@ DIRECT_DMR_INSTALL = (ROOT / "scripts/asr-bridge-setup-dmr-install.py").read_tex
 DIRECT_DMR_RENDER = (ROOT / "scripts/asr-bridge-setup-dmr-render.py").read_text(encoding="utf-8")
 ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
 ZELLO = ZELLO_PATH.read_text(encoding="utf-8") if ZELLO_PATH.exists() else ""
-CSS = (ROOT / "src/index.css").read_text(encoding="utf-8")
+CSS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "src/styles/asr").glob("*.css")))
 
 def check(value: bool, message: str) -> None:
     if not value:

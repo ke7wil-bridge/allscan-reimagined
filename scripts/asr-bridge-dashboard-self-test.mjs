@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { createServer } from 'vite'
 
 globalThis.DOMParser = class {
@@ -363,7 +363,7 @@ try {
   )
   const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
   const runtimeBootstrapSource = readFileSync(new URL('../src/RuntimeBootstrap.tsx', import.meta.url), 'utf8')
-  const indexCssSource = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+  const indexCssSource = readdirSync(new URL('../src/styles/asr/', import.meta.url)).filter((name) => name.endsWith('.css')).sort().map((name) => readFileSync(new URL('../src/styles/asr/' + name, import.meta.url), 'utf8')).join('\n')
   const allscanLiveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
   assert(
     allscanLiveSource.includes("remoteNodes.some((row) => row.keyed === 'unknown')")

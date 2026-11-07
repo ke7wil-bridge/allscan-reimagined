@@ -1,0 +1,400 @@
+/* Beta 8 locked responsive acceptance: use the accepted mobile Talker-card geometry
+   throughout non-desktop layouts. */
+@media (min-width: 521px) and (max-width: 1199px) {
+  .allscan-talker-cards {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px 4px;
+  }
+
+  .allscan-talker-card {
+    grid-column: span 2;
+    min-width: 0;
+    min-height: 90px;
+    padding: 0 5px 5px;
+    font-size: 10px;
+    line-height: 1.12;
+  }
+
+  .allscan-talker-card:nth-child(4) { grid-column: 2 / span 2; }
+  .allscan-talker-card:nth-child(5) { grid-column: 4 / span 2; }
+
+  .allscan-talker-card-title {
+    margin: 0 -5px 5px;
+    padding: 5px 3px 4px;
+    font-size: 11px;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .allscan-talker-callsign { min-height: 15px; font-size: 14px; line-height: 1.05; }
+  .allscan-talker-source {
+    margin-top: 2px; font-size: 9.5px; line-height: 1.08;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .allscan-talker-description,
+  .allscan-talker-location { min-height: 11px; margin-top: 2px; font-size: 9px; line-height: 1.08; }
+  .allscan-talker-location { margin-top: 1px; }
+  .allscan-talker-duration { gap: 2px; padding-top: 4px; font-size: 9px; line-height: 1.05; }
+}
+
+/* Beta 8 locked responsive acceptance: tablet portrait fits all five compact Talker cards on one row. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-talker-cards {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  .allscan-talker-card,
+  .allscan-talker-card:nth-child(4),
+  .allscan-talker-card:nth-child(5) {
+    grid-column: auto !important;
+  }
+}
+
+/* Beta 8 locked tablet-portrait acceptance: center Talkers and Favorites titles on screen. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-talkers-section > .allscan-section-title,
+  .allscan-favorites-panel > .allscan-section-title {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr !important;
+    align-items: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title > .allscan-module-title-wrap,
+  .allscan-favorites-panel > .allscan-section-title > .allscan-module-title-wrap {
+    grid-column: 2 !important;
+    position: relative !important;
+    display: inline-block !important;
+    width: max-content !important;
+    left: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    text-align: center !important;
+  }
+
+  .allscan-talkers-section > .allscan-section-title .allscan-module-drag-handle,
+  .allscan-favorites-panel > .allscan-section-title .allscan-module-drag-handle {
+    position: absolute !important;
+    top: 50% !important;
+    right: calc(100% + 7px) !important;
+    left: auto !important;
+    transform: translateY(-50%) !important;
+  }
+}
+
+/* Beta 8 locked tablet-landscape geometry: match each module OUTER frame to the
+   already-qualified Digital Bridge Status outer frame. Do not rewrite child geometry. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: landscape) {
+  .allscan-controls-section,
+  .allscan-talkers-section,
+  .allscan-favorites-panel,
+  .allscan-connection-section,
+  .allscan-bridge-section {
+    box-sizing: border-box !important;
+    width: min(1280px, calc(100vw - 24px)) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Beta 8 locked narrow/tablet Node Controls: keep the accepted compact geometry
+   across window resizing instead of stretching the module in landscape transitions. */
+@media (min-width: 521px) and (max-width: 1199px) {
+  .allscan-controls-section {
+    box-sizing: border-box !important;
+    width: 412px !important;
+    max-width: calc(100vw - 24px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .allscan-controls-shell {
+    --node-controls-node-width: 69px;
+    --node-controls-connect-width: 76px;
+    --node-controls-disconnect-width: 90px;
+    --node-controls-commands-width: 96px;
+    --node-controls-action-width: 145px;
+    --node-controls-manage-width: 155px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    padding: 5px;
+  }
+
+  .allscan-controls-shell > .allscan-controls-row:first-child {
+    display: flex !important;
+    flex-wrap: nowrap;
+    justify-content: flex-start !important;
+    gap: 6px;
+    padding-right: 102px;
+  }
+
+  .allscan-controls-shell .allscan-node-field,
+  .allscan-controls-shell .allscan-action-field {
+    flex: 0 0 auto;
+    gap: 5px;
+  }
+
+  .allscan-controls-shell .allscan-control-label {
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .allscan-controls-shell .allscan-node-input,
+  .allscan-controls-shell .allscan-action-select,
+  .allscan-controls-shell .allscan-action-button,
+  .allscan-controls-shell .allscan-custom-commands-button {
+    box-sizing: border-box;
+    height: 29px;
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .allscan-controls-shell .allscan-node-input {
+    width: var(--node-controls-node-width);
+    min-width: var(--node-controls-node-width);
+    max-width: var(--node-controls-node-width);
+    flex-basis: var(--node-controls-node-width);
+  }
+
+  .allscan-controls-shell .allscan-connect-button {
+    width: var(--node-controls-connect-width);
+    min-width: var(--node-controls-connect-width);
+  }
+
+  .allscan-controls-shell .allscan-disconnect-button {
+    width: var(--node-controls-disconnect-width);
+    min-width: var(--node-controls-disconnect-width);
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands {
+    top: 5px;
+    right: 7px;
+  }
+
+  .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+    width: var(--node-controls-commands-width);
+    min-width: var(--node-controls-commands-width);
+    gap: 3px;
+    padding-inline: 5px;
+  }
+
+  .allscan-controls-shell .allscan-custom-commands-button svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .allscan-controls-lower-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 6px;
+    margin-top: 5px;
+  }
+
+  .allscan-controls-action-group {
+    flex: 0 0 auto;
+    gap: 5px;
+  }
+
+  .allscan-controls-shell .allscan-action-select {
+    width: var(--node-controls-action-width);
+    min-width: var(--node-controls-action-width);
+    max-width: var(--node-controls-action-width);
+    padding-right: 18px;
+    padding-left: 7px;
+    background-position: right 3px center;
+  }
+
+  .allscan-controls-shell .allscan-go-button {
+    width: 42px;
+    min-width: 42px;
+  }
+
+  .allscan-controls-shell .allscan-kicks-bans-button {
+    flex: 0 0 var(--node-controls-manage-width);
+    width: var(--node-controls-manage-width);
+    min-width: var(--node-controls-manage-width);
+    padding-inline: 5px;
+    white-space: nowrap;
+    margin-left: auto;
+  }
+
+  .allscan-controls-shell > .allscan-checks-row.allscan-checks-grid {
+    justify-content: space-between;
+    column-gap: 5px !important;
+    min-height: 19px;
+    margin-top: 5px !important;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .allscan-controls-shell .allscan-checks-grid > label {
+    gap: 4px;
+  }
+
+  .allscan-controls-shell .allscan-checks-row .allscan-checkbox {
+    flex: 0 0 13px;
+    width: 13px;
+    height: 13px;
+    margin-right: 0;
+    background-size: 10px 10px;
+  }
+
+  .allscan-controls-shell > .allscan-node-messages {
+    margin-top: 5px !important;
+  }
+
+  .allscan-controls-shell .allscan-node-messages-summary {
+    min-height: 24px;
+    height: 24px;
+    gap: 10px;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    line-height: 1;
+  }
+
+  .allscan-controls-shell .allscan-node-messages-summary::after {
+    font-size: 10px;
+  }
+}
+
+/* Beta 8 locked mobile-landscape Node Controls geometry. */
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
+  .allscan-controls-section {
+    box-sizing: border-box !important;
+    width: min(405px, calc(100vw - 32px)) !important;
+    max-width: min(405px, calc(100vw - 32px)) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Beta 8 locked tablet-portrait Favorites: mirror the accepted
+   mobile-landscape two-column card layout and let descriptions use their column. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-favorites-table tbody {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .allscan-favorites-table tbody td:nth-child(4) {
+    width: auto;
+    min-width: 0;
+    overflow: visible;
+    overflow-wrap: normal;
+  }
+
+  .allscan-favorite-description > a,
+  .allscan-favorite-description > em {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
+
+/* Beta 8 locked tablet-portrait Favorites legend sizing. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-favorites-legend { gap: 6px 12px; font-size: 13px; line-height: 1.2; }
+  .allscan-favorites-legend span { gap: 6px; }
+  .allscan-fav-dot { width: 10px; height: 10px; }
+  .allscan-fav-rxbar { width: 16px; height: 5px; }
+  .allscan-fav-underline { width: 16px; height: 9px; }
+}
+
+/* Beta 8 locked tablet-portrait dashboard typography. */
+@media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
+  .allscan-talker-card-title { font-size: 13px; }
+  .allscan-talker-callsign { font-size: 15px; }
+  .allscan-talker-source,
+  .allscan-talker-description,
+  .allscan-talker-location,
+  .allscan-talker-duration { font-size: 12px; }
+  .allscan-favorites-table tbody tr { font-size: 13px; }
+  .allscan-favorites-table tbody td:nth-child(4),
+  .allscan-favorite-frequency,
+  .allscan-favorite-location,
+  .allscan-favorite-description small { font-size: 11px; }
+  .allscan-favorite-description { font-size: 13px; }
+  .allscan-bridge-grid .allscan-bridge-status,
+  .allscan-urf-mini-card .allscan-bridge-status,
+  .allscan-bridge-grid .allscan-bridge-row,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
+  .allscan-bridge-grid .allscan-bridge-detail-title,
+  .allscan-bridge-grid .allscan-bridge-client-user,
+  .allscan-bridge-card .allscan-bridge-detail-toggle,
+  .allscan-bridge-grid .allscan-bridge-client-meta,
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px; }
+}
+
+/* Beta 8 locked tablet-portrait header scale and content clearance. */
+@media (min-width: 701px) and (max-width: 900px) and (orientation: portrait) {
+  .allscan-brand { width: 78px; height: 52px; }
+  .allscan-brand-main { transform: scale(1.08); transform-origin: left center; }
+  .allscan-title { font-size: 22px; }
+  .allscan-header-ke7wil-logo { width: 51px; height: 51px; }
+  .allscan-cpu,
+  .allscan-clockline,
+  .allscan-status-label { font-size: 13px; }
+  .allscan-cpu-pill,
+  .allscan-pill { font-size: 12px; }
+  .allscan-menu-button { font-size: 19px; padding: 9px 11px; }
+  html[data-asr-theme]:not([data-asr-theme="lcars-frame"]) .allscan-app { padding-top: 130px; }
+}
+
+/* Beta 8 locked narrow/tablet Node Controls: qualified compact geometry in either
+   orientation, with the accepted 407px shell and Commands shifted 2px right. */
+@media (min-width: 521px) and (max-width: 1199px) {
+  .allscan-controls-section {
+    width: 407px !important;
+    max-width: min(407px, calc(100vw - 32px)) !important;
+  }
+  /* The preceding tablet block already supplies shell padding and sizing variables. */
+  .allscan-controls-shell > .allscan-controls-row:first-child { gap: 5px; padding-right: 102px; }
+  .allscan-controls-shell .allscan-node-field,
+  .allscan-controls-shell .allscan-action-field { gap: 5px; }
+  .allscan-controls-shell .allscan-control-label { font-size: 12px; line-height: 1; }
+  .allscan-controls-shell .allscan-node-input,
+  .allscan-controls-shell .allscan-action-select,
+  .allscan-controls-shell .allscan-action-button,
+  .allscan-controls-shell .allscan-custom-commands-button {
+    height: 29px; border-radius: 6px; padding: 3px 6px; font-size: 14px; line-height: 1;
+  }
+  .allscan-controls-shell .allscan-node-input { width: 69px; min-width: 69px; max-width: 69px; flex-basis: 69px; }
+  .allscan-controls-shell .allscan-connect-button { width: 76px; min-width: 76px; }
+  .allscan-controls-shell .allscan-disconnect-button { width: 90px; min-width: 90px; }
+  .allscan-checks-grid > .allscan-custom-commands { top: 5px; right: 5px; }
+  .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
+    width: 96px; min-width: 96px; gap: 3px; padding-inline: 5px;
+  }
+  .allscan-controls-shell .allscan-custom-commands-button svg { display: block !important; flex: 0 0 12px; width: 12px; height: 12px; }
+  .allscan-controls-lower-row { gap: 6px; margin-top: 5px; }
+  .allscan-controls-action-group { gap: 5px; }
+  .allscan-controls-shell .allscan-action-select {
+    width: 145px; min-width: 145px; max-width: 145px; padding-right: 18px; padding-left: 7px; background-position: right 3px center;
+  }
+  .allscan-controls-shell .allscan-go-button { width: 42px; min-width: 42px; }
+  .allscan-controls-shell .allscan-kicks-bans-button {
+    flex: 0 0 155px; width: 155px; min-width: 155px; padding-inline: 5px; white-space: nowrap;
+  }
+  .allscan-controls-shell > .allscan-checks-row.allscan-checks-grid {
+    justify-content: space-between; column-gap: 5px !important; min-height: 19px;
+    margin-top: 5px !important; padding: 0; font-size: 12px; line-height: 1;
+  }
+  .allscan-controls-shell .allscan-checks-grid > label { gap: 4px; }
+  .allscan-controls-shell .allscan-checks-row .allscan-checkbox {
+    flex: 0 0 13px; width: 13px; height: 13px; margin-right: 0; background-size: 10px 10px;
+  }
+  .allscan-controls-shell > .allscan-node-messages { margin-top: 5px !important; }
+  .allscan-controls-shell .allscan-node-messages-summary {
+    min-height: 24px; height: 24px; gap: 10px; padding: 2px 7px; font-size: 10.5px; line-height: 1;
+  }
+  .allscan-controls-shell .allscan-node-messages-summary::after { font-size: 10px; }
+}
