@@ -4051,7 +4051,7 @@ function App({ config }: { config: RuntimeConfig }) {
               const urfCards = bridgeState.cards.filter((card) => urfBridgeIds.has(card.id))
               const urfGroupTitle = urfReflectorDisplayName(urfBridgeConfigs)
               const managedCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listBans'))
-              const managedConnectedCards = managedCards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listClients'))
+              const managedConnectedCards = bridgeState.cards.filter((card) => config.bridges.find((bridge) => bridge.id === card.id)?.adminCapabilities?.clientAdmin.includes('listClients'))
               const zelloTalkers = managedCards
                 .filter((card) => card.mode.toUpperCase() === 'ZELLO')
                 .flatMap((card) => card.detailRows
