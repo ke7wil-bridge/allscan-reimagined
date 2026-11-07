@@ -96,9 +96,16 @@ def main():
     size = payload_bytes(args.payload)
     # Reserve room for a staged copy, rollback copy, package downloads, and
     # temporary files; these are conservative estimates, not exact forecasts.
+    # Installer and bootstrap stage release assets on the persistent filesystem.
+    # /tmp is frequently a 128-MiB noexec tmpfs on ASL3 nodes; do not require
+    # 128 MiB free there when no installer staging uses it.
+    staging = os.environ.get('ASR_STAGE_DIR', '/var/tmp')
+    if not Path(staging).is_dir() or not Path(staging).is_absolute():
+        print('ERROR: ASR_STAGE_DIR must be an existing absolute directory', file=sys.stderr)
+        return 1
     requirements = {'/opt/allscan-reimagined': max(256 * MIB, size * 3),
                     '/root/allscan-reimagined-backups': max(128 * MIB, size * 2),
-                    '/tmp': max(128 * MIB, size)}
+                    staging: max(128 * MIB, size)}
     # Multiple install paths commonly share the root filesystem. Sum their
     # reservations so each individually passing check cannot overcommit it.
     grouped = {}
@@ -131,7 +138,7 @@ def main():
             problems.append('Unsupported operating system: Debian-family Linux required')
     except OSError:
         problems.append('Cannot determine operating system from /etc/os-release')
-    problems.extend(temporary_mount_problems())
+    problems.extend(temporary_mount_problems(staging))
     problems.extend(package_health())
     for issue in problems:
         print('ERROR: ' + issue, file=sys.stderr)
