@@ -19,6 +19,17 @@ curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridg
 
 The bootstrap reads published releases from the fixed ASR GitHub repository. It downloads the matching archive and `.sha256` release asset, verifies SHA-256, rejects unsafe archive members, then starts `install.sh`. Follow the installer's prompts for node identity, the stock AllScan backend, and ASR setup. If the official AllScan installer is required, its own prompts remain interactive; the bootstrap does not bypass them.
 
+On a host where `/var/tmp` is too small or mounted `noexec`, use an existing
+writable, executable directory on another filesystem:
+
+```bash
+curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo env ASR_STAGE_DIR=/opt/asr-temp TMPDIR=/opt/asr-temp bash /tmp/asr-bootstrap.sh
+```
+
+The selected directory is used consistently by bootstrap, installer preflight,
+subprocesses, and official AllScan staging. `ASR_STAGE_DIR` takes priority over
+the standard `TMPDIR` variable.
+
 Open `/asr/` after installation and log in with an existing AllScan administrator account. Stock `/allscan/` and ASR `/asr/` share users and data but keep separate browser sessions.
 
 ## ASR updates

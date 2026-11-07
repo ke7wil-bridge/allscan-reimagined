@@ -86,6 +86,16 @@ from the official AllScan installer if stock AllScan needs an update. After
 installation, use the browser for routine ASR updates and recovery. See the
 [browser installation and update guide](docs/browser-install-update.md).
 
+If `/var/tmp` is too small or mounted `noexec`, select an existing writable,
+executable directory on another filesystem. For example:
+
+```bash
+curl -fsSLo /tmp/asr-bootstrap.sh https://raw.githubusercontent.com/ke7wil-bridge/allscan-reimagined/main/bootstrap.sh && sudo env ASR_STAGE_DIR=/opt/asr-temp TMPDIR=/opt/asr-temp bash /tmp/asr-bootstrap.sh
+```
+
+The bootstrap, resource preflight, subprocesses, and official AllScan staging
+all use that directory. `ASR_STAGE_DIR` takes priority over `TMPDIR`.
+
 ## Update an existing installation
 
 For a normal update to a newer published ASR version, open `/asr/`, then choose

@@ -20,10 +20,22 @@ if ! command -v unzip >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y unzip || { echo "Could not install required package: unzip." >&2; exit 1; }
 fi
 
-# Use persistent storage: ASL3 commonly mounts /tmp as a 128-MiB noexec tmpfs.
-# Restrict to a fixed system directory to avoid untrusted path injection.
-ASR_STAGE_DIR=/var/tmp
-export ASR_STAGE_DIR
+# Use persistent storage by default: ASL3 commonly mounts /tmp as a small
+# noexec tmpfs. Operators may select another executable filesystem with
+# ASR_STAGE_DIR, or with the standard TMPDIR variable when ASR_STAGE_DIR is
+# unset. Canonicalize it once and pass the same directory through the installer.
+requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+case "$requested_stage" in
+  /*) ;;
+  *) echo "ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
+esac
+if [ ! -d "$requested_stage" ] || [ ! -w "$requested_stage" ] || [ ! -x "$requested_stage" ]; then
+  echo "ASR staging directory is not an accessible writable directory: $requested_stage" >&2
+  exit 1
+fi
+ASR_STAGE_DIR=$(cd -P -- "$requested_stage" && pwd -P)
+TMPDIR=$ASR_STAGE_DIR
+export ASR_STAGE_DIR TMPDIR
 stage=$(mktemp -d "$ASR_STAGE_DIR/asr-bootstrap.XXXXXXXX")
 chmod 700 "$stage"
 trap 'rm -rf -- "$stage"' EXIT

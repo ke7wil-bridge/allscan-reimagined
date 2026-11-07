@@ -15,6 +15,9 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 source = (ROOT / "bootstrap.sh").read_text()
 assert "apt-get install -y unzip" in source, "bootstrap must provision upstream AllScan unzip dependency"
+assert '${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}' in source
+assert 'export ASR_STAGE_DIR TMPDIR' in source
+assert '\nASR_STAGE_DIR=/var/tmp\n' not in source
 code = source.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
 VERSION = "1.0.0-beta.8.2"
 NAME = "allscan-reimagined-" + VERSION + ".tar.gz"

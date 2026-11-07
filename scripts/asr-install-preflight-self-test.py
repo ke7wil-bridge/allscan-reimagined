@@ -22,13 +22,24 @@ with tempfile.TemporaryDirectory() as root:
         assert available == 102400 and inodes == 2
         assert len(problems) == 2
         assert module.check(p, 1000, 1)[2] == []
-# Doug's ASL3 node had a 128-MiB /tmp tmpfs mounted noexec. Free bytes
-# alone cannot establish that executable staging is safe.
+# Doug's ASL3 node had a small noexec tmpfs and then an executable bind mount
+# stacked over it. Only the effective/topmost mount controls execution.
 mounts = ('36 22 0:31 / / rw,relatime - ext4 /dev/vda1 rw\n'
           '41 36 0:50 / /tmp rw,nosuid,nodev,noexec,size=131072k - tmpfs tmpfs rw\n')
 assert 'noexec' in module.temporary_mount_problems('/tmp', mounts)[0]
 assert module.temporary_mount_problems('/var/tmp', mounts) == []
 assert module.temporary_mount_problems('/tmp', mounts.replace('noexec,', '')) == []
+stacked = ('36 22 0:31 / / rw,relatime - ext4 /dev/vda1 rw\n'
+           '41 36 0:50 / /var/tmp rw,nosuid,nodev,noexec - tmpfs tmpfs rw\n'
+           '52 36 8:2 /opt/asr-temp /var/tmp rw,relatime - ext4 /dev/sda2 rw\n')
+assert module.temporary_mount_problems('/var/tmp', stacked) == []
+# Mountinfo line ordering must not make the obscured noexec mount win.
+assert module.temporary_mount_problems('/var/tmp', '\n'.join(reversed(stacked.splitlines()))) == []
+top_noexec = stacked.replace(
+    '52 36 8:2 /opt/asr-temp /var/tmp rw,relatime',
+    '52 36 8:2 /opt/asr-temp /var/tmp rw,relatime,noexec')
+assert 'noexec' in module.temporary_mount_problems('/var/tmp', top_noexec)[0]
+assert module.decode_mountinfo_path(r'/opt/asr\040temp') == '/opt/asr temp'
 good = SimpleNamespace(returncode=0, stdout='', stderr='')
 bad = SimpleNamespace(returncode=0, stdout='unpacked package', stderr='')
 with patch.object(module.Path, 'is_file', return_value=True):
@@ -40,6 +51,18 @@ with patch.object(module.Path, 'is_file', return_value=True):
     assert len(module.package_health(timeout)) == 1
 with patch.object(module.Path, 'is_file', return_value=False):
     assert len(module.package_health(lambda *a, **kw: good)) == 1
+# Explicit ASR staging wins, standard TMPDIR is honored when ASR_STAGE_DIR is
+# absent, and /var/tmp remains the safe default.
+with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+    assert module.staging_directory({'ASR_STAGE_DIR': first, 'TMPDIR': second}) == str(Path(first).resolve())
+    assert module.staging_directory({'TMPDIR': second}) == str(Path(second).resolve())
+    assert module.staging_directory({}) == str(Path('/var/tmp').resolve())
+    try:
+        module.staging_directory({'TMPDIR': 'relative'})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('relative temporary directory accepted')
 # Multiple destination directories on one filesystem must reserve their
 # combined budget, not independently claim the same free bytes.
 with tempfile.TemporaryDirectory() as root:
@@ -68,17 +91,23 @@ with tempfile.TemporaryDirectory() as root:
          patch.object(module.Path, 'stat', return_value=fake_stat), \
          patch.object(module, 'package_health', return_value=[]), \
          patch.object(module, 'supported_os', return_value=True), \
+         patch.object(module, 'temporary_mount_problems', return_value=[]), \
          patch.object(module, 'check', return_value=(1, 0, ['simulated disk full'])):
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()) as err:
             assert module.main() == 1
             assert 'simulated disk full' in err.getvalue()
-    with patch.dict(module.os.environ, {'ASR_STAGE_DIR': str(p)}), patch.object(module.sys, 'argv', argv), \
+    # Doug's workaround used TMPDIR without ASR_STAGE_DIR. It must select the
+    # alternate filesystem and entirely remove /var/tmp from the space budget.
+    with patch.dict(module.os.environ, {'TMPDIR': str(p)}, clear=True), patch.object(module.sys, 'argv', argv), \
          patch.object(module.Path, 'stat', return_value=fake_stat), \
          patch.object(module, 'package_health', return_value=[]), \
          patch.object(module, 'supported_os', return_value=True), \
+         patch.object(module, 'temporary_mount_problems', return_value=[]), \
          patch.object(module, 'check', return_value=(1024 * module.MIB, 10000, [])):
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        with redirect_stdout(StringIO()) as out, redirect_stderr(StringIO()):
             assert module.main() == 0
+        assert str(p) in out.getvalue()
+        assert '/var/tmp' not in out.getvalue()
 # Multiple destination directories on one filesystem must reserve their
 # combined budget, not independently claim the same free bytes.
 with tempfile.TemporaryDirectory() as root:
@@ -87,7 +116,18 @@ with tempfile.TemporaryDirectory() as root:
     with patch.object(module.os, 'statvfs', return_value=stats):
         assert module.check(p, 256 * module.MIB, 1024)[2] == []
         assert module.check(p, (256 + 128 + 128) * module.MIB, 3072)[2]
+# Bootstrap and installer must propagate the same alternate staging directory
+# into preflight and the official AllScan installer.
+root = Path(__file__).resolve().parent.parent
+# Release archives place scripts under payload/scripts, while bootstrap and
+# install.sh remain at the archive root. Support both source and staged tests.
+if not (root / 'bootstrap.sh').is_file():
+    root = root.parent
+bootstrap = (root / 'bootstrap.sh').read_text()
+installer = (root / 'install.sh').read_text()
+selection = '${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}'
+assert selection in bootstrap and selection in installer
+assert 'export ASR_STAGE_DIR TMPDIR' in bootstrap
+assert installer.index('export ASR_STAGE_DIR TMPDIR') < installer.index('asr-install-preflight.py')
+assert '${ASR_STAGE_DIR:-/var/tmp}/allscan-official-installer' in installer
 print('ASR installer resource preflight self-test: PASS')
-
-# The default staging location is /var/tmp, not Doug's small /tmp tmpfs.
-assert module.os.environ.get('ASR_STAGE_DIR', '/var/tmp') == '/var/tmp'
