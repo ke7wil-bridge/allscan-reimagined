@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory() as root:
     (p / 'web').mkdir()
     (p / 'web' / 'index.html').write_text('test')
     argv = ['asr-install-preflight.py', '--payload', str(p)]
-    fake_stat = SimpleNamespace(st_dev=1, st_size=4)
+    fake_stat = SimpleNamespace(st_dev=1, st_size=4, st_mode=0o040755)
     with patch.object(module.sys, 'argv', argv), \
          patch.object(module.Path, 'stat', return_value=fake_stat), \
          patch.object(module, 'package_health', return_value=[]), \
