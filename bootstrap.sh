@@ -20,7 +20,11 @@ if ! command -v unzip >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y unzip || { echo "Could not install required package: unzip." >&2; exit 1; }
 fi
 
-stage=$(mktemp -d /tmp/asr-bootstrap.XXXXXXXX)
+# Use persistent storage: ASL3 commonly mounts /tmp as a 128-MiB noexec tmpfs.
+# Restrict to a fixed system directory to avoid untrusted path injection.
+ASR_STAGE_DIR=/var/tmp
+export ASR_STAGE_DIR
+stage=$(mktemp -d "$ASR_STAGE_DIR/asr-bootstrap.XXXXXXXX")
 chmod 700 "$stage"
 trap 'rm -rf -- "$stage"' EXIT
 # Only fixed GitHub repository release assets are accepted. The package SHA-256

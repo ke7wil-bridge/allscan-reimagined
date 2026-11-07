@@ -920,7 +920,7 @@ if [ "$current_version" != "$latest_version" ] || [ "$STOCK_OVERLAY_DETECTED" -e
     rmdir "$STOCK_STAGE_PARENT"
     STOCK_STAGE_PARENT=""
   elif ask "Run David Gleason's official AllScan installer now? [Y/n]" y; then
-    official_installer_dir=$(mktemp -d /tmp/allscan-official-installer.XXXXXX)
+    official_installer_dir=$(mktemp -d "${ASR_STAGE_DIR:-/var/tmp}/allscan-official-installer.XXXXXX")
     official_installer="$official_installer_dir/AllScanInstallUpdate.php"
     if ! curl -fsSL "$OFFICIAL_INSTALLER_URL" -o "$official_installer"; then
       rm -rf "$official_installer_dir"
