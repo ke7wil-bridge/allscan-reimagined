@@ -80,9 +80,9 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.4.1'")
-    && whatsNewSource.includes('standard bridge link detection')
-    && whatsNewSource.includes('reconnect controls')
+  whatsNewSource.includes("version: '1.0.0-beta.8.4.2'")
+    && whatsNewSource.includes('repairs a missing updater')
+    && whatsNewSource.includes('clients for bridges supporting client listing')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
   'What’s New copy is missing, version-mismatched, or too technical.',
 )
