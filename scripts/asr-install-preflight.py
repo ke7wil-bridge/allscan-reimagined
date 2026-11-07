@@ -2,6 +2,7 @@
 """Read-only resource checks before ASR installer package mutations."""
 import argparse
 import os
+import re
 import subprocess
 from pathlib import Path
 import sys
@@ -37,6 +38,21 @@ def check(path, required_bytes, required_inodes=1024):
     return available, inodes, problems
 
 
+def decode_mountinfo_path(value):
+    """Decode the octal escapes used for mountinfo path fields."""
+    return re.sub(r'\\([0-7]{3})', lambda match: chr(int(match.group(1), 8)), value)
+
+
+def staging_directory(environ=None):
+    """Return the configured staging directory using installer precedence."""
+    environ = os.environ if environ is None else environ
+    raw = environ.get('ASR_STAGE_DIR') or environ.get('TMPDIR') or '/var/tmp'
+    target = Path(raw)
+    if not target.is_absolute() or not target.is_dir():
+        raise ValueError('ASR_STAGE_DIR/TMPDIR must be an existing absolute directory')
+    return str(target.resolve())
+
+
 def temporary_mount_problems(path='/tmp', mountinfo=None):
     """Report temporary filesystems that cannot safely stage executable installers."""
     if mountinfo is None:
@@ -53,12 +69,19 @@ def temporary_mount_problems(path='/tmp', mountinfo=None):
         left = fields[0].split()
         if len(left) < 6:
             continue
-        mountpoint = left[4].replace('\\040', ' ')
+        try:
+            mount_id = int(left[0])
+        except ValueError:
+            continue
+        mountpoint = decode_mountinfo_path(left[4])
         if target == mountpoint or target.startswith(mountpoint.rstrip('/') + '/'):
-            mounts.append((len(mountpoint), set(left[5].split(',')), mountpoint))
+            mounts.append((len(mountpoint), mount_id, set(left[5].split(',')), mountpoint))
     if not mounts:
         return ['Cannot identify temporary filesystem mount']
-    _, options, mountpoint = max(mounts)
+    # Mounts can be stacked at an identical mountpoint (for example, an
+    # executable bind over a noexec tmpfs). The visible/topmost mount has the
+    # newest mount ID; do not reject options from an obscured lower mount.
+    _, _, options, mountpoint = max(mounts, key=lambda item: (item[0], item[1]))
     if 'noexec' in options:
         return [f'{path}: temporary filesystem {mountpoint} is mounted noexec; installer scripts or binaries staged there may fail (configure a sufficiently large executable staging directory)']
     return []
@@ -99,9 +122,10 @@ def main():
     # Installer and bootstrap stage release assets on the persistent filesystem.
     # /tmp is frequently a 128-MiB noexec tmpfs on ASL3 nodes; do not require
     # 128 MiB free there when no installer staging uses it.
-    staging = os.environ.get('ASR_STAGE_DIR', '/var/tmp')
-    if not Path(staging).is_dir() or not Path(staging).is_absolute():
-        print('ERROR: ASR_STAGE_DIR must be an existing absolute directory', file=sys.stderr)
+    try:
+        staging = staging_directory()
+    except ValueError as exc:
+        print(f'ERROR: {exc}', file=sys.stderr)
         return 1
     requirements = {'/opt/allscan-reimagined': max(256 * MIB, size * 3),
                     '/root/allscan-reimagined-backups': max(128 * MIB, size * 2),
