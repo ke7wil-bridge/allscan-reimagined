@@ -515,12 +515,6 @@
     justify-self: center;
   }
 
-  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd) {
-    grid-column: 1 / -1;
-    width: calc((100% - 6px) / 2);
-    justify-self: center;
-  }
-
   .allscan-bridge-grid .allscan-bridge-head,
   .allscan-urf-mini-card .allscan-bridge-head,
   .allscan-bridge-card.is-detail-expanded .allscan-bridge-head {
@@ -977,12 +971,6 @@
 
   .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(odd),
   .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-    width: calc((100% - 6px) / 2);
-    justify-self: center;
-  }
-
-  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd) {
     grid-column: 1 / -1;
     width: calc((100% - 6px) / 2);
     justify-self: center;
