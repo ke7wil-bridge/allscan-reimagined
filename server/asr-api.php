@@ -3171,12 +3171,17 @@ function asr_favorites_files(): array {
 
 function asr_safe_favorites_file(string $requested = ''): string {
     $dir = asr_allscan_dir();
-    return asrFavoritesFile(
-        $requested,
-        dirname(ASR_ETC_FAVORITES),
-        $dir,
-        ASR_DEFAULT_FAVORITES
-    );
+    try {
+        return asrFavoritesFile(
+            $requested,
+            dirname(ASR_ETC_FAVORITES),
+            $dir,
+            ASR_DEFAULT_FAVORITES,
+            true
+        );
+    } catch (RuntimeException $error) {
+        asr_error($error->getMessage(), 404);
+    }
 }
 
 function asr_ini_values(string $contents, string $key): array {
