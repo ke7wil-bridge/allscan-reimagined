@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.4.1',
-  label: 'Beta 8.4.1',
-  summary: 'Improves bridge connection status and modularizes dashboard styling.',
+  version: '1.0.0-beta.8.4.2',
+  label: 'Beta 8.4.2',
+  summary: 'Restores updater recovery and improves administrative client controls.',
   items: [
-    'Corrects standard bridge link detection using the configured AllStar node.',
-    'Shows missing-link warnings and individual reconnect controls when the connection feed is ready.',
-    'Uses concise bridge card labels for configured digital bridges.',
-    'Splits dashboard styling into ordered modules and adds visual regression qualification.',
+    'Automatically repairs a missing updater during integrity recovery.',
+    'Shows clients for bridges supporting client listing, even without ban capability.',
+    'Preserves backend authorization for Kick and Ban actions.',
+    'Keeps release descriptions generic across installations.',
   ],
 } as const
