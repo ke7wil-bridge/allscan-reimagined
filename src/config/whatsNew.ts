@@ -1,11 +1,11 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3.2',
-  label: 'Beta 8.3.2',
-  summary: 'Restores safe, targeted URF DMR client Disconnect and Ban controls.',
+  version: '1.0.0-beta.8.4',
+  label: 'Beta 8.4',
+  summary: 'Improves bridge reliability, installation diagnostics, and node health visibility.',
   items: [
-    'Shows Disconnect and Ban controls only when the DMR administration runtime is actually writable.',
-    'Targets the selected current callsign and DMR ID while rejecting stale or ambiguous client references.',
-    'Refreshes Connected Clients after each action without disturbing unrelated clients.',
-    'Preserves Beta 8.3.1 URF ownership recovery, protocol visibility, and existing bridge configuration.',
+    'Correlates the browser request, API validation, and privileged helper stage without recording credentials.',
+    'Records whether installation started, failed, or completed instead of logging only successful installs.',
+    'Automatically checks runtime files, managed services, startup state, and bounded TGIF authentication evidence after a failure.',
+    'Shows the supported failure stage and runtime diagnosis directly in the Bridge Setup Wizard.',
   ],
 } as const

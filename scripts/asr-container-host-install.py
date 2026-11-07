@@ -817,6 +817,7 @@ After=local-fs.target
 [Service]
 Type=oneshot
 ExecStart={diagnostics}
+Environment=ASR_ASTERISK_LOG_CONTAINER={profile.asterisk_container}
 Nice=10
 IOSchedulingClass=idle
 """, 0o644)

@@ -149,7 +149,16 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         "title": plan["settings"]["title"] or f"{mode.upper()}{' Net' if role == 'net' else ''} Bridge",
         "cardType": card_type,
         "instance": instance, "bridgePermission": "self_owned",
-        "backendMode": "managed", "clientSource": mode,
+        "backendMode": "managed",
+        # These runtimes are outbound clients of an external reflector.  They
+        # do not host inbound reflector sessions, so presenting a local client
+        # roster (or Kick/Ban controls) would be both inaccurate and unsafe.
+        # Link connect/disconnect remains available through the mode-specific
+        # controller.  DMR uses its separate packet-aware adapter and is not
+        # installed by this module.
+        "clientSource": "disabled" if role == "standard" else "auto",
+        "architecture": "direct-dvswitch",
+        "bridgeType": f"direct-{mode}",
         "fixedDestination": str(plan["settings"]["destination"]),
         "reflectorHost": str(plan["settings"]["reflector_host"]),
         "reflectorPort": int(plan["settings"]["reflector_port"]),
@@ -157,7 +166,7 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         "mmdvmService": units[1], "analogBridgeService": units[2],
     }
     if role == "standard":
-        entry.update({"urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL"})
+        entry.update({"fixedBridgeRecovery": True, "liveAudioVerified": False})
     if mode != "p25":
         entry["emulatorService"] = units[3]
     if mode in {"p25", "nxdn"}:
@@ -221,9 +230,10 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
             for old_id in prior_net_ids:
                 if old_id == identity:
                     continue
-                begin = f"{m17.MANAGED_PREFIX}BEGIN {old_id}"
-                end = f"{m17.MANAGED_PREFIX}END {old_id}"
-                rpt = re.sub(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*\n?", "", rpt)
+                for prefix in (m17.MANAGED_PREFIX, "; ASR MANAGED "):
+                    begin = f"{prefix}BEGIN {old_id}"
+                    end = f"{prefix}END {old_id}"
+                    rpt = re.sub(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*\n?", "", rpt)
         rpt = m17.insert_nodes_mapping(rpt, plan["bridgeNode"])
         rpt = m17.upsert_node_section(rpt, identity, plan["bridgeNode"], ports["usrp_rx"], ports["usrp_tx"])
         rpt = rpt.replace(f"[{plan['bridgeNode']}] ; M17 Bridge ({identity})", f"[{plan['bridgeNode']}] ; {mode.upper()} Bridge ({identity})")
@@ -378,7 +388,7 @@ def install(root: Path, settings, stage: Path, credentials: dict | None = None,
                 and logical.endswith("/DMRIds.dat")
                 and target.is_file()
                 and not target.is_symlink()
-                and info.st_uid == 0
+                and (info.st_uid == 0 if root == Path("/") else info.st_uid == os.getuid())
                 and info.st_nlink == 1
                 and stat.S_IMODE(info.st_mode) & 0o022 == 0
                 and target.read_bytes() == outputs[logical][0]

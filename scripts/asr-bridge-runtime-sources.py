@@ -257,8 +257,18 @@ def stage_codec(work: Path, destination: Path) -> dict[str, str]:
     return artifact
 
 def describe(mode: str) -> dict[str, Any]:
-    source = MODES[mode]
     suffix, _checksums = architecture()
+    if mode == "dmr":
+        return {
+            "schema": 1,
+            "mode": mode,
+            "architecture": suffix,
+            "gateway": None,
+            "runtimePackages": list(RUNTIME_PACKAGES),
+            "binaryArtifacts": binary_artifacts(),
+            "softwareVocoder": codec_artifact(),
+        }
+    source = MODES[mode]
     gateway = {
         "repository": source.repository,
         "commit": source.commit,
@@ -408,7 +418,7 @@ def prepare(mode: str, destination: Path, packages: bool) -> dict[str, Any]:
     if destination.exists() and any(destination.iterdir()):
         raise SourceError("destination must be empty")
     destination.mkdir(parents=True, exist_ok=True)
-    source = MODES[mode]
+    source = MODES.get(mode)
     installed: list[dict[str, str]] = []
     with tempfile.TemporaryDirectory(prefix=f"asr-{mode}-source-") as temporary:
         work = Path(temporary)
@@ -452,22 +462,24 @@ def prepare(mode: str, destination: Path, packages: bool) -> dict[str, Any]:
         })
         for name, (repository, commit, path, checksum) in templates.items():
             download(raw_url(repository, commit, path), destination / name, checksum)
-        archive = work / "gateway.tar.gz"
-        download(archive_url(source), archive, source.archive_sha256)
-        tree = safe_extract(archive, work / "source")
-        gateway_dir = tree / source.directory
-        patch_gateway_source(gateway_dir, mode)
-        subprocess.run(
-            ["make", "-C", str(gateway_dir), "-j2"],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        gateway = gateway_dir / source.binary
-        if not gateway.is_file():
-            raise SourceError("gateway build did not produce its expected binary")
-        os.chmod(gateway, 0o755)
-        shutil.copy2(gateway, destination / source.binary)
-        installed.append({"name": source.binary, "sha256": sha256(gateway)})
-        copied = copy_gateway_assets(gateway_dir, destination, mode)
+        copied = []
+        if source is not None:
+            archive = work / "gateway.tar.gz"
+            download(archive_url(source), archive, source.archive_sha256)
+            tree = safe_extract(archive, work / "source")
+            gateway_dir = tree / source.directory
+            patch_gateway_source(gateway_dir, mode)
+            subprocess.run(
+                ["make", "-C", str(gateway_dir), "-j2"],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+            gateway = gateway_dir / source.binary
+            if not gateway.is_file():
+                raise SourceError("gateway build did not produce its expected binary")
+            os.chmod(gateway, 0o755)
+            shutil.copy2(gateway, destination / source.binary)
+            installed.append({"name": source.binary, "sha256": sha256(gateway)})
+            copied = copy_gateway_assets(gateway_dir, destination, mode)
     manifest = {
         **describe(mode),
         "installed": installed,
@@ -510,12 +522,15 @@ def verify(destination: Path, mode: str) -> dict[str, Any]:
         if path.is_symlink() or not path.is_file() or sha256(path) != item.get("sha256"):
             raise SourceError(f"runtime asset verification failed: {name}")
     required_assets = {"Analog_Bridge.ini.template", "MMDVM_Bridge.ini.template",
-                       "DVSwitch.ini.template", "dvswitch.sh", "dvsm.macro",
-                       f"{MODES[mode].directory}.ini"}
+                       "DVSwitch.ini.template", "dvswitch.sh", "dvsm.macro"}
+    if mode != "dmr":
+        required_assets.add(f"{MODES[mode].directory}.ini")
     if not required_assets.issubset({item["name"] for item in assets}):
         raise SourceError("runtime configuration templates are missing")
-    required = {"Analog_Bridge", "MMDVM_Bridge", "RemoteCommand", MODES[mode].binary,
+    required = {"Analog_Bridge", "MMDVM_Bridge", "RemoteCommand",
                 "md380-emu", "qemu-arm-static"}
+    if mode != "dmr":
+        required.add(MODES[mode].binary)
     present = {str(item.get("name", "")) for item in manifest.get("installed", [])}
     if present != required:
         raise SourceError("runtime manifest has an incomplete component set")
@@ -524,7 +539,7 @@ def verify(destination: Path, mode: str) -> dict[str, Any]:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("command", choices=("describe", "prepare", "verify"))
-    result.add_argument("--mode", choices=tuple(MODES), required=True)
+    result.add_argument("--mode", choices=(*MODES, "dmr"), required=True)
     result.add_argument("--destination", type=Path)
     result.add_argument("--install-packages", action="store_true")
     return result

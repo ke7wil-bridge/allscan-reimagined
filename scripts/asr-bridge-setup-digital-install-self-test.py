@@ -97,7 +97,7 @@ def exercise(stage_root):
         install.integration_files(root, plan, outputs)
         rendered = outputs[install.planner.RPT][0].decode()
         assert "ASR MANAGED BEGIN dmr_old" not in rendered
-        assert "ASR MANAGED BEGIN ysf_test" in rendered
+        assert f"{install.m17.MANAGED_PREFIX}BEGIN ysf_test" in rendered
     print("digital Net Bridge managed-section replacement: PASS")
 
     calls = []

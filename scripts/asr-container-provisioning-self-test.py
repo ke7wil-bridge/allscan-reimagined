@@ -468,6 +468,7 @@ def test_payload_validators(digital, urf) -> None:
     assert urf.validate(dmr).bridge_id == "qa_dmr"
     assert urf.tgif_network_id(1234567, 1004) == 123456704
     assert urf.tgif_network_id(1234567, 1100) == 123456799
+    assert urf.tgif_network_id(314133, 1001) == 314133
     for change in (
         {"bridge_id": "qa_dmr.service"}, {"bridge_id": "qa_dmr;id"},
         {"dmr_id": 0}, {"tgif_tg": 0}, {"tgif_tg": 16_777_216},

@@ -31,6 +31,10 @@ import {
   fetchFavorites,
   fetchFavoriteStats,
   manageFavorite,
+  viewFavoritesFile,
+  editFavoritesFile,
+  recoverFavoritesFile,
+  inspectFavoritesFiles,
   fetchReleaseStatus,
   isNodeMessageAuthNotice,
   normalizedBridgeMode,
@@ -631,6 +635,10 @@ function App({ config }: { config: RuntimeConfig }) {
   const [messagesOpen, setMessagesOpen] = useState(false)
   const [favorites, setFavorites] = useState<FavoriteNode[]>([])
   const [favoriteFiles, setFavoriteFiles] = useState<FavoritesFileOption[]>([])
+  const [favoriteInventory, setFavoriteInventory] = useState<Array<{ path: string; exists: boolean; symlink: boolean; readable: boolean; bytes: number | null }> | null>(null)
+  const [favoriteFileView, setFavoriteFileView] = useState<{ name: string; path: string; content: string; hash: string } | null>(null)
+  const [favoriteFileDraft, setFavoriteFileDraft] = useState('')
+  const [favoriteFileInfo, setFavoriteFileInfo] = useState<{ exists?: boolean; readable?: boolean; path?: string; bytes?: number | null }>({})
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
   const [favoritesOpen, setFavoritesOpen] = useState(() => window.localStorage.getItem(FAVORITES_OPEN_KEY) === '1')
@@ -688,6 +696,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [lcarsHeaderNumbers, setLcarsHeaderNumbers] = useState(() => makeLcarsHeaderNumbers())
   const [busy, setBusy] = useState(false)
   const [authStatus, setAuthStatus] = useState<AuthStatus>(loggedOutAuth)
+  const [authChecked, setAuthChecked] = useState(false)
   const [tgifUserStatus, setTgifUserStatus] = useState<TgifUserStatus | null>(null)
   const [urfAccessOpen, setUrfAccessOpen] = useState(false)
   const [urfBlacklist, setUrfBlacklist] = useState<string[]>([])
@@ -1095,7 +1104,11 @@ function App({ config }: { config: RuntimeConfig }) {
           return withStatus(card, 'Source/TX')
         }
         if (row) {
-          return withStatus(card, localIsTransmitting ? 'Relay' : 'Idle')
+          // A pseudo hub can report RPT_TXKEYED continuously even when every
+          // bridge transport is idle.  Never promote that node-wide bit into
+          // a bridge-specific Relay indication; the bridge activity producer
+          // above remains authoritative for Relay.
+          return withStatus(card, 'Idle')
         }
         if (isTunableDigitalBridge) {
           return withStatus(card, 'Idle')
@@ -1439,18 +1452,29 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     let cancelled = false
+    let retryTimer: number | undefined
+    let requestSequence = 0
 
     const refreshAuthStatus = async () => {
+      const sequence = ++requestSequence
+      window.clearTimeout(retryTimer)
       try {
         const next = await fetchAuthStatus()
-        if (!cancelled) {
+        if (!cancelled && sequence === requestSequence) {
           setAuthStatus(next)
-          if (!next.canRead && !next.loggedIn) {
+          setAuthChecked(true)
+          if (!next.canRead) {
             window.location.assign(asrPath('user/'))
           }
         }
       } catch {
-        if (!cancelled) setAuthStatus(loggedOutAuth)
+        if (!cancelled && sequence === requestSequence) {
+          // A network error is not evidence that the dashboard is public.
+          // Revoke the previously verified session locally until rechecked.
+          setAuthStatus(loggedOutAuth)
+          setAuthChecked(false)
+          retryTimer = window.setTimeout(() => void refreshAuthStatus(), 10000)
+        }
       }
     }
 
@@ -1459,6 +1483,7 @@ function App({ config }: { config: RuntimeConfig }) {
     const timer = window.setInterval(refreshAuthStatus, 120000)
     return () => {
       cancelled = true
+      window.clearTimeout(retryTimer)
       window.removeEventListener('focus', refreshAuthStatus)
       window.clearInterval(timer)
     }
@@ -1842,6 +1867,7 @@ function App({ config }: { config: RuntimeConfig }) {
           clearNodeMessage(FAVORITES_LOAD_ERROR)
           setFavorites(next.rows)
           setFavoriteFiles(next.files)
+          setFavoriteFileInfo({ exists: next.fileExists, readable: next.fileReadable, path: next.filePath, bytes: next.fileBytes })
           attempts = 0
           failureNotified = false
           if (next.selectedFile !== selectedFavoriteFile) {
@@ -1990,6 +2016,7 @@ function App({ config }: { config: RuntimeConfig }) {
     const next = await fetchFavorites(selectedFavoriteFile)
     setFavorites(next.rows)
     setFavoriteFiles(next.files)
+    setFavoriteFileInfo({ exists: next.fileExists, readable: next.fileReadable, path: next.filePath, bytes: next.fileBytes })
     if (next.selectedFile !== selectedFavoriteFile) setSelectedFavoriteFile(next.selectedFile)
   }
 
@@ -2231,6 +2258,98 @@ function App({ config }: { config: RuntimeConfig }) {
     )
   }
 
+  async function inspectFavoritesSources() {
+    try {
+      const result = await inspectFavoritesFiles()
+      setFavoriteInventory(result.files)
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to inspect Favorites sources.')
+    }
+  }
+
+  async function showFavoritesSource() {
+    try {
+      const file = await viewFavoritesFile(selectedFavoriteFile)
+      setFavoriteFileView(file)
+      setFavoriteFileDraft(file.content)
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to view Favorites source.')
+    }
+  }
+
+  async function restoreFavoritesBackup(source: string) {
+    if (!authStatus.isAdmin || busy) return
+    try {
+      setBusy(true)
+      const preview = await recoverFavoritesFile({ operation: 'preview-recovery', favsfile: selectedFavoriteFile || 'favorites.ini', source })
+      if (!window.confirm(`Restore Favorites from ${source}?\n\nBackup: ${preview.bytes ?? '?'} bytes\nCurrent file: ${preview.existingBytes ?? '?'} bytes\n\nThe current file will be backed up first. This replaces its contents.`)) return
+      const result = await recoverFavoritesFile({ operation: 'restore-backup', favsfile: selectedFavoriteFile || 'favorites.ini', source, token: preview.token })
+      await reloadFavorites()
+      await inspectFavoritesSources()
+      setFavoriteStatus(result.changed ? `Favorites restored; previous file saved at ${result.backup || 'the Favorites directory'}.` : 'The selected backup already matches the current file.')
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to restore Favorites backup.')
+    } finally { setBusy(false) }
+  }
+
+  async function saveFavoritesSource() {
+    if (!favoriteFileView || !authStatus.isAdmin || busy) return
+    if (!window.confirm(`Save changes to ${favoriteFileView.name}?\n\nThe existing file will be backed up first. Any concurrent edits will cause the save to fail.`)) return
+    try {
+      setBusy(true)
+      const result = await editFavoritesFile(favoriteFileView.name, favoriteFileDraft, favoriteFileView.hash)
+      await reloadFavorites()
+      await showFavoritesSource()
+      setFavoriteStatus(result.changed ? `Favorites saved; original backed up at ${result.backup || 'the Favorites directory'}.` : 'No Favorites changes needed.')
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to save Favorites file.')
+    } finally { setBusy(false) }
+  }
+
+  async function syncUpstreamFavoriteOrder() {
+    if (!authStatus.canModify || busy) return
+    try {
+      setBusy(true)
+      const preview = await manageFavorite({ operation: 'preview-upstream-order', favsfile: selectedFavoriteFile })
+      const upstream = Array.isArray(preview.upstreamOrder) ? preview.upstreamOrder.join(', ') : ''
+      const current = Array.isArray(preview.customOrder) ? preview.customOrder.join(', ') : 'No ASR override'
+      if (!preview.different) {
+        setFavoriteStatus('Favorites order already matches upstream AllScan.')
+        return
+      }
+      if (!window.confirm(`Import upstream AllScan Favorites order into ASR?\n\nCurrent ASR order: ${current}\nUpstream file order: ${upstream}\n\nOnly ASR ordering metadata changes. Descriptions, colors, and the shared Favorites file are preserved.`)) return
+      const result = await manageFavorite({ operation: 'import-upstream-order', favsfile: selectedFavoriteFile, value: String(preview.token || '') })
+      await reloadFavorites()
+      setFavoriteStatus(`Imported upstream ordering for ${Number(result.count || 0)} Favorites.`)
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to synchronize Favorites order.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function exportFavoriteOrderUpstream() {
+    if (!authStatus.canModify || busy) return
+    try {
+      setBusy(true)
+      const preview = await manageFavorite({ operation: 'preview-export-upstream-order', favsfile: selectedFavoriteFile })
+      if (!preview.different) {
+        setFavoriteStatus('AllScan Favorites file already matches ASR order.')
+        return
+      }
+      const current = Array.isArray(preview.upstreamOrder) ? preview.upstreamOrder.join(', ') : ''
+      const desired = Array.isArray(preview.customOrder) ? preview.customOrder.join(', ') : ''
+      if (!window.confirm(`Write ASR Favorites order into the shared AllScan file?\n\nCurrent file: ${current}\nNew file order: ${desired}\n\nA timestamped original-file backup will be created first. AllScan and ASR will then share this order.`)) return
+      const result = await manageFavorite({ operation: 'export-upstream-order', favsfile: selectedFavoriteFile, value: String(preview.token || '') })
+      await reloadFavorites()
+      setFavoriteStatus(`AllScan order updated. Original file backed up at ${String(result.backup || 'the Favorites directory')}.`)
+    } catch (error) {
+      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to export Favorites order.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function reorderFavorite(sourceNode: string, targetNode: string) {
     if (sourceNode === targetNode) return
     const order = favorites.map((favorite) => favorite.node)
@@ -2458,6 +2577,38 @@ function App({ config }: { config: RuntimeConfig }) {
       }
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'Command failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function restoreAutoConnectBridges() {
+    if (!authStatus.canModify || busy) return
+    const targets = config.bridges.filter((bridge) =>
+      bridge.cardType === 'standard' && !bridge.urfReflector
+      && bridge.fixedBridgeRecovery === true && bridge.manualDisconnect !== true
+      && /^\d{3,10}$/.test(bridge.node) && bridge.node !== config.node
+      && !rows.some((row) => row.node === bridge.node && row.state !== 'message'),
+    )
+    if (!targets.length) {
+      appendNodeMessage('No disconnected Auto-Connect Standard Bridges need restoration.')
+      return
+    }
+    if (!window.confirm(`Reconnect ${targets.length} configured Auto-Connect bridge(s)?`)) return
+    setBusy(true)
+    try {
+      let restored = 0
+      for (const bridge of targets) {
+        try {
+          await sendNodeCommand({ localNode: config.node, node: bridge.node,
+            action: 'connect', permanent: false, autodisc: false, connectedCount,
+            favsfile: selectedFavoriteFile })
+          restored++
+        } catch (error) {
+          appendNodeMessage(`${bridge.friendlyName?.trim() || bridge.title} (${bridge.node}): ${error instanceof Error ? error.message : 'Reconnect failed'}`)
+        }
+      }
+      appendNodeMessage(`Reconnect requested for ${restored} of ${targets.length} Auto-Connect bridges; verify live status.`)
     } finally {
       setBusy(false)
     }
@@ -2871,6 +3022,15 @@ function App({ config }: { config: RuntimeConfig }) {
             </select>
           </form>
           <div className="allscan-favorites-tools">
+            {authStatus.canModify ? <button type="button" onClick={() => void inspectFavoritesSources()}>Find Favorites files and backups</button> : null}
+            <button type="button" disabled={busy || !selectedFavoriteFile} onClick={() => void showFavoritesSource()}>View Favorites file</button>
+            <a href={`${asrPath('asr-api.php')}?action=favorites-download&favsfile=${encodeURIComponent(selectedFavoriteFile)}`} download={selectedFavoriteFile || 'favorites.ini'}>Download Favorites file</a>
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void exportFavoriteOrderUpstream()}>
+              <RotateCcw /> Sync ASR order to AllScan
+            </button>
+            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void syncUpstreamFavoriteOrder()}>
+              <RotateCcw /> Sync upstream order
+            </button>
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
               if (window.confirm('WARNING: Reset the saved custom order for this Favorites list?\n\nThis cannot be undone. Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
             }}><RotateCcw /> Reset order</button>
@@ -2879,6 +3039,20 @@ function App({ config }: { config: RuntimeConfig }) {
             }}><RotateCcw /> Reset colors</button>
           </div>
         </div>
+        <p className="allscan-favorites-status" role="status">
+          Favorites source: {favoriteFileInfo.path || 'Not located'} — {favoriteFileInfo.exists === false ? 'File missing; check preserved backups before creating a replacement' : favoriteFileInfo.readable === false ? 'File not readable; check permissions' : favoriteFileInfo.bytes === 0 ? 'File exists but is empty' : favoriteFileInfo.bytes != null ? `${favoriteFileInfo.bytes} bytes` : 'Status unavailable'}.
+        </p>
+        {favoriteInventory ? <div className="allscan-favorites-source-view">
+          <p><strong>Favorites file inventory (read-only)</strong> — originals and backups are never overwritten by this scan.</p>
+          <button type="button" onClick={() => setFavoriteInventory(null)}>Close inventory</button>
+          {favoriteInventory.length ? <ul>{favoriteInventory.map((item) => <li key={item.path}>{item.path} — {item.exists ? item.readable ? `${item.bytes ?? '?'} bytes` : 'unreadable' : 'missing target'}{item.symlink ? ' (link)' : ''}{authStatus.isAdmin && !item.symlink && item.readable && (item.path.includes('.bak') || item.path.includes('before')) && (!selectedFavoriteFile || favoriteFileInfo.path?.startsWith('/etc/allscan/')) ? <button type="button" disabled={busy} onClick={() => void restoreFavoritesBackup(item.path)}>Preview restore</button> : null}</li>)}</ul> : <p>No matching files found in known locations. Check external backups before creating a replacement.</p>}
+        </div> : null}
+        {favoriteFileView ? <div className="allscan-favorites-source-view">
+          <p><strong>{favoriteFileView.name}</strong> — {favoriteFileView.path}</p>
+          <button type="button" onClick={() => setFavoriteFileView(null)}>Close file view</button>
+          <textarea readOnly={!authStatus.isAdmin || !favoriteFileView.path.startsWith('/etc/allscan/')} aria-label="Favorites file contents" value={authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ? favoriteFileDraft : favoriteFileView.content} onChange={(event) => setFavoriteFileDraft(event.target.value)} rows={14} style={{ width: '100%', fontFamily: 'monospace' }} />
+          {authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ? <button type="button" disabled={busy || favoriteFileDraft === favoriteFileView.content} onClick={() => void saveFavoritesSource()}>Save Favorites file (creates backup)</button> : null}
+        </div> : null}
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
 
         <div className="allscan-favorites-table-wrap">
@@ -3134,6 +3308,18 @@ function App({ config }: { config: RuntimeConfig }) {
       </div>
     </section>
   ) : null
+
+  // Do not render protected dashboard content while authentication is unknown
+  // or a login redirect is pending (issue #111).
+  if (!authChecked || !authStatus.canRead) {
+    return (
+      <main className="min-h-screen bg-[#151515] text-[#eaf4f8] flex items-center justify-center px-6"
+        role="status" aria-live="polite" aria-busy="true">
+        <p>{authChecked ? 'Redirecting to login…' : 'Verifying dashboard access…'}</p>
+      </main>
+    )
+  }
+
 
   return (
     <div className="allscan-app min-h-screen bg-[#151515] text-[#eaf4f8]">
@@ -3987,6 +4173,18 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             })()}
 
+            {authStatus.canModify && config.bridges.some((bridge) =>
+              bridge.cardType === 'standard' && !bridge.urfReflector
+              && bridge.fixedBridgeRecovery === true && bridge.manualDisconnect !== true
+              && /^\d{3,10}$/.test(bridge.node) && bridge.node !== config.node) ? (
+              <div className="allscan-bridge-restore-controls">
+                <button type="button" className="allscan-action-button" disabled={busy}
+                  onClick={() => void restoreAutoConnectBridges()}>
+                  Restore All Auto-Connect Bridges
+                </button>
+              </div>
+            ) : null}
+
             <div className="allscan-bridge-grid">
               {orderedVisibleBridgeCards(config.bridges, bridgeState.cards, netBridgeMode, config.bridgeOrderVersion).map((card) => {
                 const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
@@ -4065,6 +4263,21 @@ function App({ config }: { config: RuntimeConfig }) {
                       </div>
                     ) : null}
                   </div>
+
+                  {card.cardType === 'standard' && !bridgeConfig?.urfReflector
+                    && /^\d{3,10}$/.test(card.node) && card.node !== config.node ? (
+                    <div className="allscan-bridge-row allscan-bridge-status-row">
+                      <span>AllStar link · Node {card.node}</span>
+                      <b>{bridgeLinked ? 'Linked' : 'Not linked'}</b>
+                      {!bridgeLinked && authStatus.canModify ? (
+                        <button type="button" className="allscan-action-button" disabled={busy}
+                          title={`Reconnect ${card.title} using saved AllStar node ${card.node}`}
+                          onClick={() => void runCommandForNode('connect', card.node, false, false)}>
+                          {busy ? 'Working…' : 'Reconnect'}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {card.healthSeverity && card.repairAvailable && authStatus.canModify ? (
                     <div className="allscan-bridge-repair-alert" role="alert">

@@ -85,6 +85,7 @@ def main() -> None:
     assert named_dmr.reflector == "URF073" and named_dmr.bridge_node == 1001
     assert named_dmr.dmr_enabled is True and named_dmr.m17_enabled is False
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
+    assert dmr.tgif_network_id(314133, 1001) == 314133
     test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
                                            "hotspotEssid": 50})
     assert test_value.dmr_id == 3224939 and test_value.tgif_essid == 50
@@ -110,6 +111,12 @@ def main() -> None:
     })
     assert netoholic_with_retired.legacy_bridge_nodes == (1883, 1886)
     assert dmr.tgif_network_id(test_value.dmr_id, 1001, test_value.tgif_essid) == 322493950
+    try:
+        dmr.validate(dmr.UrfSettings("urf", "N1YKT", 314133, 42450,
+                                     tgif_essid=50))
+        raise AssertionError("repeater DMR ID accepted a hotspot ESSID")
+    except dmr.PlanError as error:
+        assert "must not use" in str(error)
     dmr_ports = dmr.port_block("dmr_tgif_net")
     rendered_urf = dmr.urfd_ini({
         "settings": {"reflector": "URFWIL", "callsign": "KE7WIL", "dmr_id": 3224939},
@@ -320,6 +327,55 @@ def main() -> None:
         finally:
             helper.MQTT_SECRETS_PATH = original_path
             helper.subprocess.run = original_run
+
+    original_audit = helper.append_audit
+    helper.append_audit = lambda event: None
+    try:
+        class DiagnosticResult:
+            returncode = 0
+            stdout = "LoadState=not-found\nActiveState=inactive\n"
+            stderr = ""
+        diagnostic = helper.dmr_diagnose(
+            {"bridgeId": "urf"}, runner=lambda *args, **kwargs: DiagnosticResult())
+        assert diagnostic["readOnly"] is True
+        assert diagnostic["classification"] == "missing_runtime_files"
+        assert "password" not in json.dumps(diagnostic).lower()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "runtime"
+            (base / "urf").mkdir(parents=True)
+            (base / "urf" / "runtime.conf").write_text("managed\n")
+            class FailedServiceResult:
+                returncode = 0
+                stderr = ""
+                stdout = ("LoadState=loaded\nActiveState=failed\nSubState=failed\n"
+                          "Result=failed\nExecMainStatus=1\n")
+            failed = helper.dmr_diagnose(
+                {"bridgeId": "urf"}, runner=lambda *args, **kwargs: FailedServiceResult(),
+                runtime_base=base, state_root=Path(tmp) / "state")
+            assert failed["classification"] == "service_startup_failure"
+
+            class AuthResult:
+                returncode = 0
+                stderr = ""
+                stdout = ""
+            def auth_runner(command, **kwargs):
+                result = AuthResult()
+                result.stdout = ("authentication failed\n" if "journalctl" in command[0] else
+                                 "LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n")
+                return result
+            auth = helper.dmr_diagnose(
+                {"bridgeId": "urf"}, runner=auth_runner,
+                runtime_base=base, state_root=Path(tmp) / "state")
+            assert auth["classification"] == "tgif_authentication_failure"
+            assert "authentication failed" not in json.dumps(auth).lower()
+        try:
+            helper.dmr_diagnose({"bridgeId": "urf", "secret": "unsafe"})
+            raise AssertionError("URF diagnostics accepted a secret-bearing payload")
+        except helper.HelperError:
+            pass
+    finally:
+        helper.append_audit = original_audit
 
     print("bridge setup helper self-test: PASS")
 

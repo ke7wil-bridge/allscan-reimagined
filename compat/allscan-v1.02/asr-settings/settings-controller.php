@@ -1789,6 +1789,8 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 	$ownershipState = $id === '' ? 'new' : ($isAsrOwned ? 'owned' : ($ownershipAvailable ? 'external' : 'unknown'));
 	$deletePreviewJson = json_encode($lifecyclePreview, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 	if(!is_string($deletePreviewJson)) $deletePreviewJson = '{}';
+	$directDmrEdit = ['bridgeId'=>$id,'title'=>(string)($bridge['title']??''),'bridgeNode'=>(string)($bridge['node']??''),'callsign'=>(string)($bridge['dmrCallsign']??''),'digitalId'=>(string)($bridge['dmrId']??''),'destination'=>(string)($bridge['fixedDestination']??''),'network'=>(string)($bridge['dmrNetwork']??'tgif'),'host'=>(string)($bridge['dmrMasterHost']??'tgif.network'),'port'=>(string)($bridge['dmrMasterPort']??'62031'),'essid'=>(string)($bridge['tgifEssid']??''),'timeslot'=>(string)($bridge['dmrTimeslot']??'2'),'colorCode'=>(string)($bridge['dmrColorCode']??'1'),'dmrToAslGainDb'=>(string)($bridge['dmrToAslGainDb']??'0'),'aslToDmrGainDb'=>(string)($bridge['aslToDmrGainDb']??'0')];
+	$directDmrEditJson = json_encode($directDmrEdit, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); if(!is_string($directDmrEditJson)) $directDmrEditJson = '{}';
 	if($panelTitle === '') $panelTitle = $id !== '' ? strtoupper($id) . ' Bridge' : 'New Digital Bridge';
 	$modeLabel = $mode === 'zello' ? 'Zello' : strtoupper($mode);
 	$modePurpose = [
@@ -1892,7 +1894,7 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 		</div>
 
 
-		<div class="asr-bridge-panel-section asr-standard-dmr-tgif" data-bridge-tab-label="TGIF Sessions"<?php echo ($cardType === 'standard' && $mode === 'dmr') ? '' : ' hidden'; ?>><?php asrSettingsRenderTgifAccount(); ?></div>
+		<div class="asr-bridge-panel-section asr-standard-dmr-tgif" data-bridge-tab-label="TGIF Sessions"<?php echo ($cardType === 'standard' && $mode === 'dmr') ? '' : ' hidden'; ?>><?php if(($bridge['architecture'] ?? '') === 'direct-dvswitch' && $backendMode === 'managed' && $isAsrOwned): ?><div class="asr-bridge-section-copy"><strong>Managed direct DMR runtime</strong><span>Edit TGIF identity, talkgroup, timeslot, color code, gains, or endpoint through validated preview and rollback.</span></div><button type="button" data-edit-direct-dmr="<?php echo asrSettingsH($directDmrEditJson); ?>">Edit managed DMR runtime</button><p class="asr-bridge-section-note">Leave the key blank to keep it when DMR ID and ESSID are unchanged. Identity changes require the matching replacement key.</p><?php endif; ?><?php asrSettingsRenderTgifAccount(); ?></div>
 
 
 		<div class="asr-bridge-panel-section asr-standard-bridge-settings" data-bridge-tab-label="Link Recovery"<?php echo $cardType === 'standard' ? '' : ' hidden'; ?>>
@@ -2060,6 +2062,7 @@ function asrSettingsM17SetupPayload(&$error) {
 	$error = '';
 	$payload = [
 		'bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''),
+		'bridgePath' => strtolower(asrSettingsCleanText($_POST['setupBridgePath'] ?? 'standard', 12)),
 		'title' => asrSettingsCleanText($_POST['setupTitle'] ?? '', 80),
 		'bridgeNode' => trim((string)($_POST['setupBridgeNode'] ?? '')),
 		'bridgeRole' => strtolower(asrSettingsCleanText($_POST['setupBridgeRole'] ?? 'standard', 12)),
@@ -2126,6 +2129,7 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		$stationCallsign = (string) ($_POST['setupCallsign'] ?? '');
 	$payload = [
 		'bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''),
+		'bridgePath' => strtolower(asrSettingsCleanText($_POST['setupBridgePath'] ?? 'standard', 12)),
 		'title' => asrSettingsCleanText($_POST['setupTitle'] ?? '', 80),
 		'reflector' => strtoupper(asrSettingsCleanText($_POST['setupReflector'] ?? '', 8)),
 		'bridgeNode' => trim((string)($_POST['setupBridgeNode'] ?? '')),
@@ -2134,6 +2138,12 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'digitalId' => (int)($_POST['setupDigitalId'] ?? 0),
 		'destination' => (int)($_POST['setupDestination'] ?? 0),
 		'network' => strtolower(asrSettingsCleanText($_POST['setupDmrNetwork'] ?? 'tgif', 24)),
+		'host' => asrSettingsCleanText($_POST['setupHost'] ?? 'tgif.network', 253),
+		'port' => (int)($_POST['setupPort'] ?? 62031),
+		'timeslot' => (int)($_POST['setupDmrTimeslot'] ?? 2),
+		'colorCode' => (int)($_POST['setupDmrColorCode'] ?? 1),
+		'dmrToAslGainDb' => (float)($_POST['setupDmrToAslGainDb'] ?? 0),
+		'aslToDmrGainDb' => (float)($_POST['setupAslToDmrGainDb'] ?? 0),
 		'authMode' => $authMode,
 		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
@@ -2158,17 +2168,26 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'legacyBridgeNodes' => asrSettingsCleanText($_POST['legacyBridgeNodes'] ?? '', 80),
 	];
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
-	if($requireSecret && $authMode === 'secured') $payload['tgifPassword'] = $password;
-	if(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
+	$managedEdit = false;
+	if(($_POST['setupManagedEdit'] ?? '') === '1') foreach((array)(asrSettingsReadConfig()['bridges'] ?? []) as $candidate) if(is_array($candidate) && ($candidate['id'] ?? '') === $payload['bridgeId'] && ($candidate['architecture'] ?? '') === 'direct-dvswitch') { $managedEdit = true; break; }
+	if($requireSecret && $authMode === 'secured' && $password !== '') $payload['tgifPassword'] = $password;
+	if(!in_array($payload['bridgePath'], ['standard', 'urf'], true)) $error = 'Select Standard Bridge or URF Reflector.';
+	elseif(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
 	elseif($payload['bridgeId'] === '') $error = 'Bridge ID must begin with a letter and use only lowercase letters, numbers, _ or -.';
 	elseif($payload['title'] === '') $error = 'Bridge title is required.';
-	elseif($payload['reflector'] !== '' && !preg_match('/^URF[A-Z0-9]{2,5}$/D', $payload['reflector'])) $error = 'URF reflector identity must be URF followed by 2-5 letters or numbers.';
+	elseif($payload['bridgePath'] === 'urf' && $payload['reflector'] !== '' && !preg_match('/^URF[A-Z0-9]{2,5}$/D', $payload['reflector'])) $error = 'URF reflector identity must be URF followed by 2-5 letters or numbers.';
 	elseif(!in_array($authMode, ['legacy', 'secured'], true)) $error = 'Select a valid TGIF DMR connection method.';
 	elseif($payload['callsign'] === '') $error = 'The node callsign is not configured.';
 	elseif($payload['digitalId'] < 1 || $payload['digitalId'] > 9999999) $error = 'Enter a valid 1-7 digit DMR ID.';
 	elseif($hotspotEssid !== '' && (!ctype_digit($hotspotEssid) || (int)$hotspotEssid < 1 || (int)$hotspotEssid > 99)) $error = 'Enter a TGIF hotspot ESSID from 1 to 99.';
+	elseif($payload['digitalId'] <= 999999 && $hotspotEssid !== '') $error = 'Six-digit repeater DMR IDs must not use a TGIF hotspot ESSID.';
 	elseif($payload['destination'] < 1 || $payload['destination'] > 16777215 || $payload['destination'] === 4000) $error = 'Enter a valid TGIF talkgroup other than 4000.';
-	elseif($requireSecret && $authMode === 'secured' && ($password === '' || strlen($password) > 128 || preg_match('/[\x00-\x1F\x7F]/', $password))) $error = 'Enter a valid TGIF hotspot key (1-128 characters; control characters are not allowed).';
+	elseif($payload['bridgePath'] === 'standard' && ($payload['host'] === '' || preg_match('/\s/', $payload['host']))) $error = 'Enter a valid TGIF master hostname.';
+	elseif($payload['bridgePath'] === 'standard' && ($payload['port'] < 1 || $payload['port'] > 65535)) $error = 'Enter a valid TGIF master port.';
+	elseif($payload['bridgePath'] === 'standard' && !in_array($payload['timeslot'], [1,2], true)) $error = 'DMR timeslot must be 1 or 2.';
+	elseif($payload['bridgePath'] === 'standard' && ($payload['colorCode'] < 0 || $payload['colorCode'] > 15)) $error = 'DMR color code must be 0-15.';
+	elseif($payload['bridgePath'] === 'standard' && (!is_finite($payload['dmrToAslGainDb']) || $payload['dmrToAslGainDb'] < -20 || $payload['dmrToAslGainDb'] > 12 || !is_finite($payload['aslToDmrGainDb']) || $payload['aslToDmrGainDb'] < -20 || $payload['aslToDmrGainDb'] > 12)) $error = 'DMR audio gains must be between -20 and +12 dB.';
+	elseif($requireSecret && $authMode === 'secured' && ((!$managedEdit && $password === '') || strlen($password) > 128 || preg_match('/[\x00-\x1F\x7F]/', $password))) $error = 'Enter a valid TGIF hotspot key (1-128 characters; control characters are not allowed).';
 	$planDigest = strtolower(asrSettingsCleanText($_POST['setupPlanDigest'] ?? '', 64));
 	if($planDigest !== '') {
 		if(!preg_match('/^[a-f0-9]{64}$/D', $planDigest)) $error = 'The DMR installation preview is invalid; preview again.';
@@ -2277,9 +2296,10 @@ function asrSettingsNetBridgeResetPayload(&$error) {
 	return ['confirmation' => $confirmation];
 }
 
-function asrSettingsRunBridgeSetup($action, $payload, &$error) {
+function asrSettingsRunBridgeSetup($action, $payload, &$error, &$diagnostic = null) {
 	$error = '';
-	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
+	$diagnostic = ['stage' => 'privileged_helper_not_executed'];
+	$allowed = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'dmr-diagnose', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];	if(!in_array($action, $allowed, true)) { $error = 'Unsupported bridge setup action.'; return null; }
 	if(!function_exists('proc_open') || !is_executable(ASR_BRIDGE_SETUP_HELPER)) { $error = 'Bridge setup helper is not installed.'; return null; }
 	$hostSocket = '/run/allscan-reimagined-host/bridge-setup.sock';
 	$command = @filetype($hostSocket) === 'socket'
@@ -2289,6 +2309,7 @@ function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 		0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
 	], $pipes);
 	if(!is_resource($process)) { $error = 'Bridge setup helper could not be started.'; return null; }
+	$diagnostic = ['stage' => 'privileged_helper_started'];
 	fwrite($pipes[0], json_encode($payload, JSON_UNESCAPED_SLASHES));
 	fclose($pipes[0]);
 	$output = stream_get_contents($pipes[1]); fclose($pipes[1]);
@@ -2298,8 +2319,10 @@ function asrSettingsRunBridgeSetup($action, $payload, &$error) {
 	if(!is_array($data)) $data = json_decode((string)$stderr, true);
 	if($status !== 0 || !is_array($data)) {
 		$error = asrSettingsCleanText($data['error'] ?? 'Bridge setup helper failed.', 240);
+		$diagnostic = is_array($data['diagnostic'] ?? null) ? $data['diagnostic'] : ['stage' => 'privileged_helper_failure'];
 		return null;
 	}
+	$diagnostic = ['stage' => $action === 'dmr-diagnose' ? 'diagnostic_collection_complete' : 'privileged_helper_completed'];
 	return $data;
 }
 
@@ -2623,7 +2646,7 @@ function asrSettingsExistingUrfConfig($config) {
 		}
 
 	}
-	if(in_array(strtolower($displayName), ['urfwil multi-mode bridge', 'urfwil reflector', 'urfwil bridge', 'urfwil'], true)) $displayName = 'URF Reflector';
+	if(in_array(strtolower($displayName), ['urfwil multi-mode bridge', 'urfwil reflector', 'urfwil bridge', 'urfwil'], true) && strtoupper($runtimeName) !== 'URFWIL') $displayName = 'URF Reflector';
 	$record = $aggregate ? asrSettingsUrfAggregateRecord($config) : [];
 	$modeConfig = [];
 	foreach(array_keys(asrSettingsUrfModeFields()) as $mode) {
@@ -2665,22 +2688,31 @@ $asrAction = $_POST['asrAction'] ?? null;
 $ysfImportBridgeId = trim((string)($_POST['ysfImportBridgeId'] ?? ''));
 $urfAdminAction = trim((string)($_POST['urfAdminAction'] ?? ''));
 
-$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
+$bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nxdn-plan', 'nxdn-install', 'ysf-plan', 'ysf-install', 'dmr-plan', 'dmr-install', 'dmr-diagnose', 'zello-plan', 'zello-install', 'net-bridge-plan', 'net-bridge-install', 'net-bridge-reset', 'dmr-security-update'];if(in_array($asrAction, $bridgeSetupActions, true)) {
 	header('Content-Type: application/json; charset=utf-8');
 	$postedToken = (string)($_POST['settingsSaveCsrf'] ?? '');
+	$requestId = asrSettingsCleanText($_POST['setupRequestId'] ?? '', 48);
+	if(!preg_match('/^[a-zA-Z0-9._:-]{8,48}$/D', $requestId)) $requestId = 'server-' . bin2hex(random_bytes(8));
+	$diagnostic = ['requestId' => $requestId, 'stage' => 'api_request_received'];
 	$error = '';
 	if(($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !asrSettingsRollbackPostIsSameOrigin(true) || $saveCsrfToken === '' || !hash_equals($saveCsrfToken, $postedToken)) {
 		$error = 'Bridge setup request was not authorized.';
+		$diagnostic['stage'] = 'api_authorization_failure';
 		$result = null;
 	} else {
-		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : ($asrAction === 'net-bridge-reset' ? 'net_bridge_reset' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0]));
+		$mode = $asrAction === 'dmr-security-update' ? 'dmr_security' : ($asrAction === 'dmr-diagnose' ? 'dmr_diagnose' : ($asrAction === 'net-bridge-reset' ? 'net_bridge_reset' : (str_starts_with((string)$asrAction, 'net-bridge-') ? 'net_bridge' : explode('-', (string)$asrAction, 2)[0])));
 		if($mode === 'dmr_security') $payload = asrSettingsDmrSecurityPayload($error);
+		elseif($mode === 'dmr_diagnose') $payload = ['bridgeId' => asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? '')];
 		elseif($mode === 'net_bridge_reset') $payload = asrSettingsNetBridgeResetPayload($error);
 		elseif($mode === 'net_bridge') $payload = asrSettingsNetBridgeSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'm17') $payload = asrSettingsM17SetupPayload($error);		elseif($mode === 'dmr') $payload = asrSettingsDmrSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		elseif($mode === 'zello') $payload = asrSettingsZelloSetupPayload(str_ends_with((string)$asrAction, '-install'), $error);
 		else $payload = asrSettingsDigitalSetupPayload($mode, $error);
-		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error) : null;
+		$helperDiagnostic = null;
+		$payload['_requestId'] = $requestId;
+		$result = $error === '' ? asrSettingsRunBridgeSetup($asrAction, $payload, $error, $helperDiagnostic) : null;
+		if($error !== '' && $helperDiagnostic === null) $diagnostic['stage'] = 'configuration_validation_failure';
+		elseif(is_array($helperDiagnostic)) $diagnostic = array_merge($diagnostic, $helperDiagnostic);
 		// Guided provisioning writes the canonical bridge title directly into
 		// config.json, bypassing the normal Settings save path.  Reconcile the
 		// private-node database immediately so a recycled node number cannot keep
@@ -2697,9 +2729,9 @@ $bridgeSetupActions = ['m17-plan', 'm17-install', 'p25-plan', 'p25-install', 'nx
 	}
 	if($result === null) {
 		http_response_code(400);
-		echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_SLASHES);
+		echo json_encode(['ok' => false, 'error' => $error, 'diagnostic' => $diagnostic], JSON_UNESCAPED_SLASHES);
 	} else {
-		echo json_encode(['ok' => true, 'result' => $result], JSON_UNESCAPED_SLASHES);
+		echo json_encode(['ok' => true, 'result' => $result, 'diagnostic' => $diagnostic], JSON_UNESCAPED_SLASHES);
 	}
 	exit;
 }
@@ -3133,13 +3165,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
 			<div class="asr-settings-row"><label for="urfDisplayName">Display Name</label><input id="urfDisplayName" name="urfDisplayName" type="text" maxlength="80" placeholder="URF073" value="<?php echo asrSettingsH($urfConfig['displayName'] ?? 'URF Reflector'); ?>"><small>Dashboard label only; changing it does not change the bridge ID or shared AllStar node.</small></div>
 			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
-			<p class="asr-settings-inline-note">Save stores these settings; it does not install runtime services. After saving, use Install or Repair URF Runtime below. The shared node is transport health only; it never determines which URF mode is transmitting.</p>
+			<p class="asr-settings-inline-note">Step 1: Save All Bridge Changes to store the configuration. Step 2: select Preview &amp; Apply URF Runtime below, review the validated plan, and confirm installation. Saving alone does not activate runtime services. The shared node is transport health only; it never determines which URF mode is transmitting.</p>
 			<div class="asr-urf-mode-list">
 			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>
 			<?php asrSettingsRenderUrfMode($urfMode, $urfLabel, (array)($urfConfig['modeConfig'][$urfMode] ?? []), in_array($urfMode,(array)($urfConfig['modes'] ?? []),true)); ?>
 			<?php endforeach; ?>
 			</div>
-			<div class="asr-settings-actions"><button type="button" class="asr-primary-action" data-urf-install-runtime>Install or Repair URF Runtime</button><span data-urf-install-note>Opens a validated preview before any system changes.</span></div>
+			<div class="asr-settings-actions"><button type="button" class="asr-primary-action" data-urf-install-runtime>Preview &amp; Apply URF Runtime</button><span data-urf-install-note>After saving, review the plan and confirm installation; runtime verification and rollback are required.</span></div>
 			<div class="asr-urf-destructive-actions"><span><strong>Remove reflector configuration</strong><small>This removes the aggregate URFWIL card when bridge changes are saved.</small></span><button type="button" class="asr-remove-urf-button">Remove URF Reflector</button></div>
 			<?php if(!$modernSettings): ?>
 			<div class="asr-settings-row"><label for="urfAdminRule">URF Access Control</label><input id="urfAdminRule" name="urfAdminRule" type="text" maxlength="16" placeholder="CALLSIGN or PREFIX*"></div>
@@ -3205,7 +3237,11 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-digital-label>DMR ID</span><input data-bridge-setup-digital-id type="number" min="1" max="9999999" placeholder="1234567" value="<?php echo $setupDmrIdDefault > 0 ? (int)$setupDmrIdDefault : ''; ?>"></label>
 				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-digital hidden><span data-bridge-setup-destination-label>Talkgroup</span><input data-bridge-setup-destination type="text" inputmode="numeric" pattern="[0-9]+" maxlength="8" placeholder="64189"></label>
 				<label class="asr-setup-field asr-setup-field-medium" data-bridge-setup-tgif-auth hidden><span>TGIF DMR Connection</span><select data-bridge-setup-tgif-auth-mode><option value="secured">Secured (recommended; hotspot key)</option><option value="legacy">Legacy (limited; shared password)</option></select><small>Use Secured for normal operation, secure-only talkgroups, and TGIF static talkgroups. Sign in at tgif.network, open your callsign menu → User Security, and copy the key for your DMR ID. This is not your TGIF website password or a Static TG API token.</small></label>
-				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-tgif-auth hidden><span>TGIF Hotspot ESSID <small>(optional)</small></span><input data-bridge-setup-tgif-essid type="number" min="1" max="99" placeholder="Automatic"><small>Use a unique 1-99 suffix when another hotspot for this DMR ID may be online.</small></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-tgif-auth hidden><span>TGIF Hotspot ESSID <small>(optional)</small></span><input data-bridge-setup-tgif-essid type="number" min="1" max="99" placeholder="Automatic"><small>For seven-digit subscriber IDs only. Six-digit repeater IDs are used unchanged and must not have an ESSID.</small></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-direct-dmr hidden><span>Timeslot</span><select data-bridge-setup-dmr-timeslot><option value="2">TS2</option><option value="1">TS1</option></select></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-direct-dmr hidden><span>Color Code</span><input data-bridge-setup-dmr-color-code type="number" min="0" max="15" value="1"></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-direct-dmr hidden><span>DMR → ASL Gain (dB)</span><input data-bridge-setup-dmr-to-asl-gain type="number" min="-20" max="12" step="0.5" value="0"></label>
+				<label class="asr-setup-field asr-setup-field-short" data-bridge-setup-direct-dmr hidden><span>ASL → DMR Gain (dB)</span><input data-bridge-setup-asl-to-dmr-gain type="number" min="-20" max="12" step="0.5" value="0"></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-dmr-username-field hidden><span>Network Username / Callsign</span><input data-bridge-setup-dmr-username type="text" maxlength="80" autocomplete="username" placeholder="Callsign or network username"></label>
 				<label class="asr-setup-field asr-setup-field-credential" data-bridge-setup-tgif-key hidden><span>TGIF Hotspot Security Key <small>(not the website password)</small></span><input data-bridge-setup-tgif-password type="password" maxlength="128" autocomplete="new-password"><small>Paste the key copied from TGIF User Security. ASR stores it on the node as a protected credential and does not show it on the dashboard.</small></label>
 				<fieldset class="asr-bridge-fields-grid" data-bridge-setup-urf-advanced hidden><legend>URF public listener ports and protocol identities</legend>
@@ -3480,6 +3516,10 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		setupDestination: document.querySelector('[data-bridge-setup-destination]'),
 		setupTgifAuthMode: document.querySelector('[data-bridge-setup-tgif-auth-mode]'),
 		setupTgifEssid: document.querySelector('[data-bridge-setup-tgif-essid]'),
+		setupDmrTimeslot: document.querySelector('[data-bridge-setup-dmr-timeslot]'),
+		setupDmrColorCode: document.querySelector('[data-bridge-setup-dmr-color-code]'),
+		setupDmrToAslGainDb: document.querySelector('[data-bridge-setup-dmr-to-asl-gain]'),
+		setupAslToDmrGainDb: document.querySelector('[data-bridge-setup-asl-to-dmr-gain]'),
 		setupDmrUsername: document.querySelector('[data-bridge-setup-dmr-username]'),
 		setupTgifPassword: document.querySelector('[data-bridge-setup-tgif-password]'),
 		setupDmrPublicPort: document.querySelector('[data-urf-dmr-public-port]'),
@@ -3529,6 +3569,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	var setupDmrNetwork = document.querySelector('[data-bridge-setup-dmr-network]');
 	var setupTgifAuthMode = setupFields.setupTgifAuthMode;
 	var setupPlanDigest = '';
+	var setupLastRequestId = '';
 	var addUrfButton = document.querySelector('.asr-add-urf-button');
 	var urfPanel = document.querySelector('[data-urf-panel]');
 	var urfEnabled = document.querySelector('[data-urf-enabled]');
@@ -4272,23 +4313,24 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			m17: {port: '17000', destination: '', host: ''},
 			p25: {port: '41000', destination: '64189', host: 'p25-reflector.example.net'},
 			nxdn: {port: '41400', destination: '64189', host: 'nxdn-reflector.example.net'},
-			ysf: {port: '42000', destination: '64189', host: 'ysf-reflector.example.net'},			dmr: {port: '', destination: '', host: ''},
+			ysf: {port: '42000', destination: '64189', host: 'ysf-reflector.example.net'},			dmr: {port: '62031', destination: '', host: 'tgif.network'},
 			zello: {port: '', destination: '', host: ''}
 		};
 		var selected = defaults[mode] || defaults.m17;
 		document.querySelectorAll('[data-bridge-setup-reflector-field]').forEach(function(field) { field.hidden = !(isM17 || (isDmr && path === 'urf')); });
 		document.querySelectorAll('[data-bridge-setup-module-field]').forEach(function(field) { field.hidden = !isM17; });
 		var setupNodeField = setupFields.setupBridgeNode ? setupFields.setupBridgeNode.closest('label') : null;
-		if(setupNodeField) setupNodeField.hidden = path !== 'urf';
+		if(setupNodeField) setupNodeField.hidden = isUnifiedNet;
 		document.querySelectorAll('[data-bridge-setup-digital]').forEach(function(field) { field.hidden = !isDigital; });
 		if(setupFields.setupDestination && setupFields.setupDestination.closest('label')) setupFields.setupDestination.closest('label').hidden = !isDigital;
 		document.querySelectorAll('[data-bridge-setup-dmr]').forEach(function(field) { field.hidden = !isDmr; });
 		document.querySelectorAll('[data-bridge-setup-urf-advanced]').forEach(function(field) { field.hidden = !(isDmr && path === 'urf'); });
 		document.querySelectorAll('[data-bridge-setup-tgif-auth]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif'); });
 		document.querySelectorAll('[data-bridge-setup-tgif-key]').forEach(function(field) { field.hidden = !(isDmr && dmrNetwork === 'tgif' && setupTgifAuthMode && setupTgifAuthMode.value === 'secured'); });
+		document.querySelectorAll('[data-bridge-setup-direct-dmr]').forEach(function(field) { field.hidden = !(isDmr && path === 'standard'); });
 		document.querySelectorAll('[data-bridge-setup-dmr-username-field]').forEach(function(field) { field.hidden = !isDmr || dmrNetwork === 'tgif'; });
 		document.querySelectorAll('[data-bridge-setup-zello]').forEach(function(field) { field.hidden = !isZello; });
-		document.querySelectorAll('[data-bridge-setup-network]').forEach(function(field) { field.hidden = isDmr || isZello; });
+		document.querySelectorAll('[data-bridge-setup-network]').forEach(function(field) { field.hidden = isZello || (isDmr && path === 'urf'); });
 		var label = document.querySelector('[data-bridge-setup-callsign-label]');
 		var digitalLabel = document.querySelector('[data-bridge-setup-digital-label]');
 		var destinationLabel = document.querySelector('[data-bridge-setup-destination-label]');
@@ -4317,7 +4359,13 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(isUnifiedNet) document.querySelectorAll('.asr-bridge-fields-grid > label').forEach(function(field) {
 			if(!field.querySelector('[data-bridge-setup-mode]')) field.hidden = true;
 		});	}
-	if(setupPanel) setupPanel.addEventListener('input', function(event) { if(event.target === setupTitle) setupTitle.dataset.userEdited = '1'; setupPlanDigest = ''; if(setupPreview) setupPreview.hidden = false; if(setupInstall) { setupInstall.hidden = true; setupInstall.disabled = true; } });
+	if(setupPanel) setupPanel.addEventListener('input', function(event) {
+		if(event.target === setupTitle) setupTitle.dataset.userEdited = '1';
+		if(event.target && event.target.matches('[data-bridge-setup-tgif-password], [data-net-tgif-password], [data-net-tgif-static-token], [data-bridge-setup-zello-password], [data-bridge-setup-zello-private-key]')) return;
+		setupPlanDigest = '';
+		if(setupPreview) setupPreview.hidden = false;
+		if(setupInstall) { setupInstall.hidden = true; setupInstall.disabled = true; }
+	});
 	document.querySelectorAll('[data-net-mode-choice]').forEach(function(input) { input.addEventListener('change', updateNetModeSelection); });
 	if(setupDmrNetwork) setupDmrNetwork.addEventListener('change', function(){ if(setupTitle) delete setupTitle.dataset.userEdited; updateSetupMode(); });
 	if(setupTgifAuthMode) setupTgifAuthMode.addEventListener('change', function(){ if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = ''; updateSetupMode(); });
@@ -4325,11 +4373,25 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 	if(setupPath) setupPath.addEventListener('change', updateSetupMode);
 	if(setupButton && setupPanel) {
 		setupButton.addEventListener('click', function () {
+			delete setupPanel.dataset.editingManagedDmr;
 			updateSetupMode();
 			setupPanel.hidden = false;
 			if(setupMode) setupMode.focus();
 		});
 	}
+	document.querySelectorAll('[data-edit-direct-dmr]').forEach(function(button) {
+		button.addEventListener('click', function() {
+			if(!setupPanel || !setupMode || !setupPath) return;
+			var values; try { values=JSON.parse(button.getAttribute('data-edit-direct-dmr')||'{}'); } catch(_error) { return; }
+			setupMode.value='dmr'; setupPath.value='standard'; if(setupDmrNetwork) setupDmrNetwork.value=values.network||'tgif'; if(setupTgifAuthMode) setupTgifAuthMode.value='secured';
+			if(setupTitle) delete setupTitle.dataset.userEdited; updateSetupMode();
+			var editable={setupBridgeId:'bridgeId',setupTitle:'title',setupBridgeNode:'bridgeNode',setupCallsign:'callsign',setupDigitalId:'digitalId',setupDestination:'destination',setupHost:'host',setupPort:'port',setupTgifEssid:'essid',setupDmrTimeslot:'timeslot',setupDmrColorCode:'colorCode',setupDmrToAslGainDb:'dmrToAslGainDb',setupAslToDmrGainDb:'aslToDmrGainDb'};
+			Object.keys(editable).forEach(function(key){if(setupFields[key]&&values[editable[key]]!==undefined) setupFields[key].value=values[editable[key]];});
+			if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.value=''; if(setupTitle) setupTitle.dataset.userEdited='1';
+			setupPanel.dataset.editingManagedDmr='1'; setupPanel.hidden=false; if(setupPreview) setupPreview.textContent='Check Changes';
+			setupPanel.scrollIntoView({behavior:'smooth',block:'start'}); if(setupPreview) setupPreview.focus();
+		});
+	});
 	var urfInstallRuntime = document.querySelector('[data-urf-install-runtime]');
 	if(urfInstallRuntime && urfPanel && setupPanel && setupMode && setupPath) urfInstallRuntime.addEventListener('click', function () {
 		setupMode.value = 'dmr';
@@ -4397,12 +4459,46 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				.finally(function() { button.disabled = false; });
 		});
 	});
+	function renderBridgeSetupError(error, fallback) {
+		if(!setupOutput) return;
+		setupOutput.hidden = false;
+		setupOutput.setAttribute('role', 'alert');
+		var diagnostic = error && error.diagnostic ? error.diagnostic : {};
+		var stage = diagnostic.stage ? ' [' + diagnostic.stage + (diagnostic.requestId ? ' · ' + diagnostic.requestId : '') + ']' : '';
+		var runtime = error && error.runtimeDiagnostic && error.runtimeDiagnostic.classification
+			? '\nRuntime diagnosis: ' + error.runtimeDiagnostic.classification.replace(/_/g, ' ') : '';
+		setupOutput.textContent = 'Installation failed' + stage + ':\n' + (error && error.message ? error.message : fallback) + runtime;
+		if(setupInstall) {
+			setupInstall.hidden = false;
+			setupInstall.disabled = !/^[a-f0-9]{64}$/.test(setupPlanDigest);
+		}
+	}
+	function bridgeSetupRequestId() {
+		if(window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+		return 'asr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+	}
+	function collectDmrInstallDiagnostics(requestId) {
+		var values = new URLSearchParams();
+		var token = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
+		values.set('asrAction', 'dmr-diagnose');
+		values.set('settingsSaveCsrf', token ? token.value : '');
+		values.set('setupRequestId', requestId || bridgeSetupRequestId());
+		values.set('setupBridgeId', setupFields.setupBridgeId ? setupFields.setupBridgeId.value.trim() : '');
+		return fetch(window.location.href.split('#')[0], {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body:values.toString()})
+			.then(function(response) { return response.json().then(function(data) { return data && data.ok ? data.result : null; }); })
+			.catch(function() { return null; });
+	}
 	function bridgeSetupRequest(action) {
+		var requestDispatched = false;
 		var values = new URLSearchParams();
 		values.set('asrAction', action);
+		setupLastRequestId = bridgeSetupRequestId();
+		values.set('setupRequestId', setupLastRequestId);
 		var token = form ? form.querySelector('input[name="settingsSaveCsrf"]') : null;
 		values.set('settingsSaveCsrf', token ? token.value : '');
 		values.set('setupBridgeRole', currentSetupPath() === 'net' ? 'net' : 'standard');
+		values.set('setupBridgePath', currentSetupPath());
+		values.set('setupManagedEdit', setupPanel && setupPanel.dataset.editingManagedDmr === '1' ? '1' : '0');
 		if(currentSetupPath() === 'urf' && currentSetupMode() === 'dmr' && urfPanel) {
 			var selectedUrfModes = Array.prototype.slice.call(urfPanel.querySelectorAll('input[name="urfModes[]"]:checked')).map(function(input) { return input.value; });
 			['dmr','m17','p25','nxdn','ysf'].forEach(function(protocol) { values.set(protocol + 'Enabled', selectedUrfModes.indexOf(protocol) !== -1 ? 'true' : 'false'); });
@@ -4434,17 +4530,22 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 		if(setupInstall) setupInstall.disabled = true;
 		if(setupOutput) setupOutput.hidden = false;
 		var modeLabel = currentSetupMode().toUpperCase();
-		if(action.endsWith('-plan')) setupOutput.textContent = 'Detecting this ASL3 system and validating the ' + modeLabel + ' installation plan…'; else setupOutput.innerHTML = '<span>Installing the ' + modeLabel + ' bridge. This may compile pinned software; </span><strong class="asr-install-warning">DO NOT CLOSE THIS PAGE</strong><span>…</span>';
+		setupOutput.removeAttribute('role');
+		if(action.endsWith('-plan')) setupOutput.textContent = 'Detecting this ASL3 system and validating the ' + modeLabel + ' installation plan…'; else setupOutput.textContent = 'Installing the ' + modeLabel + ' bridge. This may compile pinned software; DO NOT CLOSE THIS PAGE…';
+		requestDispatched = true;
 		return fetch(window.location.href.split('#')[0], {
 			method: 'POST', credentials: 'same-origin', cache: 'no-store',
 			headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
 			body: values.toString()
 		}).then(function(response) {
-			return response.json().catch(function() { throw new Error('Bridge setup returned an invalid response.'); })
+			return response.json().catch(function() { var invalidResponse = new Error('Bridge setup returned an invalid response.'); invalidResponse.diagnostic = {requestId:setupLastRequestId, stage:'api_invalid_response'}; throw invalidResponse; })
 				.then(function(data) {
-					if(!response.ok || !data.ok) throw new Error(data.error || 'Bridge setup failed.');
+					if(!response.ok || !data.ok) { var requestError = new Error(data.error || 'Bridge setup failed.'); requestError.diagnostic = data.diagnostic || {requestId:setupLastRequestId, stage:'api_rejection'}; throw requestError; }
 					return data.result;
 				});
+		}).catch(function(error) {
+			if(!error.diagnostic) error.diagnostic = {requestId:setupLastRequestId, stage:requestDispatched ? 'api_response_unavailable' : 'installation_request_not_submitted'};
+			throw error;
 		}).finally(function() { setupPreview.disabled = false; });
 	}
 	function renderBridgeSetupPlan(result) {
@@ -4502,21 +4603,37 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			return;
 		}
 		var action = mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan';
-		bridgeSetupRequest(action).then(renderBridgeSetupPlan)			.catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || mode.toUpperCase() + ' plan failed.'; });
+		Promise.resolve().then(function() { return bridgeSetupRequest(action); }).then(renderBridgeSetupPlan)
+			.catch(function(error) { renderBridgeSetupError(error, mode.toUpperCase() + ' plan failed.'); });
 	});
 	if(setupInstall && setupOutput) setupInstall.addEventListener('click', function () {
 		var mode = currentSetupMode();
 		if(currentSetupPath() === 'urf' && mode !== 'dmr') { setupOutput.textContent = 'URF modes are applied with Save Reimagined Settings above.'; return; }
 		var label = mode.toUpperCase();
+		if(mode === 'dmr' && setupTgifAuthMode && setupTgifAuthMode.value === 'secured') {
+			var hotspotKey = setupFields.setupTgifPassword ? setupFields.setupTgifPassword.value : '';
+			var keepingManagedKey = currentSetupPath() === 'standard' && setupPanel && setupPanel.dataset.editingManagedDmr === '1' && !hotspotKey;
+			if(!keepingManagedKey && (!hotspotKey || hotspotKey.length > 128 || /[\x00-\x1F\x7F]/.test(hotspotKey))) {
+				renderBridgeSetupError(new Error('Enter the TGIF hotspot security key before installing. Check Setup does not send or validate this secret.'), label + ' installation cannot start.');
+				if(setupFields.setupTgifPassword) setupFields.setupTgifPassword.focus();
+				return;
+			}
+		}
 		if(!window.confirm('Install this ' + label + ' bridge using the validated plan?')) return;
 		var action = mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install';
-		bridgeSetupRequest(action).then(function(result) {			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
+		Promise.resolve().then(function() { return bridgeSetupRequest(action); }).then(function(result) {			var qualification = 'Provisioning and managed-service startup passed. Live RF/audio qualification is still pending.';
 			setupOutput.textContent = label + ' bridge installation committed successfully.\nBridge node: ' + result.bridgeNode +
 				'\n\n' + qualification + ' Reload Settings to view the new bridge card.';
 			if(mode === 'dmr' && setupFields.setupTgifPassword) setupFields.setupTgifPassword.value = '';
 			if(mode === 'net_bridge') { if(setupFields.setupNetTgifPassword) setupFields.setupNetTgifPassword.value = ''; if(setupFields.setupNetTgifStaticToken) setupFields.setupNetTgifStaticToken.value = ''; }
 			if(mode === 'zello') { if(setupFields.setupZelloPassword) setupFields.setupZelloPassword.value=''; if(setupFields.setupZelloPrivateKey) setupFields.setupZelloPrivateKey.value=''; }
-		}).catch(function(error) { setupOutput.hidden = false; setupOutput.textContent = error.message || label + ' installation failed and was rolled back.'; });
+		}).catch(function(error) {
+			if(mode !== 'dmr') { renderBridgeSetupError(error, label + ' installation failed and was rolled back.'); return; }
+			collectDmrInstallDiagnostics(setupLastRequestId).then(function(runtimeDiagnostic) {
+				error.runtimeDiagnostic = runtimeDiagnostic;
+				renderBridgeSetupError(error, label + ' installation failed and was rolled back.');
+			});
+		});
 	});
 	Object.keys(setupFields).forEach(function(key) {
 		if(setupFields[key]) setupFields[key].addEventListener('input', function() {

@@ -185,6 +185,73 @@ def test_legacy_ownership_recovery() -> None:
         rejected(planner.plan, root, settings, contains="record is incomplete")
 
 
+def display_only_fresh_fixture(root: Path):
+    fixture(root)
+    settings = planner.UrfSettings(
+        "urf", "N1YKT", 1234567, 42450, "URF073", "URF073", 1001,
+        "standard", None, None, None, None, None, None, None, None, None,
+        None, "node-main", False, False, True, False, False, False, False, True,
+    )
+    config_path = root / planner.CONFIG.lstrip("/")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["node"] = "623123"
+    config["bridges"] = [{
+        "id": "urf", "mode": "urf", "node": "1001", "title": "URF073",
+        "detailTitle": "URF Clients & Activity", "friendlyName": "URF073",
+        "clientSource": "auto", "cardType": "standard",
+        "backendMode": "display_only", "allowTune": False,
+        "fixedBridgeRecovery": False, "urfReflector": True,
+        "urfGroupId": "urf", "modes": ["dmr"],
+    }]
+    config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
+    return settings
+
+
+def test_display_only_fresh_install() -> None:
+    with tempfile.TemporaryDirectory(prefix="asr-urf-display-fresh-") as temporary:
+        root = Path(temporary)
+        settings = display_only_fresh_fixture(root)
+        planned = planner.plan(root, settings)
+        assert planned["bridgeNode"] == 1001
+        assert planned["settings"]["reflector"] == "URF073"
+        assert planned["settings"]["tgif_tg"] == 42450
+        assert planned["enabledProtocols"] == {
+            "dstar": False, "dmrplus": False, "dmr": True, "m17": False,
+            "p25": False, "nxdn": False, "ysf": False, "urf": True,
+        }
+        assert "ownershipRecovery" not in planned
+        result = installer.install(
+            root, settings, "fresh-install-key",
+            expected_digest=planned["digest"], manage_services=False,
+        )
+        assert result["changedFiles"] > 0 and not result.get("ownershipRecovered", False)
+        config = json.loads((root / planner.CONFIG.lstrip("/")).read_text(encoding="utf-8"))
+        matches = [bridge for bridge in config["bridges"] if bridge.get("id") == "urf"]
+        assert len(matches) == 1
+        installed = matches[0]
+        assert installed["backendMode"] == "managed"
+        assert installed["bridgePermission"] == "self_owned"
+        assert installed["node"] == "1001" and installed["urfName"] == "URF073"
+        assert installed["tgifTalkgroup"] == "42450" and installed["urfModes"] == ["dmr"]
+        record = json.loads((root / planner.STATE.lstrip("/") / "urf.json").read_text())
+        assert record["bridgeNode"] == 1001 and record["backend"] == "native"
+
+    with tempfile.TemporaryDirectory(prefix="asr-urf-display-footprint-") as temporary:
+        root = Path(temporary)
+        settings = display_only_fresh_fixture(root)
+        (root / planner.runtime_root("urf").lstrip("/")).mkdir(parents=True)
+        rejected(planner.plan, root, settings, contains="existing runtime footprint")
+
+    with tempfile.TemporaryDirectory(prefix="asr-urf-display-markers-") as temporary:
+        root = Path(temporary)
+        settings = display_only_fresh_fixture(root)
+        config_path = root / planner.CONFIG.lstrip("/")
+        config = json.loads(config_path.read_text())
+        config["bridges"][0]["bridgePermission"] = "self_owned"
+        config_path.write_text(json.dumps(config))
+        rejected(planner.plan, root, settings, contains="managed ownership markers")
+
+
 def test_protocol_enable_source_patch() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-urf-protocol-source-test-") as temporary:
         root = Path(temporary)
@@ -250,6 +317,7 @@ def test_protocol_enable_source_patch() -> None:
 def main() -> None:
     test_protocol_enable_source_patch()
     test_legacy_ownership_recovery()
+    test_display_only_fresh_install()
     # Exercise the deployable runtime path even when this offline test runs on
     # an Apple Silicon workstation, which is not itself an ASL3 target.
     machine_patch = mock.patch("platform.machine", return_value="x86_64")
@@ -258,6 +326,24 @@ def main() -> None:
     # Docker being installed must not affect native selection/requirements.
     planner.validate_runtime_requirements(
         native_facts, False, True, {"ID": "debian", "VERSION_ID": "12"}, "x86_64")
+    planner.validate_runtime_requirements(
+        native_facts, False, True, {"ID": "debian", "VERSION_ID": "13"}, "x86_64")
+    rejected(
+        planner.validate_runtime_requirements,
+        native_facts, False, True, {"ID": "debian", "VERSION_ID": "14"}, "x86_64",
+        contains="Debian 12 or 13",
+    )
+    with (mock.patch.object(runtime_builder.os, "geteuid", return_value=0),
+          mock.patch.object(runtime_builder.platform, "freedesktop_os_release",
+                            return_value={"ID": "debian", "VERSION_ID": "13"}),
+          mock.patch.object(runtime_builder, "packages", return_value=()),
+          mock.patch.object(runtime_builder.subprocess, "run") as package_runner):
+        runtime_builder.install_packages()
+        package_runner.assert_not_called()
+    with (mock.patch.object(runtime_builder.os, "geteuid", return_value=0),
+          mock.patch.object(runtime_builder.platform, "freedesktop_os_release",
+                            return_value={"ID": "debian", "VERSION_ID": "14"})):
+        rejected(runtime_builder.install_packages, contains="Debian 12 or 13")
     rejected(planner.validate_runtime_requirements,
              SimpleNamespace(systemd=True, docker=False, docker_compose=False),
              True, True, {"ID": "debian", "VERSION_ID": "12"}, "x86_64",
@@ -269,6 +355,7 @@ def main() -> None:
         plan = planner.plan(root, settings)
         assert plan["backend"] == "native" and not plan["images"]
         assert planner.tgif_network_id(3224939, 1001, 50) == 322493950
+        assert planner.tgif_network_id(314133, 1001) == 314133
         test_settings = planner.UrfSettings(
             "dmr_tgif", "KE7WIL", 3224939, 86753, "URFWIL", "TGIF DMR", 1001,
             "standard", 50)

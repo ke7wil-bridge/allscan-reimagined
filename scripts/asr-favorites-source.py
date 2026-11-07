@@ -75,23 +75,51 @@ def write_preserved(content: str, destination: Path, mode: int = 0o664) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def has_favorite_entries(path: Path) -> bool:
+    """A comment-only placeholder is not an operator's Favorites list."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        return any(line.lstrip().lower().startswith(("label[", "cmd["))
+                   for line in stream if not line.lstrip().startswith((";", "#")))
+
+
 def initialize_canonical(canonical: Path, stock_favorites: Path) -> str:
     if canonical.is_symlink():
         raise ValueError("Canonical Favorites path must not be a symbolic link.")
     if canonical.exists():
         if not canonical.is_file():
             raise ValueError("Canonical Favorites path is not a regular file.")
-        if canonical.stat().st_size > 0:
+        if has_favorite_entries(canonical):
             return "existing"
 
     if (
         stock_favorites.is_file()
-        and stock_favorites.stat().st_size > 0
+        and has_favorite_entries(stock_favorites)
         and stock_favorites.resolve() != canonical.resolve()
     ):
+        if canonical.exists() and canonical.stat().st_size > 0:
+            raise ValueError("Canonical Favorites has content but no recognized entries; refusing to replace it automatically.")
         copy_preserved(stock_favorites, canonical, mode=0o664)
         return "stock"
 
+    # A missing canonical file must not hide an operator's legacy list.
+    # Recover only from a known, regular, nonempty file; never follow symlinks
+    # into unknown locations or overwrite an existing nonempty canonical list.
+    for legacy in (stock_favorites.parent.parent / "supermon" / "favorites.ini",
+                   stock_favorites.parent.parent / "supermon2" / "favorites.ini"):
+        if legacy.is_file() and not legacy.is_symlink() and has_favorite_entries(legacy):
+            if canonical.exists() and canonical.stat().st_size > 0:
+                raise ValueError("Canonical Favorites has content but no recognized entries; refusing to replace it automatically.")
+            copy_preserved(legacy, canonical, mode=0o664)
+            return "legacy-supermon"
+
+    # No source was found. Create a clearly marked empty file rather than
+    # silently claiming the operator's Favorites were migrated.
+    if canonical.exists():
+        # Preserve even a comment-only or blank file. The operator may have
+        # intentionally removed all entries; never rewrite it on upgrade.
+        return "existing-unrecognized"
     write_preserved(EMPTY_CANONICAL_CONTENT, canonical)
     return "new-empty"
 

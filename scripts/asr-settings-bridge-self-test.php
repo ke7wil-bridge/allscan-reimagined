@@ -42,10 +42,17 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 		check(substr_count($controllerSource, $declaration) === 1, "$compatVersion Settings does not declare $variable exactly once.");
 		check(strpos($controllerSource, $declaration) < strpos($controllerSource, "if(updateRecoveryCheck)"), "$compatVersion Settings uses $variable before declaration.");
 	}
-	$wizardOpen = "setupButton.addEventListener('click', function () {\n\t\t\tupdateSetupMode();\n\t\t\tsetupPanel.hidden = false;";
-	check(strpos($controllerSource, $wizardOpen) !== false, "$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
+	check(str_contains($controllerSource, "setupButton.addEventListener('click', function () {")
+		&& str_contains($controllerSource, 'delete setupPanel.dataset.editingManagedDmr;')
+		&& str_contains($controllerSource, 'updateSetupMode();'),
+		"$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
 	check(str_contains($controllerSource, "setupFields.setupReflector.placeholder = path === 'urf' ? 'URF123' : 'M17-WIL'"),
 		"$compatVersion URF Reflector Name still uses the M17 placeholder.");
+	check(str_contains($controllerSource, "'bridgePath' => strtolower(asrSettingsCleanText(\$_POST['setupBridgePath']")
+		&& str_contains($controllerSource, 'data-bridge-setup-direct-dmr')
+		&& str_contains($controllerSource, 'data-edit-direct-dmr')
+		&& (str_contains($controllerSource, "setupPanel.dataset.editingManagedDmr='1'") || str_contains($controllerSource, "setupPanel.dataset.editingManagedDmr = '1'")),
+		"$compatVersion Settings does not expose managed direct-DMR install/edit controls.");
 }
 
 // Execute the same helper used by runtime-config. Johnny2's saved aggregate
@@ -79,7 +86,7 @@ foreach(['v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
 	'Add Bridge does not expose exactly one unified Net Bridge choice.');
 check(str_contains($settingsSource, 'data-urf-install-runtime')
-	&& str_contains($settingsSource, 'Save stores these settings; it does not install runtime services.')
+	&& str_contains($settingsSource, 'Saving alone does not activate runtime services.')
 	&& str_contains($settingsSource, "values.set(protocol + 'Enabled'")
 	&& str_contains($settingsSource, "setupFields.setupBridgeNode.value = node ? node.value.trim() : ''")
 	&& str_contains($settingsSource, 'if(editorCancel) editorCancel.click();'),
@@ -299,6 +306,14 @@ $loadedUrf = asrSettingsExistingUrfConfig($configuredAggregate);
 check($loadedUrf['modeConfig']['dmr']['talkgroup'] === '86753' && $loadedUrf['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF', 'URF mode-specific values did not load.');
 check($loadedUrf['modeConfig']['p25']['destination'] === '64189' && $loadedUrf['modeConfig']['nxdn']['destination'] === '15846', 'P25/NXDN destinations did not load.');
 check($loadedUrf['modeConfig']['m17']['reflector'] === 'M17-WIL' && $loadedUrf['modeConfig']['m17']['module'] === 'A', 'M17 configuration did not load.');
+
+$ownUrf = $configuredAggregate;
+$ownUrf['bridges'][0]['urfName'] = 'URFWIL';
+$ownUrf['bridges'][0]['friendlyName'] = 'URFWIL Reflector';
+check(asrSettingsExistingUrfConfig($ownUrf)['displayName'] === 'URFWIL Reflector', 'A genuine URFWIL reflector lost its operator label.');
+$otherUrf = $ownUrf;
+$otherUrf['bridges'][0]['urfName'] = 'URF073';
+check(asrSettingsExistingUrfConfig($otherUrf)['displayName'] === 'URF Reflector', 'A copied URFWIL default leaked into a different reflector.');
 
 $_POST['urfDisplayName'] = 'URF073';
 $urfError = '';
@@ -615,6 +630,11 @@ check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hot
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';
+unset($_POST['setupTgifPassword']);
+$dmrPreview = asrSettingsDmrSetupPayload(false, $setupError);
+check($setupError === '' && !isset($dmrPreview['tgifPassword']), 'Secured DMR preview unexpectedly required or exposed the TGIF hotspot key.');
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'hotspot key') !== false, 'Secured DMR install without a hotspot key reached the helper boundary.');
 $_POST['setupTgifPassword'] = 'secret-123';
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['tgifPassword'] === 'secret-123', 'Secured TGIF hotspot key was not accepted.');
@@ -625,6 +645,10 @@ $_POST['setupTgifPassword'] = 'secret-123';
 $_POST['setupTgifEssid'] = '100';
 asrSettingsDmrSetupPayload(true, $setupError);
 check(strpos($setupError, 'ESSID') !== false, 'Unsafe TGIF hotspot ESSID was accepted.');
+$_POST['setupDigitalId'] = '314133';
+$_POST['setupTgifEssid'] = '50';
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'repeater DMR IDs') !== false, 'Six-digit repeater DMR ID accepted a hotspot ESSID.');
 
 $_POST = [
 	'setupBridgeId' => 'zello', 'setupTitle' => 'Zello Bridge',
@@ -654,6 +678,24 @@ check(count($preservedUrf) === 1 && $preservedUrf[0] === $managedUrf[0], 'Manage
 $settingsSource = file_get_contents($settingsDir . '/settings-controller.php');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan'") !== false, 'Bridge setup preview is not wired to the selected helper endpoint.');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install'") !== false, 'Bridge setup install is not wired to the selected helper endpoint.');
+check(strpos($settingsSource, "Enter the TGIF hotspot security key before installing.") !== false
+	&& strpos($settingsSource, "Check Setup does not send or validate this secret.") !== false,
+	'Secured DMR install does not explain its install-only hotspot-key requirement before dispatch.');
+check(strpos($settingsSource, "Promise.resolve().then(function() { return bridgeSetupRequest(action); })") !== false
+	&& strpos($settingsSource, 'function renderBridgeSetupError(error, fallback)') !== false
+	&& strpos($settingsSource, "setupOutput.setAttribute('role', 'alert')") !== false,
+	'Bridge setup synchronous or request failures can still bypass visible error reporting.');
+check(strpos($settingsSource, "values.set('setupRequestId', setupLastRequestId)") !== false
+	&& strpos($settingsSource, "\$payload['_requestId'] = \$requestId") !== false
+	&& strpos($settingsSource, "'installation_request_not_submitted'") !== false
+	&& strpos($settingsSource, "'api_response_unavailable'") !== false
+	&& strpos($settingsSource, "'dmr-diagnose'") !== false
+	&& strpos($settingsSource, 'Runtime diagnosis: ') !== false,
+	'URF install requests do not carry end-to-end stage diagnostics.');
+check(strpos($settingsSource, 'setupOutput.innerHTML') === false,
+	'Bridge installation status still uses a failure-prone HTML sink before request dispatch.');
+check(strpos($settingsSource, "[data-bridge-setup-tgif-password], [data-net-tgif-password]") !== false,
+	'Entering an install-only bridge secret still invalidates the validated setup plan.');
 check(strpos($settingsSource, "'p25-plan', 'p25-install'") !== false, 'P25 helper actions are unavailable.');
 check(strpos($settingsSource, "'nxdn-plan', 'nxdn-install'") !== false, 'NXDN helper actions are unavailable.');
 check(strpos($settingsSource, "'ysf-plan', 'ysf-install'") !== false, 'YSF helper actions are unavailable.');

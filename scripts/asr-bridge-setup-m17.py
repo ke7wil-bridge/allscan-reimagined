@@ -246,9 +246,8 @@ def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) 
         "m17Port": settings.port, "m17Module": settings.module,
         "m17Encrypted": False, "approvedDestinations": ([{"reflector": settings.reflector, "host": settings.host, "port": settings.port, "module": settings.module, "encrypted": False}] if settings.card_type == "m17_net" else []), "allowTune": settings.card_type == "m17_net",
         "clientSource": "m17",
+        "fixedBridgeRecovery": settings.card_type == "standard",
     }
-    if settings.card_type == "standard":
-        entry.update({"urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL"})
     return entry
 
 
@@ -265,6 +264,12 @@ def update_config(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, An
         current = bridges[matches[0]]
         if current.get("mode") != "m17":
             raise InstallError("bridge id belongs to a different mode")
+        # An explicit operator opt-out must survive reinstall/edit. Older
+        # standard cards without the flag acquire the fixed-link default.
+        if isinstance(current.get("fixedBridgeRecovery"), bool):
+            entry["fixedBridgeRecovery"] = (
+                current["fixedBridgeRecovery"] if entry.get("cardType") == "standard" else False
+            )
         bridges[matches[0]] = entry
     else:
         bridges.append(entry)

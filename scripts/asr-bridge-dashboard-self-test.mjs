@@ -22,6 +22,7 @@ const server = await createServer({
 try {
   const {
     bridgeConnectionIdentities,
+    bridgeProtocolCardTitle,
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
     bridgeCardWarningText,
@@ -145,11 +146,18 @@ try {
     detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: true,
     urfGroupId: 'urfnet', urfName: 'URFNET',
   }))
+  for (const bridge of urfGroup) {
+    assert(bridgeProtocolCardTitle({ ...bridge, title: 'DMR Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
+      `URF ${bridge.mode} inherited an incorrect DMR protocol label`)
+    assert(bridgeProtocolCardTitle({ ...bridge, title: 'Generic Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
+      `URF ${bridge.mode} did not use its configured protocol identity`)
+  }
   const standaloneZello = {
     id: 'zello', mode: 'zello', node: '1002', title: 'Zello Bridge',
     detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: false,
   }
   assert(urfGroup.every(isUrfReflectorBridge), 'expanded URF protocol cards were not recognized as URF group members')
+  assert(bridgeProtocolCardTitle(standaloneZello) === 'Zello Bridge', 'standalone Zello title changed')
   assert(!isUrfReflectorBridge(standaloneZello), 'standalone Zello was incorrectly classified as an URF card')
   assert(urfReflectorDisplayName(urfGroup) === 'URFNET Bridge', 'URF group heading did not use the configured reflector name')
   assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: '' }))) === 'URF Bridge', 'legacy URFWIL default leaked into a different reflector dashboard')
@@ -314,6 +322,19 @@ try {
     'bridge-only DMR caller was not promoted into the main Talkers feed',
   )
   assert(dmrTalkers.recentTalkers.length === 0, 'active DMR caller was duplicated in Talkers history')
+  // A private transport identity must never become a blank/generic Talker Card.
+  const privateTransport = {
+    id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',
+    status: 'Source/TX', lastCaller: '1001', lastTransmitter: '1001',
+    lastTxEpoch: 2_000_000_010, activeStartEpoch: 2_000_000_005,
+    recentTalkers: [{ callsign: '1999', startEpoch: 2_000_000_000, eventEpoch: 2_000_000_010, duration: 10 }],
+  }
+  const placeholders = bridgeTalkerFeed([privateTransport])
+  assert(placeholders.currentTalker === null && placeholders.recentTalkers.length === 0,
+    'private transport number leaked into digital talker cards')
+  const realCaller = bridgeTalkerFeed([{ ...privateTransport, lastCaller: 'N1YKT', recentTalkers: [] }])
+  assert(realCaller.currentTalker?.info === 'N1YKT', 'valid URF callsign was suppressed')
+
   assert(
     bridgeCardWarningText('-') === '-',
     'healthy backend readiness text was shown as a warning',
@@ -698,6 +719,11 @@ try {
     'Zello relay must use the fast producer when present and retain legacy Asterisk fallback when absent',
   )
   assert(
+    appSource.includes('Never promote that node-wide bit into')
+      && appSource.includes("if (row) {\n          // A pseudo hub can report RPT_TXKEYED continuously"),
+    'ordinary bridge cards must not derive Relay from the pseudo hub RPT_TXKEYED bit',
+  )
+  assert(
     appSource.includes('const wasReady = zelloFastRelayReadyRef.current')
       && appSource.includes('zelloFastRelayReadyRef.current = true')
       && appSource.includes('active === previous && wasReady'),
@@ -716,6 +742,12 @@ try {
   assert(
     asrApiSource.includes("'updatedEpochMs' => max(0, (int) ($payload['updated_epoch_ms'] ?? 0))"),
     'Zello fast relay endpoint must preserve the producer event timestamp',
+  )
+  assert(
+    asrApiSource.includes('&& (int) (microtime(true) * 1000) - $relayEpochMs <= 30000')
+      && asrApiSource.includes("!empty($relayPayload['active']) && $relayFresh")
+      && asrApiSource.includes("'last_time_epoch' => $activityEpoch"),
+    'Zello aggregate status must expire stale RELAY without erasing Last Activity',
   )
   assert(
     runtimeV102.includes("'zello-relay.json'") && runtimeV103.includes("'zello-relay.json'"),

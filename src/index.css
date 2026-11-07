@@ -7179,6 +7179,7 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-row { display: none; }
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-proxy-row:first-child,
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-report-row,
+  html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-support-row,
   html[data-asr-theme="lcars-frame"] .allscan-menu-panel:not(.has-active-submenu) .allscan-menu-logout-row { display: flex; }
   html[data-asr-theme="lcars-frame"] .allscan-submenu {
     position: absolute;

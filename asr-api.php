@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.3.2';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.3.2';
+const ASR_VERSION = '1.0.0-beta.8.4';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.4';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -510,6 +510,8 @@ function asr_runtime_config(): array {
                 ? 'Unified Net Bridge'
                 : substr(trim((string) ($bridge['friendlyName'] ?? '')), 0, 80),
             'cardType' => $cardType,
+            'fixedBridgeRecovery' => $cardType === 'standard' && !empty($bridge['fixedBridgeRecovery']),
+            'manualDisconnect' => $cardType === 'standard' && ($bridge['manualDisconnect'] ?? false) === true,
             'backendMode' => in_array((string) ($bridge['backendMode'] ?? ''), ['display_only', 'managed'], true)
                 ? (string) $bridge['backendMode']
                 : ($cardType === 'standard' && in_array($mode, ['p25', 'nxdn', 'm17'], true)
@@ -1555,7 +1557,11 @@ function asr_bridge_status_payload(): array {
         $relayEpochMs = max(0, (int) ($relayPayload['updated_epoch_ms'] ?? 0));
         if ($relayEpochMs > (int) floor((microtime(true) + 300) * 1000)) $relayEpochMs = 0;
         $relayEpoch = intdiv($relayEpochMs, 1000);
-        $relayActive = is_array($relayPayload) && !empty($relayPayload['active']);
+        // A retained true edge must not keep RELAY lit after the producer
+        // disappears. Completed activity timestamps remain retained below.
+        $relayFresh = $relayEpochMs > 0 && $relayEpochMs <= (int) (microtime(true) * 1000)
+            && (int) (microtime(true) * 1000) - $relayEpochMs <= 30000;
+        $relayActive = is_array($relayPayload) && !empty($relayPayload['active']) && $relayFresh;
         $zelloEntry = is_array($bridge['zello'] ?? null) ? $bridge['zello'] : [];
         $sourceActive = strtolower((string) ($zelloEntry['role'] ?? '')) === 'source';
         $role = $sourceActive ? 'source' : ($relayActive ? 'relay' : 'idle');
@@ -3315,7 +3321,9 @@ function asr_favorites_payload(string $requested = ''): array {
         ];
     }, asr_favorites_files());
 
-    return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => basename($selected)];
+    return ['ok' => true, 'rows' => $rows, 'files' => $files, 'selectedFile' => basename($selected),
+        'fileExists' => is_file($selected), 'fileReadable' => is_readable($selected),
+        'filePath' => $selected, 'fileBytes' => is_file($selected) ? filesize($selected) : null];
 }
 
 function asr_favorite_action(string $action, string $node, string $requested): array {
@@ -3357,7 +3365,7 @@ function asr_favorite_action(string $action, string $node, string $requested): a
 }
 
 function asr_favorite_manage_action(string $operation, string $requested, string $node = '', string $value = ''): array {
-    $allowed = ['preview-import', 'import', 'update-description', 'reset-description', 'set-color', 'reset-appearance', 'reorder', 'reset-order', 'reset-favorite'];
+    $allowed = ['preview-import', 'import', 'update-description', 'reset-description', 'set-color', 'reset-appearance', 'reorder', 'reset-order', 'reset-favorite', 'preview-upstream-order', 'import-upstream-order', 'preview-export-upstream-order', 'export-upstream-order'];
     if (!in_array($operation, $allowed, true)) asr_error('Invalid Favorites operation.');
     if ($node !== '' && !preg_match('/^[A-Za-z0-9*#]{3,8}$/', $node)) asr_error('Invalid node.');
     if (strlen($value) > 20000) asr_error('Favorites value is too large.');
@@ -4374,6 +4382,83 @@ if ($action === 'station-map') {
         $requestedStations = preg_split('/\s*,\s*/', trim((string) $_GET['callsigns']), -1, PREG_SPLIT_NO_EMPTY);
     }
     asr_json(asr_station_map_payload(is_array($requestedStations) ? $requestedStations : null));
+}
+if ($action === 'favorites-diagnostics') {
+    asr_require_modify();
+    $roots = ['/etc/allscan', dirname(asr_allscan_dir()) . '/allscan', asr_allscan_dir(),
+        '/var/www/html/supermon', '/var/www/html/supermon2', '/var/lib/allscan-reimagined/migrations'];
+    $found = [];
+    foreach (array_unique($roots) as $root) {
+        if (!is_dir($root)) continue;
+        $paths = glob(rtrim($root, '/') . '/favorites*') ?: [];
+        foreach (array_slice($paths, 0, 100) as $path) {
+            $base = basename($path);
+            if (!preg_match('/^favorites[\w.\-\[\]]*(?:\.ini(?:\.bak|\.asr-backup-[\w-]+)?|\.bak)$/i', $base)) continue;
+            $found[] = ['path' => $path, 'exists' => file_exists($path),
+                'symlink' => is_link($path), 'readable' => is_readable($path),
+                'bytes' => is_file($path) ? filesize($path) : null];
+        }
+    }
+    asr_json(['ok' => true, 'files' => $found,
+        'message' => 'Read-only inventory. Missing files are not automatically replaced; backups are not overwritten.']);
+}
+if ($action === 'favorites-view') {
+    asr_require_read();
+    $requested = (string) ($_GET['favsfile'] ?? '');
+    $available = array_map('basename', asr_favorites_files());
+    if ($requested === '' || !in_array($requested, $available, true)) asr_error('Requested Favorites file is missing or inaccessible.', 404);
+    $file = asr_safe_favorites_file($requested);
+    if (!is_file($file) || !is_readable($file)) asr_error('Favorites file is not readable.', 404);
+    if (filesize($file) > 2097152) asr_error('Favorites file is too large to view.', 413);
+    asr_json(['ok' => true, 'name' => basename($file), 'path' => $file, 'content' => file_get_contents($file), 'hash' => hash_file('sha256', $file)]);
+}
+if ($action === 'favorites-recovery') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    $requested = (string) ($_POST['favsfile'] ?? '');
+    $available = array_map('basename', asr_favorites_files());
+    if (!in_array($requested, $available, true) && $requested !== 'favorites.ini')
+        asr_error('Select a known Favorites file or canonical favorites.ini for recovery.', 404);
+    $file = $requested === 'favorites.ini' ? ASR_ETC_FAVORITES : asr_safe_favorites_file($requested);
+    if (realpath(dirname($file)) !== realpath(dirname(ASR_ETC_FAVORITES)) || is_link($file))
+        asr_error('Recovery target must be an existing canonical Favorites file.', 403);
+    $operation = (string) ($_POST['operation'] ?? '');
+    if (!in_array($operation, ['preview-recovery', 'restore-backup'], true)) asr_error('Invalid recovery operation.', 400);
+    asr_json(asr_favorites_manager([$operation, '--file', $file,
+        '--source', (string) ($_POST['source'] ?? ''), '--value', (string) ($_POST['token'] ?? '')]));
+}
+if ($action === 'favorites-edit') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_admin();
+    $requested = (string) ($_POST['favsfile'] ?? '');
+    $available = array_map('basename', asr_favorites_files());
+    if ($requested === '' || !in_array($requested, $available, true)) asr_error('Favorites file is unavailable.', 404);
+    $file = asr_safe_favorites_file($requested);
+    if (realpath(dirname($file)) !== realpath(dirname(ASR_ETC_FAVORITES)) || is_link($file))
+        asr_error('Only canonical Favorites files can be edited.', 403);
+    $content = (string) ($_POST['content'] ?? '');
+    if (strlen($content) > 2097152) asr_error('Favorites file exceeds size limit.', 413);
+    $envelope = base64_encode(json_encode(['expectedHash' => (string) ($_POST['expectedHash'] ?? ''),
+        'contentBase64' => base64_encode($content)]));
+    asr_json(asr_favorites_manager(['edit-file', '--file', $file, '--value', $envelope]));
+}
+if ($action === 'favorites-download') {
+    asr_require_read();
+    $requested = (string) ($_GET['favsfile'] ?? '');
+    $available = array_map('basename', asr_favorites_files());
+    if ($requested === '' || !in_array($requested, $available, true)) asr_error('Requested Favorites file was not found; no substitute file was downloaded.', 404);
+    $file = asr_safe_favorites_file($requested);
+    if (!is_file($file) || !is_readable($file)) asr_error('Favorites file is unavailable. Check /etc/allscan and file permissions.', 404);
+    $basename = basename($file);
+    if (!preg_match('/^favorites[\w.\-\[\]]*\.ini$/i', $basename)) asr_error('Invalid Favorites file.', 400);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $basename . '"');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($file);
+    exit;
 }
 if ($action === 'favorites') {
     asr_require_read();

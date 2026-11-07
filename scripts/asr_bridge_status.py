@@ -397,7 +397,10 @@ def astapi_key_states(
 def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for bridge in config.get("bridges", []):
+    configured = config.get("bridges")
+    if not isinstance(configured, list):
+        return rows
+    for bridge in configured:
         if not isinstance(bridge, dict) or bridge.get("cardType", "standard") != "standard":
             continue
         bridge_id = str(bridge.get("id", ""))
@@ -439,7 +442,10 @@ def configured_standard_bridges(config: dict[str, Any]) -> dict[str, dict[str, A
 def configured_net_log_stems(config: dict[str, Any]) -> frozenset[str]:
     """Return only MMDVM log stems explicitly named by DMR/YSF Net cards."""
     stems: set[str] = set()
-    for bridge in config.get("bridges", []):
+    configured = config.get("bridges")
+    if not isinstance(configured, list):
+        return frozenset()
+    for bridge in configured:
         if not isinstance(bridge, dict):
             continue
         card_type = str(bridge.get("cardType", ""))
@@ -581,22 +587,44 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
     mapping = config.get("bridgeHealthServices") if isinstance(config.get("bridgeHealthServices"), dict) else {}
     configured = mapping.get(bridge_id)
     units = [str(unit).strip() for unit in configured] if isinstance(configured, list) else []
+    if not units:
+        # Direct ASR-managed bridges store their actual systemd unit names on
+        # the bridge itself, not in the legacy bridgeHealthServices mapping.
+        configured_bridges = config.get("bridges")
+        if not isinstance(configured_bridges, list):
+            configured_bridges = []
+        bridge = next((item for item in configured_bridges
+                       if isinstance(item, dict) and item.get("id") == bridge_id), {})
+        if bridge.get("backendMode") == "managed":
+            fields = ("gatewayService", "vocoderService", "mmdvmService",
+                      "analogBridgeService", "emulatorService", "adminService",
+                      "mqttService")
+            units = [str(bridge[key]).strip() for key in fields if bridge.get(key)]
     units = list(dict.fromkeys(unit for unit in units if UNIT_RE.fullmatch(unit)))[:8]
     issues = []
     active_epochs: dict[str, int] = {}
     for unit in units:
-        result = subprocess.run([
-            "systemctl", "show", unit, "--no-pager",
-            "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic",
-        ], text=True, capture_output=True, timeout=3)
-        details = parse_service_properties(result.stdout)
-        if details.get("ActiveState") != "active":
-            issues.append(unit + " is not active.")
+        try:
+            result = subprocess.run([
+                "systemctl", "show", unit, "--no-pager",
+                "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic",
+            ], text=True, capture_output=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            issues.append(unit + " service status could not be checked.")
             continue
-        restarts = int(details.get("NRestarts", "0") or 0)
+        details = parse_service_properties(result.stdout)
+        if result.returncode != 0 or details.get("ActiveState") != "active":
+            issues.append(unit + " is not active or could not be checked.")
+            continue
+        try:
+            restarts = int(details.get("NRestarts", "0") or 0)
+            epoch = int(details.get("ActiveEnterTimestampMonotonic", "0") or 0)
+        except ValueError:
+            issues.append(unit + " returned invalid service status.")
+            continue
         if restarts > 0:
             issues.append(unit + " restarted unexpectedly; repair the full bridge chain.")
-        active_epochs[unit] = int(details.get("ActiveEnterTimestampMonotonic", "0") or 0)
+        active_epochs[unit] = epoch
     valid_epochs = [epoch for epoch in active_epochs.values() if epoch > 0]
     if not issues and len(valid_epochs) > 1 and max(valid_epochs) - min(valid_epochs) > 30_000_000:
         newest = max(active_epochs, key=active_epochs.get)
@@ -652,6 +680,10 @@ def standard_live_payload(
     cache_dir: Path = ASTAPI_CACHE_DIR,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
+    # Every configured card needs an Idle/health entry, even when multiple
+    # cards share a protocol and generic MMDVM logs cannot identify a card.
+    visible = {str(bridge["id"]): bridge for bridge in all_configured_standard_bridges(config)}
+    unambiguous_ids = {str(bridge["id"]) for bridge in bridges.values()}
     local_call = clean_caller(str(config.get("callsign", "")), 20).upper()
     local_identities = frozenset(value for value in (local_call, f"{local_call}-RPT" if local_call else "") if value)
     for line in lines:
@@ -667,8 +699,11 @@ def standard_live_payload(
                 local_identities,
             )
     health_cache = states.setdefault("__service_health__", {})
-    for bridge in bridges.values():
-        state = states.setdefault(str(bridge["id"]), initial_activity_state())
+    for bridge_id, bridge in visible.items():
+        if bridge_id not in unambiguous_ids:
+            # Do not retain or invent activity for an ambiguously routed card.
+            states[bridge_id] = initial_activity_state()
+        state = states.setdefault(bridge_id, initial_activity_state())
         state["tx_events"] = [
             item for item in state.get("tx_events", [])
             if isinstance(item, dict)
@@ -689,21 +724,22 @@ def standard_live_payload(
             state["last_source_user"] = ""
             state["last_source_epoch"] = 0
 
-    bridge_nodes = {str(bridge["node"]) for bridge in bridges.values()}
+    bridge_nodes = {str(bridge["node"]) for bridge in visible.values()}
     keys = astapi_key_states(str(config.get("node", "")), bridge_nodes, now, cache_dir)
     entries: dict[str, dict[str, Any]] = {}
-    for bridge in bridges.values():
-        bridge_id = str(bridge["id"])
+    for bridge_id, bridge in visible.items():
         state = states.setdefault(bridge_id, initial_activity_state())
-        reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
+        if bridge_id in unambiguous_ids:
+            reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
         cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}
         if now - int(cached.get("epoch", 0) or 0) >= SERVICE_CHECK_INTERVAL:
             units, issues = bridge_service_health(config, bridge_id)
             cached = {"epoch": now, "units": units, "issues": issues}
             health_cache[bridge_id] = cached
-        if state.get("observed") or cached.get("units"):
-            entries[bridge_id] = public_entry(bridge, state, list(cached.get("units", [])), list(cached.get("issues", [])))
-    valid_ids = {str(bridge["id"]) for bridge in bridges.values()}
+        # Publish explicit Idle even before the first log event. Otherwise
+        # configured standard bridges disappear from the live-status feed.
+        entries[bridge_id] = public_entry(bridge, state, list(cached.get("units", [])), list(cached.get("issues", [])))
+    valid_ids = set(visible)
     for bridge_id in set(states) - valid_ids - {"__service_health__"}:
         states.pop(bridge_id, None)
     for bridge_id in set(health_cache) - valid_ids:
