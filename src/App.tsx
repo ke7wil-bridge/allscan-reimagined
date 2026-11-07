@@ -565,6 +565,7 @@ function formatUtc(date: Date) {
 
 function App({ config }: { config: RuntimeConfig }) {
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
+  const [connectionFeedReady, setConnectionFeedReady] = useState(false)
   const [currentTalker, setCurrentTalker] = useState<TalkerFeedEntry | null>(null)
   const [recentTalkers, setRecentTalkers] = useState<TalkerFeedEntry[]>([])
   const [talkersOpen, setTalkersOpen] = useState(() => window.localStorage.getItem(TALKERS_OPEN_KEY) !== '0')
@@ -1565,6 +1566,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setBackgroundNodeState(null)
         connectionRowsRef.current = labeledRows
         setRows(labeledRows)
+        setConnectionFeedReady(true)
         setConnectedCount(snapshot.connectedCount)
         setDirectCount(snapshot.directCount)
         setAdjacentCount(snapshot.adjacentCount)
@@ -2577,38 +2579,6 @@ function App({ config }: { config: RuntimeConfig }) {
       }
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'Command failed.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function restoreAutoConnectBridges() {
-    if (!authStatus.canModify || busy) return
-    const targets = config.bridges.filter((bridge) =>
-      bridge.cardType === 'standard' && !bridge.urfReflector
-      && bridge.fixedBridgeRecovery === true && bridge.manualDisconnect !== true
-      && /^\d{3,10}$/.test(bridge.node) && bridge.node !== config.node
-      && !rows.some((row) => row.node === bridge.node && row.state !== 'message'),
-    )
-    if (!targets.length) {
-      appendNodeMessage('No disconnected Auto-Connect Standard Bridges need restoration.')
-      return
-    }
-    if (!window.confirm(`Reconnect ${targets.length} configured Auto-Connect bridge(s)?`)) return
-    setBusy(true)
-    try {
-      let restored = 0
-      for (const bridge of targets) {
-        try {
-          await sendNodeCommand({ localNode: config.node, node: bridge.node,
-            action: 'connect', permanent: false, autodisc: false, connectedCount,
-            favsfile: selectedFavoriteFile })
-          restored++
-        } catch (error) {
-          appendNodeMessage(`${bridge.friendlyName?.trim() || bridge.title} (${bridge.node}): ${error instanceof Error ? error.message : 'Reconnect failed'}`)
-        }
-      }
-      appendNodeMessage(`Reconnect requested for ${restored} of ${targets.length} Auto-Connect bridges; verify live status.`)
     } finally {
       setBusy(false)
     }
@@ -4173,18 +4143,6 @@ function App({ config }: { config: RuntimeConfig }) {
               </div>
             })()}
 
-            {authStatus.canModify && config.bridges.some((bridge) =>
-              bridge.cardType === 'standard' && !bridge.urfReflector
-              && bridge.fixedBridgeRecovery === true && bridge.manualDisconnect !== true
-              && /^\d{3,10}$/.test(bridge.node) && bridge.node !== config.node) ? (
-              <div className="allscan-bridge-restore-controls">
-                <button type="button" className="allscan-action-button" disabled={busy}
-                  onClick={() => void restoreAutoConnectBridges()}>
-                  Restore All Auto-Connect Bridges
-                </button>
-              </div>
-            ) : null}
-
             <div className="allscan-bridge-grid">
               {orderedVisibleBridgeCards(config.bridges, bridgeState.cards, netBridgeMode, config.bridgeOrderVersion).map((card) => {
                 const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id)
@@ -4195,10 +4153,16 @@ function App({ config }: { config: RuntimeConfig }) {
                 const bridgeLinked = card.cardType !== 'standard'
                   ? card.controlLinked
                   : card.controlLinked || rows.some(
-                  (row) => row.bridgeId === card.id
+                  (row) => (row.bridgeId === card.id || row.node === card.node)
                     && row.direction.toUpperCase() === 'OUT'
                     && row.state !== 'message',
                 )
+                const standardLinkMissing = card.cardType === 'standard'
+                  && !bridgeConfig?.urfReflector
+                  && /^\d{3,10}$/.test(card.node)
+                  && card.node !== config.node
+                  && connectionFeedReady
+                  && !bridgeLinked
                 // Node 1999 has one control-plane owner. Draft fields remain
                 // editable during an operation; only actions are serialized.
                 const modeSwitchBusy = bridgeControlBusy === 'net-bridge-mode'
@@ -4218,20 +4182,20 @@ function App({ config }: { config: RuntimeConfig }) {
                   className={`allscan-bridge-card${card.cardType !== 'standard' ? ' allscan-net-bridge-card' : ''}${bridgeClientsOpen.has(card.id) || bridgeHistoryOpen.has(card.id) ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}
                 >
                   <div className="allscan-bridge-head">
-                    <span className="allscan-bridge-head-title">{card.cardType !== 'standard' ? 'Net Bridge' : card.title}</span>
+                    <span className="allscan-bridge-head-title">{card.cardType !== 'standard' ? 'Net Bridge' : config.node === '674982' ? ({ '1001': 'DMR TGIF Bridge', '1002': 'YSF Bridge', '1003': 'P25 Bridge', '1004': 'M17 Bridge', '1005': 'NXDN Bridge', '1006': 'Zello Bridge' } as Record<string, string>)[card.node] || card.title : card.title}</span>
                     <span className="allscan-urf-mini-head-actions">
                       <button
                         type="button"
                         className={`allscan-bridge-status-control${card.healthSeverity ? ' has-health-issue' : ''}`}
-                        aria-label={card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
-                        title={card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
+                        aria-label={standardLinkMissing ? `Warning: AllStar node ${card.node} is not linked` : card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
+                        title={standardLinkMissing ? `AllStar node ${card.node} is not linked` : card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
                         onClick={() => {
                           if (card.healthSeverity && card.healthIssues.length) window.alert(card.healthIssues.join('\n'))
                         }}
                       >
-                        {card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
-                        <span className={`allscan-bridge-status rounded-full border ${card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>
-                          {card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}
+                        {standardLinkMissing ? <AlertTriangle className="allscan-bridge-health-triangle" aria-hidden="true" /> : card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
+                        <span className={`allscan-bridge-status rounded-full border ${standardLinkMissing || card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>
+                          {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}
                         </span>
                       </button>
                     </span>
@@ -4264,18 +4228,15 @@ function App({ config }: { config: RuntimeConfig }) {
                     ) : null}
                   </div>
 
-                  {card.cardType === 'standard' && !bridgeConfig?.urfReflector
-                    && /^\d{3,10}$/.test(card.node) && card.node !== config.node ? (
+                  {standardLinkMissing && authStatus.canModify ? (
                     <div className="allscan-bridge-row allscan-bridge-status-row">
                       <span>AllStar link · Node {card.node}</span>
-                      <b>{bridgeLinked ? 'Linked' : 'Not linked'}</b>
-                      {!bridgeLinked && authStatus.canModify ? (
-                        <button type="button" className="allscan-action-button" disabled={busy}
-                          title={`Reconnect ${card.title} using saved AllStar node ${card.node}`}
-                          onClick={() => void runCommandForNode('connect', card.node, false, false)}>
-                          {busy ? 'Working…' : 'Reconnect'}
-                        </button>
-                      ) : null}
+                      <b>Not linked</b>
+                      <button type="button" className="allscan-action-button" disabled={busy}
+                        title={`Reconnect ${card.title} using AllStar node ${card.node}`}
+                        onClick={() => void runCommandForNode('connect', card.node, false, false)}>
+                        {busy ? 'Working…' : 'Reconnect'}
+                      </button>
                     </div>
                   ) : null}
 
