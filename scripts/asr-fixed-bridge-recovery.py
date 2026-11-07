@@ -107,6 +107,9 @@ def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> 
             continue
         if bridge.get("fixedBridgeRecovery") is not True:
             continue
+        # Explicit operator hold takes precedence over periodic fallback recovery.
+        if bridge.get("manualDisconnect") is True:
+            continue
         node = str(bridge.get("node", "")).strip()
         if not NODE_RE.fullmatch(node) or node == main_node or node in quiesced_nodes:
             continue
@@ -120,11 +123,21 @@ def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> 
 def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None = None) -> dict:
     main_node, targets = configured_targets(config, quiesced_nodes)
     native = native_permanent_nodes(rpt_text, main_node)
+    # A native Asterisk permanent link can defeat a manual hold even when
+    # ASR's fallback timer is suppressed. Report it; never rewrite rpt.conf.
+    held_nodes = {
+        str(bridge.get("node", "")).strip()
+        for bridge in config.get("bridges", []) if isinstance(bridge, dict)
+        and bridge.get("cardType", "standard") == "standard"
+        and bridge.get("manualDisconnect") is True
+    }
+    native_conflicts = sorted(held_nodes & native)
     fallback = [target for target in targets if target["node"] not in native]
     return {
         "mainNode": main_node,
         "configured": targets,
         "nativePermanent": [target for target in targets if target["node"] in native],
+        "nativeManualHoldConflicts": native_conflicts,
         "fallback": fallback,
     }
 
@@ -223,6 +236,7 @@ def self_test() -> None:
         "bridges": [
             {"id": "dmr", "node": "1201", "cardType": "standard", "fixedBridgeRecovery": True},
             {"id": "ysf", "node": "1202", "cardType": "standard", "fixedBridgeRecovery": True},
+            {"id": "m17", "node": "1205", "cardType": "standard", "fixedBridgeRecovery": True},
             {"id": "zello", "node": "1203", "cardType": "standard", "fixedBridgeRecovery": False},
             {"id": "ysf_net", "node": "1204", "cardType": "ysf_net", "fixedBridgeRecovery": True},
         ],
@@ -236,9 +250,28 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
 """
     plan = recovery_plan(config, rpt_text)
     assert [item["node"] for item in plan["nativePermanent"]] == ["1201"]
-    assert [item["node"] for item in plan["fallback"]] == ["1202"]
+    assert [item["node"] for item in plan["fallback"]] == ["1202", "1205"]
+    # Manual disconnect is scoped to one bridge; other configured links recover.
+    held_config = {**config, "bridges": [
+        {**bridge, "manualDisconnect": bridge["id"] == "ysf"}
+        for bridge in config["bridges"]
+    ]}
+    held_plan = recovery_plan(held_config, rpt_text)
+    assert [item["node"] for item in held_plan["fallback"]] == ["1205"]
+    assert [item["node"] for item in held_plan["nativePermanent"]] == ["1201"]
+    native_held_config = {**config, "bridges": [
+        {**bridge, "manualDisconnect": bridge["id"] == "dmr"}
+        for bridge in config["bridges"]
+    ]}
+    assert recovery_plan(native_held_config, rpt_text)["nativeManualHoldConflicts"] == ["1201"]
+    assert held_plan["nativeManualHoldConflicts"] == []
+    resumed_config = {**held_config, "bridges": [
+        {**bridge, "manualDisconnect": False} if bridge["id"] == "ysf" else bridge
+        for bridge in held_config["bridges"]
+    ]}
+    assert [item["node"] for item in recovery_plan(resumed_config, rpt_text)["fallback"]] == ["1202", "1205"]
     quiesced_plan = recovery_plan(config, rpt_text, {"1202"})
-    assert [item["node"] for item in quiesced_plan["fallback"]] == []
+    assert [item["node"] for item in quiesced_plan["fallback"]] == ["1205"]
     assert all(item["node"] != "1202" for item in quiesced_plan["configured"])
 
     calls: list[tuple[str, ...]] = []
@@ -247,16 +280,17 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         command = tuple(arguments)
         calls.append(command)
         if command == ("rpt", "localnodes"):
-            return "Local nodes: 1201 1202 1203 600000\n"
+            return "Local nodes: 1201 1202 1203 1205 600000\n"
         if command == ("rpt", "lstats", "600000"):
             return "NODE PEER STATE\n1201 127.0.0.1 ESTABLISHED\n"
-        if command == ("rpt", "fun", "600000", "*31202"):
+        if command in {("rpt", "fun", "600000", "*31202"), ("rpt", "fun", "600000", "*31205")}:
             return ""
         raise AssertionError(command)
 
     result = recover_once(plan, runner)
-    assert result == {"checked": 1, "reconnected": ["1202"], "unavailable": []}
+    assert result == {"checked": 2, "reconnected": ["1202", "1205"], "unavailable": []}
     assert ("rpt", "fun", "600000", "*31202") in calls
+    assert ("rpt", "fun", "600000", "*31205") in calls
 
     unavailable_plan = {**plan, "fallback": [{"id": "p25", "node": "1299"}]}
     result = recover_once(unavailable_plan, runner)
@@ -277,7 +311,7 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         assert load_plan(config_path, rpt_path) == plan
         quiesce_path = root / "quiesced.json"
         quiesce_path.write_text(json.dumps({"nodes": ["1202"]}), encoding="utf-8")
-        assert load_plan(config_path, rpt_path, quiesce_path)["fallback"] == []
+        assert [item["node"] for item in load_plan(config_path, rpt_path, quiesce_path)["fallback"]] == ["1205"]
         quiesce_path.write_text(json.dumps({"nodes": ["bad-node"]}), encoding="utf-8")
         try:
             load_plan(config_path, rpt_path, quiesce_path)

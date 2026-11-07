@@ -25,6 +25,8 @@ M17_PATH = HERE / "asr-bridge-setup-m17.py"
 DIGITAL_PLAN_PATH = HERE / "asr-bridge-setup-digital.py"
 DIGITAL_INSTALL_PATH = HERE / "asr-bridge-setup-digital-install.py"
 DIGITAL_SOURCE_PATH = HERE / "asr-bridge-runtime-sources.py"
+DYNAMIC_DMR_PLAN_PATH = HERE / "asr-bridge-setup-dmr.py"
+DYNAMIC_DMR_INSTALL_PATH = HERE / "asr-bridge-setup-dmr-install.py"
 DIGITAL_STAGE_ROOT = Path("/var/cache/allscan-reimagined/bridge-runtime")
 URF_PLAN_PATH = HERE / "asr-bridge-setup-urf.py"
 URF_INSTALL_PATH = HERE / "asr-bridge-setup-urf-install.py"
@@ -397,12 +399,13 @@ def digital_command(payload: dict[str, Any], mode: str, apply: bool) -> dict[str
 
 def dmr_settings(module, payload: dict[str, Any]):
     allowed = {
-        "bridgeId", "callsign", "digitalId", "destination", "title", "reflector",
+        "bridgeId", "callsign", "digitalId", "destination", "title", "reflector", "bridgePath",
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
         "hotspotEssid", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
         "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
         "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
-        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled",
+        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled", "host", "port",
+        "timeslot", "colorCode", "dmrToAslGainDb", "aslToDmrGainDb",
         "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
     }
     if set(payload) - allowed:
@@ -466,6 +469,8 @@ def dmr_settings(module, payload: dict[str, Any]):
 
 
 def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
+    if str(payload.get("bridgePath") or "standard") == "standard":
+        return direct_dmr_command(payload, apply)
     planner = load_module("asr_setup_dmr_plan", URF_PLAN_PATH)
     settings = dmr_settings(planner, payload)
     if not apply:
@@ -510,6 +515,91 @@ def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         "action": "dmr-install" if apply else "dmr-plan",
         "bridgeId": settings.bridge_id, "result": "ok",
     })
+    return result
+
+
+def direct_dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
+    allowed = {
+        "bridgeId", "callsign", "digitalId", "destination", "title", "bridgePath",
+        "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network",
+        "hotspotEssid", "host", "port", "timeslot", "colorCode",
+        "dmrToAslGainDb", "aslToDmrGainDb", "authMode", "networkUsername",
+        # Older supported Settings controllers submit their known URF-only
+        # fields even while the Standard/direct path is selected. They are
+        # accepted as inert compatibility fields and never reach the planner.
+        "reflector", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
+        "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
+        "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
+        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled",
+        "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
+    }
+    if set(payload) - allowed:
+        raise HelperError("direct DMR request contains unsupported fields")
+    if not {"bridgeId", "callsign", "digitalId", "destination"}.issubset(payload):
+        raise HelperError("direct DMR request is incomplete")
+    if str(payload.get("bridgeRole") or "standard") != "standard":
+        raise HelperError("direct DMR is a Standard Bridge; use Net Bridge for selectable destinations")
+    planner = load_module("asr_setup_direct_dmr_plan", DYNAMIC_DMR_PLAN_PATH)
+    settings = planner.DmrSettings(
+        bridge_id=str(payload["bridgeId"]), callsign=str(payload["callsign"]),
+        dmr_id=int(payload["digitalId"]), talkgroup=int(payload["destination"]),
+        network=str(payload.get("network") or "tgif"),
+        master_host=str(payload.get("host") or "tgif.network"),
+        master_port=int(payload.get("port") or 62031),
+        title=str(payload.get("title") or "DMR Bridge"),
+        bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
+        tgif_essid=int(payload["hotspotEssid"]) if payload.get("hotspotEssid") else None,
+        timeslot=int(payload.get("timeslot") or 2),
+        color_code=int(payload.get("colorCode") if payload.get("colorCode") not in (None, "") else 1),
+        dmr_to_asl_gain_db=float(payload.get("dmrToAslGainDb") or 0),
+        asl_to_dmr_gain_db=float(payload.get("aslToDmrGainDb") or 0),
+    )
+    if not apply:
+        result = planner.plan(Path("/"), settings)
+    else:
+        require_root()
+        expected = str(payload.get("planDigest") or "")
+        if not re.fullmatch(r"[a-f0-9]{64}", expected):
+            raise HelperError("direct DMR installation requires a current preview digest")
+        current = planner.plan(Path("/"), settings)
+        if current["digest"] != expected:
+            raise HelperError("preview is stale; preview again")
+        password = str(payload.get("tgifPassword") or "")
+        if not password:
+            config = json.loads(Path(planner.CONFIG).read_text(encoding="utf-8"))
+            matches = [item for item in config.get("bridges", []) if isinstance(item, dict)
+                       and item.get("id") == settings.bridge_id]
+            expected_network_id = planner.network_id(settings.dmr_id, settings.tgif_essid)
+            if (len(matches) != 1 or matches[0].get("architecture") != "direct-dvswitch"
+                    or str(matches[0].get("dmrNetworkId")) != str(expected_network_id)):
+                raise HelperError("a TGIF hotspot security key is required for a new or changed DMR identity")
+            credential = Path(str(matches[0].get("credentialRef") or ""))
+            root = Path(current["resources"]["root"])
+            try:
+                credential.relative_to(root / "secrets")
+            except ValueError as error:
+                raise HelperError("the managed DMR credential reference is invalid") from error
+            if (not credential.is_file() or credential.is_symlink()
+                    or credential.stat().st_uid != 0 or credential.stat().st_nlink != 1):
+                raise HelperError("the managed DMR credential is unavailable; enter a replacement hotspot key")
+            password = credential.read_text(encoding="utf-8").rstrip("\n")
+            if not password:
+                raise HelperError("the managed DMR credential is empty; enter a replacement hotspot key")
+        source = load_module("asr_setup_direct_dmr_source", DIGITAL_SOURCE_PATH)
+        packages_before = installed_packages()
+        try:
+            stage = prepare_digital_stage(source, "dmr")
+            installer = load_module("asr_setup_direct_dmr_install", DYNAMIC_DMR_INSTALL_PATH)
+            result = installer.install(Path("/"), settings, stage, password,
+                                       expected_digest=expected, manage_services=True)
+        except Exception as original:
+            try:
+                rollback_packages(packages_before)
+            except Exception as rollback:
+                raise HelperError(f"installation failed ({original}); package rollback failed ({rollback})") from rollback
+            raise
+    append_audit({"action": "direct-dmr-install" if apply else "direct-dmr-plan",
+                  "bridgeId": settings.bridge_id, "result": "ok"})
     return result
 
 

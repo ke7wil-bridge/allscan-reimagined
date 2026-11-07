@@ -3,15 +3,24 @@ declare(strict_types=1);
 
 /**
  * Return every usable favorites*.ini file from the shared AllScan directory
- * and the ASR web directory. Shared files win when both locations contain the
- * same basename.
+ * the ASR web directory, and the sibling stock AllScan web directory.
+ * Shared files win when locations contain the same basename.
  *
  * @return array<int, string>
  */
 function asrFavoritesFiles(string $etcDir, string $webDir): array {
 	$byName = [];
 
-	foreach([$etcDir, $webDir] as $directory) {
+	// Include stock AllScan's sibling web root: older installations may retain
+	// an operator's original list there instead of the canonical /etc path.
+	// Never follow a symlink outside the explicitly trusted roots.
+	$stockDir = dirname(rtrim($webDir, DIRECTORY_SEPARATOR)) . DIRECTORY_SEPARATOR . 'allscan';
+	$trustedRoots = [];
+	foreach ([$etcDir, $webDir, $stockDir] as $candidate) {
+		$resolved = realpath($candidate);
+		if ($resolved !== false && is_dir($resolved)) $trustedRoots[$resolved] = true;
+	}
+	foreach (array_keys($trustedRoots) as $directory) {
 		$matches = glob(rtrim($directory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'favorites*.ini') ?: [];
 		natcasesort($matches);
 		foreach($matches as $path) {
@@ -20,6 +29,8 @@ function asrFavoritesFiles(string $etcDir, string $webDir): array {
 				!preg_match('/^favorites[^\/]*\.ini$/i', $name)
 				|| !is_file($path)
 				|| !is_readable($path)
+				|| ($resolvedFile = realpath($path)) === false
+				|| !array_key_exists(dirname($resolvedFile), $trustedRoots)
 				|| array_key_exists($name, $byName)
 			)
 				continue;

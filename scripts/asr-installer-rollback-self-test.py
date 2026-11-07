@@ -772,17 +772,24 @@ def self_test(*, model_only: bool = False) -> None:
             scripts_dir / "asr-reapply.sh",
             scripts_dir / "asr-integrity-check.sh",
         )
-    cases = (
-        ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_previous_move"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "before_release_install"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "after_release_install"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.5.11", "during_current_link_swap"),
-        ("1.0.0-beta.6", "1.0.0-beta.6.1", "after_current_link_swap"),
-        (None, "1.0.0-beta.6.1", "after_release_install"),
-        (None, "1.0.0-beta.6.1", "before_release_install"),
-        (None, "1.0.0-beta.6.1", "during_current_link_swap"),
-        ("1.0.0-beta.5.11", "1.0.0-beta.5.11", None),
-        ("1.0.0-beta.6", "1.0.0-beta.6.1", None),
+    # Cover every injected interruption for fresh installs, same-version
+    # replacements, and upgrades to a different version. All use temp dirs.
+    failure_steps = (
+        "after_previous_move",
+        "before_release_install",
+        "after_release_install",
+        "during_current_link_swap",
+        "after_current_link_swap",
+    )
+    release_pairs = (
+        (None, "1.0.0-beta.6.1"),
+        ("1.0.0-beta.5.11", "1.0.0-beta.5.11"),
+        ("1.0.0-beta.6", "1.0.0-beta.6.1"),
+    )
+    cases = tuple(
+        (initial, new, failure)
+        for initial, new in release_pairs
+        for failure in (*failure_steps, None)
     )
     for initial, new, failure in cases:
         with tempfile.TemporaryDirectory(

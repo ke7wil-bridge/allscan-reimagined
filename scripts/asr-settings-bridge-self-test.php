@@ -42,10 +42,17 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 		check(substr_count($controllerSource, $declaration) === 1, "$compatVersion Settings does not declare $variable exactly once.");
 		check(strpos($controllerSource, $declaration) < strpos($controllerSource, "if(updateRecoveryCheck)"), "$compatVersion Settings uses $variable before declaration.");
 	}
-	$wizardOpen = "setupButton.addEventListener('click', function () {\n\t\t\tupdateSetupMode();\n\t\t\tsetupPanel.hidden = false;";
-	check(strpos($controllerSource, $wizardOpen) !== false, "$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
+	check(str_contains($controllerSource, "setupButton.addEventListener('click', function () {")
+		&& str_contains($controllerSource, 'delete setupPanel.dataset.editingManagedDmr;')
+		&& str_contains($controllerSource, 'updateSetupMode();'),
+		"$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
 	check(str_contains($controllerSource, "setupFields.setupReflector.placeholder = path === 'urf' ? 'URF123' : 'M17-WIL'"),
 		"$compatVersion URF Reflector Name still uses the M17 placeholder.");
+	check(str_contains($controllerSource, "'bridgePath' => strtolower(asrSettingsCleanText(\$_POST['setupBridgePath']")
+		&& str_contains($controllerSource, 'data-bridge-setup-direct-dmr')
+		&& str_contains($controllerSource, 'data-edit-direct-dmr')
+		&& (str_contains($controllerSource, "setupPanel.dataset.editingManagedDmr='1'") || str_contains($controllerSource, "setupPanel.dataset.editingManagedDmr = '1'")),
+		"$compatVersion Settings does not expose managed direct-DMR install/edit controls.");
 }
 
 // Execute the same helper used by runtime-config. Johnny2's saved aggregate
@@ -79,7 +86,7 @@ foreach(['v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
 	'Add Bridge does not expose exactly one unified Net Bridge choice.');
 check(str_contains($settingsSource, 'data-urf-install-runtime')
-	&& str_contains($settingsSource, 'Save stores these settings; it does not install runtime services.')
+	&& str_contains($settingsSource, 'Saving alone does not activate runtime services.')
 	&& str_contains($settingsSource, "values.set(protocol + 'Enabled'")
 	&& str_contains($settingsSource, "setupFields.setupBridgeNode.value = node ? node.value.trim() : ''")
 	&& str_contains($settingsSource, 'if(editorCancel) editorCancel.click();'),
@@ -299,6 +306,14 @@ $loadedUrf = asrSettingsExistingUrfConfig($configuredAggregate);
 check($loadedUrf['modeConfig']['dmr']['talkgroup'] === '86753' && $loadedUrf['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF', 'URF mode-specific values did not load.');
 check($loadedUrf['modeConfig']['p25']['destination'] === '64189' && $loadedUrf['modeConfig']['nxdn']['destination'] === '15846', 'P25/NXDN destinations did not load.');
 check($loadedUrf['modeConfig']['m17']['reflector'] === 'M17-WIL' && $loadedUrf['modeConfig']['m17']['module'] === 'A', 'M17 configuration did not load.');
+
+$ownUrf = $configuredAggregate;
+$ownUrf['bridges'][0]['urfName'] = 'URFWIL';
+$ownUrf['bridges'][0]['friendlyName'] = 'URFWIL Reflector';
+check(asrSettingsExistingUrfConfig($ownUrf)['displayName'] === 'URFWIL Reflector', 'A genuine URFWIL reflector lost its operator label.');
+$otherUrf = $ownUrf;
+$otherUrf['bridges'][0]['urfName'] = 'URF073';
+check(asrSettingsExistingUrfConfig($otherUrf)['displayName'] === 'URF Reflector', 'A copied URFWIL default leaked into a different reflector.');
 
 $_POST['urfDisplayName'] = 'URF073';
 $urfError = '';
@@ -630,6 +645,10 @@ $_POST['setupTgifPassword'] = 'secret-123';
 $_POST['setupTgifEssid'] = '100';
 asrSettingsDmrSetupPayload(true, $setupError);
 check(strpos($setupError, 'ESSID') !== false, 'Unsafe TGIF hotspot ESSID was accepted.');
+$_POST['setupDigitalId'] = '314133';
+$_POST['setupTgifEssid'] = '50';
+asrSettingsDmrSetupPayload(true, $setupError);
+check(strpos($setupError, 'repeater DMR IDs') !== false, 'Six-digit repeater DMR ID accepted a hotspot ESSID.');
 
 $_POST = [
 	'setupBridgeId' => 'zello', 'setupTitle' => 'Zello Bridge',

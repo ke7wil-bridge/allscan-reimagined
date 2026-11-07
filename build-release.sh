@@ -118,18 +118,23 @@ python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
+python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
+python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
+python3 "$ROOT/scripts/asr-bridge-setup-m17-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
 python3 "$ROOT/scripts/asr-node-diagnostics.py" --self-test
+python3 "$ROOT/scripts/asr-asterisk-queue-self-test.py"
 python3 "$ROOT/scripts/asr-apache-listeners.py" self-test
 python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
@@ -144,7 +149,17 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
+  node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
+else
+  echo "ERROR: Mobile browser regression gate requires Chrome/Chromium." >&2
+  exit 1
+fi
 python3 "$ROOT/scripts/asr-bridge-ui-regression-self-test.py"
+python3 "$ROOT/scripts/asr-dashboard-auth-gate-self-test.py"
+python3 "$ROOT/scripts/asr-post-reboot-health-self-test.py"
+python3 "$ROOT/qa/disposable-node/asr-qa-gate-self-test.py"
+bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
@@ -231,7 +246,7 @@ install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scrip
 install -m 755 scripts/asr-reapply-apache-self-test.py "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
-for setup_script in asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
 for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
@@ -243,6 +258,9 @@ cp -a runtime/urf "$STAGE/payload/runtime/urf"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
 install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
+install -m 755 scripts/asr-install-preflight.py "$STAGE/payload/scripts/asr-install-preflight.py"
+install -m 755 scripts/asr-install-preflight-self-test.py "$STAGE/payload/scripts/asr-install-preflight-self-test.py"
+install -m 755 scripts/asr-install-diagnostics-self-test.py "$STAGE/payload/scripts/asr-install-diagnostics-self-test.py"
 install -m 755 scripts/asr-dmr-roster-stability-self-test.py "$STAGE/payload/scripts/asr-dmr-roster-stability-self-test.py"
 install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25-bridge-control.py"
 install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
@@ -352,6 +370,8 @@ python3 "$STAGE/payload/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$STAGE/payload/scripts/asr-stock-allscan.py" self-test
 python3 "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
+python3 "$STAGE/payload/scripts/asr-install-preflight-self-test.py"
+python3 "$STAGE/payload/scripts/asr-install-diagnostics-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +

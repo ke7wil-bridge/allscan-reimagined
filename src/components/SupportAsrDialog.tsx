@@ -19,6 +19,7 @@ export default function SupportAsrDialog({ onClose }: SupportAsrDialogProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
+    const returnFocus = document.querySelector<HTMLElement>('.allscan-menu-button')
     closeButtonRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -51,6 +52,7 @@ export default function SupportAsrDialog({ onClose }: SupportAsrDialogProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+      if (returnFocus?.isConnected) returnFocus.focus()
     }
   }, [onClose])
 

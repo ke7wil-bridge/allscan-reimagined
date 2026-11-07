@@ -51,6 +51,24 @@ STOCK_PREVIOUS_ARMED=0
 STOCK_PREVIOUS_DIR=""
 STOCK_STAGE_PARENT=""
 
+# Structured, intentionally minimal diagnostics: never copy command output,
+# environment, tokens, passwords, configuration files, or full paths here.
+ASR_INSTALL_DIAGNOSTICS="/var/log/allscan-reimagined-install.log"
+asr_diagnostic() {
+  local event="$1"
+  case "$event" in
+    started|preflight-passed|rollback-started|rollback-finished|completed|failed) ;;
+    *) return 2 ;;
+  esac
+  # Never follow a pre-existing symlink to an unrelated file.
+  [ ! -L "$ASR_INSTALL_DIAGNOSTICS" ] || return 0
+  [ ! -e "$ASR_INSTALL_DIAGNOSTICS" ] || [ -f "$ASR_INSTALL_DIAGNOSTICS" ] || return 0
+  (umask 077; printf '%s event=%s version=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$event" "$ASR_VERSION" >> "$ASR_INSTALL_DIAGNOSTICS") 2>/dev/null || true
+}
+asr_diagnostic started
+# Record unsuccessful exits, including preflight failures before rollback is armed.
+# EXIT runs after ERR/INT/TERM rollback and does not change the exit status.
+trap 'asr_install_exit_status=$?; if [ "$asr_install_exit_status" -ne 0 ]; then asr_diagnostic failed; fi' EXIT
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 validate_command() {
   local description="$1"
@@ -300,6 +318,7 @@ rollback_on_error() {
   status="${1:-$?}"
   trap - ERR INT TERM
   set +e
+  asr_diagnostic rollback-started
   if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \
     && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then
     rm -f "$BACKUP_DIR/manifest.json"
@@ -425,6 +444,7 @@ rollback_on_error() {
     fi
   fi
   systemctl reload apache2 2>/dev/null || true
+  asr_diagnostic rollback-finished
   exit "$status"
 }
 trap 'rollback_on_error $?' ERR
@@ -590,6 +610,10 @@ prune_old_backups() {
 for command in curl php python3 tar install find systemctl flock; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command not found: $command"
 done
+# Fail before package mutations when disk capacity or inodes are exhausted.
+python3 "$PAYLOAD_DIR/scripts/asr-install-preflight.py" --payload "$PAYLOAD_DIR" \
+  || fail "Installation resource preflight failed; free disk space/inodes and retry"
+asr_diagnostic preflight-passed
 # The upstream AllScan installer downloads a zip archive on first install.
 # Bootstrap installs unzip on clean ASL3 nodes; keep direct archive installs usable too.
 if ! command -v unzip >/dev/null 2>&1; then
@@ -1100,6 +1124,25 @@ else
   requested_stock_permission=2
 fi
 if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
+  # An empty fresh stock AllScan database cannot be locked to login-only
+  # before an administrator account exists. Fail with an actionable message
+  # rather than a generic database-policy failure and rollback surprise.
+  if [ "$requested_stock_permission" -eq 0 ]; then
+    php -r '
+      $_SERVER["DOCUMENT_ROOT"] = $argv[1];
+      $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
+      chdir($argv[2]);
+      require_once "include/common.php";
+      $msg = [];
+      asInit($msg);
+      $db = dbInit();
+      checkTables($db, $msg);
+      $users = new UserModel($db);
+      $admins = $users->getUsers(null, null, PERMISSION_ADMIN);
+      exit(is_array($admins) && count($admins) > 0 ? 0 : 1);
+    ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" \
+      || fail "Stock AllScan login-only mode requires an existing stock administrator account. Create the stock AllScan administrator first, then rerun the installer; no access policy was changed."
+  fi
   php -r '
     $_SERVER["DOCUMENT_ROOT"] = $argv[1];
     $_SERVER["SCRIPT_NAME"] = "/allscan/index.php";
@@ -1285,6 +1328,8 @@ validate_command "node-wide TGIF session helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-tgif-user-session.py" self-test >/dev/null
 validate_command "TGIF/URFWIL DMR adapter self-test" \
   python3 "$RELEASE_DIR/scripts/asr-tgif-urf-dmr-bridge.py" --self-test >/dev/null
+validate_command "managed direct DMR installer self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-bridge-setup-dmr-self-test.py" >/dev/null
 validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
   python3 "$RELEASE_DIR/scripts/asr-favorites-manager.py" --self-test >/dev/null
@@ -1475,6 +1520,7 @@ if ! prune_old_backups; then
   echo "WARNING: Old rollback backups could not be pruned automatically." >&2
 fi
 
+asr_diagnostic completed
 echo "[8/8] Installation complete."
 echo
 echo "AllScan backend:       $latest_version"

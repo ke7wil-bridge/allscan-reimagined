@@ -28,8 +28,8 @@ files_match() {
   master_size=$(stat -c %s "$master" 2>/dev/null) || return 1
   installed_size=$(stat -c %s "$installed" 2>/dev/null) || return 1
   [ "$master_size" = "$installed_size" ] || return 1
-  # Large images are immutable build assets. Avoid rereading them every check.
-  [ "$master_size" -gt 1048576 ] && return 0
+  # Equal size is not proof of equal content: stale JS/CSS bundles can have
+  # identical lengths. Compare bytes for every managed file, including >1 MiB.
   cmp -s "$master" "$installed"
 }
 
@@ -220,6 +220,33 @@ if [ "$needs_reapply" -eq 0 ]; then
 fi
 
 if [ "$needs_reapply" -eq 1 ]; then
+  # Never repair the live dashboard from an internally inconsistent master.
+  # This would perpetuate an old frontend even after the runtime was upgraded.
+  if [ -f "$MASTER_DIR/package.json" ] && ! python3 - "$MASTER_DIR" <<'PY_ASR_MASTER_RELEASE'
+import json, pathlib, re, sys
+master = pathlib.Path(sys.argv[1])
+try:
+    version = json.loads((master / "package.json").read_text(encoding="utf-8"))["version"]
+    api = (master / "server/asr-api.php").read_text(encoding="utf-8")
+    match = re.search(r"const\s+ASR_VERSION\s*=\s*['\"]([^'\"]+)['\"]", api)
+    if not isinstance(version, str) or not match or match.group(1) != version:
+        raise ValueError("master package/API version mismatch")
+    html = (master / "web/index.html").read_text(encoding="utf-8")
+    assets = re.findall(r"""(?:src|href)=["'](?:\./)?/?(assets/[^"']+)["']""", html)
+    if not assets:
+        raise ValueError("master frontend has no asset references")
+    for name in assets:
+        rel = pathlib.PurePosixPath(name)
+        if ".." in rel.parts or not (master / "web" / name).is_file():
+            raise ValueError("master frontend asset missing or unsafe")
+except (OSError, ValueError, KeyError, TypeError) as exc:
+    print(f"ASR integrity: refusing repair from inconsistent master: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY_ASR_MASTER_RELEASE
+  then
+    logger -t allscan-reimagined "ASR integrity: inconsistent authoritative release; refusing frontend repair"
+    exit 1
+  fi
   logger -t allscan-reimagined "ASR tree is stale; rebuilding /asr from untouched stock AllScan"
   if [ "${ASR_INTEGRITY_WEB_ONLY:-0}" = "1" ]; then
     ASR_INSTALL_LOCK_HELD=1 ASR_REAPPLY_WEB_ONLY=1 \

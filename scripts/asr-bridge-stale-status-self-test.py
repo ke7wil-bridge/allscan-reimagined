@@ -200,7 +200,48 @@ def test_astapi_tri_state() -> None:
         assert all(value is None for value in status.astapi_key_states("123456", {"1111"}, 1010, cache_dir).values())
 
 
+def test_direct_service_discovery() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+    config = {"bridges": [{
+        "id": "dmr_direct", "mode": "dmr", "backendMode": "managed",
+        "mmdvmService": "asr-dmr-mmdvm.service",
+        "analogBridgeService": "asr-dmr-analog.service",
+        "adminService": "asr-dmr-admin.service",
+    }]}
+    def show(args, **_kwargs):
+        assert args[0:2] == ["systemctl", "show"]
+        return SimpleNamespace(stdout="ActiveState=active\nNRestarts=0\nActiveEnterTimestampMonotonic=1000000\n", returncode=0)
+    with patch.object(status.subprocess, "run", side_effect=show) as runner:
+        units, issues = status.bridge_service_health(config, "dmr_direct")
+    assert units == ["asr-dmr-mmdvm.service", "asr-dmr-analog.service", "asr-dmr-admin.service"]
+    assert issues == [] and runner.call_count == 3
+    with patch.object(status.subprocess, "run", side_effect=__import__("subprocess").TimeoutExpired("systemctl", 3)):
+        _, issues = status.bridge_service_health(config, "dmr_direct")
+        assert len(issues) == 3 and all("could not be checked" in issue for issue in issues)
+    with patch.object(status.subprocess, "run", return_value=SimpleNamespace(stdout="ActiveState=active\nNRestarts=bad\n", returncode=0)):
+        _, issues = status.bridge_service_health(config, "dmr_direct")
+        assert len(issues) == 3 and all("invalid service status" in issue for issue in issues)
+    # An unmanaged bridge cannot inject arbitrary service names.
+    with patch.object(status.subprocess, "run") as runner:
+        assert status.bridge_service_health({"bridges": [{"id": "dmr_direct", "mmdvmService": "x.service"}]}, "dmr_direct") == ([], [])
+        runner.assert_not_called()
+    # Corrupt configuration must not crash status polling or run arbitrary units.
+    with patch.object(status.subprocess, "run") as runner:
+        assert status.bridge_service_health({"bridges": None}, "dmr_direct") == ([], [])
+        assert status.bridge_service_health({"bridges": {"bad": "shape"}}, "dmr_direct") == ([], [])
+        runner.assert_not_called()
+    with patch.object(status.subprocess, "run", return_value=SimpleNamespace(stdout="", returncode=1)):
+        _, issues = status.bridge_service_health(config, "dmr_direct")
+        assert len(issues) == 3 and all("not active" in issue for issue in issues)
+
+
 def test_standard_payload_and_ambiguity() -> None:
+    for invalid in (None, {}, "not-a-list", 7):
+        assert status.configured_net_log_stems({"bridges": invalid}) == frozenset()
+        assert status.all_configured_standard_bridges({"bridges": invalid}) == []
+        assert status.configured_standard_bridges({"bridges": invalid}) == {}
+        assert status.standard_live_payload({"node": "123456", "bridges": invalid}, {}, [], 100)["bridges"] == {}
     config = {
         "node": "123456",
         "callsign": "N0LOCAL",
@@ -253,6 +294,17 @@ def test_standard_payload_and_ambiguity() -> None:
         ]
         assert "dmr" not in status.configured_standard_bridges(ambiguous)
         assert "ysf" in status.configured_standard_bridges(ambiguous)
+        # Two DMR cards remain visible, but generic DMR logs must not be
+        # attributed to either one (including stale pre-ambiguity activity).
+        ambiguous_payload = status.standard_live_payload(
+            ambiguous, states, [dmr_source("14:00:08", "WRONGCARD", 1)],
+            expires_at + 1, cache_dir,
+        )
+        assert set(ambiguous_payload["bridges"]) == {"dmr", "dmr_two", "ysf"}
+        for bridge_id in ("dmr", "dmr_two"):
+            entry = ambiguous_payload["bridges"][bridge_id]
+            assert entry["role"] == "idle" and entry["current_user"] == ""
+            assert entry["last_user"] == "-" and entry["tx_events"] == []
 
 
 def test_log_follower_safety() -> None:
@@ -355,7 +407,8 @@ def test_standard_net_log_isolation() -> None:
         )
         assert lines == []
         payload = status.standard_live_payload(conventional_conflict, {}, lines, 960, root)
-        assert payload["bridges"] == {}
+        assert payload["bridges"]["ysf"]["role"] == "idle"
+        assert payload["bridges"]["ysf"]["active"] is False
 
 
 def test_standard_once_writer() -> None:
@@ -438,6 +491,7 @@ def main() -> None:
     test_relay_tx_off_evidence()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
+    test_direct_service_discovery()
     test_log_follower_safety()
     test_standard_net_log_isolation()
     test_standard_once_writer()

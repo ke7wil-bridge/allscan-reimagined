@@ -301,10 +301,14 @@ if ! getent passwd asr-bridge >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
   fi
 fi
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
+if [ -f "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" ]; then
+  install -o root -g root -m 755 "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" \
+    /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
+fi
 if [ -d "$MASTER_DIR/runtime/urf" ]; then
   install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
   rm -rf /usr/local/share/allscan-reimagined/runtime/urf.new
@@ -1238,6 +1242,9 @@ ExecStart=/usr/local/sbin/allscan-reimagined-node-diagnostics
 Nice=10
 IOSchedulingClass=idle
 EOF
+  if command -v docker >/dev/null 2>&1 && docker container inspect allstarlink3 >/dev/null 2>&1; then
+    sed -i "/^ExecStart=\/usr\/local\/sbin\/allscan-reimagined-node-diagnostics$/a Environment=ASR_ASTERISK_LOG_CONTAINER=allstarlink3" /etc/systemd/system/allscan-reimagined-node-diagnostics.service
+  fi
   cat > /etc/systemd/system/allscan-reimagined-node-diagnostics.timer <<'EOF'
 [Unit]
 Description=Sample ASR node resources every minute

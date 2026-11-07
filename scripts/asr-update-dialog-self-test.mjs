@@ -80,7 +80,7 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.3.5'")
+  whatsNewSource.includes("version: '1.0.0-beta.8.4'")
     && whatsNewSource.includes('privileged helper stage')
     && whatsNewSource.includes('runtime diagnosis')
     && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
