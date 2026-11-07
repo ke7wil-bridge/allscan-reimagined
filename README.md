@@ -11,10 +11,10 @@ AllScan Reimagined is customized by KE7WIL.
 
 If you're using AllScan Reimagined, I'd appreciate a quick email letting me know you're running it. It helps me understand how ASR is being used and support its continued development. [Email KE7WIL](mailto:ke7wil@gmail.com).
 
-This archive is **Beta 8.4.1**, an unpublished release candidate.
+This archive is **Beta 8.4.1**, a published prerelease.
 
 Beta 8.4.1 improves standard bridge link detection and reconnect controls,
-adds concise Netoholics bridge labels, and modularizes dashboard CSS with
+adds concise digital bridge labels, and modularizes dashboard CSS with
 visual regression coverage.
 
 Beta 8.4 introduced end-to-end URF installation request correlation, helper
@@ -22,7 +22,7 @@ lifecycle auditing, bounded read-only runtime diagnostics, and persistent
 failure classification in the Bridge Setup Wizard. It retains the fresh-install
 ownership and Debian 13 corrections and the Beta 8.3 provisioning behavior for an ASR-managed URF
 transport block back to its authoritative node without taking over a Zello
-node. It also restores mobile Node Controls behavior, corrects Netoholics
+node. It also restores mobile Node Controls behavior, corrects bridge
 dashboard polling, and improves native URF runtime and Docker Apache/AMI
 reliability. It retains the diagnostics and recovery safeguards from Beta
 8.1.5.15.

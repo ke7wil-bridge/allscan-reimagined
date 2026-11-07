@@ -44,6 +44,8 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || exit 1
 [ -x /usr/local/sbin/allscan-reimagined-rollback ] || needs_reapply=1
+# A missing updater must trigger self-repair, not a permanent 503 in the dashboard.
+[ -x /usr/local/sbin/allscan-reimagined-updater ] || needs_reapply=1
 [ ! -L /usr/local/sbin/allscan-reimagined-asterisk-read ] \
   && [ -f /usr/local/sbin/allscan-reimagined-asterisk-read ] \
   && [ "$(stat -c '%U:%G:%a:%h' /usr/local/sbin/allscan-reimagined-asterisk-read 2>/dev/null)" = "root:root:755:1" ] \
