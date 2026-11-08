@@ -7,6 +7,7 @@ import calendar
 import configparser
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import stat
@@ -537,7 +538,9 @@ class MmdvmFollower:
             if (
                 not stat.S_ISDIR(directory.st_mode)
                 or stat.S_IMODE(directory.st_mode) & 0o022
-                or (os.geteuid() == 0 and directory.st_uid != 0)
+                or (os.geteuid() == 0 and directory.st_uid not in {
+                    0, pwd.getpwnam("asr-bridge").pw_uid
+                })
             ):
                 return []
             candidates = sorted(
