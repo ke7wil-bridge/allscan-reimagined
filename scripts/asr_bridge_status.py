@@ -547,13 +547,15 @@ class MmdvmFollower:
         tag_stem: bool = False,
     ) -> list[str]:
         try:
+            try:
+                permitted_owners = {0, pwd.getpwnam("asr-bridge").pw_uid}
+            except KeyError:
+                permitted_owners = {0}
             directory = self.log_dir.lstat()
             if (
                 not stat.S_ISDIR(directory.st_mode)
                 or stat.S_IMODE(directory.st_mode) & 0o022
-                or (os.geteuid() == 0 and directory.st_uid not in {
-                    0, pwd.getpwnam("asr-bridge").pw_uid
-                })
+                or (os.geteuid() == 0 and directory.st_uid not in permitted_owners)
             ):
                 return []
             candidates = sorted(
@@ -743,6 +745,8 @@ def standard_live_payload(
     for line in lines:
         for mode in ("dmr", "ysf"):
             bridge = bridges.get(mode)
+            if bridge is not None and str(bridge.get("backendMode", "")) == "managed":
+                continue
             if bridge is None:
                 continue
             apply_activity_line(
