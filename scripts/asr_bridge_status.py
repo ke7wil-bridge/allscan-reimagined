@@ -651,7 +651,7 @@ def confirmed_m17_state(bridge: dict[str, Any], now: int, runtime_dir: Path = Pa
         return {}
     if data.get("digitalLinked") is True and data.get("linkState") == "linked":
         return {"online": True, "linked": True,
-                "reflector": data.get("reflectorCallsign", ""),
+                "reflector": (data.get("confirmedTarget") or {}).get("reflector", ""),
                 "module": (data.get("confirmedTarget") or {}).get("module", "")}
     if data.get("digitalLinked") is False and data.get("linkState") in ("disconnected", "offline"):
         return {"online": False, "linked": False}

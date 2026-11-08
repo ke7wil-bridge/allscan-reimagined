@@ -13,10 +13,10 @@ bridge = {'id': 'm17_johnny2', 'mode': 'm17'}
 with tempfile.TemporaryDirectory() as tmp:
     path = Path(tmp) / 'm17_johnny2.state.json'
     data = {'bridgeId': 'm17_johnny2', 'updatedEpoch': 1000, 'digitalLinked': True,
-            'linkState': 'linked', 'reflectorCallsign': 'M17-073',
-            'confirmedTarget': {'module': 'A'}}
+            'linkState': 'linked', 'confirmedTarget': {'reflector': 'M17-073', 'module': 'A'}}
     path.write_text(json.dumps(data))
     assert m.confirmed_m17_state(bridge, 1001, Path(tmp))['linked'] is True
+    assert m.confirmed_m17_state(bridge, 1001, Path(tmp))['reflector'] == 'M17-073'
     assert m.confirmed_m17_state(bridge, 1100, Path(tmp)) == {}
     assert m.confirmed_m17_state(bridge, 1100, Path(tmp)).get('linked') is None
     data['digitalLinked'] = False
