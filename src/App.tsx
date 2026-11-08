@@ -13,6 +13,7 @@ import {
   activateNetBridgeMode,
   asrPath,
   bridgeCardShowsClientDetails,
+  bridgeDashboardStatusLabel,
   bridgeTalkerFeed,
   relativeBridgeTime,
   disconnectBridge,
@@ -4163,6 +4164,14 @@ function App({ config }: { config: RuntimeConfig }) {
                   && card.node !== config.node
                   && connectionFeedReady
                   && !bridgeLinked
+                const dashboardStatusLabel = card.cardType === 'standard'
+                  ? bridgeDashboardStatusLabel(card)
+                  : bridgeStatusLabels[card.status]
+                const dashboardStatusClass = card.cardType === 'standard'
+                  && card.status === 'Idle'
+                  && card.runtimeOnline !== true
+                  ? pillClasses.neutral
+                  : bridgeStatusClasses[card.status]
                 // Node 1999 has one control-plane owner. Draft fields remain
                 // editable during an operation; only actions are serialized.
                 const modeSwitchBusy = bridgeControlBusy === 'net-bridge-mode'
@@ -4187,15 +4196,15 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button
                         type="button"
                         className={`allscan-bridge-status-control${card.healthSeverity ? ' has-health-issue' : ''}`}
-                        aria-label={standardLinkMissing ? `Warning: AllStar node ${card.node} is not linked` : card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
-                        title={standardLinkMissing ? `AllStar node ${card.node} is not linked` : card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
+                        aria-label={standardLinkMissing ? `Warning: AllStar node ${card.node} is not linked` : card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${dashboardStatusLabel}`}
+                        title={standardLinkMissing ? `AllStar node ${card.node} is not linked` : card.healthSeverity ? card.healthIssues.join('\n') : dashboardStatusLabel}
                         onClick={() => {
                           if (card.healthSeverity && card.healthIssues.length) window.alert(card.healthIssues.join('\n'))
                         }}
                       >
                         {standardLinkMissing ? <AlertTriangle className="allscan-bridge-health-triangle" aria-hidden="true" /> : card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
-                        <span className={`allscan-bridge-status rounded-full border ${standardLinkMissing || card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>
-                          {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}
+                        <span className={`allscan-bridge-status rounded-full border ${standardLinkMissing || card.healthSeverity ? pillClasses.neutral : dashboardStatusClass}`}>
+                          {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : dashboardStatusLabel}
                         </span>
                       </button>
                     </span>

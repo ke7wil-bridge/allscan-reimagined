@@ -629,6 +629,16 @@ export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number 
   )
 }
 
+export function bridgeDashboardStatusLabel(
+  card: Pick<BridgeCardView, 'status' | 'runtimeOnline'>,
+): 'TX ACTIVE' | 'RELAY' | 'ONLINE' | 'OFFLINE' | 'UNKNOWN' {
+  if (card.status === 'Source/TX') return 'TX ACTIVE'
+  if (card.status === 'Relay') return 'RELAY'
+  if (card.runtimeOnline === true) return 'ONLINE'
+  if (card.runtimeOnline === false) return 'OFFLINE'
+  return 'UNKNOWN'
+}
+
 type ConnectedClientsResponse = {
   dmr?: Array<Record<string, unknown>>
   ysf?: Array<Record<string, unknown>>
@@ -1781,7 +1791,7 @@ export async function fetchBridgeCards(
       connectedClientCount: Number.isFinite(Number(clientCounts[bridgeConfig.id]))
         ? Math.max(0, Math.floor(Number(clientCounts[bridgeConfig.id])))
         : 0,
-      runtimeOnline: null,
+      runtimeOnline: typeof entry?.online === 'boolean' ? entry.online : null,
       reflector: String(entry?.reflector || '').trim(),
       module: String(entry?.module || '').trim(),
       linkProtocol: String(entry?.link_protocol || '').trim(),

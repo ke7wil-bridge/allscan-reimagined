@@ -1904,7 +1904,7 @@ function asr_standard_bridge_live_statuses(): array {
         $id = (string) ($bridge['id'] ?? '');
         $mode = asr_bridge_mode($bridge);
         $node = (string) ($bridge['node'] ?? '');
-        if (in_array($mode, ['dmr', 'ysf'], true)
+        if (in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
             && preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
             && preg_match('/^[0-9]{3,10}$/D', $node)) {
             $allowed[$id] = ['node' => $node, 'mode' => $mode];
@@ -1920,6 +1920,7 @@ function asr_standard_bridge_live_statuses(): array {
         $role = strtolower((string) ($entry['role'] ?? 'idle'));
         if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
         $caller = $role === 'source' ? substr(trim((string) ($entry['current_user'] ?? '')), 0, 120) : '';
+        $online = is_bool($entry['online'] ?? null) ? (bool) $entry['online'] : null;
         $linked = is_bool($entry['linked'] ?? null) ? (bool) $entry['linked'] : null;
         $recent = [];
         foreach ((array) ($entry['recent_users'] ?? []) as $row) {
@@ -1983,6 +1984,7 @@ function asr_standard_bridge_live_statuses(): array {
             'health_severity' => in_array((string) ($entry['health_severity'] ?? ''), ['warning', 'unhealthy', 'offline'], true) ? (string) $entry['health_severity'] : null,
             'health_issues' => array_values(array_slice(array_filter(array_map(static fn($issue) => substr(trim((string) $issue), 0, 160), is_array($entry['health_issues'] ?? null) ? $entry['health_issues'] : [])), 0, 8)),
             'repair_available' => !empty($entry['repair_available']),
+            'online' => $online,
             'linked' => $linked,
             'reflector' => substr(strtoupper(trim((string) ($entry['reflector'] ?? ''))), 0, 8),
             'module' => substr(strtoupper(trim((string) ($entry['module'] ?? ''))), 0, 1),

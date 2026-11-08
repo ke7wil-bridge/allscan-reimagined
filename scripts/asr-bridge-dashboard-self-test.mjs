@@ -25,9 +25,11 @@ try {
     bridgeProtocolCardTitle,
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
+    bridgeDashboardStatusLabel,
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
     bridgeTalkerFeed,
+    fetchBridgeCards,
     isNodeMessageAuthNotice,
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
@@ -289,6 +291,54 @@ try {
     'collector-persisted last activity was not consumed by the production UI path',
   )
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
+  assert(
+    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: null }) === 'UNKNOWN',
+    'unknown Standard Bridge connectivity was converted to Offline',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: true }) === 'ONLINE',
+    'confirmed Standard Bridge connectivity did not display Online',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: false }) === 'OFFLINE',
+    'confirmed Standard Bridge disconnection did not display Offline',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ status: 'Source/TX', runtimeOnline: null }) === 'TX ACTIVE'
+      && bridgeDashboardStatusLabel({ status: 'Relay', runtimeOnline: null }) === 'RELAY',
+    'active voice state did not take precedence over idle connectivity',
+  )
+  const standardModes = ['dmr', 'ysf', 'p25', 'nxdn', 'm17']
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => ({
+      json: async () => ({
+        bridge: Object.fromEntries(standardModes.map((mode) => [
+          `${mode}_johnny2`,
+          { role: 'idle', online: mode === 'm17' ? true : null },
+        ])),
+      }),
+    })
+    const liveCards = (await fetchBridgeCards({
+      node: '623123',
+      bridges: standardModes.map((mode, index) => ({
+        id: `${mode}_johnny2`, mode, node: String(1001 + index), cardType: 'standard',
+        title: `${mode.toUpperCase()} Bridge`, detailTitle: 'Connected Clients',
+      })),
+    })).cards
+    assert(liveCards.length === 5, 'the API/frontend handoff dropped a Standard Bridge card')
+    assert(
+      liveCards.filter((card) => card.mode !== 'm17').every((card) => card.runtimeOnline === null),
+      'unknown Standard Bridge connectivity was coerced during frontend normalization',
+    )
+    const m17Card = liveCards.find((card) => card.mode === 'm17')
+    assert(
+      m17Card?.runtimeOnline === true && bridgeDashboardStatusLabel(m17Card) === 'ONLINE',
+      'confirmed M17 connectivity did not reach its dashboard card',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
   assert(!bridgeCardShowsClientDetails('dmr_net'), 'DMR Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('ysf_net'), 'YSF Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('p25_net'), 'P25 Net Bridge client details were shown')

@@ -22,4 +22,8 @@ assert set(result['bridges']) == {bridge['id'] for bridge in bridges}
 assert all(entry['online'] is None and entry['linked'] is None
            for entry in result['bridges'].values())
 assert set(module.configured_standard_bridges(config)) == {'dmr', 'ysf'}
+
+api_text = (source.parents[1] / 'asr-api.php').read_text(encoding='utf-8')
+assert "in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)" in api_text
+assert "'online' => $online" in api_text
 print('Five-protocol idle status: PASS')
