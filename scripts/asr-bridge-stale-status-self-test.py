@@ -179,6 +179,21 @@ def test_relay_tx_off_evidence() -> None:
     assert state["role"] == "relay"
 
 
+def test_missing_relay_end_timeout() -> None:
+    state = status.initial_activity_state()
+    state.update({"role": "relay", "active_start_epoch": 100, "last_event_epoch": 100})
+    status.reconcile_stale_relay(state, 129)
+    assert state["role"] == "relay"
+    status.reconcile_stale_relay(state, 130)
+    assert state["role"] == "idle" and state["active_start_epoch"] == 0
+    assert state["last_event_epoch"] == 100
+    source = status.initial_activity_state()
+    source.update({"role": "source", "active_start_epoch": 100})
+    status.reconcile_stale_relay(source, 200)
+    assert source["role"] == "source"
+    status.reconcile_stale_relay(status.initial_activity_state(), 200)
+
+
 def test_astapi_tri_state() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-astapi-") as raw:
         cache_dir = Path(raw)
@@ -489,6 +504,7 @@ def test_wiring_contracts() -> None:
 def main() -> None:
     test_shared_state_machine()
     test_relay_tx_off_evidence()
+    test_missing_relay_end_timeout()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
     test_direct_service_discovery()

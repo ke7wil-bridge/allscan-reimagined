@@ -71,6 +71,7 @@ YSF_TX_OFF_RE = re.compile(
     re.IGNORECASE,
 )
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
+RELAY_MISSING_END_TIMEOUT_SECONDS = 30
 BRIDGE_RECENT_MAX_AGE_SECONDS = 86400
 ASTAPI_MAX_AGE_SECONDS = 5.0
 MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -265,6 +266,23 @@ def apply_activity_line(
                 "relay_user": "",
             })
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
+
+
+def reconcile_stale_relay(state: dict[str, Any], now: int) -> None:
+    """Expire a relay whose TX OFF event was lost; never infer a fresh TX."""
+    if state.get("role") != "relay":
+        return
+    start = int(state.get("active_start_epoch", 0) or 0)
+    if start > 0 and now - start < RELAY_MISSING_END_TIMEOUT_SECONDS:
+        return
+    state.update({
+        "role": "idle",
+        "current_user": "",
+        "active_start_epoch": 0,
+        "source_slot": 0,
+        "network_relay": False,
+        "relay_user": "",
+    })
 
 
 def reconcile_keyed_source(
@@ -729,6 +747,7 @@ def standard_live_payload(
     entries: dict[str, dict[str, Any]] = {}
     for bridge_id, bridge in visible.items():
         state = states.setdefault(bridge_id, initial_activity_state())
+        reconcile_stale_relay(state, now)
         if bridge_id in unambiguous_ids:
             reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
         cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}

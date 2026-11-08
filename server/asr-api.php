@@ -1380,6 +1380,41 @@ function asr_urf_status_payload(): array {
     return ['ok'=>true,'online'=>$age<=30,'stale'=>$age>20,'ageSeconds'=>$age,'version'=>asr_urf_first_element($raw,'Version'),'clients'=>$clients,'recent'=>$recent,'events'=>array_reverse($events),'currentTalker'=>$currentTalker,'modes'=>$modes,'updatedEpoch'=>(int)($stat['mtime']??0),'eventUpdatedEpoch'=>$events ? max(array_map(static fn($e)=>(int)($e['epoch']??0),$events)) : 0];
 }
 
+function asr_display_only_bridge_link_statuses(array $configuredBridges): array {
+    $node = (string) (asr_raw_runtime_config()['node'] ?? '');
+    if (!preg_match('/^[0-9]{3,10}$/D', $node)) return [];
+    $path = '/run/allscan-reimagined/astapi-' . $node . '.json';
+    $raw = is_readable($path) ? json_decode((string) @file_get_contents($path), true) : null;
+    $updated = is_array($raw) ? (float) ($raw['updated'] ?? 0) : 0.0;
+    if ($updated <= 0 || $updated > microtime(true) + 30 || microtime(true) - $updated > 30) return [];
+    $rows = (array) ($raw['current'][$node]['remote_nodes'] ?? []);
+    $links = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $remote = (string) ($row['node'] ?? '');
+        if (preg_match('/^[0-9]{3,10}$/D', $remote)) {
+            $links[$remote] = strcasecmp((string) ($row['link'] ?? ''), 'Established') === 0;
+        }
+    }
+    $statuses = [];
+    foreach ($configuredBridges as $config) {
+        if (!is_array($config) || (string) ($config['cardType'] ?? 'standard') !== 'standard'
+            || !in_array(asr_bridge_mode($config), ['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'zello'], true)) continue;
+        $id = (string) ($config['id'] ?? '');
+        $remote = (string) ($config['node'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
+            || !preg_match('/^[0-9]{3,10}$/D', $remote)) continue;
+        $linked = $links[$remote] ?? false;
+        $statuses[$id] = [
+            'active' => false, 'role' => 'idle',
+            'state' => $linked ? 'AllStar linked' : 'AllStar disconnected',
+            'linked' => $linked, 'online' => null,
+            'warning' => '', 'activity_epoch' => 0, 'last_time_epoch' => 0,
+        ];
+    }
+    return $statuses;
+}
+
 function asr_bridge_status_payload(): array {
     $bridge = [];
     $path = asrRuntimeFilePath('bridge-live.json');
@@ -1396,6 +1431,9 @@ function asr_bridge_status_payload(): array {
     foreach ($nextModes['live'] as $id => $entry) $bridge[$id] = $entry;
 
     $configuredBridges = (array) (asr_runtime_config()['bridges'] ?? []);
+    foreach (asr_display_only_bridge_link_statuses($configuredBridges) as $id => $entry) {
+        $bridge[$id] = array_merge(is_array($bridge[$id] ?? null) ? $bridge[$id] : $entry, ['linked' => $entry['linked']]);
+    }
     $urf = asr_urf_status_payload();
     $urfClients = [];
     $urfCounts = [];

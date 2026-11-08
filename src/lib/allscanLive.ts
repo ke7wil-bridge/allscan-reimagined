@@ -229,6 +229,7 @@ export type BridgeCardView = {
   controlLinked: boolean
   digitalLinked: boolean
   allstarLinked: boolean
+  transportLinked: boolean | null
   detailTitle: string
   detailRows: BridgeDetailItem[]
   detailCount: number
@@ -1777,6 +1778,7 @@ export async function fetchBridgeCards(
       controlLinked: control.linked === true,
       digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
+      transportLinked: typeof entry?.linked === 'boolean' ? entry.linked : null,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,

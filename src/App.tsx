@@ -598,6 +598,7 @@ function App({ config }: { config: RuntimeConfig }) {
       controlLinked: false,
       digitalLinked: false,
       allstarLinked: false,
+      transportLinked: null,
       detailTitle: bridge.detailTitle,
       detailRows: [],
       detailCount: 0,
@@ -4154,7 +4155,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 const canChangeDestination = bridgeCapabilities.includes('changeDestination')
                 const bridgeLinked = card.cardType !== 'standard'
                   ? card.controlLinked
-                  : card.controlLinked || rows.some(
+                  : card.controlLinked || card.transportLinked === true || rows.some(
                   (row) => (row.bridgeId === card.id || row.node === card.node)
                     && row.direction.toUpperCase() === 'OUT'
                     && row.state !== 'message',
