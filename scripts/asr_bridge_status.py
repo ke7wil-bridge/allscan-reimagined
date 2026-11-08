@@ -71,6 +71,10 @@ YSF_TX_OFF_RE = re.compile(
     r"(?:,\s+YSF frame count was\s+\d+\s+frames?)?\s*$",
     re.IGNORECASE,
 )
+P25_SOURCE_RE = re.compile(LINE_PREFIX + r"P25,\s+received network transmission from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
+P25_END_RE = re.compile(LINE_PREFIX + r"P25,\s+network end of transmission\b.*$", re.I)
+NXDN_SOURCE_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF header|network transmission) from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
+NXDN_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF|network) end of transmission\b.*$", re.I)
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
 BRIDGE_RECENT_MAX_AGE_SECONDS = 86400
 ASTAPI_MAX_AGE_SECONDS = 5.0
@@ -156,6 +160,10 @@ def apply_activity_line(
         end = YSF_END_RE.fullmatch(text)
         tx_on = YSF_TX_ON_RE.fullmatch(text)
         tx_off = YSF_TX_OFF_RE.fullmatch(text)
+    elif mode in ("p25", "nxdn"):
+        source = (P25_SOURCE_RE if mode == "p25" else NXDN_SOURCE_RE).fullmatch(text)
+        end = (P25_END_RE if mode == "p25" else NXDN_END_RE).fullmatch(text)
+        tx_on = tx_off = None
     else:
         return
     match = source or end or tx_on or tx_off
@@ -410,6 +418,8 @@ def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, An
         mode = (
             "dmr" if compact.startswith("dmr")
             else "ysf" if compact.startswith("ysf")
+            else "p25" if compact.startswith("p25")
+            else "nxdn" if compact.startswith("nxdn")
             else ""
         )
         # P25, NXDN, and M17 do not have a generic DMR/YSF activity
@@ -427,7 +437,7 @@ def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, An
 
 
 def configured_standard_bridges(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    by_mode: dict[str, list[dict[str, Any]]] = {"dmr": [], "ysf": []}
+    by_mode: dict[str, list[dict[str, Any]]] = {m: [] for m in ("dmr", "ysf", "p25", "nxdn")}
     for bridge in all_configured_standard_bridges(config):
         bridge_id = str(bridge.get("id", ""))
         mode = str(bridge.get("mode", bridge_id)).strip().lower()
@@ -435,6 +445,8 @@ def configured_standard_bridges(config: dict[str, Any]) -> dict[str, dict[str, A
         mode = (
             "dmr" if compact.startswith("dmr")
             else "ysf" if compact.startswith("ysf")
+            else "p25" if compact.startswith("p25")
+            else "nxdn" if compact.startswith("nxdn")
             else ""
         )
         if mode in by_mode:
@@ -532,6 +544,7 @@ class MmdvmFollower:
         self,
         excluded_stems: frozenset[str] = frozenset(),
         allowed_stems: frozenset[str] = STANDARD_LOG_STEMS,
+        tag_stem: bool = False,
     ) -> list[str]:
         try:
             directory = self.log_dir.lstat()
@@ -577,7 +590,12 @@ class MmdvmFollower:
                     handle.seek(offset)
                     if offset and (changed or old_inode == 0):
                         handle.readline()
-                    output.extend(handle.readlines())
+                    rows = handle.readlines()
+                    if tag_stem:
+                        stem = re.sub(r"-\d{4}-\d{2}-\d{2}\.log$|\.log$", "", path.name)
+                        output.extend(stem + "\t" + row for row in rows)
+                    else:
+                        output.extend(rows)
                     self.cursors[str(path)] = (int(details.st_ino), handle.tell())
             except OSError:
                 continue
@@ -707,6 +725,7 @@ def standard_live_payload(
     lines: list[str],
     now: int,
     cache_dir: Path = ASTAPI_CACHE_DIR,
+    tagged_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -733,6 +752,19 @@ def standard_live_payload(
                 now,
                 local_identities,
             )
+    for tagged in tagged_lines or []:
+        stem, sep, message = tagged.partition("\t")
+        if not sep:
+            continue
+        for mode in ("dmr", "ysf", "p25", "nxdn"):
+            bridge = bridges.get(mode)
+            if bridge is None:
+                continue
+            # The managed per-card log stem is unambiguous; never route a
+            # similarly formatted message from another bridge to this card.
+            expected = f"MMDVM_Bridge_{bridge['id']}"
+            if stem == expected:
+                apply_activity_line(states.setdefault(str(bridge["id"]), initial_activity_state()), message, mode, now, local_identities)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids:
@@ -824,6 +856,7 @@ def watch_standard_status(
     once: bool = False,
 ) -> None:
     follower = MmdvmFollower(log_dir)
+    managed_follower = MmdvmFollower(log_dir)
     states: dict[str, dict[str, Any]] = {}
     while True:
         # Settings intentionally maintains config.json as root:<web-group>
@@ -840,6 +873,14 @@ def watch_standard_status(
             states,
             follower.read_lines(configured_net_log_stems(config)),
             now,
+            tagged_lines=managed_follower.read_lines(
+                allowed_stems=frozenset(
+                    f"MMDVM_Bridge_{bridge['id']}"
+                    for bridge in configured_standard_bridges(config).values()
+                    if str(bridge.get("backendMode", "")) == "managed"
+                ),
+                tag_stem=True,
+            ),
         ))
         if once:
             return
