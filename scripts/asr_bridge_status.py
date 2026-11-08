@@ -810,7 +810,7 @@ def standard_live_payload(
             apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
-        if bridge_id not in unambiguous_ids:
+        if bridge_id not in unambiguous_ids and str(bridge.get("mode", "")).lower() != "m17":
             # Do not retain or invent activity for an ambiguously routed card.
             states[bridge_id] = initial_activity_state()
         state = states.setdefault(bridge_id, initial_activity_state())
