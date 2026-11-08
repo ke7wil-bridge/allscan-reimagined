@@ -411,11 +411,14 @@ def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, An
             else "ysf" if compact.startswith("ysf")
             else ""
         )
+        # P25, NXDN, and M17 do not have a generic DMR/YSF activity
+        # feed, but their configured cards still require a status entry.
+        # Only DMR/YSF are eligible for the protocol-specific log parser.
         if (
-            mode
-            and bridge_id not in seen
+            bridge_id not in seen
             and BRIDGE_ID_RE.fullmatch(bridge_id)
             and NODE_RE.fullmatch(str(bridge.get("node", "")))
+            and (mode or compact.startswith(("p25", "nxdn", "m17")))
         ):
             rows.append(bridge)
             seen.add(bridge_id)
@@ -433,7 +436,8 @@ def configured_standard_bridges(config: dict[str, Any]) -> dict[str, dict[str, A
             else "ysf" if compact.startswith("ysf")
             else ""
         )
-        by_mode[mode].append(bridge)
+        if mode in by_mode:
+            by_mode[mode].append(bridge)
     # Without an explicit per-card log path, one card per mode is the only
     # unambiguous generic mapping. Multiple same-mode cards retain their feed.
     return {mode: rows[0] for mode, rows in by_mode.items() if len(rows) == 1}
@@ -602,7 +606,6 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
             units = [str(bridge[key]).strip() for key in fields if bridge.get(key)]
     units = list(dict.fromkeys(unit for unit in units if UNIT_RE.fullmatch(unit)))[:8]
     issues = []
-    active_epochs: dict[str, int] = {}
     for unit in units:
         try:
             result = subprocess.run([
@@ -624,12 +627,35 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
             continue
         if restarts > 0:
             issues.append(unit + " restarted unexpectedly; repair the full bridge chain.")
-        active_epochs[unit] = epoch
-    valid_epochs = [epoch for epoch in active_epochs.values() if epoch > 0]
-    if not issues and len(valid_epochs) > 1 and max(valid_epochs) - min(valid_epochs) > 30_000_000:
-        newest = max(active_epochs, key=active_epochs.get)
-        issues.append(newest + " restarted without its companion bridge services; repair the full bridge chain.")
+        # Different start times alone are not a failure. A gateway can be
+        # restarted independently while the rest of the chain stays healthy.
     return units, issues
+
+
+def confirmed_m17_state(bridge: dict[str, Any], now: int, runtime_dir: Path = Path("/run/allscan-reimagined-m17")) -> dict[str, Any]:
+    """Use fresh authoritative M17 runtime evidence, never infer from systemd."""
+    bridge_id = str(bridge.get("id", ""))
+    if not BRIDGE_ID_RE.fullmatch(bridge_id):
+        return {}
+    path = runtime_dir / (bridge_id + ".state.json")
+    try:
+        if path.stat().st_size > MAX_JSON_BYTES:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return {}
+    if not isinstance(data, dict) or data.get("bridgeId") != bridge_id:
+        return {}
+    updated = data.get("updatedEpoch")
+    if not isinstance(updated, (int, float)) or updated > now + 10 or now - updated > 30:
+        return {}
+    if data.get("digitalLinked") is True and data.get("linkState") == "linked":
+        return {"online": True, "linked": True,
+                "reflector": data.get("reflectorCallsign", ""),
+                "module": (data.get("confirmedTarget") or {}).get("module", "")}
+    if data.get("digitalLinked") is False and data.get("linkState") in ("disconnected", "offline"):
+        return {"online": False, "linked": False}
+    return {}
 
 
 def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str] | None = None, service_issues: list[str] | None = None) -> dict[str, Any]:
@@ -736,6 +762,10 @@ def standard_live_payload(
             units, issues = bridge_service_health(config, bridge_id)
             cached = {"epoch": now, "units": units, "issues": issues}
             health_cache[bridge_id] = cached
+        if str(bridge.get("mode", "")).lower() == "m17":
+            # Never carry forward a formerly confirmed link after telemetry expires.
+            state.update({"online": None, "linked": None, "reflector": "", "module": ""})
+            state.update(confirmed_m17_state(bridge, now))
         # Publish explicit Idle even before the first log event. Otherwise
         # configured standard bridges disappear from the live-status feed.
         entries[bridge_id] = public_entry(bridge, state, list(cached.get("units", [])), list(cached.get("issues", [])))
