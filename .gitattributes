@@ -1,0 +1,2 @@
+scripts/asr-favorites-manager.py text eol=lf
+scripts/asr-favorites-order-self-test.py text eol=lf
