@@ -163,7 +163,8 @@ def apply_activity_line(
     elif mode in ("p25", "nxdn"):
         source = (P25_SOURCE_RE if mode == "p25" else NXDN_SOURCE_RE).fullmatch(text)
         end = (P25_END_RE if mode == "p25" else NXDN_END_RE).fullmatch(text)
-        tx_on = tx_off = None
+        tx_on = re.fullmatch(LINE_PREFIX + rf"{mode.upper()},\s+TX state\s*=\s*ON\b", text, re.I)
+        tx_off = re.fullmatch(LINE_PREFIX + rf"{mode.upper()},\s+TX state\s*=\s*OFF\b", text, re.I)
     else:
         return
     match = source or end or tx_on or tx_off
@@ -728,6 +729,7 @@ def standard_live_payload(
     now: int,
     cache_dir: Path = ASTAPI_CACHE_DIR,
     tagged_lines: list[str] | None = None,
+    external_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -769,6 +771,13 @@ def standard_live_payload(
             expected = f"MMDVM_Bridge_{bridge['id']}"
             if stem == expected:
                 apply_activity_line(states.setdefault(str(bridge["id"]), initial_activity_state()), message, mode, now, local_identities)
+    for tagged in external_lines or []:
+        bridge_id, sep, message = tagged.partition("\t")
+        bridge = visible.get(bridge_id)
+        if sep and bridge is not None:
+            mode = str(bridge.get("mode", "")).lower()
+            if mode in ("dmr", "ysf", "p25", "nxdn"):
+                apply_activity_line(states.setdefault(bridge_id, initial_activity_state()), message, mode, now, local_identities)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids:
@@ -861,6 +870,7 @@ def watch_standard_status(
 ) -> None:
     follower = MmdvmFollower(log_dir)
     managed_follower = MmdvmFollower(log_dir)
+    external_followers: dict[str, MmdvmFollower] = {}
     states: dict[str, dict[str, Any]] = {}
     while True:
         # Settings intentionally maintains config.json as root:<web-group>
@@ -872,11 +882,30 @@ def watch_standard_status(
             forbidden_write_mask=0o002,
         ) or {}
         now = int(time.time())
+        external_lines: list[str] = []
+        sources = config.get("bridgeActivityLogs", {})
+        configured = {str(b["id"]): b for b in all_configured_standard_bridges(config)}
+        if isinstance(sources, dict):
+            for bridge_id, location in sources.items():
+                if bridge_id not in configured or not isinstance(location, dict):
+                    continue
+                directory, stem = location.get("directory"), location.get("stem")
+                if not isinstance(directory, str) or not isinstance(stem, str):
+                    continue
+                if not (directory.startswith("/var/log/netoholics/") and
+                        re.fullmatch(r"/var/log/netoholics/[a-z0-9_-]+", directory) and
+                        MMDVM_LOG_STEM_RE.fullmatch(stem)):
+                    continue
+                follower_key = directory + "/" + stem
+                follower_instance = external_followers.setdefault(follower_key, MmdvmFollower(Path(directory)))
+                for row in follower_instance.read_lines(allowed_stems=frozenset({stem})):
+                    external_lines.append(bridge_id + "\t" + row)
         atomic_json(status_path, standard_live_payload(
             config,
             states,
             follower.read_lines(configured_net_log_stems(config)),
             now,
+            external_lines=external_lines,
             tagged_lines=managed_follower.read_lines(
                 allowed_stems=frozenset(
                     f"MMDVM_Bridge_{bridge['id']}"
