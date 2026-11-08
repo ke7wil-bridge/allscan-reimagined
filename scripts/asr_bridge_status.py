@@ -710,6 +710,12 @@ def standard_live_payload(
     # cards share a protocol and generic MMDVM logs cannot identify a card.
     visible = {str(bridge["id"]): bridge for bridge in all_configured_standard_bridges(config)}
     unambiguous_ids = {str(bridge["id"]) for bridge in bridges.values()}
+    # ASTAPI identifies each transport by node, independently of protocol.
+    # A shared node cannot safely attribute a keyed event to one card.
+    node_counts: dict[str, int] = {}
+    for bridge in visible.values():
+        node = str(bridge["node"])
+        node_counts[node] = node_counts.get(node, 0) + 1
     local_call = clean_caller(str(config.get("callsign", "")), 20).upper()
     local_identities = frozenset(value for value in (local_call, f"{local_call}-RPT" if local_call else "") if value)
     for line in lines:
@@ -755,8 +761,16 @@ def standard_live_payload(
     entries: dict[str, dict[str, Any]] = {}
     for bridge_id, bridge in visible.items():
         state = states.setdefault(bridge_id, initial_activity_state())
-        if bridge_id in unambiguous_ids:
-            reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
+        node = str(bridge["node"])
+        keyed = keys.get(node) if node_counts[node] == 1 else None
+        if keyed is True and state.get("role") == "idle":
+            # A fresh, explicit keyed sample is proof of transport TX;
+            # do not invent a caller or a network-side RELAY event.
+            state.update({"role": "source", "current_user": "",
+                          "active_start_epoch": now, "activity_epoch": now,
+                          "source_observed_at": now, "observed": True})
+        if bridge_id in unambiguous_ids or node_counts[node] == 1:
+            reconcile_keyed_source(state, keyed, now)
         cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}
         if now - int(cached.get("epoch", 0) or 0) >= SERVICE_CHECK_INTERVAL:
             units, issues = bridge_service_health(config, bridge_id)

@@ -23,6 +23,28 @@ assert all(entry['online'] is None and entry['linked'] is None
            for entry in result['bridges'].values())
 assert set(module.configured_standard_bridges(config)) == {'dmr', 'ysf'}
 
+# Fresh ASTAPI keyed evidence must work for every uniquely numbered protocol.
+original_astapi = module.astapi_key_states
+try:
+    module.astapi_key_states = lambda local, nodes, now, cache: {
+        node: node == '1004' for node in nodes
+    }
+    states = {}
+    active = module.standard_live_payload(config, states, [], int(time.time()),
+                                          cache_dir=Path('/nonexistent'))
+    assert active['bridges']['nxdn_johnny2']['state'] == 'TX ACTIVE'
+    assert all(active['bridges'][b['id']]['state'] == 'Idle'
+               for b in bridges if b['id'] != 'nxdn_johnny2')
+    module.astapi_key_states = lambda local, nodes, now, cache: {
+        node: False for node in nodes
+    }
+    ended = module.standard_live_payload(config, states, [], int(time.time()) +
+                                         module.KEYED_SAMPLE_GRACE_SECONDS + 1,
+                                         cache_dir=Path('/nonexistent'))
+    assert ended['bridges']['nxdn_johnny2']['state'] == 'Idle'
+finally:
+    module.astapi_key_states = original_astapi
+
 api_text = (source.parents[1] / 'asr-api.php').read_text(encoding='utf-8')
 assert "in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)" in api_text
 assert "'online' => $online" in api_text
