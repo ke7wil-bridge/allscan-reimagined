@@ -892,8 +892,8 @@ def watch_standard_status(
                 directory, stem = location.get("directory"), location.get("stem")
                 if not isinstance(directory, str) or not isinstance(stem, str):
                     continue
-                if not (directory.startswith("/var/log/netoholics/") and
-                        re.fullmatch(r"/var/log/netoholics/[a-z0-9_-]+", directory) and
+                if not ((directory == "/var/log/mmdvm" or
+                         re.fullmatch(r"/var/log/netoholics/[a-z0-9_-]+", directory)) and
                         MMDVM_LOG_STEM_RE.fullmatch(stem)):
                     continue
                 follower_key = directory + "/" + stem
