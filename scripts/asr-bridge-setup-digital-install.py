@@ -150,6 +150,8 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         "cardType": card_type,
         "instance": instance, "bridgePermission": "self_owned",
         "backendMode": "managed",
+        "digitalToAslGainDb": plan["settings"].get("digital_to_asl_gain_db", 0.0),
+        "aslToDigitalGainDb": plan["settings"].get("asl_to_digital_gain_db", 0.0),
         # These runtimes are outbound clients of an external reflector.  They
         # do not host inbound reflector sessions, so presenting a local client
         # roster (or Kick/Ban controls) would be both inaccurate and unsafe.

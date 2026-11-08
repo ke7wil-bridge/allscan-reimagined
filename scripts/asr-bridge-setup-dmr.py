@@ -109,7 +109,7 @@ def validate(value: DmrSettings) -> DmrSettings:
     if not isinstance(value.color_code, int) or not 0 <= value.color_code <= 15:
         raise PlanError("DMR color code must be 0-15")
     for label, gain in (("DMR-to-ASL", value.dmr_to_asl_gain_db), ("ASL-to-DMR", value.asl_to_dmr_gain_db)):
-        if not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20.0 <= gain <= 12.0:
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20.0 <= gain <= 12.0:
             raise PlanError(f"{label} gain must be between -20 and +12 dB")
     if not title or len(title) > 80 or any(ch in title for ch in "\r\n\0"):
         raise PlanError("invalid bridge title")

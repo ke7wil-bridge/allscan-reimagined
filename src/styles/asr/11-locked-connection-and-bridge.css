@@ -520,3 +520,12 @@
   .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
   .allscan-urf-group-title { font-size: 14px !important; }
 }
+
+/* Audio-driven bridge VU display. Kept within the existing card geometry. */
+.asr-audio-meters { display: grid; gap: 5px; padding: 7px 12px; min-width: 0; }
+.asr-audio-meter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(72px, 1.4fr); align-items: center; gap: 8px; font-size: 11px; }
+.asr-audio-meter > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asr-audio-meter-track { position: relative; height: 9px; border: 1px solid currentColor; border-radius: 3px; overflow: hidden; opacity: .9; }
+.asr-audio-meter-rms { display: block; height: 100%; background: currentColor; opacity: .65; transition: width 160ms linear; }
+.asr-audio-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor; }
+@media (prefers-reduced-motion: reduce) { .asr-audio-meter-rms { transition: none; } }

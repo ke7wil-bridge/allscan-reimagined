@@ -636,6 +636,23 @@ def main() -> None:
     assert commands[1:] == [["systemctl", "reset-failed", unit] for unit in affected]
     assert all("unrelated.service" not in command for command in commands)
 
+    # Both deployment backends must mount the exact bridge-specific telemetry
+    # directory expected by the secure PHP reader. No shared global meter.
+    with tempfile.TemporaryDirectory(prefix="asr-urf-meter-contract-") as temporary:
+        root = Path(temporary)
+        settings = fixture(root)
+        meter_plan = planner.plan(root, settings)
+        meter_path = meter_plan["resources"]["data"] + "/audio-meter.json"
+        units = installer.native_units(meter_plan)
+        tcd_unit = installer.native_service_names(settings.bridge_id)[1]
+        unit = units[f"/etc/systemd/system/{tcd_unit}"][0].decode()
+        assert f"Environment=ASR_TCD_AUDIO_METER_PATH={meter_path}" in unit
+        assert f"ReadWritePaths={meter_plan['resources']['data']}" in unit
+        compose = installer.compose_yaml(meter_plan)
+        assert f"- {meter_plan['resources']['root']}/data:/data" in compose
+        assert 'ASR_TCD_AUDIO_METER_PATH: "/data/audio-meter.json"' in compose
+        assert meter_plan["settings"]["bridge_id"] in meter_path
+
     source = (HERE / "asr-bridge-urf-native-runtime.py").read_text(encoding="utf-8")
     for revision in (planner.load("native_source_constants", "asr-bridge-urf-native-runtime.py").URFD[1],
                      "ff104384b3d1c51bf8f7f9f83d7940dffda0b076",

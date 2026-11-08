@@ -163,7 +163,10 @@ def compose_yaml(plan: dict[str, Any]) -> str:
     restart: unless-stopped
     volumes:
       - {root}/config:/config:ro
+      - {root}/data:/data
 {resolver_mount.rstrip()}
+    environment:
+      ASR_TCD_AUDIO_METER_PATH: "/data/audio-meter.json"
     command: ["/config/tcd.ini"]
   tgif:
     image: allscan-reimagined/urf-tgif:managed
@@ -312,7 +315,9 @@ WantedBy=multi-user.target
             ).encode(), 0o644),
         f"/etc/systemd/system/{tcd}": (component(
             f"ASR native TCD transcoder ({identity})", f"network.target {urfd}",
-            tcd_command, data).encode(), 0o644),
+            tcd_command, data).replace(
+                "[Service]\n", f"[Service]\nEnvironment=ASR_TCD_AUDIO_METER_PATH={data}/audio-meter.json\n", 1
+            ).encode(), 0o644),
         f"/etc/systemd/system/{tgif}": (tgif_text.encode(), 0o644),
     }
 

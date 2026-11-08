@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import ipaddress
+import math
 import json
 import os
 from pathlib import Path
@@ -271,6 +272,19 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         if str(other.get("m17Callsign", "")).strip().upper() == callsign:
             raise ControlError("M17 callsign overlaps another configured bridge instance.")
 
+    # The connector consumes this validated dictionary, not the raw config.
+    # Preserve independent per-instance gains through the control boundary.
+    gains = {}
+    for key in ("digitalToAslGainDb", "aslToDigitalGainDb"):
+        raw = bridge.get(key, 0.0)
+        try:
+            gain = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ControlError(f"M17 {key} must be between -20 and +12 dB.") from exc
+        if isinstance(raw, bool) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise ControlError(f"M17 {key} must be between -20 and +12 dB.")
+        gains[key] = gain
+
     return {
         "id": bridge_id,
         "mode": "m17",
@@ -285,6 +299,7 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         "usrpRxPort": usrp_rx_port,
         "usrpRemoteAddress": usrp_remote_address,
         "usrpTxPort": usrp_tx_port,
+        **gains,
         "audioQualified": bridge.get("m17AudioQualified") is True,
         "statePath": _runtime_path(bridge_id, "state", bridge.get("m17StatePath")),
         "commandPath": _runtime_path(bridge_id, "command", bridge.get("m17CommandPath")),
@@ -967,6 +982,19 @@ def self_test() -> None:
         }
         test_config = {"node": "123456", "bridges": [raw_bridge]}
         bridge = validate_bridge(raw_bridge, test_config)
+        assert bridge["digitalToAslGainDb"] == bridge["aslToDigitalGainDb"] == 0
+        raw_bridge.update(digitalToAslGainDb=5.0, aslToDigitalGainDb=-3.0)
+        bridge = validate_bridge(raw_bridge, test_config)
+        assert bridge["digitalToAslGainDb"] == 5.0
+        assert bridge["aslToDigitalGainDb"] == -3.0
+        for invalid in (float("nan"), float("inf"), 13, -21, True, "invalid"):
+            candidate = dict(raw_bridge, digitalToAslGainDb=invalid)
+            try:
+                validate_bridge(candidate, {"node": "123456", "bridges": [candidate]})
+            except ControlError:
+                pass
+            else:
+                raise AssertionError("invalid M17 gain accepted")
         bridge["statePath"] = state_path
         bridge["commandPath"] = command_path
         bridge["selectionPath"] = root / "selected.json"
