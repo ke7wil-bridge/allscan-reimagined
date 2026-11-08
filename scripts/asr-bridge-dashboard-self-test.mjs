@@ -292,21 +292,25 @@ try {
   )
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
   assert(
-    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: null }) === 'UNKNOWN',
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Idle', runtimeOnline: null }) === 'UNKNOWN',
     'unknown Standard Bridge connectivity was converted to Offline',
   )
   assert(
-    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: true }) === 'ONLINE',
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Idle', runtimeOnline: true }) === 'ONLINE',
     'confirmed Standard Bridge connectivity did not display Online',
   )
   assert(
-    bridgeDashboardStatusLabel({ status: 'Idle', runtimeOnline: false }) === 'OFFLINE',
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Idle', runtimeOnline: false }) === 'OFFLINE',
     'confirmed Standard Bridge disconnection did not display Offline',
   )
   assert(
-    bridgeDashboardStatusLabel({ status: 'Source/TX', runtimeOnline: null }) === 'TX ACTIVE'
-      && bridgeDashboardStatusLabel({ status: 'Relay', runtimeOnline: null }) === 'RELAY',
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Source/TX', runtimeOnline: null }) === 'TX ACTIVE'
+      && bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Relay', runtimeOnline: null }) === 'RELAY',
     'active voice state did not take precedence over idle connectivity',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ cardType: 'dmr_net', status: 'Idle', runtimeOnline: null }) === 'IDLE',
+    'Net Bridge idle status was changed by Standard Bridge connectivity handling',
   )
   const standardModes = ['dmr', 'ysf', 'p25', 'nxdn', 'm17']
   const originalFetch = globalThis.fetch
@@ -847,6 +851,11 @@ try {
       && runtimeBootstrapSource.includes('Refresh now')
       && allscanLiveSource.includes("versionLabel: 'Version temporarily unavailable'"),
     'Restored browser tabs do not recheck the installed version or clearly request a refresh',
+  )
+  assert(
+    appSource.includes('urfCards.map((card) => {')
+      && appSource.includes('const dashboardStatusLabel = bridgeDashboardStatusLabel(card)'),
+    'URF-grouped Standard Bridge cards bypassed tri-state connectivity labels',
   )
 
   console.log('bridge dashboard self-test: ok')

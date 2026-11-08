@@ -460,12 +460,6 @@ const bridgeRoleClasses = {
   Relay: 'allscan-bridge-card-relay',
 }
 
-const bridgeStatusLabels = {
-  Idle: 'IDLE',
-  'Source/TX': 'TX ACTIVE',
-  Relay: 'RELAY',
-}
-
 const bridgeHealthLabels = {
   warning: 'WARNING',
   unhealthy: 'UNHEALTHY',
@@ -4065,6 +4059,10 @@ function App({ config }: { config: RuntimeConfig }) {
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)
                     const historyOpen = bridgeHistoryOpen.has(card.id)
+                    const dashboardStatusLabel = bridgeDashboardStatusLabel(card)
+                    const dashboardStatusClass = card.status === 'Idle' && card.runtimeOnline !== true
+                      ? pillClasses.neutral
+                      : bridgeStatusClasses[card.status]
                     return <article key={card.id} className={`allscan-bridge-card allscan-urf-mini-card${clientsOpen || historyOpen ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}>
                       <div className="allscan-bridge-head">
                         <span className="allscan-bridge-head-title">{card.title.replace(/\s+Bridge$/i, '')}</span>
@@ -4072,12 +4070,12 @@ function App({ config }: { config: RuntimeConfig }) {
                           <button
                             type="button"
                             className={`allscan-bridge-status-control${card.healthSeverity ? ' has-health-issue' : ''}`}
-                            aria-label={card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
-                            title={card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
+                            aria-label={card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${dashboardStatusLabel}`}
+                            title={card.healthSeverity ? card.healthIssues.join('\n') : dashboardStatusLabel}
                             onClick={() => { if (card.healthSeverity && card.healthIssues.length) window.alert(card.healthIssues.join('\n')) }}
                           >
                             {card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
-                            <span className={`allscan-bridge-status rounded-full border ${card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>{card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}</span>
+                            <span className={`allscan-bridge-status rounded-full border ${card.healthSeverity ? pillClasses.neutral : dashboardStatusClass}`}>{card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : dashboardStatusLabel}</span>
                           </button>
                         </span>
                       </div>
@@ -4164,9 +4162,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   && card.node !== config.node
                   && connectionFeedReady
                   && !bridgeLinked
-                const dashboardStatusLabel = card.cardType === 'standard'
-                  ? bridgeDashboardStatusLabel(card)
-                  : bridgeStatusLabels[card.status]
+                const dashboardStatusLabel = bridgeDashboardStatusLabel(card)
                 const dashboardStatusClass = card.cardType === 'standard'
                   && card.status === 'Idle'
                   && card.runtimeOnline !== true

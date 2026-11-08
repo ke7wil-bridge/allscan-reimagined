@@ -1415,8 +1415,10 @@ function asr_bridge_status_payload(): array {
             if (isset($lastTxByCallsign[$clientCallsign])) $modeClient['last_tx_epoch'] = $lastTxByCallsign[$clientCallsign];
         }
         unset($modeClient);
-        $urfClients[$id] = $modeClients;
-        $urfCounts[$id] = count($modeClients);
+        if (!empty($urf['ok'])) {
+            $urfClients[$id] = $modeClients;
+            $urfCounts[$id] = count($modeClients);
+        }
         $isSource = $urfActive && $sourceMode === $mode;
         $modeEvents = array_values(array_filter((array) ($urf['events'] ?? []), static fn($event): bool =>
             is_array($event) && strtoupper(trim((string) ($event['mode'] ?? ''))) === $mode
@@ -1461,26 +1463,29 @@ function asr_bridge_status_payload(): array {
         }
         usort($txEvents, static fn($a, $b): int => (int) ($b['epoch'] ?? 0) <=> (int) ($a['epoch'] ?? 0));
         usort($clientEvents, static fn($a, $b): int => (int) ($b['epoch'] ?? 0) <=> (int) ($a['epoch'] ?? 0));
-        $warning = empty($urf['ok']) ? (string) ($urf['error'] ?? 'URF status unavailable.') : (!empty($urf['stale']) ? 'URF status data is stale.' : '-');
-        $healthSeverity = empty($urf['online']) ? 'offline' : (!empty($urf['stale']) ? 'warning' : null);
-        $bridge[$id] = [
-            'active' => $urfActive,
-            'role' => $isSource ? 'source' : ($urfActive ? 'relay' : 'idle'),
-            'state' => $isSource ? 'Source/TX' : ($urfActive ? 'Relay' : 'Idle'),
-            'current_user' => $isSource ? $sourceCallsign : '',
-            'caller' => $isSource ? $sourceCallsign : '',
-            'last_caller' => $isSource ? $sourceCallsign : '',
-            'lastCaller' => $isSource ? $sourceCallsign : '',
-            'last_source_user' => $lastSourceUser,
-            'last_source_epoch' => $lastSourceEpoch,
-            'tx_events' => array_slice($txEvents, 0, 100),
-            'client_events' => array_slice($clientEvents, 0, 100),
-            'online' => !empty($urf['online']),
-            'warning' => $warning,
-            'health_severity' => $healthSeverity,
-            'health_issues' => $warning !== '-' ? [$warning] : [],
-            'updated' => !empty($urf['updatedEpoch']) ? date('Y-m-d H:i:s T', (int) $urf['updatedEpoch']) : '',
-        ];
+        // URF is an optional source of shared-reflector activity and client
+        // history. It is not the connectivity authority for these independently
+        // managed Standard Bridges. Preserve the collector's online/linked/health
+        // fields even when the URF runtime source is missing or stale.
+        $enrichment = [];
+        if ($urfActive) {
+            $enrichment = [
+                'active' => true,
+                'role' => $isSource ? 'source' : 'relay',
+                'state' => $isSource ? 'Source/TX' : 'Relay',
+                'current_user' => $isSource ? $sourceCallsign : '',
+                'caller' => $isSource ? $sourceCallsign : '',
+                'last_caller' => $isSource ? $sourceCallsign : '',
+                'lastCaller' => $isSource ? $sourceCallsign : '',
+            ];
+        }
+        if ($lastSourceEpoch > 0) {
+            $enrichment['last_source_user'] = $lastSourceUser;
+            $enrichment['last_source_epoch'] = $lastSourceEpoch;
+        }
+        if ($txEvents !== []) $enrichment['tx_events'] = array_slice($txEvents, 0, 100);
+        if ($clientEvents !== []) $enrichment['client_events'] = array_slice($clientEvents, 0, 100);
+        $bridge[$id] = array_merge(is_array($bridge[$id] ?? null) ? $bridge[$id] : [], $enrichment);
     }
 
     $bridge = asrPublicBridgeLiveStatuses($bridge, $configuredBridges);

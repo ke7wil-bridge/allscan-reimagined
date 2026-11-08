@@ -630,10 +630,11 @@ export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number 
 }
 
 export function bridgeDashboardStatusLabel(
-  card: Pick<BridgeCardView, 'status' | 'runtimeOnline'>,
-): 'TX ACTIVE' | 'RELAY' | 'ONLINE' | 'OFFLINE' | 'UNKNOWN' {
+  card: Pick<BridgeCardView, 'cardType' | 'status' | 'runtimeOnline'>,
+): 'IDLE' | 'TX ACTIVE' | 'RELAY' | 'ONLINE' | 'OFFLINE' | 'UNKNOWN' {
   if (card.status === 'Source/TX') return 'TX ACTIVE'
   if (card.status === 'Relay') return 'RELAY'
+  if (card.cardType !== 'standard') return 'IDLE'
   if (card.runtimeOnline === true) return 'ONLINE'
   if (card.runtimeOnline === false) return 'OFFLINE'
   return 'UNKNOWN'

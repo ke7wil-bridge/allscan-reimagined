@@ -26,4 +26,8 @@ assert set(module.configured_standard_bridges(config)) == {'dmr', 'ysf'}
 api_text = (source.parents[1] / 'asr-api.php').read_text(encoding='utf-8')
 assert "in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)" in api_text
 assert "'online' => $online" in api_text
+assert "'online' => !empty($urf['online'])" not in api_text
+assert "$healthSeverity = empty($urf['online'])" not in api_text
+assert "$bridge[$id] = array_merge(is_array($bridge[$id] ?? null) ? $bridge[$id] : [], $enrichment);" in api_text
+assert "if (!empty($urf['ok'])) {\n            $urfClients[$id] = $modeClients;" in api_text
 print('Five-protocol idle status: PASS')
