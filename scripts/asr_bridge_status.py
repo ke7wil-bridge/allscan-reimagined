@@ -747,7 +747,6 @@ def standard_live_payload(
     entries: dict[str, dict[str, Any]] = {}
     for bridge_id, bridge in visible.items():
         state = states.setdefault(bridge_id, initial_activity_state())
-        reconcile_stale_relay(state, now)
         if bridge_id in unambiguous_ids:
             reconcile_keyed_source(state, keys.get(str(bridge["node"])), now)
         cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}

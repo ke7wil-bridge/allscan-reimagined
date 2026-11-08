@@ -504,7 +504,6 @@ def test_wiring_contracts() -> None:
 def main() -> None:
     test_shared_state_machine()
     test_relay_tx_off_evidence()
-    test_missing_relay_end_timeout()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
     test_direct_service_discovery()
