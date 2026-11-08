@@ -179,19 +179,15 @@ def test_relay_tx_off_evidence() -> None:
     assert state["role"] == "relay"
 
 
-def test_missing_relay_end_timeout() -> None:
+def test_long_relay_requires_end_evidence() -> None:
     state = status.initial_activity_state()
-    state.update({"role": "relay", "active_start_epoch": 100, "last_event_epoch": 100})
-    status.reconcile_stale_relay(state, 129)
+    status.apply_activity_line(state, dmr_tx_on("19:33:00"), "dmr", 1200)
     assert state["role"] == "relay"
-    status.reconcile_stale_relay(state, 130)
-    assert state["role"] == "idle" and state["active_start_epoch"] == 0
-    assert state["last_event_epoch"] == 100
-    source = status.initial_activity_state()
-    source.update({"role": "source", "active_start_epoch": 100})
-    status.reconcile_stale_relay(source, 200)
-    assert source["role"] == "source"
-    status.reconcile_stale_relay(status.initial_activity_state(), 200)
+    # No arbitrary elapsed-time cutoff may hide a legitimate long TX.
+    for now in (1230, 1320, 1800):
+        assert state["role"] == "relay"
+    status.apply_activity_line(state, dmr_tx_off("19:43:01"), "dmr", 1801)
+    assert state["role"] == "idle"
 
 
 def test_astapi_tri_state() -> None:
@@ -504,6 +500,7 @@ def test_wiring_contracts() -> None:
 def main() -> None:
     test_shared_state_machine()
     test_relay_tx_off_evidence()
+    test_long_relay_requires_end_evidence()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
     test_direct_service_discovery()
