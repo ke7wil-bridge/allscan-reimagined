@@ -223,19 +223,21 @@ def upstream_export_preview(favorites: Path, state: dict[str, Any]) -> dict[str,
     """Only support plain, adjacent label/cmd records; refuse ambiguous INI layouts."""
     raw = favorites.read_bytes()
     content = raw.decode("utf-8")
-    if "\r" in content:
-        raise ValueError("Nonstandard line endings: export requires manual review.")
+    endings = set(re.findall(r"\r\n|\r|\n", content))
+    if len(endings) > 1 or "\r" in endings:
+        raise ValueError("Mixed or nonstandard line endings: export requires manual review.")
+    newline = "\r\n" if "\r\n" in endings else "\n"
     lines = content.splitlines(keepends=True)
     records: list[tuple[str, str]] = []
     starts: list[int] = []
     ends: list[int] = []
     index = 0
     while index < len(lines):
-        label = ASSIGNMENT.match(lines[index].rstrip("\n"))
+        label = ASSIGNMENT.match(lines[index].rstrip("\r\n"))
         if label and label.group(1).lower() == "label":
             if index + 1 >= len(lines):
                 raise ValueError("Unpaired Favorites label; export aborted.")
-            cmd = ASSIGNMENT.match(lines[index + 1].rstrip("\n"))
+            cmd = ASSIGNMENT.match(lines[index + 1].rstrip("\r\n"))
             if not cmd or cmd.group(1).lower() != "cmd":
                 raise ValueError("Nonadjacent label/cmd entries; export aborted to preserve file layout.")
             node = command_node(decode_ini_value(cmd.group(2))) or label_node(decode_ini_value(label.group(2)))
@@ -264,7 +266,15 @@ def upstream_export_preview(favorites: Path, state: dict[str, Any]) -> dict[str,
             raise ValueError("Comments or sections between Favorites entries; export requires manual review.")
     by_node = dict(records)
     spans = ["".join(lines[left:right]) for left, right in zip(ends, starts[1:])]
-    replacement = "".join(by_node[node] + (spans[i] if i < len(spans) else "") for i, node in enumerate(desired))
+    # Newline termination belongs to the destination slot, not the moved record.
+    # Otherwise moving an unterminated final command into the middle joins it
+    # directly to the next label and corrupts the Favorites file.
+    replacement = "".join(
+        by_node[node].removesuffix(newline)
+        + (newline if records[i][1].endswith(newline) else "")
+        + (spans[i] if i < len(spans) else "")
+        for i, node in enumerate(desired)
+    )
     rewritten = "".join(lines[:starts[0]]) + replacement + "".join(lines[ends[-1]:])
     token = hashlib.sha256(raw + b"\0" + json.dumps(state.get("files", {}).get(favorites.name, {}), sort_keys=True).encode()).hexdigest()
     return {"ok": True, "token": token, "upstreamOrder": upstream, "customOrder": desired,

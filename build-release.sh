@@ -167,6 +167,7 @@ python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
 python3 "$ROOT/scripts/asr-favorites-manager.py" --self-test
+python3 "$ROOT/scripts/asr-favorites-order-self-test.py"
 python3 "$ROOT/scripts/asr-favorites-source.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate-integration-self-test.py"
