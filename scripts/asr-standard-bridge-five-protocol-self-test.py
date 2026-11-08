@@ -72,3 +72,11 @@ for mode, caller, header, tail in (
     assert entry['last_user'] == caller and len(entry['tx_events']) == 1, (mode, entry)
     assert all(not result['bridges'][b['id']]['tx_events'] for b in bridges if b['mode'] != mode)
 print('Managed protocol TX attribution: PASS')
+
+# M17 USRP audio has activity history but must never invent a callsign.
+state = module.initial_activity_state()
+module.apply_m17_activity(state, f'M: {stamp} USRP voice received as first frame', now)
+module.apply_m17_activity(state, f'M: {end_stamp} USRP received end of voice transmission, 3.0 seconds', now)
+assert state['role'] == 'idle' and len(state['tx_events']) == 1
+assert state['tx_events'][0]['callsign'] == ''
+print('M17 USRP activity: PASS')

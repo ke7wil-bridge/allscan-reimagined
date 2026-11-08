@@ -75,6 +75,8 @@ P25_SOURCE_RE = re.compile(LINE_PREFIX + r"P25,\s+received network transmission 
 P25_END_RE = re.compile(LINE_PREFIX + r"P25,\s+network end of transmission\b.*$", re.I)
 NXDN_SOURCE_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF header|network transmission) from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
 NXDN_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF|network) end of transmission\b.*$", re.I)
+M17_START_RE = re.compile(LINE_PREFIX + r"USRP voice received as first frame\s*$", re.I)
+M17_END_RE = re.compile(LINE_PREFIX + r"USRP received end of voice transmission,\s*([0-9.]+) seconds\s*$", re.I)
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
 BRIDGE_RECENT_MAX_AGE_SECONDS = 86400
 ASTAPI_MAX_AGE_SECONDS = 5.0
@@ -275,6 +277,29 @@ def apply_activity_line(
                 "relay_user": "",
             })
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
+
+
+def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
+    """Track USRP audio without inventing a digital callsign or link state."""
+    text = line.rstrip("\r\n")
+    start, end = M17_START_RE.fullmatch(text), M17_END_RE.fullmatch(text)
+    match = start or end
+    if not match:
+        return
+    epoch = match_epoch(match, now)
+    if epoch < int(state.get("last_event_epoch", 0) or 0):
+        return
+    if start:
+        state.update({"observed": True, "role": "relay", "active_start_epoch": epoch,
+                      "activity_epoch": epoch, "last_event_epoch": epoch})
+    elif end:
+        started = int(state.get("active_start_epoch", 0) or 0)
+        if started and epoch >= started:
+            state["tx_events"] = ([{"callsign": "", "event": "transmit", "epoch": epoch,
+                                    "start_epoch": started, "duration_seconds": float(end.group(3))}]
+                                  + state.get("tx_events", []))[:100]
+        state.update({"observed": True, "role": "idle", "active_start_epoch": 0,
+                      "activity_epoch": epoch, "last_event_epoch": epoch})
 
 
 def reconcile_keyed_source(
@@ -730,6 +755,7 @@ def standard_live_payload(
     cache_dir: Path = ASTAPI_CACHE_DIR,
     tagged_lines: list[str] | None = None,
     external_lines: list[str] | None = None,
+    m17_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -778,6 +804,10 @@ def standard_live_payload(
             mode = str(bridge.get("mode", "")).lower()
             if mode in ("dmr", "ysf", "p25", "nxdn"):
                 apply_activity_line(states.setdefault(bridge_id, initial_activity_state()), message, mode, now, local_identities)
+    for tagged in m17_lines or []:
+        bridge_id, sep, message = tagged.partition("\t")
+        if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
+            apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids:
@@ -871,6 +901,7 @@ def watch_standard_status(
     follower = MmdvmFollower(log_dir)
     managed_follower = MmdvmFollower(log_dir)
     external_followers: dict[str, MmdvmFollower] = {}
+    m17_offsets: dict[str, tuple[int, int]] = {}
     states: dict[str, dict[str, Any]] = {}
     while True:
         # Settings intentionally maintains config.json as root:<web-group>
@@ -900,12 +931,36 @@ def watch_standard_status(
                 follower_instance = external_followers.setdefault(follower_key, MmdvmFollower(Path(directory)))
                 for row in follower_instance.read_lines(allowed_stems=frozenset({stem})):
                     external_lines.append(bridge_id + "\t" + row)
+        m17_lines: list[str] = []
+        for bridge in all_configured_standard_bridges(config):
+            if str(bridge.get("mode", "")).lower() != "m17":
+                continue
+            if bridge.get("activityLogDirectory") != "/var/log/m17" or bridge.get("activityLogStem") != "USRP2M17":
+                continue
+            paths = sorted(Path("/var/log/m17").glob("USRP2M17-????-??-??.log"))[-2:]
+            for path in paths:
+                try:
+                    st = path.lstat()
+                    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o022:
+                        continue
+                    inode, offset = m17_offsets.get(str(path), (0, 0))
+                    if inode != st.st_ino or offset > st.st_size:
+                        offset = max(0, st.st_size - INITIAL_TAIL_BYTES)
+                    with path.open(encoding="utf-8", errors="replace") as handle:
+                        handle.seek(offset)
+                        if offset and inode != st.st_ino:
+                            handle.readline()
+                        m17_lines.extend(str(bridge["id"]) + "\t" + row for row in handle.readlines())
+                        m17_offsets[str(path)] = (st.st_ino, handle.tell())
+                except OSError:
+                    continue
         atomic_json(status_path, standard_live_payload(
             config,
             states,
             follower.read_lines(configured_net_log_stems(config)),
             now,
             external_lines=external_lines,
+            m17_lines=m17_lines,
             tagged_lines=managed_follower.read_lines(
                 allowed_stems=frozenset(
                     f"MMDVM_Bridge_{bridge['id']}"
