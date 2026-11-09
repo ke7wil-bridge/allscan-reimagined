@@ -53,6 +53,7 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
     manifest = {
         "schema": 1, "bridgeId": "ysf-local", "mode": "ysf",
         "adapter": "test-adapter", "healthy": True, "heartbeatEpoch": now,
+        "enforcementEvidence": "relay-observed-v1",
         "listClients": True, "kickClient": True,
         "kickContract": "disconnect-until-reconnect",
         "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": True,
@@ -141,6 +142,19 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
             **manifest, "bridgeId": "ysf", "mode": "ysf",
             "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64,
         }
+        unproved_manifest = dict(aggregate_manifest)
+        unproved_manifest.pop("enforcementEvidence")
+        write_json(aggregate_dir / "capabilities.json", unproved_manifest)
+        write_json(config, {"bridges": [{
+            "id": "urfnet", "mode": "urf", "cardType": "standard",
+            "urfReflector": True, "modes": ["ysf"],
+        }]})
+        try:
+            admin.kick("ysf", "N7URF", "admin")
+            raise AssertionError("unproved standalone adapter was accepted")
+        except admin.AdminError as error:
+            check("does not support" in str(error).lower(),
+                  "missing enforcement evidence was not rejected")
         write_json(aggregate_dir / "capabilities.json", aggregate_manifest)
         write_json(config, {"bridges": [{
             "id": "urfnet", "mode": "urf", "cardType": "standard",

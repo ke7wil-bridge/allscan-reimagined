@@ -4,6 +4,8 @@ import importlib.util
 import json
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -96,23 +98,48 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     admin_runtime = root / "admin-runtime"; admin_runtime.mkdir()
     roster = admin_runtime / "dmr-clients.json"
     control = admin_runtime / "dmr-admin.json"
-    roster.write_text(json.dumps({"urf_dmr": [
+    enforcement = admin_runtime / "dmr-admin-enforcement.json"
+    roster.write_text(json.dumps({"clients": [
         {"dmrid": "3205161", "callsign": "N1YKT"},
         {"dmrid": "314133", "callsign": "W7ABC"},
     ]}) + "\n")
-    capabilities = admin.capability("dmr_johnny2", "0" * 64)
+    capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["listClients"] is True
+    assert capabilities["kickClient"] is False
+    enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
+        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": ""}) + "\n")
+    capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["kickClient"] is True
-    assert capabilities["kickContract"] == "disconnect-until-reconnect"
+    assert capabilities["kickContract"] == "local-media-block-until-reconnect"
     assert capabilities["banClient"] is True and capabilities["unbanClient"] is True
     assert capabilities["banContract"] == "global-timed-v1"
-    assert admin.kick("N1YKT", roster, control) == 1
+    stop = threading.Event()
+    def relay_evidence():
+        while not stop.is_set():
+            payload = json.loads(control.read_text()) if control.is_file() else {}
+            tokens = payload.get("kick_tokens", {})
+            digest = payload.get("policy_digest", "")
+            proof = {"schema": 1, "contract": "dmr-local-media-v1",
+                     "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": digest}
+            if tokens:
+                dmrid, token = next(iter(tokens.items()))
+                proof["lastKick"] = {"dmrid": dmrid, "token": token,
+                                     "observedEpoch": int(time.time())}
+            enforcement.write_text(json.dumps(proof) + "\n")
+            time.sleep(.01)
+    worker = threading.Thread(target=relay_evidence, daemon=True); worker.start()
+    assert admin.kick("N1YKT", roster, control, enforcement, "a" * 32) == 1
     control_payload = json.loads(control.read_text())
     assert "3205161" in control_payload["kicked_ids"]
-    assert [row["callsign"] for row in admin.current_rows(roster)] == ["W7ABC"]
+    assert [row["callsign"] for row in admin.current_rows(roster)] == ["N1YKT", "W7ABC"]
+    try:
+        admin.kick("N1YKT", roster, control, enforcement, "b" * 32)
+    finally:
+        pass
     policy_digest = "1" * 64
     assert admin.apply_policy(control, {"digest": policy_digest,
-        "rules": ["314133", "BADGUY", "SPAM*"]}) == policy_digest
+        "rules": ["314133", "BADGUY", "SPAM*"]}, enforcement) == policy_digest
+    stop.set(); worker.join(timeout=1)
     control_payload = json.loads(control.read_text())
     assert control_payload["banned_ids"] == [314133]
     assert control_payload["banned_callsigns"] == ["BADGUY"]

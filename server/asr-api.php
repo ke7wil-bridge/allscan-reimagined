@@ -345,7 +345,8 @@ function asr_runtime_client_admin(string $id, string $mode): array {
     $result = [];
     if (($cap['listClients'] ?? false) === true) $result[] = 'listClients';
     if (($cap['kickClient'] ?? false) === true
-        && ($cap['kickContract'] ?? '') === 'disconnect-until-reconnect'
+        && ($cap['enforcementEvidence'] ?? '') === 'relay-observed-v1'
+        && in_array(($cap['kickContract'] ?? ''), ['disconnect-until-reconnect', 'local-media-block-until-reconnect'], true)
         && ($cap['kickRequiresCurrentSession'] ?? false) === true
         && ($cap['kickAllowsImmediateReconnect'] ?? false) === true) {
         $result[] = 'kickClient';
@@ -354,6 +355,7 @@ function asr_runtime_client_admin(string $id, string $mode): array {
     $policyDigest = asr_global_ban_policy_digest();
     $appliedDigest = strtolower(trim((string) ($cap['appliedPolicyDigest'] ?? '')));
     if (($cap['banClient'] ?? false) === true
+        && ($cap['enforcementEvidence'] ?? '') === 'relay-observed-v1'
         && ($cap['unbanClient'] ?? false) === true
         && ($cap['listBans'] ?? false) === true
         && ($cap['banContract'] ?? '') === 'global-timed-v1'
@@ -386,6 +388,23 @@ function asr_dmr_admin_runtime_available(): bool {
         && in_array('banClient', $payload['capabilities'] ?? [], true);
 }
 
+function asr_urf_protocol_admin_runtime_available(string $mode): bool {
+    $keys = ['ysf' => 'ysfSessionSuppression', 'p25' => 'p25SessionSuppression',
+        'nxdn' => 'nxdnSessionSuppression', 'm17' => 'm17SessionSuppression'];
+    if (!isset($keys[$mode]) || !is_executable(ASR_URF_ADMIN_HELPER)) return false;
+    $path = '/run/urf-wil/asr-admin-capabilities.json';
+    $stat = @lstat($path);
+    if (!is_array($stat) || is_link($path) || !is_readable($path)
+        || (($stat['mode'] ?? 0) & 0170000) !== 0100000
+        || (($stat['mode'] ?? 0) & 0022) !== 0 || (int) ($stat['uid'] ?? -1) !== 0
+        || (int) ($stat['size'] ?? 0) < 2 || (int) ($stat['size'] ?? 0) > 65536
+        || abs(time() - (int) ($stat['mtime'] ?? 0)) > 30) return false;
+    $payload = json_decode((string) @file_get_contents($path), true);
+    return is_array($payload) && ($payload['kickClient'] ?? false) === true
+        && ($payload[$keys[$mode]] ?? false) === true
+        && count(array_diff(['kick', 'ban', 'unban'], (array) ($payload['adminEvents'] ?? []))) === 0;
+}
+
 function asr_bridge_admin_capabilities(array $bridge): array {
     $cardType = (string) ($bridge['cardType'] ?? 'standard');
     $urf = !empty($bridge['urfReflector']);
@@ -394,18 +413,17 @@ function asr_bridge_admin_capabilities(array $bridge): array {
     $mode = strtolower((string) ($bridge['mode'] ?? ''));
     $clientAdmin = $urf ? ['listClients'] : [];
     if (!$urf) $clientAdmin = array_merge($clientAdmin, asr_standalone_client_admin($bridge));
-    $globalAdmin = $urf || $mode === 'zello'
-        || in_array('banClient', $clientAdmin, true);
+    $globalAdmin = in_array('banClient', $clientAdmin, true);
     if ($urf && $mode === 'dmr' && asr_dmr_admin_runtime_available()) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
     if ($urf && $mode !== 'dmr') {
-        if (is_readable('/run/urf-wil/asr-admin-capabilities.json')) {
+        if (asr_urf_protocol_admin_runtime_available($mode)) {
             $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
         } else {
             $clientAdmin = array_merge($clientAdmin, asr_native_urf_client_admin($mode));
         }
     }
-    if ($mode === 'zello' && is_dir('/var/www/html/asr')) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
     $clientAdmin = array_values(array_unique($clientAdmin));
+    $globalAdmin = in_array('banClient', $clientAdmin, true);
     return [
         'bridgeControl' => $bridgeControl,
         'clientAdmin' => $clientAdmin,
@@ -1218,7 +1236,7 @@ function asr_urf_kick_command(string $callsign, string $protocol, string $dmrId 
     return $payload;
 }
 
-function asr_standalone_kick_command(string $bridgeId, string $callsign): array {
+function asr_standalone_kick_command(string $bridgeId, string $callsign, string $clientId = ''): array {
     global $user;
     $bridge = asr_bridge_config_by_id($bridgeId);
     if (!is_array($bridge) || !in_array('kickClient', asr_standalone_client_admin($bridge), true)) {
@@ -1226,9 +1244,17 @@ function asr_standalone_kick_command(string $bridgeId, string $callsign): array 
     }
     $callsign = strtoupper(trim($callsign));
     if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
+    $identity = $callsign;
+    if (asr_bridge_mode($bridge) === 'dmr') {
+        $clientId = trim($clientId);
+        if (!preg_match('/^\d{1,8}$/D', $clientId) || (int) $clientId < 1 || (int) $clientId > 16777215) {
+            asr_error('A current DMR client ID is required.');
+        }
+        $identity = $clientId;
+    }
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
     $command = 'sudo -n ' . escapeshellarg(ASR_STANDALONE_ADMIN_HELPER)
-        . ' kick ' . escapeshellarg($bridgeId) . ' ' . escapeshellarg($callsign)
+        . ' kick ' . escapeshellarg($bridgeId) . ' ' . escapeshellarg($identity)
         . ' --actor ' . escapeshellarg($actor ?: 'unknown');
     $output = []; $code = 0; exec($command . ' 2>/dev/null', $output, $code);
     $payload = json_decode((string) end($output), true);
@@ -4307,7 +4333,7 @@ if ($action === 'standalone-client-kick') {
     asr_require_same_origin();
     asr_require_admin();
     if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'standalone-client-kick') asr_error('Invalid bridge Kick request.', 403);
-    asr_json(asr_standalone_kick_command((string) ($_POST['bridgeId'] ?? ''), (string) ($_POST['callsign'] ?? '')));
+    asr_json(asr_standalone_kick_command((string) ($_POST['bridgeId'] ?? ''), (string) ($_POST['callsign'] ?? ''), trim((string) ($_POST['clientId'] ?? ''))));
 }
 if ($action === 'bridge-destinations') {
     asr_require_read();

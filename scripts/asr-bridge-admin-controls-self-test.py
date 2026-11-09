@@ -31,15 +31,18 @@ check("function asr_bridge_admin_capabilities" in API, "capability contract miss
 check("function asr_global_ban_policy_digest" in API, "standalone global-ban policy digest missing")
 check("($cap['bridgeId'] ?? '') !== $id" in API and "($cap['healthy'] ?? false) !== true" in API, "standalone manifest identity/health checks missing")
 check("is_link($path)" in API and "($stat['mode'] ?? 0) & 0022" in API and "($stat['uid'] ?? -1) !== 0" in API, "standalone manifest trust checks missing")
-check("($cap['kickContract'] ?? '') === 'disconnect-until-reconnect'" in API, "standalone Kick session contract missing")
+check("local-media-block-until-reconnect" in API, "local DMR media enforcement contract missing")
 check("($cap['kickRequiresCurrentSession'] ?? false) === true" in API and "($cap['kickAllowsImmediateReconnect'] ?? false) === true" in API, "standalone Kick reconnect semantics missing")
 check("($cap['banContract'] ?? '') === 'global-timed-v1'" in API and "hash_equals($policyDigest, $appliedDigest)" in API, "standalone global-ban synchronization proof missing")
+check("($cap['enforcementEvidence'] ?? '') === 'relay-observed-v1'" in API,
+      "standalone controls do not require backend-owned enforcement evidence")
 check("['connect', 'disconnect', 'changeDestination']" in API, "bridge lifecycle capabilities missing")
 check("array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans'])" in API, "URF client capabilities missing")
 check("'managementScope' => $globalAdmin ? 'asr-global' : 'bridge'" in API, "ASR-global management scope missing")
 check("'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none'" in API, "global-ban authority scope missing")
 check("'banScopeLabel' => $globalAdmin ? 'GLOBAL' : ''" in API, "global ban scope label missing")
-check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API
+check("function asr_urf_protocol_admin_runtime_available" in API
+      and "ysfSessionSuppression" in API
       and "asr_dmr_admin_runtime_available()" in API
       and "ASR_URF_ADMIN_HELPER) . ' capabilities" in API
       and "($payload['available'] ?? false) === true" in API,
@@ -84,9 +87,13 @@ check("Ban is global across ASR bridges" in APP, "global-ban scope warning missi
 check("Enforcement is applied by each supported backend" in APP, "partial global-ban enforcement warning missing")
 check("urfGroupTitle" in APP and "URFWIL Bridge" not in APP, "URF group title must derive from configured reflector identity")
 check("Kick affects only the selected current bridge session" in APP, "Kick scope semantics are not explained")
+check("does not remove the upstream TGIF subscriber" in APP and "Block media" in APP,
+      "DMR local-only enforcement is mislabeled as an upstream disconnect")
 check("allscan-bridge-inline-client-actions" in APP and "allscan-bridge-inline-client-actions" in CSS, "inline client actions are missing")
 check("kickBridgeConnectedClient" in APP and "kickUrfClient" in LIVE and "kickStandaloneClient" in LIVE, "bridge-aware Kick UI/API routing is missing")
-check("standalone-client-kick" in LIVE and "bridgeId" in LIVE, "standalone Kick request is not bridge-specific")
+check("standalone-client-kick" in LIVE and "bridgeId" in LIVE and "clientId" in LIVE
+      and "A current DMR client ID is required." in API,
+      "standalone DMR Kick is not bound to an exact current client ID")
 check("reconcile_standalone_bans" in URF and "reconcile-all" in STANDALONE, "global Ban is not reconciled to standalone adapters")
 check("disconnect-until-reconnect" in STANDALONE and "appliedPolicyDigest" in STANDALONE, "standalone acknowledgment contracts are incomplete")
 check("allscan-reimagined-standalone-admin" in REAPPLY, "standalone administration helper is not installed")
@@ -99,17 +106,21 @@ check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD
       and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
-check('"kickClient": True' in DIRECT_DMR_ADMIN
-      and '"kickContract": "disconnect-until-reconnect"' in DIRECT_DMR_ADMIN
+check('"kickClient": ready' in DIRECT_DMR_ADMIN
+      and '"kickContract": "local-media-block-until-reconnect"' in DIRECT_DMR_ADMIN
       and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the exact current-session Kick contract")
-check('"banClient": True' in DIRECT_DMR_ADMIN and '"unbanClient": True' in DIRECT_DMR_ADMIN
+check('"banClient": ready' in DIRECT_DMR_ADMIN and '"unbanClient": ready' in DIRECT_DMR_ADMIN
       and '"banContract": "global-timed-v1"' in DIRECT_DMR_ADMIN
       and '"appliedPolicyDigest": digest' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the synchronized global Ban contract")
 check("kicked_ids" in DIRECT_DMR_ADMIN and "banned_ids" in DIRECT_DMR_ADMIN
       and "banned_callsigns" in DIRECT_DMR_ADMIN and "banned_prefixes" in DIRECT_DMR_ADMIN,
       "direct DMR Kick/Ban controls are not connected to enforcement state")
+check("dmr-admin-enforcement.json" in DIRECT_DMR_ADMIN
+      and "client identity is ambiguous" in DIRECT_DMR_ADMIN
+      and 'payload.get("clients")' in DIRECT_DMR_ADMIN,
+      "direct DMR does not require relay evidence and an exact current identity")
 check("asr-dmr-standalone-admin-adapter.py" in DIRECT_DMR_INSTALL
       and "adminService" in DIRECT_DMR_INSTALL
       and "/run/asr-standalone-admin" in DIRECT_DMR_RENDER,
