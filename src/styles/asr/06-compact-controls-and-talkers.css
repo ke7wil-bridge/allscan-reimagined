@@ -554,6 +554,17 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   box-shadow: 0 18px 60px rgba(0, 0, 0, .5);
   line-height: 1.45;
 }
+/* Keep the title, tabs, dismiss button and footer reachable as notes scroll. */
+.asr-update-dialog--whats-new {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: min(530px, calc(100dvh - max(32px, env(safe-area-inset-top) + env(safe-area-inset-bottom))));
+  overflow: hidden;
+}
+.asr-update-dialog--whats-new > .asr-update-head,
+.asr-update-dialog--whats-new > .asr-update-view-tabs,
+.asr-update-dialog--whats-new > footer { flex: 0 0 auto; }
 .asr-update-dialog p { margin: 10px 0; }
 .asr-update-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .asr-update-head h2 { margin: 0; font-size: 1.45rem; }
@@ -572,6 +583,18 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   border-radius: 8px;
   background: #18344e;
 }
+.asr-update-dialog--whats-new .asr-whats-new {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: #9fd5ff #18344e;
+}
+.asr-whats-new::-webkit-scrollbar { width: 12px; }
+.asr-whats-new::-webkit-scrollbar-thumb { background: #9fd5ff; border: 3px solid #18344e; border-radius: 10px; }
 .asr-whats-new h3 { margin: 0 0 8px; font-size: 1.2rem; }
 .asr-whats-new ul { margin: 12px 0 0; padding-left: 22px; }
 .asr-whats-new li + li { margin-top: 9px; }
@@ -617,6 +640,9 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
     max-height: calc(100dvh - max(16px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
     padding: 14px;
   }
+  .asr-update-dialog--whats-new {
+    height: min(530px, calc(100dvh - max(16px, env(safe-area-inset-top) + env(safe-area-inset-bottom))));
+  }
   .asr-update-versions { grid-template-columns: 1fr; }
   .asr-update-actions button { flex: 1 1 100%; }
 }
@@ -629,6 +655,9 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
   .asr-update-dialog {
     max-height: calc(100dvh - max(12px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
     padding: 12px 14px;
+  }
+  .asr-update-dialog--whats-new {
+    height: calc(100dvh - max(12px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
   }
   .asr-update-versions { margin: 10px 0; }
   .asr-update-dialog footer { margin-top: 12px; }
