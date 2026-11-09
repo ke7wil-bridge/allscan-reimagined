@@ -221,3 +221,52 @@ test('diagnostics are content-only and service never gathers them', () => {
   assert.equal(validate({ kind: 'question', content: 'question only' }), '')
   assert.equal(validate({ kind: 'feature', content: 'feature only' }), '')
 })
+
+test('accepts bug reports without screenshots or attachment storage configuration', async () => {
+  const originalFetch = globalThis.fetch
+  let posted = 0
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/access_tokens')) return Response.json({ token: 'installation-token' })
+    posted += 1
+    return Response.json({ number: 1555, html_url: 'https://github.com/ke7wil-bridge/allscan-reimagined/issues/1555' })
+  }
+  try {
+    const response = await worker.fetch(request({ kind: 'bug', content: 'Plain-text report' }), env({
+      GITHUB_APP_PRIVATE_KEY: pkcs1Pem(),
+      ATTACHMENTS: undefined,
+      ATTACHMENT_BASE_URL: undefined,
+    }))
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).issueNumber, 1555)
+    assert.equal(posted, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retrying an identical submission ID reuses the created issue; changed content is rejected', async () => {
+  const originalFetch = globalThis.fetch
+  let issuesCreated = 0
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/access_tokens')) return Response.json({ token: 'installation-token' })
+    issuesCreated += 1
+    return Response.json({ number: 1701, html_url: 'https://github.com/ke7wil-bridge/allscan-reimagined/issues/1701' })
+  }
+  const testEnv = env({ GITHUB_APP_PRIVATE_KEY: pkcs1Pem() })
+  const body = { kind: 'bug', content: 'One broken widget', submissionId: '11111111-2222-4333-8444-555555555555' }
+  try {
+    const first = await worker.fetch(request(body), testEnv)
+    assert.equal(first.status, 200)
+    const second = await worker.fetch(request(body), testEnv)
+    assert.equal(second.status, 200)
+    assert.deepEqual(await second.json(), await first.json())
+    assert.equal(issuesCreated, 1)
+
+    const changed = await worker.fetch(request({ ...body, content: 'A different widget is broken' }), testEnv)
+    assert.equal(changed.status, 409)
+    assert.equal(issuesCreated, 1)
+    assert.match(validate({ ...body, submissionId: 'not-a-uuid' }), /submission ID/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

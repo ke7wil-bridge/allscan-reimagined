@@ -743,8 +743,11 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
 .asr-feedback-box>label,.asr-feedback-inline label{display:grid;gap:5px;margin:9px 0;font-weight:600}
 .asr-feedback-box textarea,.asr-feedback-box input{box-sizing:border-box;width:100%;padding:8px;border:1px solid rgba(127,127,127,.55);border-radius:4px;background:var(--asr-input-bg,#111);color:inherit}
 .asr-feedback-box textarea{min-height:90px;resize:vertical}
-.asr-feedback-box input[type="file"]{padding:8px 10px;font-size:.88em;font-weight:500;color:rgba(220,228,235,.72)}
-.asr-feedback-box input[type="file"]::file-selector-button{margin-right:14px;padding:7px 11px;border:1px solid rgba(127,127,127,.7);border-radius:4px;background:transparent;color:inherit;font-size:1.08em;font-weight:800;cursor:pointer}
+.asr-feedback-file-picker{position:relative}
+.asr-feedback-box input.asr-feedback-file-input{position:absolute;width:1px;height:1px;padding:0;margin:0;opacity:0;overflow:hidden}
+.asr-feedback-choose{display:inline-block;width:max-content;max-width:100%;padding:8px 12px;border:1px solid currentColor;border-radius:4px;font-size:.9em;font-weight:700;cursor:pointer}
+.asr-feedback-file-picker:focus-within .asr-feedback-choose{outline:2px solid currentColor;outline-offset:2px}
+.asr-feedback-count{margin:4px 0 8px;font-weight:600;overflow-wrap:anywhere}
 .asr-feedback-types{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}
 .asr-feedback-types button{padding:9px 6px;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;cursor:pointer}
 .asr-feedback-types button.is-active{font-weight:800;outline:2px solid currentColor;outline-offset:-3px}

@@ -149,6 +149,10 @@ export function validate(body) {
   if (body.website) return 'Rejected.'
   if (typeof body.content !== 'string' || body.content.trim().length < 3) return 'Please provide a description.'
   if (body.content.length > CONTENT_LIMIT) return 'Submission is too large.'
+  if (body.submissionId !== undefined && (typeof body.submissionId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.submissionId))) {
+    return 'Invalid submission ID.'
+  }
   if (body.screenshots !== undefined && !Array.isArray(body.screenshots)) return 'Invalid screenshots.'
   if ((body.screenshots || []).length > SCREENSHOT_COUNT_LIMIT) return 'Too many screenshots.'
   try {
@@ -166,8 +170,9 @@ async function cleanupScreenshots(keys, env) {
 async function storeScreenshots(body, env) {
   const keys = []
   const urls = []
+  if (!(body.screenshots || []).length) return { keys, urls }
   try {
-    if (!env.ATTACHMENT_BASE_URL) throw new Error('Attachment base URL is not configured')
+    if (!env.ATTACHMENTS || !env.ATTACHMENT_BASE_URL) throw new Error('Attachment storage is not configured')
     for (const shot of body.screenshots || []) {
       const { bytes, contentType, extension } = inspectScreenshot(shot)
       const key = `support/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`
@@ -236,6 +241,32 @@ export default {
     const error = validate(body)
     if (error) return json({ ok: false, error }, 400)
 
+    // A retry after a lost response should not create a second public issue.
+    // Workers KV is eventually consistent, so this is best-effort across regions.
+    let dedupeKey = ''
+    let fingerprint = ''
+    if (body.submissionId) {
+      dedupeKey = `submission:${body.submissionId}`
+      try {
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({
+          kind: body.kind, content: body.content, screenshots: body.screenshots || [],
+        })))
+        fingerprint = hex(new Uint8Array(digest))
+        const cached = await env.RATE_LIMIT.get(dedupeKey)
+        if (cached) {
+          const previous = typeof cached === 'string' ? JSON.parse(cached) : cached
+          if (previous.fingerprint !== fingerprint) {
+            return json({ ok: false, error: 'This submission has changed. Please review it again before retrying.' }, 409)
+          }
+          if (Number.isSafeInteger(previous.issueNumber) && previous.issueNumber > 0) {
+            return json({ ok: true, issueNumber: previous.issueNumber, issueUrl: previous.issueUrl })
+          }
+        }
+      } catch {
+        return json({ ok: false, error: 'Submission verification is temporarily unavailable. Please try again.' }, 503)
+      }
+    }
+
     let content = redact(body.content)
     const labels = LABELS[body.kind]
     let uploaded
@@ -260,6 +291,16 @@ export default {
       })
       if (!response.ok) throw new Error('GitHub issue creation failed')
       const issue = await response.json()
+      if (!Number.isSafeInteger(issue.number) || issue.number <= 0) throw new Error('Invalid GitHub issue response')
+      if (dedupeKey) {
+        try {
+          await env.RATE_LIMIT.put(dedupeKey, JSON.stringify({
+            fingerprint, issueNumber: issue.number, issueUrl: issue.html_url,
+          }), { expirationTtl: 86400 })
+        } catch {
+          // The public issue already exists; do not report a failure that invites duplicate retries.
+        }
+      }
       return json({ ok: true, issueNumber: issue.number, issueUrl: issue.html_url })
     } catch {
       await cleanupScreenshots(uploaded.keys, env)
