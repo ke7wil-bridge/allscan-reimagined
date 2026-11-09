@@ -139,8 +139,11 @@ def plan(root: Path, settings: ZelloSettings) -> dict[str, Any]:
         if node in used:
             raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
-    if not matches and set(ports.values()).intersection(facts.listening_udp_ports):
-        raise PlanError("a required Zello USRP port is already in use")
+    endpoint_guard = load("asr_bridge_endpoint_guard_zello", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(root, config, settings.bridge_id, "zello", ports)
+    except ValueError as exc:
+        raise PlanError(str(exc)) from exc
     resources = {
         "root": ROOT,
         "compose": f"{ROOT}/compose.yml",

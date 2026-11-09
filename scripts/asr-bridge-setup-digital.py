@@ -185,27 +185,12 @@ def plan(root: Path, settings: DigitalSettings) -> dict[str, Any]:
     ports = port_block(settings.bridge_id)
     if settings.bridge_role == "net":
         ports["usrp_rx"], ports["usrp_tx"] = core.unified_net_usrp_ports()
-    for bridge in config["bridges"]:
-        if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
-            continue
-        occupied = bridge.get("setupPorts", {})
-        candidate_ports = set(ports.values())
-        occupied_ports = ({p for p in occupied.values() if isinstance(p, int)}
-                          if isinstance(occupied, dict) else set())
-        if (settings.bridge_role == "net"
-                and bridge.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}):
-            candidate_ports -= set(core.unified_net_usrp_ports())
-            occupied_ports -= set(core.unified_net_usrp_ports())
-        if candidate_ports & occupied_ports:
-            raise PlanError("instance port block overlaps another ASR bridge")
-    listening_candidates = set(ports.values())
-    if settings.bridge_role == "net" and shared_net_node:
-        listening_candidates -= set(core.unified_net_usrp_ports())
-    if not matches and listening_candidates & set(facts.listening_udp_ports):
-        raise PlanError("instance port block overlaps an active UDP listener")
-    if (not matches and settings.mode in {"p25", "nxdn"}
-            and ports["mqtt"] in facts.listening_tcp_ports):
-        raise PlanError("private MQTT port overlaps an active TCP listener")
+    endpoint_guard = load("asr_bridge_endpoint_guard_asr_bridge_setup_digital", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(root, config, settings.bridge_id, settings.mode,
+                                       ports, role=settings.bridge_role)
+    except ValueError as exc:
+        raise PlanError(str(exc)) from exc
     gateway = MODES[settings.mode]
     instance = settings.bridge_id
     resources = {
