@@ -42,6 +42,8 @@ run maintenance-regression node scripts/asr-maintenance-regression-self-test.mjs
 run settings-redesign node scripts/asr-settings-redesign-self-test.mjs
 run settings-tabs-unit node scripts/asr-settings-tabs-self-test.mjs
 run update-dialog node scripts/asr-update-dialog-self-test.mjs
+run release-notes node scripts/asr-release-notes-self-test.mjs
+run release-notes-browser node scripts/asr-release-notes-browser-self-test.mjs
 run cpu-temperature node scripts/asr-cpu-temperature-consumers-self-test.mjs
 run mobile-layout node scripts/asr-mobile-layout-browser-self-test.mjs
 run support node scripts/asr-support-self-test.mjs

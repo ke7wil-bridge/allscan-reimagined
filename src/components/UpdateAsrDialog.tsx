@@ -117,7 +117,7 @@ export default function UpdateAsrDialog({
     <div className="asr-update-overlay" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
     }}>
-      <section className="asr-update-dialog" role="dialog" aria-modal="true" aria-labelledby="asr-update-title">
+      <section className={`asr-update-dialog${view === 'whats-new' ? ' asr-update-dialog--whats-new' : ''}`} role="dialog" aria-modal="true" aria-labelledby="asr-update-title">
         <header className="asr-update-head">
           <h2 id="asr-update-title">Update ASR</h2>
           <button type="button" aria-label="Close Update ASR" onClick={onClose}>×</button>
@@ -127,10 +127,10 @@ export default function UpdateAsrDialog({
           <button type="button" role="tab" aria-selected={view === 'whats-new'} onClick={() => setView('whats-new')}>What’s New</button>
         </div>
         {view === 'whats-new' ? (
-          <section className="asr-whats-new" role="tabpanel" aria-label={`What’s New in ${ASR_WHATS_NEW.label}`}>
+          <section className="asr-whats-new" role="tabpanel" tabIndex={0} aria-label={`All ${ASR_WHATS_NEW.items.length} changes in ${ASR_WHATS_NEW.label}; scroll for the full list`}>
             <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
             <p>{ASR_WHATS_NEW.summary}</p>
-            <ul>{ASR_WHATS_NEW.items.map((item) => <li key={item}>{item}</li>)}</ul>
+            <ul>{ASR_WHATS_NEW.items.map((item, index) => <li key={index}>{item}</li>)}</ul>
             <p>If you’re using AllScan Reimagined, Josh (KE7WIL) would appreciate a quick email letting him know you’re running it. <a href="mailto:ke7wil@gmail.com">ke7wil@gmail.com</a>.</p>
           </section>
         ) : <>
