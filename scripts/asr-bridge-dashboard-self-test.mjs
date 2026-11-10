@@ -527,7 +527,7 @@ try {
     'a disconnected DMR Net Bridge can still inherit false Relay state from node 1999',
   )
   assert(
-    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
+    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| card\.transportLinked === true \|\| rows\.some/),
     'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
   )
   assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')
