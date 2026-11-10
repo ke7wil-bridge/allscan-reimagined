@@ -7,6 +7,22 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
 fi
 umask 022
 
+# Keep bootstrap, preflight, subprocesses, and the official AllScan installer
+# on one operator-selected temporary filesystem. ASR_STAGE_DIR takes priority;
+# TMPDIR is the standard fallback for direct installer runs.
+requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+case "$requested_stage" in
+  /*) ;;
+  *) echo "ERROR: ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
+esac
+if [ ! -d "$requested_stage" ] || [ ! -w "$requested_stage" ] || [ ! -x "$requested_stage" ]; then
+  echo "ERROR: ASR staging directory is not an accessible writable directory: $requested_stage" >&2
+  exit 1
+fi
+ASR_STAGE_DIR=$(cd -P -- "$requested_stage" && pwd -P)
+TMPDIR=$ASR_STAGE_DIR
+export ASR_STAGE_DIR TMPDIR
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ASR_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SCRIPT_DIR/package.json")
 ASR_VERSION_LABEL="v$(printf '%s' "$ASR_VERSION" | sed -E 's/-beta\.([0-9]+)/ Beta \1/; s/-test/ Test/; s/-/ /g')"
@@ -125,7 +141,9 @@ restore_shared_backup() {
       rm -f /etc/allscan/allscan.db
     fi
   fi
-  install -d -o root -g root -m 755 /etc/allscan-reimagined
+  # Settings writes config.json atomically as the web-server user. Keep the
+  # directory writable by that group when restoring an installation backup.
+  install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan-reimagined
   for protected in config.json secrets.json station-map-cache.json; do
     if [ -f "$BACKUP_DIR/runtime/protected/$protected" ]; then
       cp -p "$BACKUP_DIR/runtime/protected/$protected" "/etc/allscan-reimagined/$protected"
