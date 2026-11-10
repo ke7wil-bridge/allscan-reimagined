@@ -77,18 +77,26 @@ def group_exists(name: str) -> bool:
         return False
 
 
-def status(job: str, state: str, **extra: str) -> dict:
+def status(job: str, state: str, **extra: object) -> dict:
     if not JOB_RE.fullmatch(job) or state not in STATES:
         raise UpdateError("Invalid job state")
     # Explicit allowlist: never serialize subprocess output, paths, or config.
     data = {"ok": state != "failed", "jobId": job, "state": state, "updatedAt": now()}
-    for key in ("currentVersion", "availableVersion", "message"):
+    for key in ("currentVersion", "availableVersion", "message", "failureReason",
+                "restoration", "manualInterventionRequired"):
         if key in extra:
             value = extra[key]
-            if key.endswith("Version") and not VERSION_RE.fullmatch(value):
+            if key.endswith("Version") and (not isinstance(value, str) or not VERSION_RE.fullmatch(value)):
                 raise UpdateError("Invalid version in status")
             if key == "message" and value not in MESSAGES:
                 raise UpdateError("Invalid status message")
+            if key == "failureReason" and (not isinstance(value, str) or not value
+                                            or len(value) > 240 or "\n" in value):
+                raise UpdateError("Invalid failure reason")
+            if key == "restoration" and value not in {"not_needed", "succeeded", "failed"}:
+                raise UpdateError("Invalid restoration status")
+            if key == "manualInterventionRequired" and not isinstance(value, bool):
+                raise UpdateError("Invalid intervention status")
             data[key] = value
     path = JOB_ROOT / (job + ".json")
     fd, temp = tempfile.mkstemp(prefix=".update-", dir=JOB_ROOT)
@@ -128,6 +136,83 @@ MESSAGES = {
     "Update failed; recovery needs attention.", "Update could not start.",
 }
 
+SENSITIVE_RE = re.compile(
+    r"(?i)(password|passwd|token|secret|api[-_]?key|authorization|cookie)"
+    r"(\s*[:=]\s*|\s+)([^\s,;]+)"
+)
+
+
+def redact_line(value: str) -> str:
+    """Return one printable diagnostic line with common secret forms removed."""
+    value = "".join(char if char.isprintable() else " " for char in value)
+    if re.search(r"(?i)\b(password|passwd|token|secret|api[-_ ]?key|authorization|cookie|bearer)\b", value) \
+            or "PRIVATE KEY" in value.upper():
+        return "[redacted]"
+    value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [redacted]", value)
+    value = re.sub(r"(https?://)[^/@\s:]+:[^/@\s]+@", r"\1[redacted]@", value)
+    value = SENSITIVE_RE.sub(lambda match: match.group(1) + match.group(2) + "[redacted]", value)
+    return value.strip()[:300]
+
+
+def installer_failure_reason(job: str) -> str:
+    path = PERSIST_ROOT / (job + ".log")
+    try:
+        lines = path.read_text(errors="replace").splitlines()[-500:]
+    except OSError:
+        return "The installer exited before completing the update."
+    for line in reversed(lines):
+        if line.startswith("ERROR: "):
+            reason = redact_line(line[7:])
+            if reason:
+                return reason[:240]
+    return "The installer exited before completing the update."
+
+
+def safe_failure_reason(error: Exception, job: str) -> str:
+    if isinstance(error, UpdateError):
+        if str(error) == "Installer failed":
+            return installer_failure_reason(job)
+        known = {
+            "Release checksum mismatch": "The downloaded release failed checksum verification.",
+            "Installed application health check failed": "The installed application failed its health check.",
+            "Installed stock AllScan version is unavailable": "The installed AllScan version could not be verified.",
+            "Release would downgrade stock AllScan": "The release would downgrade the installed AllScan version.",
+            "Release does not support its stock AllScan target": "The release is incompatible with its AllScan target.",
+        }
+        if str(error) in known:
+            return known[str(error)]
+    return "The update worker stopped before completion."
+
+
+def diagnostic_report(job: str) -> dict:
+    data = read_status(job)
+    if data["state"] != "failed":
+        raise UpdateError("Diagnostic report is available only for failed updates")
+    lines = [
+        "AllScan Reimagined update failure report",
+        f"Job: {job}",
+        f"Updated: {data.get('updatedAt', 'unknown')}",
+        f"Failure: {data.get('failureReason', 'No specific failure reason was retained.')}",
+        f"Restoration: {data.get('restoration', 'unknown')}",
+        "Manual intervention required: " +
+        ("yes" if data.get("manualInterventionRequired") else "no"),
+        "",
+        "Relevant installer messages:",
+    ]
+    path = PERSIST_ROOT / (job + ".log")
+    try:
+        raw_lines = path.read_text(errors="replace").splitlines()[-1000:]
+    except OSError:
+        raw_lines = []
+    relevant = []
+    for raw in raw_lines:
+        if re.search(r"(?i)(^ERROR:|validation failed|updateerror:|\bfailed\b|\bwarning:)", raw):
+            cleaned = redact_line(raw)
+            if cleaned:
+                relevant.append(cleaned)
+    lines.extend(relevant[-100:] or ["No retained installer error lines were available."])
+    return {"ok": True, "jobId": job, "report": "\n".join(lines) + "\n"}
+
 
 def read_status(job: str) -> dict:
     if not JOB_RE.fullmatch(job):
@@ -140,7 +225,8 @@ def read_status(job: str) -> dict:
     if not isinstance(data, dict) or data.get("jobId") != job or data.get("state") not in STATES:
         raise UpdateError("Invalid update status")
     return {k: data[k] for k in ("ok", "jobId", "state", "updatedAt",
-            "currentVersion", "availableVersion", "message") if k in data}
+            "currentVersion", "availableVersion", "message", "failureReason",
+            "restoration", "manualInterventionRequired") if k in data}
 
 
 def browser_status(job: str) -> dict:
@@ -166,7 +252,9 @@ def browser_status(job: str) -> dict:
     if worker.returncode == 0 and worker.stdout.strip() in {"active", "activating", "reloading"}:
         return data
     owned_jobs()
-    return status(job, "failed", message="Update could not start.")
+    return status(job, "failed", message="Update could not start.",
+                  failureReason="The update worker did not start.",
+                  restoration="not_needed", manualInterventionRequired=False)
 
 
 def active_jobs(root: Path) -> bool:
@@ -429,7 +517,9 @@ def queue() -> dict:
                                  f"allscan-reimagined-update@{job}.service"],
                                 capture_output=True, check=False)
         if result.returncode:
-            status(job, "failed", message="Update could not start.")
+            status(job, "failed", message="Update could not start.",
+                   failureReason="The system service could not start the update worker.",
+                   restoration="not_needed", manualInterventionRequired=False)
             raise UpdateError("Update job could not start")
         return read_status(job)
 
@@ -482,7 +572,9 @@ def recover(previous: str, before: set[str]) -> bool:
 def install_release(staged: Path, job: str) -> int:
     environment = os.environ.copy()
     environment["ASR_UPDATE_JOB_ID"] = job
-    log_fd = os.open(JOB_ROOT / (job + ".log"),
+    # Keep the root-only installer log with the persistent job journal so the
+    # administrator can retrieve a redacted report after installer rollback.
+    log_fd = os.open(PERSIST_ROOT / (job + ".log"),
                      os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         os.fchmod(log_fd, 0o600)
@@ -576,18 +668,24 @@ def run(job: str) -> int:
         except Exception as exc:
             # Only the root-only journal contains detailed diagnostics.
             try:
-                with (JOB_ROOT / (job + ".log")).open("a") as log:
+                with (PERSIST_ROOT / (job + ".log")).open("a") as log:
                     log.write(f"{now()} {type(exc).__name__}: {str(exc)[:500]}\n")
-                os.chmod(JOB_ROOT / (job + ".log"), 0o600)
+                os.chmod(PERSIST_ROOT / (job + ".log"), 0o600)
             except OSError:
                 pass
+            failure_reason = safe_failure_reason(exc, job)
             if previous is None:
-                status(job, "failed", message="Update could not start.")
+                status(job, "failed", message="Update could not start.",
+                       failureReason=failure_reason, restoration="not_needed",
+                       manualInterventionRequired=False)
             else:
                 status(job, "restoring")
                 restored = recover(previous, before)
                 status(job, "failed", message=("Update failed; previous installation restored."
-                       if restored else "Update failed; recovery needs attention."))
+                       if restored else "Update failed; recovery needs attention."),
+                       failureReason=failure_reason,
+                       restoration="succeeded" if restored else "failed",
+                       manualInterventionRequired=not restored)
             return_code = 1
         finally:
             signal.signal(signal.SIGTERM, previous_sigterm)
@@ -638,13 +736,18 @@ def recover_interrupted() -> dict:
             except (OSError, ValueError, KeyError, TypeError):
                 previous, before = None, set()
             if previous is None:
-                status(job, "failed", message="Update could not start.")
+                status(job, "failed", message="Update could not start.",
+                       failureReason="The interrupted update had no usable recovery metadata.",
+                       restoration="not_needed", manualInterventionRequired=False)
                 continue
             status(job, "restoring")
             restored = recover(previous, before)
             status(job, "failed", message=(
                 "Update failed; previous installation restored." if restored
-                else "Update failed; recovery needs attention."))
+                else "Update failed; recovery needs attention."),
+                failureReason="The update was interrupted before completion.",
+                restoration="succeeded" if restored else "failed",
+                manualInterventionRequired=not restored)
         return {"ok": True, "status": "recovery_checked"}
 
 def main(argv: list[str]) -> int:
@@ -668,6 +771,8 @@ def main(argv: list[str]) -> int:
                 print(json.dumps(result))
         elif len(argv) == 2 and argv[0] == "--status-json":
             print(json.dumps(browser_status(argv[1])))
+        elif len(argv) == 2 and argv[0] == "--diagnostic-json":
+            print(json.dumps(diagnostic_report(argv[1])))
         elif len(argv) == 2 and argv[0] == "run-job":
             return run(argv[1])
         elif len(argv) == 3 and argv[0] == "internal-progress":

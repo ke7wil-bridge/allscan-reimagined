@@ -117,6 +117,7 @@ done
 pnpm lint
 python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
+python3 "$ROOT/scripts/asr-updater-api-self-test.py"
 python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
 python3 "$ROOT/scripts/asr-allscan-v106-migrate.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
