@@ -7,6 +7,35 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
 fi
 umask 022
 
+# Keep bootstrap, preflight, subprocesses, and the official AllScan installer
+# on one operator-selected temporary filesystem. ASR_STAGE_DIR takes priority;
+# TMPDIR is the standard fallback for direct installer runs.
+# Automatically recover from small/noexec default staging without overriding
+# an explicit operator-selected directory. The preflight still verifies the
+# combined disk budget before any package changes.
+requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+if [ -z "${ASR_STAGE_DIR:-}" ] && [ -z "${TMPDIR:-}" ]; then
+  stage_free=$(df -Pk /var/tmp 2>/dev/null | awk 'NR==2 {print $4}')
+  stage_options=$(findmnt -n -T /var/tmp -o OPTIONS 2>/dev/null || true)
+  if [ -z "$stage_free" ] || [ "$stage_free" -lt 131072 ] || [[ ",$stage_options," == *,noexec,* ]]; then
+    if [ -d /opt ] && [ -w /opt ] && [ -x /opt ]; then
+      requested_stage=/opt
+      echo "ASR staging: /var/tmp unsuitable; trying /opt (preflight will verify capacity)."
+    fi
+  fi
+fi
+case "$requested_stage" in
+  /*) ;;
+  *) echo "ERROR: ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
+esac
+if [ ! -d "$requested_stage" ] || [ ! -w "$requested_stage" ] || [ ! -x "$requested_stage" ]; then
+  echo "ERROR: ASR staging directory is not an accessible writable directory: $requested_stage" >&2
+  exit 1
+fi
+ASR_STAGE_DIR=$(cd -P -- "$requested_stage" && pwd -P)
+TMPDIR=$ASR_STAGE_DIR
+export ASR_STAGE_DIR TMPDIR
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ASR_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SCRIPT_DIR/package.json")
 ASR_VERSION_LABEL="v$(printf '%s' "$ASR_VERSION" | sed -E 's/-beta\.([0-9]+)/ Beta \1/; s/-test/ Test/; s/-/ /g')"

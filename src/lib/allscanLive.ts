@@ -500,6 +500,9 @@ export type UpdateJob = {
   currentVersion?: string
   availableVersion?: string
   message?: string
+  failureReason?: string
+  restoration?: 'not_needed' | 'succeeded' | 'failed'
+  manualInterventionRequired?: boolean
 }
 
 async function updateRequest<T>(action: string, method: 'GET' | 'POST' = 'GET', jobId = ''): Promise<T> {
@@ -513,7 +516,12 @@ async function updateRequest<T>(action: string, method: 'GET' | 'POST' = 'GET', 
     headers: method === 'POST' ? { 'X-ASR-Requested-With': 'asr-update-control' } : undefined,
   })
   const payload = (await response.json()) as T & { ok?: boolean; error?: string }
-  if (!response.ok || payload.ok === false) {
+  const failedJobStatus = action === 'update-job-status'
+    && response.ok
+    && payload.ok === false
+    && (payload as T & Partial<UpdateJob>).state === 'failed'
+    && (payload as T & Partial<UpdateJob>).jobId === jobId
+  if (!response.ok || (payload.ok === false && !failedJobStatus)) {
     throw new Error(payload.error || 'ASR update request failed.')
   }
   return payload
@@ -525,6 +533,12 @@ export const queueAsrUpdate = () => updateRequest<UpdateJob>('update-queue', 'PO
 export const recoverAsrUpdate = () => updateRequest<{ ok: boolean; status: string }>('update-recover', 'POST')
 export const fetchAsrUpdateJob = (jobId: string) =>
   updateRequest<UpdateJob>('update-job-status', 'GET', jobId)
+export const updateJobReportUrl = (jobId: string) => {
+  const url = new URL(ASR_API, window.location.href)
+  url.searchParams.set('action', 'update-job-report')
+  url.searchParams.set('jobId', jobId)
+  return url.toString()
+}
 
 export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
   const response = await fetch(`${ASR_API}?action=runtime-config`, {

@@ -6,6 +6,7 @@ const source = readFileSync(
   'utf8',
 )
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+const liveSource = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
 const whatsNewSource = readFileSync(new URL('../src/config/whatsNew.ts', import.meta.url), 'utf8')
 const check = (condition, message) => { if (!condition) throw new Error(message) }
 
@@ -44,14 +45,31 @@ check(
   'Update dialog does not clearly identify the verified browser installation path.',
 )
 check(
-  source.includes('Update status unavailable: ${detail}')
-    && source.includes('ASR is reconnecting. This update job continues on the server.'),
-  'Update polling does not distinguish a server rejection from a temporary reconnect.',
+  liveSource.includes("action === 'update-job-status'")
+    && liveSource.includes("state === 'failed'")
+    && liveSource.includes('jobId === jobId')
+    && liveSource.includes('payload.ok === false && !failedJobStatus'),
+  'A valid failed-job response is still rejected as a generic API error.',
 )
 check(
-  source.includes('Update status unavailable: ${detail}')
-    && source.includes('ASR is reconnecting. This update job continues on the server.'),
-  'Update polling does not distinguish a server rejection from a temporary reconnect.',
+  source.includes("next.state === 'complete' || next.state === 'failed'")
+    && source.includes("window.localStorage.removeItem(STORED_JOB)\n          setJobId('')")
+    && source.includes("job.state === 'failed'"),
+  'Terminal update jobs keep polling or do not render the safe failure message.',
+)
+const failedView = source.slice(
+  source.indexOf("{job.state === 'failed' ? <>"),
+  source.indexOf('{connectionMessage ?', source.indexOf("{job.state === 'failed' ? <>")),
+)
+check(
+  failedView.includes('job.failureReason')
+    && failedView.includes("job.restoration === 'succeeded'")
+    && failedView.includes("job.restoration === 'failed'")
+    && failedView.includes('job.manualInterventionRequired')
+    && failedView.includes('Download Error Log')
+    && failedView.includes('updateJobReportUrl(job.jobId)')
+    && liveSource.includes("url.searchParams.set('action', 'update-job-report')"),
+  'Failed updates do not show the safe reason, restoration result, intervention status, and report download.',
 )
 check(
   appSource.includes("const UPDATE_NOTICE_DISMISS_KEY = 'asrUpdateNoticeDismissedVersion.v1'")
