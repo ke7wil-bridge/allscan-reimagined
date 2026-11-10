@@ -141,7 +141,9 @@ restore_shared_backup() {
       rm -f /etc/allscan/allscan.db
     fi
   fi
-  install -d -o root -g root -m 755 /etc/allscan-reimagined
+  # Settings writes config.json atomically as the web-server user. Keep the
+  # directory writable by that group when restoring an installation backup.
+  install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan-reimagined
   for protected in config.json secrets.json station-map-cache.json; do
     if [ -f "$BACKUP_DIR/runtime/protected/$protected" ]; then
       cp -p "$BACKUP_DIR/runtime/protected/$protected" "/etc/allscan-reimagined/$protected"
