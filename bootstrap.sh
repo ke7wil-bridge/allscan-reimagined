@@ -24,7 +24,20 @@ fi
 # noexec tmpfs. Operators may select another executable filesystem with
 # ASR_STAGE_DIR, or with the standard TMPDIR variable when ASR_STAGE_DIR is
 # unset. Canonicalize it once and pass the same directory through the installer.
+# Automatically recover from small/noexec default staging without overriding
+# an explicit operator-selected directory. The preflight still verifies the
+# combined disk budget before any package changes.
 requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+if [ -z "${ASR_STAGE_DIR:-}" ] && [ -z "${TMPDIR:-}" ]; then
+  stage_free=$(df -Pk /var/tmp 2>/dev/null | awk 'NR==2 {print $4}')
+  stage_options=$(findmnt -n -T /var/tmp -o OPTIONS 2>/dev/null || true)
+  if [ -z "$stage_free" ] || [ "$stage_free" -lt 131072 ] || [[ ",$stage_options," == *,noexec,* ]]; then
+    if [ -d /opt ] && [ -w /opt ] && [ -x /opt ]; then
+      requested_stage=/opt
+      echo "ASR staging: /var/tmp unsuitable; trying /opt (preflight will verify capacity)."
+    fi
+  fi
+fi
 case "$requested_stage" in
   /*) ;;
   *) echo "ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
