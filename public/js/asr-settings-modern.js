@@ -73,6 +73,95 @@
   var activeBridge = null
   var bridgeSnapshot = ''
   var bridgeOrigin = null
+
+  var meterTimer = 0
+  var meterVersion = 0
+  var meterRms = [0, 0]
+  // Standard VU uses 300-ms ballistics. This is a measured PCM RMS approximation,
+  // not a certified VU instrument. 0 VU is aligned here to -18 dBFS.
+  function meterDb(level) { return level > 0 ? 20 * Math.log10(level) : -Infinity }
+  function meterText(level) { var db = meterDb(level); return isFinite(db) ? db.toFixed(1) + ' dBFS' : '−∞ dBFS' }
+  function meterWidth(db) { return isFinite(db) ? Math.min(100, Math.max(0, (db + 48) * 100 / 51)) : 0 }
+  function stopMeters() {
+    meterVersion++
+    clearTimeout(meterTimer)
+    meterTimer = 0
+    meterRms = [0, 0]
+  }
+  function installMeters(body) {
+    var fields = [body.querySelector('[name="bridgeGainInDb[]"]'), body.querySelector('[name="bridgeGainOutDb[]"]')]
+    if (!fields[0] || !fields[1]) return null
+    fields.forEach(function(field, index) {
+      if (field.parentNode.querySelector('[data-bridge-vu]')) return
+      var wrap = document.createElement('div')
+      wrap.className = 'asr-settings-vu'
+      wrap.dataset.bridgeVu = String(index)
+      var title = index === 0 ? 'Bridge → AllStar' : 'AllStar → Bridge'
+      wrap.innerHTML = '<div class="asr-settings-vu-label"><strong>Live audio · ' + title + '</strong><span data-vu-value>No data</span></div>' +
+        '<div class="asr-settings-vu-track" role="meter" aria-label="' + title + ' audio VU level" aria-valuemin="-30" aria-valuemax="3" aria-valuenow="-30"><span data-vu-rms></span><i data-vu-peak></i></div>' +
+        '<small data-vu-state>Waiting for measured PCM…</small>'
+      field.parentNode.appendChild(wrap)
+    })
+    return fields.map(function(field){return field.parentNode.querySelector('[data-bridge-vu]')})
+  }
+  function startMeters(row) {
+    stopMeters()
+    var body = row._asrEditorBody || row.querySelector('.asr-bridge-panel-body')
+    if (!body) return
+    var displays = installMeters(body)
+    var bridgeInput = body.querySelector('[name="bridgeId[]"]')
+    if (!displays || !bridgeInput || !bridgeInput.value) return
+    var id = bridgeInput.value
+    var token = meterVersion
+    var last = performance.now()
+    var values = [['inboundrms','inboundpeak'],['outboundrms','outboundpeak']]
+    function tick() {
+      if (token !== meterVersion || activeBridge !== row) return
+      request('bridge-audio-meters').then(function(data) {
+        if (token !== meterVersion || activeBridge !== row) return
+        var meter = data.meters && data.meters[id]
+        var now = performance.now()
+        var elapsed = Math.max(0, Math.min(1000, now - last))
+        last = now
+        displays.forEach(function(display, direction) {
+          if (!meter) {
+            meterRms[direction] = 0
+            display.querySelector('[data-vu-rms]').style.width = '0%'
+            display.querySelector('[data-vu-peak]').style.left = '0%'
+            display.querySelector('[data-vu-value]').textContent = 'No data'
+            display.querySelector('[role="meter"]').setAttribute('aria-valuenow', '-30')
+            display.querySelector('[data-vu-state]').textContent = 'PCM telemetry unavailable'
+            return
+          }
+          var rawRms = meter[values[direction][0]]
+          var rawPeak = meter[values[direction][1]]
+          var rms = typeof rawRms === 'number' && isFinite(rawRms) ? Math.min(1, Math.max(0, rawRms)) : 0
+          var peak = typeof rawPeak === 'number' && isFinite(rawPeak) ? Math.min(1, Math.max(0, rawPeak)) : 0
+          var alpha = 1 - Math.exp(-elapsed * Math.log(100) / 300)
+          meterRms[direction] += alpha * (rms - meterRms[direction])
+          var vu = meterDb(meterRms[direction]) + 18
+          display.querySelector('[data-vu-rms]').style.width = meterWidth(vu - 18) + '%'
+          display.querySelector('[data-vu-peak]').style.left = Math.min(99.5, meterWidth(meterDb(peak))) + '%'
+          display.querySelector('[data-vu-value]').textContent = (isFinite(vu) ? vu.toFixed(1) : '−∞') + ' VU · peak ' + meterText(peak)
+          display.querySelector('[role="meter"]').setAttribute('aria-valuenow', Math.max(-30, Math.min(3, isFinite(vu) ? vu : -30)).toFixed(1))
+          display.querySelector('[data-vu-state]').textContent = rms || peak ? 'Measured PCM · live' : 'Silence / no fresh signal'
+        })
+      }).catch(function() {
+        if (token !== meterVersion || activeBridge !== row) return
+        meterRms = [0, 0]
+        displays.forEach(function(display){
+          display.querySelector('[data-vu-rms]').style.width = '0%'
+          display.querySelector('[data-vu-peak]').style.left = '0%'
+          display.querySelector('[data-vu-value]').textContent = 'No data'
+          display.querySelector('[role="meter"]').setAttribute('aria-valuenow', '-30')
+          display.querySelector('[data-vu-state]').textContent = 'Telemetry request failed'
+        })
+      }).then(function() {
+        if (token === meterVersion && activeBridge === row) meterTimer = setTimeout(tick, 500)
+      })
+    }
+    tick()
+  }
   if (!shell || !nav) return
 
   function escapeText(value) {
@@ -128,7 +217,7 @@
     var name=row.querySelector('.asr-bridge-panel-name');document.getElementById('asrBridgeEditorTitle').textContent=name?name.textContent:'Configure Bridge'
     var footer=bridgeEditor.querySelector('footer');var old=footer.querySelector('[data-modal-delete]');if(old)old.remove();var source=row.querySelector('.asr-bridge-delete')
     if(source){var del=document.createElement('button');del.type='button';del.dataset.modalDelete='1';del.className='asr-destructive-action';del.textContent=row.dataset.ownershipState==='owned'?'Remove Bridge and Managed Resources':'Remove Bridge from ASR';del.disabled=source.disabled;del.addEventListener('click',function(){source.click();if(!row.isConnected)form.requestSubmit()});footer.insertBefore(del,footer.firstChild)}
-    var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=false;document.body.classList.add('asr-modal-open');var first=body.querySelector('select,input,button');if(first)first.focus()
+    var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=false;document.body.classList.add('asr-modal-open');startMeters(row);var first=body.querySelector('select,input,button');if(first)first.focus()
   }
   function openTgifLoginFromLink() {
     var params = new URLSearchParams(window.location.search)
@@ -149,7 +238,7 @@
     var query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash)
   }
-  function closeBridgeEditor(cancel){if(!activeBridge)return;var row=activeBridge;var body=bridgeHost.querySelector('.asr-bridge-panel-body');if(cancel)restoreState(row,bridgeSnapshot);if(body&&bridgeOrigin.parentNode)bridgeOrigin.parentNode.insertBefore(body,bridgeOrigin);if(bridgeOrigin.parentNode)bridgeOrigin.remove();row.classList.add('is-collapsed');var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=true;activeBridge=null;bridgeOrigin=null;document.body.classList.remove('asr-modal-open')}
+  function closeBridgeEditor(cancel){if(!activeBridge)return;stopMeters();var row=activeBridge;var body=bridgeHost.querySelector('.asr-bridge-panel-body');if(cancel&&body)restoreState(body,bridgeSnapshot);if(body&&bridgeOrigin.parentNode)bridgeOrigin.parentNode.insertBefore(body,bridgeOrigin);if(bridgeOrigin.parentNode)bridgeOrigin.remove();row.classList.add('is-collapsed');var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=true;activeBridge=null;bridgeOrigin=null;document.body.classList.remove('asr-modal-open')}
   function enhanceUrf(){var panel=document.querySelector('[data-urf-panel]:not([hidden])');var table=document.querySelector('.asr-bridge-settings-table');if(!panel||!table||panel.closest('.asr-bridge-settings-row'))return;var row=document.createElement('div');row.className='asr-bridge-settings-row asr-urf-settings-row is-collapsed';var node=(panel.querySelector('[name="urfNode"]')||{}).value||'not set';var display=panel.querySelector('[name="urfDisplayName"]');var displayName=display&&display.value.trim()?display.value.trim():'URF Reflector';row.innerHTML='<div class="asr-bridge-panel-header"><button type="button" class="asr-bridge-toggle"><span class="asr-settings-toggle-icon">&gt;</span><span class="asr-bridge-toggle-copy"><strong class="asr-bridge-panel-name">'+escapeText(displayName)+'</strong><span class="asr-bridge-panel-summary">Node '+escapeText(node)+' · Select to configure this reflector.</span></span><span class="asr-bridge-capability-note">Shared reflector</span></button></div><div class="asr-bridge-panel-body"></div>';row.querySelector('.asr-bridge-panel-body').appendChild(panel);if(display)display.addEventListener('input',function(){var name=row.querySelector('.asr-bridge-panel-name');if(name)name.textContent=display.value.trim()||'URF Reflector'});table.insertBefore(row,table.firstChild);enhanceBridgeRow(row)}
 
   function openModal(modal){if(!modal)return;modal.hidden=false;document.body.classList.add('asr-modal-open');var close=modal.querySelector('.asr-modal-close');if(close)close.focus()}

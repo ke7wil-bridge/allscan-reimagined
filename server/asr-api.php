@@ -4342,6 +4342,19 @@ if ($action === 'bridge-clients') {
     asr_require_read();
     asr_json(asr_bridge_clients_payload());
 }
+if ($action === 'bridge-audio-meters') {
+    asr_require_read();
+    header('Cache-Control: no-store');
+    $meters = [];
+    foreach ((array) (asr_runtime_config()['bridges'] ?? []) as $item) {
+        if (!is_array($item)) continue;
+        $id = (string) ($item['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)) continue;
+        $pcm = asr_bridge_audio_pcm($id);
+        if (is_array($pcm)) $meters[$id] = asr_pcm_audio_meter($pcm, microtime(true));
+    }
+    asr_json(['ok' => true, 'meters' => $meters]);
+}
 if ($action === 'bridge-status') {
     asr_require_read();
     asr_json(asr_bridge_status_payload());
