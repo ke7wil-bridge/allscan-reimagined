@@ -219,6 +219,7 @@ find "$STAGE/payload/web" -maxdepth 1 -type f \
 install -m 644 asr-api.php "$STAGE/payload/server/asr-api.php"
 install -m 755 allscan_wt_clients.sh "$STAGE/payload/bin/allscan_wt_clients.sh"
 install -m 755 scripts/asr-configure.sh "$STAGE/payload/scripts/asr-configure.sh"
+install -m 755 scripts/asr-stock-admin-bootstrap.php "$STAGE/payload/scripts/asr-stock-admin-bootstrap.php"
 install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-node-diagnostics.py "$STAGE/payload/scripts/asr-node-diagnostics.py"
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"

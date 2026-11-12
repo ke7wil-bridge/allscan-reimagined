@@ -1141,10 +1141,9 @@ elif [ "$current_stock_permission" -ne 0 ] \
 else
   requested_stock_permission=2
 fi
-if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
-  # An empty fresh stock AllScan database cannot be locked to login-only
-  # before an administrator account exists. Fail with an actionable message
-  # rather than a generic database-policy failure and rollback surprise.
+if [ "$requested_stock_permission" -ne "$current_stock_permission" ] || [ "$requested_stock_permission" -eq 0 ]; then
+  # Bootstrap an initial administrator only with explicit terminal consent.
+  # Never silently relax the requested mandatory-login policy.
   if [ "$requested_stock_permission" -eq 0 ]; then
     php -r '
       $_SERVER["DOCUMENT_ROOT"] = $argv[1];
@@ -1158,8 +1157,33 @@ if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
       $users = new UserModel($db);
       $admins = $users->getUsers(null, null, PERMISSION_ADMIN);
       exit(is_array($admins) && count($admins) > 0 ? 0 : 1);
-    ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" \
-      || fail "Stock AllScan login-only mode requires an existing stock administrator account. Create the stock AllScan administrator first, then rerun the installer; no access policy was changed."
+    ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" || {
+      # No password prompts in browser updates or noninteractive sessions.
+      if [ "$BROWSER_UPDATE" -eq 1 ] || ! [ -r /dev/tty ] || ! [ -w /dev/tty ] || ! has_interactive_tty; then
+        fail "Stock AllScan requires an administrator before mandatory login. Rerun interactively from a terminal to create one; policy remains unchanged."
+      fi
+      echo "Stock AllScan has no administrator. An initial administrator is required."
+      if ! ask "Create a stock AllScan administrator now? [y/N]" n; then
+        fail "Administrator setup declined; stock login policy unchanged."
+      fi
+      printf 'Administrator name (2-24 letters/numbers/spaces/.-): ' > /dev/tty
+      IFS= read -r bootstrap_admin_name < /dev/tty || fail "Administrator setup interrupted."
+      printf 'Password (6-16 supported ASCII characters): ' > /dev/tty
+      IFS= read -r -s bootstrap_admin_password < /dev/tty || fail "Administrator setup interrupted."
+      printf '\nConfirm password: ' > /dev/tty
+      IFS= read -r -s bootstrap_admin_confirm < /dev/tty || fail "Administrator setup interrupted."
+      printf '\n' > /dev/tty
+      if [ "$bootstrap_admin_password" != "$bootstrap_admin_confirm" ]; then
+        unset bootstrap_admin_password bootstrap_admin_confirm
+        fail "Passwords did not match; no account created."
+      fi
+      if ! printf '%s\n%s\n' "$bootstrap_admin_name" "$bootstrap_admin_password" \
+        | php "$PAYLOAD_DIR/scripts/asr-stock-admin-bootstrap.php" "$WEB_ROOT" "$STOCK_ALLSCAN_DIR"; then
+        unset bootstrap_admin_password bootstrap_admin_confirm
+        fail "Stock administrator bootstrap failed; no access policy changed."
+      fi
+      unset bootstrap_admin_password bootstrap_admin_confirm bootstrap_admin_name
+    }
   fi
   php -r '
     $_SERVER["DOCUMENT_ROOT"] = $argv[1];
