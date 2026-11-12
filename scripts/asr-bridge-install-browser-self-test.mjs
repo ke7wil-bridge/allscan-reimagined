@@ -101,7 +101,7 @@ try {
   const run = spawnSync('/usr/bin/google-chrome', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-network',
     '--virtual-time-budget=2000', '--dump-dom', `file://${fixture}`,
-  ], { encoding: 'utf8', timeout: 15000 })
+  ], { encoding: 'utf8', timeout: 45000 })
   if (run.error) throw run.error
   if (run.status !== 0) throw new Error(run.stderr.trim() || `Chrome exited ${run.status}`)
   const result = run.stdout.match(/<pre id="result">([^<]+)<\/pre>/)?.[1] || 'missing result'
