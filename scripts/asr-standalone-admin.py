@@ -173,6 +173,8 @@ def supports_policy_reconcile(manifest: dict[str, Any]) -> bool:
     matching applied digest before it exposes the controls.
     """
     return (
+        manifest.get("enforcementEvidence") == "relay-observed-v1"
+        and
         manifest.get("banContract") == "global-timed-v1"
         and all(isinstance(manifest.get(field), bool)
                 for field in ("banClient", "unbanClient", "listBans"))
@@ -193,7 +195,8 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
     required = {
         "kick": (
             manifest.get("kickClient") is True
-            and manifest.get("kickContract") == "disconnect-until-reconnect"
+            and manifest.get("enforcementEvidence") == "relay-observed-v1"
+            and manifest.get("kickContract") in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}
             and manifest.get("kickRequiresCurrentSession") is True
             and manifest.get("kickAllowsImmediateReconnect") is True
         ),
@@ -247,7 +250,8 @@ def kick(bridge_id: str, identity: str, actor: str) -> dict[str, Any]:
     if not IDENTITY_RE.fullmatch(identity):
         raise AdminError("Invalid bridge client identity.")
     result = request(bridge_config(bridge_id), "kick", actor, identity=identity)
-    if result.get("identity") != identity or result.get("enforcement") != "disconnect-until-reconnect":
+    if (result.get("identity") != identity
+            or result.get("enforcement") not in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}):
         raise AdminError("Standalone Kick acknowledgment did not prove the required session behavior.")
     removed = int(result.get("removed") or 0)
     if removed < 1:

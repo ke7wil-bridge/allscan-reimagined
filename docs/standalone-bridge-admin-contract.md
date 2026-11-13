@@ -34,6 +34,10 @@ Required base fields:
 }
 ```
 
+Client mutation capabilities additionally require
+`"enforcementEvidence":"relay-observed-v1"`. An adapter acknowledgment by
+itself is not evidence; the enforcing media process must own the observation.
+
 For the `asr-native-udp-proxy` adapter, the reflector sees every forwarded
 session as loopback traffic. The connected-client collector therefore treats
 the verified, fresh capability manifest as the authority that loopback is the
@@ -56,6 +60,13 @@ Kick may be advertised only with every field below:
 The adapter must remove only the selected current bridge session. It must
 reject a recent talker that is no longer connected. Audio suppression or
 dropping one transmission is not Kick.
+
+DMR relays that cannot close the upstream subscriber may instead publish
+`local-media-block-until-reconnect`. They must identify that local-only scope
+in the result and provide relay-owned evidence that the selected source's
+media was dropped before returning `verified: true`. A collector or upstream
+TGIF roster is not enforcement evidence and must never be edited to simulate
+a disconnect.
 Global Ban may be advertised only with every field below:
 
 ```json

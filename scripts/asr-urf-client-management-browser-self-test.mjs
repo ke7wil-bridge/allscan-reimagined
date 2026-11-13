@@ -74,7 +74,7 @@ async function runBrowser(unauthorized = false) {
     }
     assert(await evaluate("document.querySelectorAll('.allscan-bridge-client:not(.is-empty)').length >= 4"), 'four connected DMR clients were not rendered')
     assert(await evaluate("document.querySelectorAll('.allscan-bridge-inline-client-actions button').length >= 4"), 'desktop Kick controls were not rendered')
-    assert(await evaluate("[...document.querySelectorAll('.allscan-bridge-inline-client-actions button')].every((item) => item.textContent.trim() === 'Disconnect')"), 'URF DMR session actions are not labeled Disconnect')
+    assert(await evaluate("[...document.querySelectorAll('.allscan-bridge-inline-client-actions button')].every((item) => item.textContent.trim() === 'Block media')"), 'URF DMR local enforcement actions are mislabeled')
     assert(await evaluate("document.querySelectorAll('.allscan-bridge-inline-client-actions select').length >= 4"), 'desktop Ban controls were not rendered')
     const kicked = await evaluate(`(() => { const row = [...document.querySelectorAll('.allscan-bridge-client')].find((item) => item.textContent.includes('N1TEST')); row?.querySelector('button')?.click(); return Boolean(row) })()`)
     assert(kicked, 'selected client Kick could not be invoked')

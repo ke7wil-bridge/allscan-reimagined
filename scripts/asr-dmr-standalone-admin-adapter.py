@@ -44,8 +44,38 @@ def control_payload(path: Path) -> dict[str, Any]:
 
 def current_rows(roster: Path) -> list[dict[str, Any]]:
     payload = read(roster, {})
-    rows = payload.get("urf_dmr", []) if isinstance(payload, dict) else []
+    rows = []
+    if isinstance(payload, dict):
+        rows = payload.get("clients") if isinstance(payload.get("clients"), list) else payload.get("urf_dmr", [])
     return [row for row in rows if isinstance(row, dict)]
+
+
+def enforcement_payload(path: Path) -> dict[str, Any]:
+    payload = read(path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def enforcement_ready(path: Path, now: int | None = None) -> bool:
+    payload = enforcement_payload(path)
+    return valid_enforcement(payload, now)
+
+
+def valid_enforcement(payload: dict[str, Any], now: int | None = None) -> bool:
+    epoch = payload.get("heartbeatEpoch")
+    return (payload.get("schema") == 1
+            and payload.get("contract") == "dmr-local-media-v1"
+            and isinstance(epoch, int)
+            and abs((int(time.time()) if now is None else now) - epoch) <= 5)
+
+
+def wait_for(path: Path, predicate, timeout: float = 8.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        payload = enforcement_payload(path)
+        if predicate(payload):
+            return payload
+        time.sleep(0.05)
+    raise ValueError("DMR relay did not verify local media enforcement")
 
 
 def active_policy_rules(policy: dict[str, Any]) -> list[str]:
@@ -62,7 +92,7 @@ def active_policy_rules(policy: dict[str, Any]) -> list[str]:
     return sorted({rule for rule in rules if IDENTITY_RE.fullmatch(rule)})
 
 
-def apply_policy(control: Path, policy: dict[str, Any]) -> str:
+def apply_policy(control: Path, policy: dict[str, Any], enforcement: Path | None = None) -> str:
     digest = str(policy.get("digest") or "")
     if not re.fullmatch(r"[a-f0-9]{64}", digest):
         raise ValueError("global ban policy digest is invalid")
@@ -71,44 +101,55 @@ def apply_policy(control: Path, policy: dict[str, Any]) -> str:
     payload["banned_ids"] = sorted(int(rule) for rule in rules if rule.isdigit())
     payload["banned_callsigns"] = sorted(rule for rule in rules if not rule.isdigit() and not rule.endswith("*"))
     payload["banned_prefixes"] = sorted(rule[:-1] for rule in rules if rule.endswith("*"))
+    payload["policy_digest"] = digest
     payload.setdefault("kicked_ids", {})
     atomic(control, payload)
+    if enforcement is not None:
+        wait_for(enforcement, lambda item: valid_enforcement(item)
+                 and item.get("appliedPolicyDigest") == digest)
     return digest
 
 
-def kick(identity: str, roster: Path, control: Path) -> int:
+def kick(identity: str, roster: Path, control: Path, enforcement: Path, token: str) -> int:
     identity = identity.upper()
     matched = []
     for row in current_rows(roster):
         dmr_id = str(row.get("dmrid") or row.get("id") or "")
         callsign = str(row.get("callsign") or "").upper()
         if identity in {dmr_id, callsign} and dmr_id.isdigit(): matched.append(int(dmr_id))
+    matched = sorted(set(matched))
     if not matched:
         raise ValueError("client is no longer connected")
+    if len(matched) != 1:
+        raise ValueError("client identity is ambiguous in the current roster")
     payload = control_payload(control); kicked = payload.get("kicked_ids", {})
     if not isinstance(kicked, dict): kicked = {}
     epoch = int(time.time())
     for dmr_id in matched: kicked[str(dmr_id)] = epoch
-    payload["kicked_ids"] = kicked; atomic(control, payload)
-    roster_payload = read(roster, {})
-    if isinstance(roster_payload, dict):
-        roster_payload["urf_dmr"] = [row for row in current_rows(roster)
-            if int(str(row.get("dmrid") or row.get("id") or "0")) not in matched]
-        atomic(roster, roster_payload)
+    tokens = payload.get("kick_tokens", {})
+    if not isinstance(tokens, dict): tokens = {}
+    tokens[str(matched[0])] = token
+    payload["kicked_ids"] = kicked; payload["kick_tokens"] = tokens; atomic(control, payload)
+    wait_for(enforcement, lambda item: valid_enforcement(item)
+             and isinstance(item.get("lastKick"), dict)
+             and item["lastKick"].get("dmrid") == str(matched[0])
+             and item["lastKick"].get("token") == token)
     return len(matched)
 
 
-def capability(bridge_id: str, digest: str) -> dict[str, Any]:
+def capability(bridge_id: str, digest: str, enforcement: Path | None = None) -> dict[str, Any]:
+    ready = enforcement is not None and enforcement_ready(enforcement)
     return {"schema": 1, "bridgeId": bridge_id, "mode": "dmr",
-            "adapter": "direct-dmr-policy-v1", "healthy": True,
+            "adapter": "direct-dmr-policy-v2", "healthy": ready,
+            "enforcementEvidence": "relay-observed-v1",
             "heartbeatEpoch": int(time.time()), "listClients": True,
-            "kickClient": True, "kickContract": "disconnect-until-reconnect",
+            "kickClient": ready, "kickContract": "local-media-block-until-reconnect",
             "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": True,
-            "banClient": True, "unbanClient": True, "listBans": True,
+            "banClient": ready, "unbanClient": ready, "listBans": ready,
             "banContract": "global-timed-v1", "appliedPolicyDigest": digest}
 
 
-def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, digest: str) -> str:
+def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, enforcement: Path, digest: str) -> str:
     request = read(request_path, {})
     nonce = str(request.get("nonce") or "")
     action = str(request.get("action") or "")
@@ -121,10 +162,10 @@ def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, dige
         identity = str(request.get("identity") or "").upper()
         if not IDENTITY_RE.fullmatch(identity) or identity.endswith("*"):
             raise ValueError("kick identity is invalid")
-        result.update({"identity": identity, "removed": kick(identity, roster, control),
-                       "enforcement": "disconnect-until-reconnect"})
+        result.update({"identity": identity, "removed": kick(identity, roster, control, enforcement, nonce),
+                       "enforcement": "local-media-block-until-reconnect"})
     elif action == "reconcile":
-        digest = apply_policy(control, request.get("policy") if isinstance(request.get("policy"), dict) else {})
+        digest = apply_policy(control, request.get("policy") if isinstance(request.get("policy"), dict) else {}, enforcement)
         result.update({"appliedPolicyDigest": digest, "removed": 0})
     else:
         raise ValueError("unsupported administration action")
@@ -138,11 +179,12 @@ def run(bridge_id: str, roster: Path, control: Path, runtime: Path, creation_id:
            "createdBy": "allscan-reimagined-bridge-installer", "creationId": creation_id,
            "bridgeId": bridge_id}, 0o640)
     digest = "0" * 64
+    enforcement = control.with_name("dmr-admin-enforcement.json")
     while True:
-        atomic(runtime / "capabilities.json", capability(bridge_id, digest), 0o644)
+        atomic(runtime / "capabilities.json", capability(bridge_id, digest, enforcement), 0o644)
         for request_path in runtime.glob("request-*.json"):
             try:
-                digest = handle(request_path, bridge_id, roster, control, digest)
+                digest = handle(request_path, bridge_id, roster, control, enforcement, digest)
             except Exception as error:
                 nonce = request_path.stem.removeprefix("request-")
                 if NONCE_RE.fullmatch(nonce):
