@@ -15,6 +15,7 @@ import ctypes.util
 import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -47,7 +48,7 @@ M17_BROADCAST_ADDRESS = bytes([0xFF]) * 6
 M17_VOICE_TYPE = 0x0005  # legacy Stream + Codec2 3200 + no encryption
 M17_CRC_POLY = 0x5935
 M17_CRC_INITIAL = 0xFFFF
-STATE_WRITE_INTERVAL = 1.0
+STATE_WRITE_INTERVAL = 0.25
 COMMAND_MAX_AGE = 300
 STANDARD_RECONNECT_DELAY = 5.0
 INBOUND_STREAM_TIMEOUT = 2.0
@@ -396,6 +397,19 @@ class Codec2Adapter:
         return bytes(output)
 
 
+def apply_pcm_gain(pcm: bytes, gain_db: float) -> bytes:
+    """Scale signed little-endian 16-bit PCM with saturation; unity is bit-exact."""
+    if isinstance(gain_db, bool) or not isinstance(gain_db, (int, float)) or not math.isfinite(gain_db) or not -20 <= gain_db <= 12:
+        raise ConnectorError("audio gain must be between -20 and +12 dB")
+    if len(pcm) % 2:
+        raise ConnectorError("PCM payload must contain complete 16-bit samples")
+    if gain_db == 0:
+        return pcm
+    factor = 10 ** (gain_db / 20)
+    samples = struct.unpack(f"<{len(pcm) // 2}h", pcm)
+    return struct.pack(f"<{len(samples)}h", *(max(-32768, min(32767, round(sample * factor))) for sample in samples))
+
+
 class AudioBridgeCore:
     """Pure framing/audio state used by the socket runtime and temp self-tests."""
 
@@ -411,6 +425,11 @@ class AudioBridgeCore:
         self.bridge = bridge
         self.link = link
         self.codec = codec
+        self.digital_to_asl_gain_db = bridge.get("digitalToAslGainDb", 0.0)
+        self.asl_to_digital_gain_db = bridge.get("aslToDigitalGainDb", 0.0)
+        # Validate both directions before audio is accepted.
+        apply_pcm_gain(b"", self.digital_to_asl_gain_db)
+        apply_pcm_gain(b"", self.asl_to_digital_gain_db)
         self.stream_id_factory = stream_id_factory or (lambda: secrets.randbits(16) or 1)
         self.usrp_sequence = 0
         self.outbound_stream_id = 0
@@ -480,12 +499,12 @@ class AudioBridgeCore:
                 return []
             pcm = bytes(self.outbound_pcm[:USRP_AUDIO_SIZE * 2])
             del self.outbound_pcm[:USRP_AUDIO_SIZE * 2]
-            return [self._outbound_packet(self.codec.encode_40ms(pcm))]
+            return [self._outbound_packet(self.codec.encode_40ms(apply_pcm_gain(pcm, self.asl_to_digital_gain_db)))]
         if not self.outbound_stream_id and not self.outbound_pcm:
             return []
         if self.outbound_pcm:
             self.outbound_pcm.extend(bytes(USRP_AUDIO_SIZE * 2 - len(self.outbound_pcm)))
-            payload = self.codec.encode_40ms(bytes(self.outbound_pcm))
+            payload = self.codec.encode_40ms(apply_pcm_gain(bytes(self.outbound_pcm), self.asl_to_digital_gain_db))
         else:
             payload = self.codec.encode_40ms(bytes(USRP_AUDIO_SIZE * 2))
         self.outbound_pcm.clear()
@@ -506,6 +525,7 @@ class AudioBridgeCore:
         self.inbound_last_epoch = epoch
         self.link.note_stream(frame["source"], frame["streamId"], False, now=epoch)
         pcm = self.codec.decode_40ms(frame["payload"])
+        pcm = apply_pcm_gain(pcm, self.digital_to_asl_gain_db)
         output = [
             self._next_usrp(True, pcm[:USRP_AUDIO_SIZE]),
             self._next_usrp(True, pcm[USRP_AUDIO_SIZE:]),
@@ -577,6 +597,11 @@ class ConnectorRuntime:
         self.usrp_next_send_monotonic = 0.0
         self.last_inbound_talker = ""
         self.inbound_audio_peak = 0
+        self.inbound_audio_rms = 0.0
+        self.inbound_audio_epoch = 0.0
+        self.outbound_audio_peak = 0
+        self.outbound_audio_rms = 0.0
+        self.outbound_audio_epoch = 0.0
 
     def _enqueue_usrp_packets(self, packets: list[bytes]) -> None:
         due = max(time.monotonic(), self.usrp_next_send_monotonic)
@@ -584,6 +609,8 @@ class ConnectorRuntime:
             if len(packet) == USRP_VOICE_SIZE:
                 samples = struct.unpack("<160h", packet[USRP_HEADER_SIZE:])
                 self.inbound_audio_peak = max(abs(sample) for sample in samples)
+                self.inbound_audio_rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+                self.inbound_audio_epoch = time.time()
             self.usrp_tx_queue.append((due, packet))
             due += 0.020
         self.usrp_next_send_monotonic = due
@@ -876,7 +903,12 @@ class ConnectorRuntime:
             "outboundActivityEpoch": self.outbound_activity_epoch,
             "outboundStartEpoch": self.outbound_start_epoch,
             "lastInboundTalker": self.last_inbound_talker,
-            "inboundAudioPeak": self.inbound_audio_peak,
+            "inboundAudioPeak": self.inbound_audio_peak if now - self.inbound_audio_epoch < 0.75 else 0,
+            "inboundAudioRms": round(self.inbound_audio_rms, 2) if now - self.inbound_audio_epoch < 0.75 else 0,
+            "inboundAudioEpoch": self.inbound_audio_epoch,
+            "outboundAudioPeak": self.outbound_audio_peak if now - self.outbound_audio_epoch < 0.75 else 0,
+            "outboundAudioRms": round(self.outbound_audio_rms, 2) if now - self.outbound_audio_epoch < 0.75 else 0,
+            "outboundAudioEpoch": self.outbound_audio_epoch,
             "inboundStartEpoch": self.core.inbound_start_epoch,
             "recentTalkers": list(self.core.recent_talkers),
         })
@@ -909,6 +941,15 @@ class ConnectorRuntime:
                         self.packet_counters["usrpVoicePacketsReceived"] += 1
                     usrp_frame = parse_usrp_packet(packet)
                     activity_epoch = time.time()
+                    if usrp_frame["ptt"] and usrp_frame["pcm"]:
+                        # Meter the gain-adjusted PCM actually sent to Codec2.
+                        metered_pcm = apply_pcm_gain(usrp_frame["pcm"], self.core.asl_to_digital_gain_db)
+                        pcm_samples = struct.unpack("<160h", metered_pcm)
+                        self.outbound_audio_peak = max(abs(sample) for sample in pcm_samples)
+                        self.outbound_audio_rms = math.sqrt(
+                            sum(sample * sample for sample in pcm_samples) / len(pcm_samples)
+                        )
+                        self.outbound_audio_epoch = time.time()
                     if usrp_frame["ptt"]:
                         if not self.outbound_active:
                             self.outbound_start_epoch = activity_epoch
@@ -1031,6 +1072,14 @@ def self_test() -> None:
     link.mark_combined_linked()
     core = AudioBridgeCore(control, bridge, link, _FakeCodec(), stream_id_factory=lambda: 0x1234)
 
+    assert apply_pcm_gain(struct.pack("<3h", -32768, 0, 32767), 0) == struct.pack("<3h", -32768, 0, 32767)
+    assert struct.unpack("<3h", apply_pcm_gain(struct.pack("<3h", -30000, 1000, 30000), 6)) == (-32768, 1995, 32767)
+    for invalid in (float("nan"), float("inf"), -21, 13, True):
+        try:
+            apply_pcm_gain(b"", invalid)
+            raise AssertionError("invalid gain accepted")
+        except ConnectorError:
+            pass
     usrp_voice = build_usrp_packet(1, True, bytes(320))
     assert parse_usrp_packet(usrp_voice)["ptt"] is True
     assert len(core.handle_usrp(usrp_voice)) == 0
@@ -1184,6 +1233,35 @@ def self_test() -> None:
     assert len(runtime.usrp_tx_queue) == 2
     assert 0.019 <= runtime.usrp_tx_queue[1][0] - runtime.usrp_tx_queue[0][0] <= 0.021
     assert runtime.inbound_audio_peak == 1234
+    assert runtime.inbound_audio_rms == 1234.0
+    assert runtime.inbound_audio_epoch > 0
+    # Live VU values must decay when the stream stops, not freeze indefinitely.
+    with tempfile.TemporaryDirectory(prefix="asr-m17-meter-") as meter_dir:
+        runtime.bridge["statePath"] = Path(meter_dir) / "state.json"
+        runtime._publish_state(force=True)
+        meter = json.loads(runtime.bridge["statePath"].read_text())
+        assert meter["inboundAudioPeak"] == 1234
+        runtime.inbound_audio_epoch = time.time() - 2
+        runtime._publish_state(force=True)
+        meter = json.loads(runtime.bridge["statePath"].read_text())
+        assert meter["inboundAudioPeak"] == meter["inboundAudioRms"] == 0
+        # Both meter directions must report actual post-gain PCM and reset
+        # independently when their own stream becomes stale.
+        runtime.core.asl_to_digital_gain_db = 6.0
+        gain_pcm = apply_pcm_gain(struct.pack("<160h", *([1000] * 160)), runtime.core.asl_to_digital_gain_db)
+        gain_samples = struct.unpack("<160h", gain_pcm)
+        runtime.outbound_audio_peak = max(abs(sample) for sample in gain_samples)
+        runtime.outbound_audio_rms = math.sqrt(sum(sample * sample for sample in gain_samples) / len(gain_samples))
+        runtime.outbound_audio_epoch = time.time()
+        runtime._publish_state(force=True)
+        meter = json.loads(runtime.bridge["statePath"].read_text())
+        assert meter["outboundAudioPeak"] == 1995
+        assert meter["outboundAudioRms"] == 1995
+        assert meter["inboundAudioPeak"] == 0
+        runtime.outbound_audio_epoch = time.time() - 2
+        runtime._publish_state(force=True)
+        meter = json.loads(runtime.bridge["statePath"].read_text())
+        assert meter["outboundAudioPeak"] == meter["outboundAudioRms"] == 0
     runtime.usrp_tx_queue.clear()
     runtime.usrp_next_send_monotonic = 0.0
     runtime.connect(target)

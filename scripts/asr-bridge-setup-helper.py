@@ -198,6 +198,7 @@ def m17_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "reflector", "host", "port", "module",
         "title", "mainNode", "bridgeNode", "bridgeRole", "planDigest",
+        "digitalToAslGainDb", "aslToDigitalGainDb",
     }
     if set(payload) - allowed:
         raise HelperError("M17 request contains unsupported fields")
@@ -212,6 +213,8 @@ def m17_settings(module, payload: dict[str, Any]):
         title=str(payload.get("title") or "M17 Bridge"),
         main_node=int(payload["mainNode"]) if payload.get("mainNode") else None,
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
+        digital_to_asl_gain_db=float(payload.get("digitalToAslGainDb") or 0),
+        asl_to_digital_gain_db=float(payload.get("aslToDigitalGainDb") or 0),
     )
 
 
@@ -251,6 +254,7 @@ def digital_settings(module, mode: str, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "host", "port",
         "title", "bridgeNode", "bridgeRole", "planDigest", "name", "identity",
+        "digitalToAslGainDb", "aslToDigitalGainDb",
     }
     if set(payload) - allowed:
         raise HelperError(f"{mode.upper()} request contains unsupported fields")
@@ -268,6 +272,8 @@ def digital_settings(module, mode: str, payload: dict[str, Any]):
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
         reflector_name=str(payload.get("name") or ""),
+        digital_to_asl_gain_db=float(payload.get("digitalToAslGainDb") or 0),
+        asl_to_digital_gain_db=float(payload.get("aslToDigitalGainDb") or 0),
     )
 
 
@@ -407,6 +413,7 @@ def dmr_settings(module, payload: dict[str, Any]):
         "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled", "host", "port",
         "timeslot", "colorCode", "dmrToAslGainDb", "aslToDmrGainDb",
         "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
+        "urfGainInDb", "urfGainOutDb",
     }
     if set(payload) - allowed:
         raise HelperError("DMR request contains unsupported fields")
@@ -465,6 +472,8 @@ def dmr_settings(module, payload: dict[str, Any]):
         p25_enabled=flag("p25Enabled"), nxdn_enabled=flag("nxdnEnabled"),
         ysf_enabled=flag("ysfEnabled"), urf_enabled=flag("urfEnabled"),
         legacy_bridge_nodes=legacy_nodes,
+        urf_gain_in_db=float(payload.get('urfGainInDb') or 0),
+        urf_gain_out_db=float(payload.get('urfGainOutDb') or 0),
     )
 
 
@@ -532,6 +541,7 @@ def direct_dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
         "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled",
         "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
+        "urfGainInDb", "urfGainOutDb",
     }
     if set(payload) - allowed:
         raise HelperError("direct DMR request contains unsupported fields")
@@ -608,6 +618,7 @@ def zello_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "username", "channel", "issuer", "wsEndpoint", "title",
         "bridgeNode", "planDigest", "password", "privateKey",
+        "zelloToAslGainDb", "aslToZelloGainDb",
     }
     if set(payload) - allowed:
         raise HelperError("Zello request contains unsupported fields")
@@ -620,6 +631,8 @@ def zello_settings(module, payload: dict[str, Any]):
         ws_endpoint=str(payload["wsEndpoint"]),
         title=str(payload.get("title") or "Zello Bridge"),
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
+        zello_to_asl_gain_db=float(payload.get("zelloToAslGainDb") or 0),
+        asl_to_zello_gain_db=float(payload.get("aslToZelloGainDb") or 0),
     )
 
 

@@ -229,6 +229,7 @@ export type BridgeCardView = {
   controlLinked: boolean
   digitalLinked: boolean
   allstarLinked: boolean
+  transportLinked: boolean | null
   detailTitle: string
   detailRows: BridgeDetailItem[]
   detailCount: number
@@ -243,6 +244,7 @@ export type BridgeCardView = {
   activeStartEpoch: number
   recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
   recentRows: BridgeDetailItem[]
+  audioMeter: { inboundPeak: number; inboundRms: number; outboundPeak: number; outboundRms: number } | null
 }
 
 /**
@@ -609,6 +611,7 @@ type BridgeEntry = {
   tx_events?: Array<Record<string, unknown>>
   client_events?: Array<Record<string, unknown>>
   online?: boolean | null
+  audio_meter?: { inboundpeak?: number; inboundrms?: number; outboundpeak?: number; outboundrms?: number } | null
   linked?: boolean | null
   reflector?: string
   module?: string
@@ -1714,6 +1717,11 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
   return rows.map((row) => ({ key: row.key, label: row.label, meta: row.meta }))
 }
 
+export function safeAudioMeterLevel(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(1, value))
+}
+
 export async function fetchBridgeCards(
   config: RuntimeConfig,
   signal?: AbortSignal,
@@ -1770,6 +1778,7 @@ export async function fetchBridgeCards(
       controlLinked: control.linked === true,
       digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
+      transportLinked: typeof entry?.linked === 'boolean' ? entry.linked : null,
       detailTitle: bridgeConfig.detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,
@@ -1795,6 +1804,12 @@ export async function fetchBridgeCards(
         duration: Math.max(0, Number(record.duration_seconds) || 0),
       })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
       recentRows: formatBridgeRecentRows(entry, mode),
+      audioMeter: entry?.audio_meter ? {
+        inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),
+        inboundRms: safeAudioMeterLevel(entry.audio_meter.inboundrms),
+        outboundPeak: safeAudioMeterLevel(entry.audio_meter.outboundpeak),
+        outboundRms: safeAudioMeterLevel(entry.audio_meter.outboundrms),
+      } : null,
     }
   })
 

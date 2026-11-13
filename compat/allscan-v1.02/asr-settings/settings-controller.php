@@ -493,11 +493,43 @@ function asrSettingsClientPayloadHasSupportedShape($payload) {
 	return false;
 }
 
+// Read legacy installer gains before introducing generic dashboard controls.
+// This avoids resetting an existing +5 dB DMR bridge to zero on first edit.
+function asrSettingsBridgeGainValue($bridge, $direction) {
+    $incoming = $direction === 'in';
+    $mode = strtolower((string)($bridge['mode'] ?? ''));
+    // Prefer the protocol's installer-authoritative field, which may have
+    // changed independently of the generic Settings panel since its last save.
+    $specific = [
+        'dmr' => ['dmrToAslGainDb', 'aslToDmrGainDb'],
+        'p25' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+        'nxdn' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+        'ysf' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+        'm17' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+        'zello' => ['zelloToAslGainDb', 'aslToZelloGainDb'],
+        'urf' => ['urfGainInDb', 'urfGainOutDb'],
+    ];
+    $keys = [];
+    if(!empty($bridge['urfReflector'])) $keys[] = $incoming ? 'urfGainInDb' : 'urfGainOutDb';
+    if(isset($specific[$mode])) $keys[] = $specific[$mode][$incoming ? 0 : 1];
+    $keys[] = $incoming ? 'gainInDb' : 'gainOutDb';
+    $keys = array_merge($keys, $incoming
+        ? ['dmrToAslGainDb', 'digitalToAslGainDb', 'zelloToAslGainDb', 'urfGainInDb']
+        : ['aslToDmrGainDb', 'aslToDigitalGainDb', 'aslToZelloGainDb', 'urfGainOutDb']);
+    foreach($keys as $key) {
+        if(isset($bridge[$key]) && is_numeric($bridge[$key]) && is_finite((float)$bridge[$key]))
+            return (float)$bridge[$key];
+    }
+    return 0.0;
+}
+
 function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNode = '') {
 	$ids = $_POST['bridgeId'] ?? [];
 	$modes = $_POST['bridgeMode'] ?? [];
 	$nodes = $_POST['bridgeNode'] ?? [];
 	$titles = $_POST['bridgeTitle'] ?? [];
+	$gainInValues = $_POST['bridgeGainInDb'] ?? [];
+	$gainOutValues = $_POST['bridgeGainOutDb'] ?? [];
 	$details = $_POST['bridgeDetailTitle'] ?? [];
 	$friendlyNames = $_POST['bridgeFriendlyName'] ?? [];
 	$clientSources = $_POST['bridgeClientSource'] ?? [];
@@ -562,6 +594,16 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 	for($i = 0; $i < $count; $i++) {
 		$rawId = asrSettingsCleanText($ids[$i] ?? '', 32);
 		$rawMode = strtolower(asrSettingsCleanText($modes[$i] ?? '', 12));
+        $existingGain = $existingById[asrSettingsCleanBridgeId($ids[$i] ?? '')] ?? [];
+        $gainIn = (string)($gainInValues[$i] ?? asrSettingsBridgeGainValue($existingGain, 'in'));
+        $gainOut = (string)($gainOutValues[$i] ?? asrSettingsBridgeGainValue($existingGain, 'out'));
+        foreach ([$gainIn, $gainOut] as $gainValue) {
+            if (!is_numeric($gainValue) || !is_finite((float)$gainValue) || (float)$gainValue < -20 || (float)$gainValue > 12) {
+                $error = 'Bridge audio gains must be between -20 and +12 dB.';
+                return [];
+            }
+        }
+
 		$rawNode = asrSettingsCleanText($nodes[$i] ?? '', 10);
 		$rawTitle = asrSettingsCleanText($titles[$i] ?? '', 80);
 		$rawDetail = asrSettingsCleanText($details[$i] ?? '', 80);
@@ -929,6 +971,8 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				? ($rawDetail !== '' ? $rawDetail : asrSettingsDefaultDetailTitle($rawMode))
 				: '',
 			'friendlyName' => $rawFriendlyName,
+            'gainInDb' => (float)$gainIn,
+            'gainOutDb' => (float)$gainOut,
 			'clientSource' => $rawCardType === 'standard' ? $rawClientSource : 'auto',
 			'clientUrl' => $rawCardType === 'standard' ? $rawClientUrl : '',
 			'clientUsername' => $rawCardType === 'standard' ? $rawClientUsername : '',
@@ -1007,6 +1051,23 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 		// Editable fields above remain authoritative.
 		if(isset($existingById[$id]) && is_array($existingById[$id]))
 			$bridge = array_replace($existingById[$id], $bridge);
+        // Keep installer-owned gain fields aligned with the dashboard values.
+        // Do not overwrite existing installer values from legacy forms that omit gains.
+        if(array_key_exists($i, $gainInValues) || array_key_exists($i, $gainOutValues)) {
+            $mapping = [
+                'dmr' => ['dmrToAslGainDb', 'aslToDmrGainDb'],
+                'p25' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+                'nxdn' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+                'ysf' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+                'm17' => ['digitalToAslGainDb', 'aslToDigitalGainDb'],
+                'zello' => ['zelloToAslGainDb', 'aslToZelloGainDb'],
+            ];
+            if(isset($mapping[$rawMode])) {
+                [$incomingKey, $outgoingKey] = $mapping[$rawMode];
+                $bridge[$incomingKey] = (float)$gainIn;
+                $bridge[$outgoingKey] = (float)$gainOut;
+            }
+        }
 		if($rawCardType === 'dmr_net') unset($bridge['linkAlias']);
 		$bridges[] = $bridge;
 	}
@@ -1842,6 +1903,8 @@ function asrSettingsBridgePanel($bridge = [], $bridgePasswords = [], $ysfCatalog
 				<input name="bridgeId[]" type="hidden" value="<?php echo asrSettingsH($id); ?>">
 				<label><span>Bridge AllStar Node <small class="asr-field-requirement">Required</small></span><input name="bridgeNode[]" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($bridge['node'] ?? ''); ?>"><small>The private local AllStar transport assigned to this bridge—not your main node, talkgroup, reflector, or displayed talker identity.</small></label>
 				<label><span>Dashboard Name <small class="asr-field-requirement">Optional</small></span><input name="bridgeTitle[]" type="text" placeholder="New Digital Bridge" value="<?php echo asrSettingsH($bridge['title'] ?? ''); ?>"><small>The name operators see on the Bridges dashboard. Leave blank while adding a card to keep the draft label until you choose its mode.</small></label>
+                <label><span>Bridge → AllStar gain (dB)</span><input name="bridgeGainInDb[]" type="number" min="-20" max="12" step="0.5" value="<?php echo asrSettingsH(asrSettingsBridgeGainValue($bridge, 'in')); ?>"><button type="button" onclick="this.parentNode.querySelector('input').value='0'">Reset to 0 dB</button><small>Saved per bridge. Apply the bridge setup to activate gain changes.</small></label>
+                <label><span>AllStar → Bridge gain (dB)</span><input name="bridgeGainOutDb[]" type="number" min="-20" max="12" step="0.5" value="<?php echo asrSettingsH(asrSettingsBridgeGainValue($bridge, 'out')); ?>"><button type="button" onclick="this.parentNode.querySelector('input').value='0'">Reset to 0 dB</button></label>
 				<label><span>Connection Status Name <small class="asr-field-requirement">Optional</small></span><input name="bridgeFriendlyName[]" type="text" placeholder="Same as Dashboard Name" value="<?php echo asrSettingsH($bridge['friendlyName'] ?? ''); ?>"><small>Used in connection summaries and announcements. Leave blank to reuse the dashboard name.</small></label>
 			</div>
 		</div>
@@ -2072,6 +2135,9 @@ function asrSettingsM17SetupPayload(&$error) {
 		'port' => (int)($_POST['setupPort'] ?? 0),
 		'module' => strtoupper(asrSettingsCleanText($_POST['setupModule'] ?? '', 1)),
 	];
+    [$gainIn, $gainOut] = asrSettingsSavedBridgeGains($payload['bridgeId']);
+    $payload['digitalToAslGainDb'] = $gainIn;
+    $payload['aslToDigitalGainDb'] = $gainOut;
 	if(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
 	elseif($payload['bridgeId'] === '') $error = 'Bridge ID must begin with a letter and use only lowercase letters, numbers, _ or -.';
 	elseif($payload['title'] === '') $error = 'Bridge title is required.';
@@ -2102,6 +2168,9 @@ function asrSettingsDigitalSetupPayload($mode, &$error) {
 		'host' => asrSettingsCleanText($_POST['setupHost'] ?? '', 253),
 		'port' => (int)($_POST['setupPort'] ?? 0),
 	];
+    [$gainIn, $gainOut] = asrSettingsSavedBridgeGains($payload['bridgeId']);
+    $payload['digitalToAslGainDb'] = $gainIn;
+    $payload['aslToDigitalGainDb'] = $gainOut;
 	if(!in_array($payload['bridgeRole'], ['standard', 'net'], true)) $error = 'Select Standard Bridge or Net Bridge.';
 	elseif($payload['bridgeId'] === '') $error = 'Bridge ID must begin with a letter and use only lowercase letters, numbers, _ or -.';
 	elseif($payload['title'] === '') $error = 'Bridge title is required.';
@@ -2119,6 +2188,14 @@ function asrSettingsDigitalSetupPayload($mode, &$error) {
 	return $payload;
 }
 
+
+function asrSettingsSavedDmrGains($bridgeId) {
+    foreach((array)(asrSettingsReadConfig()['bridges'] ?? []) as $bridge) {
+        if(!is_array($bridge) || ($bridge['id'] ?? '') !== $bridgeId) continue;
+        return [asrSettingsBridgeGainValue($bridge, 'in'), asrSettingsBridgeGainValue($bridge, 'out')];
+    }
+    return [0.0, 0.0];
+}
 
 function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 	$error = '';
@@ -2142,8 +2219,8 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'port' => (int)($_POST['setupPort'] ?? 62031),
 		'timeslot' => (int)($_POST['setupDmrTimeslot'] ?? 2),
 		'colorCode' => (int)($_POST['setupDmrColorCode'] ?? 1),
-		'dmrToAslGainDb' => (float)($_POST['setupDmrToAslGainDb'] ?? 0),
-		'aslToDmrGainDb' => (float)($_POST['setupAslToDmrGainDb'] ?? 0),
+		'dmrToAslGainDb' => (float)($_POST['setupDmrToAslGainDb'] ?? asrSettingsSavedDmrGains(asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''))[0]),
+		'aslToDmrGainDb' => (float)($_POST['setupAslToDmrGainDb'] ?? asrSettingsSavedDmrGains(asrSettingsCleanBridgeId($_POST['setupBridgeId'] ?? ''))[1]),
 		'authMode' => $authMode,
 		'hotspotEssid' => $hotspotEssid,
 		'networkUsername' => asrSettingsCleanText($_POST['setupDmrUsername'] ?? '', 80),
@@ -2167,6 +2244,13 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 		'urfEnabled' => ($_POST['urfEnabled'] ?? 'true') === 'true',
 		'legacyBridgeNodes' => asrSettingsCleanText($_POST['legacyBridgeNodes'] ?? '', 80),
 	];
+	if($payload['bridgePath'] === 'urf') {
+		// URF TCD gains are separate from direct-DMR gains; preserve the
+		// shared transcoder's settings when editing an existing reflector.
+		[$urfIn, $urfOut] = asrSettingsSavedBridgeGains($payload['bridgeId']);
+		$payload['urfGainInDb'] = $urfIn;
+		$payload['urfGainOutDb'] = $urfOut;
+	}
 	$password = (string)($_POST['setupTgifPassword'] ?? '');
 	$managedEdit = false;
 	if(($_POST['setupManagedEdit'] ?? '') === '1') foreach((array)(asrSettingsReadConfig()['bridges'] ?? []) as $candidate) if(is_array($candidate) && ($candidate['id'] ?? '') === $payload['bridgeId'] && ($candidate['architecture'] ?? '') === 'direct-dvswitch') { $managedEdit = true; break; }
@@ -2197,6 +2281,15 @@ function asrSettingsDmrSetupPayload($requireSecret, &$error) {
 }
 
 
+function asrSettingsSavedBridgeGains($bridgeId) {
+    $config = asrSettingsReadConfig();
+    foreach((array)($config['bridges'] ?? []) as $bridge) {
+        if(!is_array($bridge) || ($bridge['id'] ?? '') !== $bridgeId) continue;
+        return [asrSettingsBridgeGainValue($bridge, 'in'), asrSettingsBridgeGainValue($bridge, 'out')];
+    }
+    return [0.0, 0.0];
+}
+
 function asrSettingsZelloSetupPayload($requireSecret, &$error) {
 	$error = '';
 	$payload = [
@@ -2208,6 +2301,10 @@ function asrSettingsZelloSetupPayload($requireSecret, &$error) {
 		'issuer' => asrSettingsCleanText($_POST['setupZelloIssuer'] ?? '', 160),
 		'wsEndpoint' => asrSettingsCleanText($_POST['setupZelloWsEndpoint'] ?? 'wss://zello.io/ws', 253),
 	];
+    // Saved bridge controls are authoritative for the Zello setup preview/install.
+    [$gainIn, $gainOut] = asrSettingsSavedBridgeGains($payload['bridgeId']);
+    $payload['zelloToAslGainDb'] = $gainIn;
+    $payload['aslToZelloGainDb'] = $gainOut;
 	if($requireSecret) {
 		$payload['password'] = (string)($_POST['setupZelloPassword'] ?? '');
 		$payload['privateKey'] = (string)($_POST['setupZelloPrivateKey'] ?? '');
@@ -2548,6 +2645,19 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		$error = 'URF Reflector needs a display name.';
 		return [];
 	}
+    // The URF aggregate is not part of the regular bridge rows. Its own
+    // controls must persist the shared transcoder gains independently.
+    $urfGainValues = [];
+    foreach (['urfGainInDb' => 'in', 'urfGainOutDb' => 'out'] as $key => $direction) {
+        $raw = $_POST[$key] ?? null;
+        if ($raw === null) continue;
+        if (!is_scalar($raw) || !is_numeric($raw) || !is_finite((float)$raw)
+            || (float)$raw < -20 || (float)$raw > 12) {
+            $error = 'URF audio gains must be between -20 and +12 dB.';
+            return [];
+        }
+        $urfGainValues[$key] = (float)$raw;
+    }
 	$record = is_array($existingUrf['record'] ?? null) ? $existingUrf['record'] : [];
 	$records = is_array($existingUrf['records'] ?? null) ? $existingUrf['records'] : [];
 	if(!$record && empty($existingUrf['enabled'])) $record = [
@@ -2558,6 +2668,7 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 		'urfReflector'=>true, 'urfGroupId'=>'urf',
 	];
 	if($record) {
+        foreach ($urfGainValues as $key => $value) $record[$key] = $value;
 		if($displayNamePosted) { $record['title'] = $displayName; $record['friendlyName'] = $displayName; }
 		$record = asrSettingsUrfApplyModePost($record, $error);
 		if($error !== '') return [];
@@ -2568,6 +2679,8 @@ function asrSettingsUrfConfigFromPost(&$error, $config = []) {
 			$generated = asrSettingsUrfModeBridges(['enabled'=>true,'node'=>$node,'modes'=>[$mode]]);
 			$modeRecord = $generated[0] ?? [];
 		}
+        // Legacy per-mode URF records also need shared transcoder gains.
+        foreach ($urfGainValues as $key => $value) $modeRecord[$key] = $value;
 		$modeRecord = asrSettingsUrfApplyModePost($modeRecord, $error, $mode);
 		if($error !== '') return [];
 		$fixedRecovery = is_array($_POST['urfFixedRecovery'] ?? null) ? $_POST['urfFixedRecovery'] : [];
@@ -3165,6 +3278,9 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<input name="urfEnabled" type="hidden" value="<?php echo !empty($urfConfig['enabled']) ? '1' : '0'; ?>" data-urf-enabled>
 			<div class="asr-settings-row"><label for="urfDisplayName">Display Name</label><input id="urfDisplayName" name="urfDisplayName" type="text" maxlength="80" placeholder="URF073" value="<?php echo asrSettingsH($urfConfig['displayName'] ?? 'URF Reflector'); ?>"><small>Dashboard label only; changing it does not change the bridge ID or shared AllStar node.</small></div>
 			<div class="asr-settings-row"><label for="urfNode">Shared AllStar Transport Node</label><input id="urfNode" name="urfNode" type="text" inputmode="numeric" placeholder="1001" value="<?php echo asrSettingsH($urfConfig['node'] ?? ''); ?>"></div>
+            <?php $urfGainRecord = (array)($urfConfig['record'] ?? []); ?>
+            <div class="asr-settings-row"><label for="urfGainInDb">Digital to AllStar gain (dB)</label><input id="urfGainInDb" name="urfGainInDb" type="number" min="-20" max="12" step="0.5" value="<?php echo asrSettingsH(asrSettingsBridgeGainValue($urfGainRecord, 'in')); ?>"><button type="button" onclick="document.getElementById('urfGainInDb').value='0'">Reset to 0 dB</button></div>
+            <div class="asr-settings-row"><label for="urfGainOutDb">AllStar to digital gain (dB)</label><input id="urfGainOutDb" name="urfGainOutDb" type="number" min="-20" max="12" step="0.5" value="<?php echo asrSettingsH(asrSettingsBridgeGainValue($urfGainRecord, 'out')); ?>"><button type="button" onclick="document.getElementById('urfGainOutDb').value='0'">Reset to 0 dB</button></div>
 			<p class="asr-settings-inline-note">Step 1: Save All Bridge Changes to store the configuration. Step 2: select Preview &amp; Apply URF Runtime below, review the validated plan, and confirm installation. Saving alone does not activate runtime services. The shared node is transport health only; it never determines which URF mode is transmitting.</p>
 			<div class="asr-urf-mode-list">
 			<?php foreach(['dmr'=>'DMR','ysf'=>'YSF','p25'=>'P25','nxdn'=>'NXDN','m17'=>'M17'] as $urfMode=>$urfLabel): ?>

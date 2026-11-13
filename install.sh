@@ -197,6 +197,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-startup-bridge-summary.service \
     allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-standard-bridge-status.service \
+    allscan-reimagined-bridge-audio-telemetry.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
@@ -267,6 +268,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-standard-bridge-status.service \
+    allscan-reimagined-bridge-audio-telemetry.service \
     allscan-reimagined-dmr-net-live.service \
     allscan-reimagined-ysf-net-live.service \
     allscan-reimagined-p25-bridge-status.service \
@@ -410,6 +412,7 @@ rollback_on_error() {
       "scripts/asr-nxdn-bridge-control.py:/usr/local/sbin/allscan-reimagined-nxdn-bridge-control" \
       "scripts/asr-m17-bridge-control.py:/usr/local/sbin/allscan-reimagined-m17-bridge-control" \
       "scripts/asr-m17-usrp-connector.py:/usr/local/sbin/allscan-reimagined-m17-usrp-connector" \
+      "scripts/asr-bridge-audio-telemetry.py:/usr/local/sbin/allscan-reimagined-bridge-audio-telemetry" \
       "scripts/asr-fixed-bridge-recovery.py:/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery" \
       "scripts/asr-bridge-lifecycle.py:/usr/local/sbin/allscan-reimagined-bridge-lifecycle" \
       "scripts/asr-startup-bridge-summary.py:/usr/local/sbin/allscan-reimagined-startup-bridge-summary" \
@@ -761,6 +764,7 @@ for unit in \
   allscan-reimagined-startup-bridge-summary.service \
   allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service \
+  allscan-reimagined-bridge-audio-telemetry.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
@@ -993,7 +997,7 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-bridge-audio-telemetry.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -1372,6 +1376,8 @@ validate_command "TGIF/URFWIL DMR adapter self-test" \
   python3 "$RELEASE_DIR/scripts/asr-tgif-urf-dmr-bridge.py" --self-test >/dev/null
 validate_command "managed direct DMR installer self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-setup-dmr-self-test.py" >/dev/null
+validate_command "bridge real-PCM telemetry self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-bridge-audio-telemetry.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
   python3 "$RELEASE_DIR/scripts/asr-favorites-manager.py" --self-test >/dev/null

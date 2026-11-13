@@ -119,6 +119,7 @@ python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
@@ -268,6 +269,7 @@ install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25
 install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
 install -m 755 scripts/asr-m17-bridge-control.py "$STAGE/payload/scripts/asr-m17-bridge-control.py"
 install -m 755 scripts/asr-m17-usrp-connector.py "$STAGE/payload/scripts/asr-m17-usrp-connector.py"
+install -m 755 scripts/asr-bridge-audio-telemetry.py "$STAGE/payload/scripts/asr-bridge-audio-telemetry.py"
 install -m 755 scripts/asr-fixed-bridge-recovery.py "$STAGE/payload/scripts/asr-fixed-bridge-recovery.py"
 install -m 755 scripts/asr-bridge-lifecycle.py "$STAGE/payload/scripts/asr-bridge-lifecycle.py"
 install -m 755 scripts/asr-startup-bridge-summary.py "$STAGE/payload/scripts/asr-startup-bridge-summary.py"

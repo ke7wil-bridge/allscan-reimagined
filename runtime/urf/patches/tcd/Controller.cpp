@@ -22,6 +22,7 @@
 #include <sstream>
 #include <fstream>
 #include <thread>
+#include <chrono>
 #include <queue>
 #ifdef USE_SW_AMBE2
 #include <md380_vocoder.h>
@@ -33,7 +34,7 @@
 
 extern CConfigure g_Conf;
 
-int32_t CController::calcNumerator(int32_t db) const
+int32_t CController::calcNumerator(float db) const
 {
 	float num = 256.0f * powf(10.0f, (float(db)/20.0f));
 
@@ -56,15 +57,27 @@ bool CController::Start()
 	c2Future        = std::async(std::launch::async, &CController::ProcessC2Thread,     this);
 	imbeFuture      = std::async(std::launch::async, &CController::ProcessIMBEThread,   this);
 	usrpFuture      = std::async(std::launch::async, &CController::ProcessUSRPThread,   this);
+    asrMeterFuture = std::async(std::launch::async, &CController::AsrMeterPublisherThread, this);
 #ifdef USE_SW_AMBE2
 	swambe2Future   = std::async(std::launch::async, &CController::ProcessSWAMBE2Thread,this);
 #endif
 	return false;
 }
 
+void CController::AsrMeterPublisherThread()
+{
+    while (keep_running) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        const double now = std::chrono::duration<double>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        asr_pcm_meter.Publish(now);
+    }
+}
+
 void CController::Stop()
 {
-	keep_running = false;
+    keep_running = false;
+    if (asrMeterFuture.valid()) asrMeterFuture.get();
 
 	if (reflectorFuture.valid())
 		reflectorFuture.get();
@@ -576,12 +589,19 @@ void CController::AudiotoUSRP(std::shared_ptr<CTranscoderPacket> packet)
 	{
 		int16_t tmp[160];
 		for(int i = 0; i < 160; ++i)
-			tmp[i] = int16_t((p[i] * usrp_tx_num) >> 8);
+			{
+            const int32_t sample = (int32_t(p[i]) * usrp_tx_num) >> 8;
+            tmp[i] = int16_t(sample < -32768 ? -32768 : (sample > 32767 ? 32767 : sample));
+        }
 		packet->SetUSRPData(tmp);
 	}
 	else
 		packet->SetUSRPData(p);
 
+
+    // Digital-to-AllStar: meter the exact post-gain samples passed to USRP.
+    asr_pcm_meter.Sample(true, packet->GetUSRPData(), 160,
+        std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
 
 	// we might be all done...
 	send_mux.lock();
@@ -597,7 +617,10 @@ void CController::USRPtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 	{
 		int16_t tmp[160];
 		for(int i = 0; i < 160; ++i)
-			tmp[i] = int16_t((p[i] * usrp_rx_num) >> 8);
+			{
+            const int32_t sample = (int32_t(p[i]) * usrp_rx_num) >> 8;
+            tmp[i] = int16_t(sample < -32768 ? -32768 : (sample > 32767 ? 32767 : sample));
+        }
 		packet->SetAudioSamples(tmp, false);
 	}
 	else
@@ -605,6 +628,9 @@ void CController::USRPtoAudio(std::shared_ptr<CTranscoderPacket> packet)
 #ifndef SW_MODES_ONLY
 	dstar_device->AddPacket(packet);
 #endif
+    // AllStar-to-digital: meter post-gain PCM at the transcoder boundary.
+    asr_pcm_meter.Sample(false, packet->GetAudioSamples(), 160,
+        std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
 	codec2_queue.push(packet);
 
 #ifdef USE_SW_AMBE2

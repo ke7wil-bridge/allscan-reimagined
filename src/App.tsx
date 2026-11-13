@@ -598,6 +598,7 @@ function App({ config }: { config: RuntimeConfig }) {
       controlLinked: false,
       digitalLinked: false,
       allstarLinked: false,
+      transportLinked: null,
       detailTitle: bridge.detailTitle,
       detailRows: [],
       detailCount: 0,
@@ -612,6 +613,7 @@ function App({ config }: { config: RuntimeConfig }) {
       activeStartEpoch: 0,
       recentTalkers: [],
       recentRows: [],
+      audioMeter: null,
     })),
   }))
   const [bridgeStatusLoaded, setBridgeStatusLoaded] = useState(false)
@@ -1656,6 +1658,7 @@ function App({ config }: { config: RuntimeConfig }) {
               ...card,
               lastCaller: '-',
               connectedClientCount: 0,
+              audioMeter: null,
             })),
           }))
         }
@@ -4152,7 +4155,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 const canChangeDestination = bridgeCapabilities.includes('changeDestination')
                 const bridgeLinked = card.cardType !== 'standard'
                   ? card.controlLinked
-                  : card.controlLinked || rows.some(
+                  : card.controlLinked || card.transportLinked === true || rows.some(
                   (row) => (row.bridgeId === card.id || row.node === card.node)
                     && row.direction.toUpperCase() === 'OUT'
                     && row.state !== 'message',
@@ -4201,6 +4204,19 @@ function App({ config }: { config: RuntimeConfig }) {
                     </span>
                   </div>
 
+                  {card.audioMeter ? (
+                    <div className="asr-audio-meters" aria-label={`Live ${card.mode.toUpperCase()} audio levels`}>
+                      {([[`${card.mode.toUpperCase()} → AllStar`, card.audioMeter.inboundRms, card.audioMeter.inboundPeak], [`AllStar → ${card.mode.toUpperCase()}`, card.audioMeter.outboundRms, card.audioMeter.outboundPeak]] as const).map(([label, rms, peak]) => (
+                        <div className="asr-audio-meter" key={label}>
+                          <span>{label}</span>
+                          <div className="asr-audio-meter-track" role="meter" aria-label={`${label} audio level`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(rms * 100)}>
+                            <span className="asr-audio-meter-rms" style={{ width: `${rms * 100}%` }} />
+                            <span className="asr-audio-meter-peak" style={{ left: `${Math.min(99.5, peak * 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="allscan-bridge-body">
                     {card.cardType === 'dmr_net' ? (
                       <div className="allscan-bridge-row allscan-bridge-status-row allscan-bridge-current-row">

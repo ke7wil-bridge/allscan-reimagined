@@ -299,6 +299,8 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-bridge-control.py" /usr/local/sbin/allscan-reimagined-m17-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
+[ -f "$MASTER_DIR/scripts/asr-bridge-audio-telemetry.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-audio-telemetry.py" /usr/local/sbin/allscan-reimagined-bridge-audio-telemetry
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
 if ! getent passwd asr-bridge >/dev/null 2>&1; then
   if getent group asr-bridge >/dev/null 2>&1; then
@@ -347,6 +349,7 @@ install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-co
 install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
 install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
 install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
+install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-audio
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
 install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-ownership
@@ -375,6 +378,7 @@ d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
+d /run/allscan-reimagined-bridge-audio 0755 root root -
 d /run/allscan-reimagined-bridge-control 0755 root root -
 d /run/allscan-reimagined-m17 0755 root root -
 EOF
@@ -421,6 +425,42 @@ ReadWritePaths=/run/allscan-reimagined-standard-bridge-status
 [Install]
 WantedBy=multi-user.target
 EOF
+cat > /etc/systemd/system/allscan-reimagined-bridge-audio-telemetry.service <<'EOF'
+[Unit]
+Description=Measure real PCM levels for managed ASR bridges
+After=network.target asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-bridge-audio-telemetry
+Restart=on-failure
+RestartSec=2s
+Nice=10
+MemoryMax=48M
+TasksMax=8
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+LockPersonality=true
+RestrictAddressFamilies=AF_PACKET
+RestrictSUIDSGID=true
+ReadWritePaths=/run/allscan-reimagined-bridge-audio
+
+[Install]
+WantedBy=multi-user.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-bridge-audio-telemetry ]; then
+  systemctl daemon-reload
+  systemctl enable allscan-reimagined-bridge-audio-telemetry.service >/dev/null
+  systemctl restart allscan-reimagined-bridge-audio-telemetry.service
+else
+  systemctl disable --now allscan-reimagined-bridge-audio-telemetry.service >/dev/null 2>&1 || true
+  rm -f /run/allscan-reimagined-bridge-audio/levels.json
+fi
 if [ -x /usr/local/sbin/allscan-reimagined-standard-bridge-status ] \
   && python3 - "$CONFIG_DIR/config.json" <<'PY'
 import json

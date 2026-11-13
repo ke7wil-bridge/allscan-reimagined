@@ -631,7 +631,7 @@ def test_managed_m17_bind_migration(host_installer) -> None:
 
 
 def test_zello_relay_startup_reset(zello_installer) -> None:
-    upstream = '''import asyncio\n\ndef _write_relay_state(active):\n    pass\n\nclass USRPController:\n    def __init__(self, usrp_ptt, zello_ptt):\n        self._transport = None\n\n        self._usrp_ptt = usrp_ptt\n        self._zello_ptt = zello_ptt\n\n    def datagram_received(self, data, addr):\n        ptt = self._frame_ptt_state(data)\n        if not ptt:\n            if self._usrp_ptt.is_set():\n                _write_relay_state(False)\n            self._usrp_ptt.clear()\n            return\n\n        if not self._usrp_ptt.is_set():\n            _write_relay_state(True)\n        self._usrp_ptt.set()\n'''
+    upstream = '''import asyncio\nimport math\nimport os\nimport struct\nUSRP_GAIN_RX_DB = int(os.environ.get('USRP_GAIN_RX_DB', 0))\nUSRP_GAIN_TX_DB = int(os.environ.get('USRP_GAIN_TX_DB', 0))\n\ndef db_to_linear(db):\n    return math.pow(10, db / 10)\n\ndef _write_relay_state(active):\n    pass\n\nclass USRPController(asyncio.DatagramProtocol):\n    def __init__(self, usrp_ptt, zello_ptt):\n        self._transport = None\n\n        self._usrp_ptt = usrp_ptt\n        self._zello_ptt = zello_ptt\n        self._usrp_gain_rx = db_to_linear(USRP_GAIN_RX_DB)\n        self._usrp_gain_tx = db_to_linear(USRP_GAIN_TX_DB)\n\n    def connection_made(self, transport):\n        self._transport = transport\n\n    def datagram_received(self, data, addr):\n        ptt = self._frame_ptt_state(data)\n        if not ptt:\n            if self._usrp_ptt.is_set():\n                _write_relay_state(False)\n            self._usrp_ptt.clear()\n            return\n\n        if not self._usrp_ptt.is_set():\n            _write_relay_state(True)\n        self._usrp_ptt.set()\n        frame = data[32:]\n        loop = asyncio.get_running_loop()\n        loop.create_task(self._stream_out.write(frame))\n\n    async def _tx_frame(self, pcm):\n        header = b'USRP'\n        frame = header + pcm\n        self._tx(frame)\n'''
     with tempfile.TemporaryDirectory(prefix="asr-zello-runtime-test-") as temporary:
         root = Path(temporary)
         source = root / "source"
@@ -641,10 +641,344 @@ def test_zello_relay_startup_reset(zello_installer) -> None:
         zello_installer.prepare_runtime_source(source, first)
         patched = (first / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8")
         assert "self._zello_ptt = zello_ptt\n        _write_relay_state(False)" in patched
+        assert "return math.pow(10, db / 20)" in patched
+        assert "USRP_GAIN_RX_DB = float(os.environ.get('USRP_GAIN_RX_DB', 0))" in patched
+        assert "USRP_GAIN_TX_DB = float(os.environ.get('USRP_GAIN_TX_DB', 0))" in patched
         assert "def _commit_usrp_off(self):" in patched
         second = root / "second"
         zello_installer.prepare_runtime_source(first, second)
         assert (second / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8") == patched
+        # The older upstream lacks the relay-state hooks required for safe
+        # debounce. Reject it rather than silently removing relay reporting.
+        legacy = root / "legacy"
+        (legacy / "asl_zello_bridge").mkdir(parents=True)
+        (legacy / "asl_zello_bridge/usrp.py").write_text(
+            upstream.replace("            if self._usrp_ptt.is_set():\n                _write_relay_state(False)\n", "")
+                    .replace("            _write_relay_state(True)\n", ""), encoding="utf-8")
+        try:
+            zello_installer.prepare_runtime_source(legacy, root / "rejected")
+        except zello_installer.InstallError as exc:
+            assert "unsupported Zello USRP runtime" in str(exc)
+        else:
+            raise AssertionError("unsafe legacy Zello runtime accepted")
+
+
+def test_zello_audio_meter_runtime(zello_installer) -> None:
+    """Run the actual patched PCM math and check both instrumentation edges."""
+    import ast
+    import math
+    import struct
+    with tempfile.TemporaryDirectory(prefix="asr-zello-audio-meter-") as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        (source / "asl_zello_bridge").mkdir(parents=True)
+        # A source checkout is optional; this fixture tests the supported
+        # syntax and exact patch points without credentials or network access.
+        source_ast = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        fixture_fn = next(node for node in source_ast.body if isinstance(node, ast.FunctionDef)
+                          and node.name == "test_zello_relay_startup_reset")
+        fixture_assignment = next(node for node in fixture_fn.body if isinstance(node, ast.Assign)
+                                  and any(isinstance(target, ast.Name) and target.id == "upstream"
+                                          for target in node.targets))
+        source_text = ast.literal_eval(fixture_assignment.value)
+        (source / "asl_zello_bridge/usrp.py").write_text(source_text)
+        target = root / "target"
+        zello_installer.prepare_runtime_source(source, target)
+        patched = (target / "asl_zello_bridge/usrp.py").read_text()
+        tree = ast.parse(patched)
+        pcm_fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == "_asr_audio_meter_pcm")
+        namespace = {"math": math, "struct": struct}
+        exec(compile(ast.Module(body=[pcm_fn], type_ignores=[]), '<zello-pcm-meter>', 'exec'), namespace)
+        measure = namespace["_asr_audio_meter_pcm"]
+        assert measure(b'') == (0, 0.0)
+        assert measure(b'\x01') == (0, 0.0)
+        assert measure(None) == (0, 0.0)
+        assert measure('bad') == (0, 0.0)
+        assert measure(b'\x00' * 642) == (0, 0.0)
+        assert measure(memoryview(struct.pack('<160h', *([1000] * 160)))) == (1000, 1000.0)
+        assert measure(bytearray(struct.pack('<160h', *([1000] * 160)))) == (1000, 1000.0)
+        assert measure(struct.pack('<160h', *([32767] * 160))) == (32767, 32767.0)
+        assert measure(struct.pack('<160h', *([1] * 160))) == (1, 1.0)
+        assert measure(struct.pack('<160h', *([0] * 160))) == (0, 0.0)
+        assert measure(struct.pack('<160h', *([1000] * 160))) == (1000, 1000.0)
+        assert measure(struct.pack('<160h', *([-1000] * 160))) == (1000, 1000.0)
+        assert measure(struct.pack('<160h', *([-32768] * 160))) == (32768, 32768.0)
+        peak, rms = measure(struct.pack('<160h', *([1000] * 80 + [-1000] * 80)))
+        assert peak == 1000 and rms == 1000
+        peak, rms = measure(struct.pack('<160h', *([1000] * 80 + [0] * 80)))
+        assert peak == 1000 and abs(rms - math.sqrt(500000)) < .01
+        assert "self._asr_meter_sample('outbound', frame)" in patched
+        assert "self._asr_meter_sample('inbound', pcm)" in patched
+        assert patched.index("self._asr_meter_sample('outbound', frame)") < patched.index('loop.create_task(self._stream_out.write(frame))')
+        assert patched.index("self._asr_meter_sample('inbound', pcm)") < patched.index('frame = header + pcm')
+        assert "now - self._asr_meter_last_write < 0.25" in patched
+        assert "except (OSError, ValueError, TypeError):" in patched
+        assert "os.replace(tmp, path)" in patched
+        assert "_asr_meter_tempfile.mkstemp(prefix='.audio-meter.', dir='/run/zello')" in patched
+        assert "os.fchmod(handle.fileno(), 0o644)" in patched
+        assert "os.unlink(tmp)" in patched
+        assert "'/run/zello/audio-meter.json'" in patched
+        assert "_asr_meter_json.dump(self._asr_meter, handle)" in patched
+        # Execute the installed sample publisher itself without writing into
+        # /run or opening any sockets. Verify rate limiting and fail-open IO.
+        import types
+        from unittest.mock import patch, mock_open
+        controller = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                          and node.name == 'USRPController')
+        sample_method = next(node for node in controller.body if isinstance(node, ast.FunctionDef)
+                             and node.name == '_asr_meter_sample')
+        sample_ns = {
+            '_asr_audio_meter_pcm': measure, '_asr_meter_time': types.SimpleNamespace(time=lambda: 100.0),
+            '_asr_meter_json': __import__('json'), 'os': os, '_asr_meter_tempfile': __import__('tempfile'),
+        }
+        exec(compile(ast.Module(body=[sample_method], type_ignores=[]), '<zello-meter-publisher>', 'exec'), sample_ns)
+        publish = sample_ns['_asr_meter_sample']
+        fake = types.SimpleNamespace(_asr_meter={
+            'inboundAudioPeak': 0, 'inboundAudioRms': 0.0, 'inboundAudioEpoch': 0.0,
+            'outboundAudioPeak': 0, 'outboundAudioRms': 0.0, 'outboundAudioEpoch': 0.0,
+        }, _asr_meter_last_write=0.0)
+        import tempfile as meter_tempfile
+        # Use real exclusive temporary files, redirecting the runtime mount
+        # into a scratch directory; assert atomic replacement and cleanup.
+        actual_mkstemp = meter_tempfile.mkstemp
+        def scratch_mkstemp(*, prefix, dir):
+            assert prefix == '.audio-meter.' and dir == '/run/zello'
+            return actual_mkstemp(prefix=prefix, dir=str(root))
+        actual_replace = os.replace
+        def scratch_replace(src, dest):
+            assert dest == '/run/zello/audio-meter.json'
+            return actual_replace(src, root / 'audio-meter.json')
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+             patch.object(os, 'replace', side_effect=scratch_replace) as replace_mock:
+            publish(fake, 'inbound', struct.pack('<160h', *([2000] * 160)))
+            assert fake._asr_meter['inboundAudioPeak'] == 2000
+            assert fake._asr_meter['inboundAudioRms'] == 2000.0
+            assert fake._asr_meter['inboundAudioEpoch'] == 100.0
+            assert fake._asr_meter['outboundAudioEpoch'] == 0.0
+            assert replace_mock.call_count == 1
+            assert not list(root.glob('.audio-meter.*')), 'successful publish left temporary file'
+            publish(fake, 'outbound', struct.pack('<160h', *([-500] * 160)))
+            assert fake._asr_meter['outboundAudioPeak'] == 500
+            assert fake._asr_meter['outboundAudioRms'] == 500.0
+            assert replace_mock.call_count == 1, 'meter write rate limiting failed'
+            publish(fake, 'outbound', b'')
+            assert fake._asr_meter['outboundAudioPeak'] == 500
+            publish(fake, 'bogus', struct.pack('<160h', *([2000] * 160)))
+            assert 'bogusAudioPeak' not in fake._asr_meter
+            publish(fake, 'inbound', b'\x01')
+            publish(fake, 'inbound', b'\x00' * 642)
+            publish(fake, 'inbound', None)
+            publish(fake, 'inbound', 'bad')
+            assert fake._asr_meter['inboundAudioPeak'] == 2000
+            assert replace_mock.call_count == 1, 'invalid frames wrote telemetry'
+        sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda: 100.5)
+        prior_write = fake._asr_meter_last_write
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=OSError('synthetic disk failure')):
+            publish(fake, 'inbound', struct.pack('<160h', *([1000] * 160)))
+            assert fake._asr_meter['inboundAudioPeak'] == 1000, 'monitoring failure interrupted audio'
+            assert fake._asr_meter_last_write == prior_write, 'failed telemetry write delayed retries'
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+             patch.object(os, 'replace', side_effect=scratch_replace) as replace_mock:
+            publish(fake, 'outbound', struct.pack('<160h', *([3000] * 160)))
+            assert fake._asr_meter['outboundAudioPeak'] == 3000
+            assert fake._asr_meter_last_write == 100.5, 'successful retry not timestamped'
+            assert replace_mock.call_count == 1
+            assert not list(root.glob('.audio-meter.*'))
+        # Clock correction backward must not freeze telemetry until wall time
+        # catches up with a previously observed epoch.
+        sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda: 50.0)
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+             patch.object(os, 'replace', side_effect=scratch_replace):
+            publish(fake, 'inbound', struct.pack('<160h', *([1500] * 160)))
+            assert fake._asr_meter_last_write == 50.0
+            assert fake._asr_meter['inboundAudioEpoch'] == 50.0
+        sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda: 100.5)
+        fake._asr_meter_last_write = 100.5
+        # An atomic rename failure must not strand a scratch file, prevent
+        # the next retry, or change any voice-path state.
+        sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda: 101.0)
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+             patch.object(os, 'replace', side_effect=OSError('synthetic rename failure')):
+            publish(fake, 'inbound', struct.pack('<160h', *([4000] * 160)))
+            assert fake._asr_meter['inboundAudioPeak'] == 4000
+            assert fake._asr_meter_last_write == 100.5
+            assert not list(root.glob('.audio-meter.*')), 'failed rename left temporary file'
+        # Permission and ownership are set before the file is published.
+        # A real rename must expose a complete JSON object with safe mode.
+        sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda: 120.0)
+        with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+             patch.object(os, 'replace', side_effect=scratch_replace):
+            publish(fake, 'outbound', struct.pack('<160h', *([6000] * 160)))
+        published = root / 'audio-meter.json'
+        assert published.is_file() and published.stat().st_mode & 0o777 == 0o644
+        assert published.stat().st_nlink == 1
+        assert __import__('json').loads(published.read_text())['outboundAudioPeak'] == 6000
+        assert not list(root.glob('.audio-meter.*'))
+        # Verify 30 independently measured audio frames (including clipped
+        # extremes and silence) and that no frame writes audio recordings.
+        for i in range(30):
+            value = -32768 if i == 0 else 32767 if i == 1 else (i - 15) * 1000
+            frame = struct.pack('<160h', *([value] * 160))
+            peak, rms = measure(frame)
+            assert peak == abs(value) and rms == abs(value), (i, peak, rms)
+            fake._asr_meter_last_write = 0.0
+            sample_ns['_asr_meter_time'] = types.SimpleNamespace(time=lambda i=i: 200.0 + i)
+            with patch.object(meter_tempfile, 'mkstemp', side_effect=scratch_mkstemp), \
+                 patch.object(os, 'replace', side_effect=scratch_replace):
+                publish(fake, 'inbound' if i % 2 == 0 else 'outbound', frame)
+            telemetry = __import__('json').loads((root / 'audio-meter.json').read_text())
+            direction = 'inbound' if i % 2 == 0 else 'outbound'
+            assert telemetry[direction + 'AudioPeak'] == abs(value)
+            assert telemetry[direction + 'AudioRms'] == abs(value)
+            assert telemetry[direction + 'AudioEpoch'] == 200.0 + i
+            assert len(telemetry) == 6 and not list(root.glob('.audio-meter.*'))
+        import py_compile
+        py_compile.compile(str(target / "asl_zello_bridge/usrp.py"), doraise=True)
+
+
+def test_zello_qualified_runtime(zello_installer) -> None:
+    """Exercise the exact qualified relay/debounce source when available.
+
+    CI environments without the separately maintained upstream source still
+    run the synthetic compatibility and negative tests above.
+    """
+    source_env = os.environ.get("ASR_ZELLO_QUALIFIED_SOURCE", "").strip()
+    if not source_env:
+        return
+    source = Path(source_env)
+    original = source / "asl_zello_bridge/usrp.py"
+    assert original.is_file(), f"qualified Zello runtime missing: {original}"
+    import hashlib
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    assert digest == "4fae84a8458d89b12a46b43c5bb75d6f20e685c268bb2496df083cff5508b3fc", (
+        f"qualified Zello source drifted: {digest}")
+    with tempfile.TemporaryDirectory(prefix="asr-zello-qualified-") as temporary:
+        # Copy only the qualified USRP source, never credential symlinks or
+        # other unrelated files from the upstream checkout.
+        sanitized = Path(temporary) / "source"
+        (sanitized / "asl_zello_bridge").mkdir(parents=True)
+        (sanitized / "asl_zello_bridge/usrp.py").write_bytes(original.read_bytes())
+        first = Path(temporary) / "first"
+        second = Path(temporary) / "second"
+        zello_installer.prepare_runtime_source(sanitized, first)
+        zello_installer.prepare_runtime_source(first, second)
+        patched = (first / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8")
+        assert patched == (second / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8")
+        assert "return math.pow(10, db / 20)" in patched
+        assert "USRP_GAIN_RX_DB = float(os.environ.get('USRP_GAIN_RX_DB', 0))" in patched
+        assert "USRP_GAIN_TX_DB = float(os.environ.get('USRP_GAIN_TX_DB', 0))" in patched
+        assert "def _commit_usrp_off(self):" in patched
+        assert "_write_relay_state(False)" in patched
+        # Load the exact qualified, installer-patched runtime in a temporary
+        # Python package. Exercise both real USRP methods with local fake
+        # streams/transports; no sockets, Zello login or reflector traffic.
+        import asyncio
+        import importlib.util
+        import math
+        import struct
+        import types
+        from unittest.mock import patch, mock_open
+        package = types.ModuleType('asl_zello_bridge')
+        package.__path__ = [str(first / 'asl_zello_bridge')]
+        stream = types.ModuleType('asl_zello_bridge.stream')
+        stream.AsyncByteStream = type('AsyncByteStream', (), {})
+        with patch.dict(sys.modules, {'asl_zello_bridge': package, 'asl_zello_bridge.stream': stream}):
+            spec = importlib.util.spec_from_file_location('asl_zello_bridge.qualified_usrp', first / 'asl_zello_bridge/usrp.py')
+            assert spec and spec.loader
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        assert abs(module.db_to_linear(6.0) - 10 ** (6 / 20)) < 1e-10
+        assert abs(module.db_to_linear(-12.0) - 10 ** (-12 / 20)) < 1e-10
+        assert module.db_to_linear(0.0) == 1.0
+        events = []
+        module._write_relay_state = lambda active: events.append(active)
+        pcm = struct.pack('<160h', *([1000] * 160))
+        async def run_qualified_audio():
+            class FakeStream:
+                def __init__(self):
+                    self.frames = []
+                async def write(self, frame):
+                    self.frames.append(frame)
+            class FakeTransport:
+                def __init__(self):
+                    self.frames = []
+                def sendto(self, frame, address):
+                    self.frames.append(frame)
+            incoming = FakeStream()
+            outgoing = FakeStream()
+            usrp_ptt = asyncio.Event()
+            zello_ptt = asyncio.Event()
+            controller = module.USRPController(incoming, outgoing, usrp_ptt, zello_ptt)
+            transport = FakeTransport()
+            controller.connection_made(transport)
+            controller._usrp_gain_rx = module.db_to_linear(6)
+            controller._usrp_gain_tx = module.db_to_linear(-6)
+            controller._asr_meter_last_write = 0
+            with patch('builtins.open', mock_open()), patch.object(module.os, 'replace'), patch.object(module.os, 'chmod'):
+                await controller._tx_frame(pcm)
+                assert len(transport.frames) == 1
+                sent = transport.frames[0]
+                assert sent[:4] == b'USRP'
+                actual_tx = struct.unpack('<160h', sent[32:])
+                assert all(500 <= value <= 502 for value in actual_tx)
+                assert controller._asr_meter['inboundAudioPeak'] == actual_tx[0]
+                assert abs(controller._asr_meter['inboundAudioRms'] - actual_tx[0]) < .01
+                assert controller._asr_meter['outboundAudioEpoch'] == 0.0
+                # Incoming AllStar voice is post-gain when handed to Zello.
+                header = await controller._tx_encode_state(ptt=True)
+                controller.datagram_received(header + pcm, ('127.0.0.1', 12345))
+                await asyncio.sleep(0)
+                assert len(outgoing.frames) == 1
+                actual_rx = struct.unpack('<160h', outgoing.frames[0])
+                assert all(1994 <= value <= 1996 for value in actual_rx)
+                assert controller._asr_meter['outboundAudioPeak'] == actual_rx[0]
+                assert abs(controller._asr_meter['outboundAudioRms'] - actual_rx[0]) < .01
+                assert usrp_ptt.is_set() and events == [False, True], (usrp_ptt.is_set(), events)
+                assert controller._asr_meter['inboundAudioPeak'] == actual_tx[0]
+                # Exercise independent neutral, minimum and maximum supported
+                # gains against real patched USRP methods and PCM samples.
+                for gain_db in (-20, 0, 12):
+                    controller._usrp_gain_tx = module.db_to_linear(gain_db)
+                    await controller._tx_frame(pcm)
+                    latest_tx = struct.unpack('<160h', transport.frames[-1][32:])
+                    expected = int(1000 * module.db_to_linear(gain_db))
+                    assert all(abs(value - expected) <= 1 for value in latest_tx), (gain_db, latest_tx[0])
+                    assert controller._asr_meter['inboundAudioPeak'] == latest_tx[0]
+                    controller._usrp_gain_rx = module.db_to_linear(gain_db)
+                    controller.datagram_received(header + pcm, ('127.0.0.1', 12345))
+                    await asyncio.sleep(0)
+                    latest_rx = struct.unpack('<160h', outgoing.frames[-1])
+                    assert all(abs(value - expected) <= 1 for value in latest_rx), (gain_db, latest_rx[0])
+                    assert controller._asr_meter['outboundAudioPeak'] == latest_rx[0]
+                # Saturation must clip safely at the signed 16-bit boundary.
+                controller._usrp_gain_tx = module.db_to_linear(12)
+                loud_pcm = struct.pack('<160h', *([20000] * 160))
+                await controller._tx_frame(loud_pcm)
+                assert struct.unpack('<160h', transport.frames[-1][32:])[0] == 32767
+                assert controller._asr_meter['inboundAudioPeak'] == 32767
+                controller._usrp_gain_rx = module.db_to_linear(12)
+                controller.datagram_received(header + loud_pcm, ('127.0.0.1', 12345))
+                await asyncio.sleep(0)
+                assert struct.unpack('<160h', outgoing.frames[-1])[0] == 32767
+                assert controller._asr_meter['outboundAudioPeak'] == 32767
+                # Zero PCM must stay zero at all gains even while PTT is on.
+                await controller._tx_frame(bytes(320))
+                assert controller._asr_meter['inboundAudioPeak'] == 0
+                controller.datagram_received(header + bytes(320), ('127.0.0.1', 12345))
+                await asyncio.sleep(0)
+                assert controller._asr_meter['outboundAudioPeak'] == 0
+                # A false PTT marker is not a voice frame or meter reading.
+                previous_epoch = controller._asr_meter['outboundAudioEpoch']
+                off = await controller._tx_encode_state(ptt=False)
+                controller.datagram_received(off, ('127.0.0.1', 12345))
+                assert controller._asr_meter['outboundAudioEpoch'] == previous_epoch
+                if controller._usrp_off_handle is not None:
+                    controller._usrp_off_handle.cancel()
+            return controller
+        asyncio.run(run_qualified_audio())
+        import py_compile
+        py_compile.compile(str(first / "asl_zello_bridge/usrp.py"), doraise=True)
 
 
 def test_urf_image_transaction(installer) -> None:
@@ -960,6 +1294,16 @@ def main() -> int:
     urf = load("asr_container_test_urf", "asr-bridge-setup-urf.py")
     urf_installer = load("asr_container_test_urf_installer", "asr-bridge-setup-urf-install.py")
     zello_installer = load("asr_container_test_zello_installer", "asr-bridge-setup-zello-install.py")
+    zello_compose = zello_installer.compose_yaml({
+        "resources": {"root": "/var/lib/asr-zello", "stockWeb": "/var/www/html/allscan"},
+        "ports": {"usrp_rx": 63001, "usrp_tx": 63002},
+        "settings": {"zello_to_asl_gain_db": 4, "asl_to_zello_gain_db": -6},
+    })
+    assert 'ASR_ZELLO_TO_ASL_GAIN_DB: "4"' in zello_compose
+    assert 'ASR_ASL_TO_ZELLO_GAIN_DB: "-6"' in zello_compose
+    assert 'USRP_GAIN_RX_DB: "-6"' in zello_compose
+    assert 'USRP_GAIN_TX_DB: "4"' in zello_compose
+
     host_installer = load("asr_container_test_host_installer", "asr-container-host-install.py")
     renderer = load("asr_container_test_renderer", "asr-bridge-setup-digital-render.py")
     setup_client = load("asr_container_test_setup_client", "asr-container-host-client.py")
@@ -980,6 +1324,8 @@ def main() -> int:
     test_managed_dmr_live_mount_migration(host_installer)
     test_managed_m17_bind_migration(host_installer)
     test_zello_relay_startup_reset(zello_installer)
+    test_zello_audio_meter_runtime(zello_installer)
+    test_zello_qualified_runtime(zello_installer)
     test_urf_image_transaction(urf_installer)
     test_p25_no_emulator_topology(digital, renderer)
     test_client_error_forwarding(setup_client, control_client)

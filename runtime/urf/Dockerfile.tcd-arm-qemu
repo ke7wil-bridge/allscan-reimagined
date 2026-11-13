@@ -17,7 +17,7 @@ RUN git clone https://github.com/nostar/md380_vocoder.git && \
     sed -i '/wget -N http:\/\/www.dudetronics.com\/radio\/md380/d' Makefile && \
     sed -i 's/^\tobjcopy/\tarm-linux-gnueabihf-objcopy/' Makefile && \
     make -j2 CC=arm-linux-gnueabihf-gcc AR=arm-linux-gnueabihf-ar && make install
-COPY patches/tcd/Controller.cpp /src/tcd/Controller.cpp
+COPY patches/tcd/Controller.cpp patches/tcd/Controller.h patches/tcd/Configure.cpp patches/tcd/Configure.h patches/tcd/AsrPcmMeter.h /src/tcd/
 RUN cp tcd/config/tcd.mk tcd/tcd.mk && \
     sed -i 's/^swambe2 = false/swambe2 = true/' tcd/tcd.mk && \
     sed -i 's/^swmodes = false/swmodes = true/' tcd/tcd.mk && \
