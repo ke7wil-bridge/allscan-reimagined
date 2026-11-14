@@ -20,6 +20,16 @@ REPEAT_REQUIRED = 3
 PROTECTED = re.compile(r"(?i)(asterisk|asl3|app_rpt)")
 SECRET = re.compile(r"(?i)\b(password|passwd|token|cookie|authorization|secret|tgif)\b\s*[:=]\s*([^\s,;]+)")
 RECOVERABLE = {"apache2.service", "connected-clients-daemon.service"}
+# IAX2/app_rpt stall signature (issue #185). During the 2026-11-13 net,
+# Asterisk froze for 10-25 s: dozens of channels resynced their jitter
+# buffers in the same second, the iax2_transmit taskprocessor hit its
+# high-water mark, peers hit "Max retries", and torn-down calls produced a
+# flood of "Silently dropping frame" lines. Thresholds are per 5-minute window.
+STALL_WINDOW = 300
+STALL_JB_BURST = 10          # jitter-buffer resyncs logged within one second
+STALL_TXQ_HITS = 3           # iax2_transmit high-water warnings
+STALL_DROPPED_FRAMES = 1000  # frames for calls Asterisk already destroyed
+STALL_MAX_RETRIES = 20       # IAX2 "Max retries exceeded"
 
 def sanitize_text(value: str) -> str:
     return SECRET.sub(lambda m: f"{m.group(1)}=[REDACTED]", value)[:240]
@@ -126,6 +136,10 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     import datetime
     now = time.time() if now is None else now
     log_path = Path(os.getenv("ASR_ASTERISK_LOG_PATH", "/var/log/asterisk/messages.log")) if log_path is None else Path(log_path)
+    # Native ASL3 hosts log in host-local time; the Asterisk container logs UTC.
+    # ASR_ASTERISK_LOG_TZ=utc|local overrides the per-source default.
+    log_tz = os.getenv("ASR_ASTERISK_LOG_TZ", "").strip().lower()
+    source_tz = "local"
     try:
         with log_path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
@@ -145,25 +159,64 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
             if result.returncode:
                 return {"available": False, "persistentChannels": [], "recentWarnings": 0}
             lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+            source_tz = "utc"
         except (OSError, subprocess.TimeoutExpired):
             return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+    use_utc = (log_tz or source_tz) == "utc"
+    def parse(stamp):
+        moment = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+        if use_utc: moment = moment.replace(tzinfo=datetime.timezone.utc)
+        return moment.timestamp()  # naive => host-local time
     recent = {}
-    pattern = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\].*Exceptionally long voice queue length \((\d+) voice / \d+ total\) queuing to ([-\w/]+);\d+")
+    stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+    queue_re = re.compile(r"Exceptionally long voice queue length \((\d+) voice / \d+ total\) queuing to ([-\w/]+);\d+")
+    stall = {"jbResyncMaxPerSecond": 0, "transmitQueueHighWater": 0, "droppedFrames": 0,
+             "maxRetries": 0, "loggerDiscards": 0, "first": None, "last": None}
+    jb_per_second = {}
     for line in lines:
-        match = pattern.search(line)
+        stamp = stamp_re.match(line)
+        if not stamp: continue
+        try: timestamp = parse(stamp[1])
+        except ValueError: continue
+        if not 0 <= now - timestamp <= STALL_WINDOW: continue
+        signal = None
+        if "Resyncing the jb" in line:
+            jb_per_second[stamp[1]] = jb_per_second.get(stamp[1], 0) + 1; signal = True
+        elif "Taskprocessor 'iax2_transmit' queue reached" in line:
+            stall["transmitQueueHighWater"] += 1; signal = True
+        elif "Silently dropping frame without existent call number" in line:
+            stall["droppedFrames"] += 1; signal = True
+        elif "Max retries exceeded to host" in line:
+            stall["maxRetries"] += 1; signal = True
+        elif "Log queue threshold" in line and "Discarding new messages" in line:
+            stall["loggerDiscards"] += 1; signal = True
+        if signal:
+            stall["first"] = timestamp if stall["first"] is None else min(stall["first"], timestamp)
+            stall["last"] = timestamp if stall["last"] is None else max(stall["last"], timestamp)
+            continue
+        match = queue_re.search(line)
         if not match: continue
-        # Asterisk container logs use UTC; do not interpret as host-local time.
-        timestamp = datetime.datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
-        if not 0 <= now - timestamp <= 300: continue
-        channel = match[3]
+        channel = match[2]
         entry = recent.setdefault(channel, {"count": 0, "first": timestamp, "last": timestamp, "maxVoiceFrames": 0})
         entry["count"] += 1
         entry["first"] = min(entry["first"], timestamp)
         entry["last"] = max(entry["last"], timestamp)
-        entry["maxVoiceFrames"] = max(entry["maxVoiceFrames"], int(match[2]))
+        entry["maxVoiceFrames"] = max(entry["maxVoiceFrames"], int(match[1]))
+    stall["jbResyncMaxPerSecond"] = max(jb_per_second.values(), default=0)
+    reasons = []
+    if stall["jbResyncMaxPerSecond"] >= STALL_JB_BURST: reasons.append("jitter-buffer resync burst")
+    if stall["transmitQueueHighWater"] >= STALL_TXQ_HITS: reasons.append("iax2_transmit queue at high-water")
+    if stall["droppedFrames"] >= STALL_DROPPED_FRAMES: reasons.append("frames for torn-down calls")
+    if stall["maxRetries"] >= STALL_MAX_RETRIES: reasons.append("IAX2 max retries")
+    if stall["loggerDiscards"]: reasons.append("Asterisk logger discarding")
+    # One noisy signal alone can be a single bad peer; require two, or the
+    # logger itself falling behind, before calling it a whole-process stall.
+    stall["suspected"] = len(reasons) >= 2 or bool(stall["loggerDiscards"])
+    stall["reasons"] = reasons
     persistent = [{"channel": name, **value} for name, value in recent.items()
                   if value["count"] >= 3 and value["last"] - value["first"] >= 10]
-    return {"available": True, "persistentChannels": persistent[:12], "recentWarnings": sum(v["count"] for v in recent.values())}
+    return {"available": True, "persistentChannels": persistent[:12],
+            "recentWarnings": sum(v["count"] for v in recent.values()), "stall": stall}
 
 def sample_once(allow_recovery=True):
     STATE_DIR.mkdir(parents=True, exist_ok=True); os.chmod(STATE_DIR, 0o750)
@@ -181,6 +234,9 @@ def sample_once(allow_recovery=True):
     state = load_json(STATE); warnings = warning_for(sample, state)
     if queue_health["persistentChannels"]:
         warnings.append("Asterisk has a persistent unconsumed audio queue; investigate IAXLink and app_rpt before TX hangs.")
+    if queue_health.get("stall", {}).get("suspected"):
+        warnings.append("Asterisk IAX2 stall signature in the last 5 minutes (" +
+                        ", ".join(queue_health["stall"]["reasons"]) + "); links may be dropping.")
     recovery = recover(sample, rows, state) if allow_recovery else None
     atomic(STATE, state, 0o600)
     record = {"sample": sample, "warnings": warnings, "snapshot": rows[:30] if warnings else [], "recovery": recovery}
