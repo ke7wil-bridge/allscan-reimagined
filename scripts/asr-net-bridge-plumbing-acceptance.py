@@ -396,8 +396,8 @@ def self_test() -> None:
     assert "ASR_ACCEPTANCE_READ_ONLY" in api and "persistedActivityEpoch" in api
     assert "zelloConfigured" in api and "activity_epoch' => $activityEpoch" in api
     source = Path(__file__).read_text()
-    retired = ".".join(("45", "76", "255", "39"))
-    assert retired not in source, "retired server must not be a default remote host"
+    backup_hub = ".".join(("45", "76", "255", "39"))
+    assert backup_hub not in source, "the live backup hub must not be a default remote host"
     print("PASS: production-path plumbing acceptance self-test")
 
 
@@ -410,7 +410,7 @@ def main() -> int:
     parser.add_argument("--asterisk-container", default="allstarlink3")
     parser.add_argument("--zello-node", default="1002")
     # No default: the reflector evidence host must be named explicitly so the
-    # harness never SSHes to a retired or production server by accident.
+    # harness never SSHes to the live backup hub or production by accident.
     parser.add_argument("--remote-host", default=os.environ.get("ASR_ACCEPTANCE_REMOTE_HOST", ""))
     parser.add_argument("--skip-remote-evidence", action="store_true")
     parser.add_argument("--duration", type=float, default=3.0)
