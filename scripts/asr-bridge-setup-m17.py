@@ -351,19 +351,15 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
     ports = core.derived_m17_ports(settings.bridge_id)
     if settings.card_type == "m17_net":
         ports = (ports[0], *core.unified_net_usrp_ports())
-    occupied = set(facts.listening_udp_ports)
-    for bridge in config.get("bridges", []):
-        if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
-            continue
-        for key in ("m17BindPort", "m17UsrpRxPort"):
-            try:
-                occupied.add(int(bridge[key]))
-            except (KeyError, TypeError, ValueError):
-                pass
-    if settings.card_type == "m17_net" and (shared_net_node or existing is not None):
-        occupied -= set(core.unified_net_usrp_ports())
-    if ports[0] in occupied or ports[1] in occupied:
-        raise InstallError("derived M17 receive port is already in use")
+    endpoint_guard = load_module("asr_bridge_endpoint_guard_m17", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(
+            root, config, settings.bridge_id, "m17",
+            {"m17": ports[0], "usrpRx": ports[1], "usrpTx": ports[2]},
+            role="net" if settings.card_type == "m17_net" else "standard",
+        )
+    except ValueError as exc:
+        raise InstallError(str(exc)) from exc
     errors = dependency_errors(root)
     if errors:
         raise InstallError("; ".join(errors))
