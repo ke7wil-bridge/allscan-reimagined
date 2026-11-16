@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""TGIF DMR proxy for ASR-managed direct DVSwitch DMR bridges."""
 import json
 import fcntl
 import os
@@ -16,11 +17,6 @@ TGIF_HOST = os.environ.get("TGIF_HOST", "tgif.network")
 TGIF_PORT = int(os.environ.get("TGIF_PORT", "62031"))
 LOCAL_PORT = int(os.environ.get("LOCAL_PORT", "62040"))
 MMDVM_PORT = int(os.environ.get("MMDVM_PORT", "62033"))
-URF_HOST = os.environ.get("URF_HOST", "127.0.0.1")
-URF_PORT = int(os.environ.get("URF_PORT", "62030"))
-URF_LOCAL_PORT = int(os.environ.get("URF_LOCAL_PORT", "62032"))
-URF_ENABLED = os.environ.get("URF_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
-URF_TG = int(os.environ.get("URF_TG", "4001"))
 TGIF_TG = int(os.environ.get("TGIF_TG", "86753"))
 TARGET_FILE = os.environ.get("TGIF_TARGET_FILE", "")
 BLOCKED = {int(x) for x in os.environ.get("BLOCKED_DMR_IDS", "").split(",") if x.strip().isdigit()}
@@ -33,8 +29,6 @@ EVIDENCE_FILE = os.environ.get(
 )
 ID_LOOKUP_FILE = os.environ.get("DMR_ID_LOOKUP_FILE", "")
 CALLSIGN = os.environ.get("CALLSIGN", "").strip().upper()
-URF_IDENTITY_FILE = os.path.join(HEALTH_DIR, "urf-identity.json") if HEALTH_DIR else ""
-urf_login_attempts = 0
 id_lookup_cache = {"mtime": -1.0, "values": {}}
 last_dropped_kick = {}
 last_evidence_heartbeat = 0
@@ -83,27 +77,6 @@ def clear_health(name):
         pass
 
 
-def publish_urf_identity(state):
-    """Publish the latest local URFD authentication result atomically."""
-    if not URF_IDENTITY_FILE:
-        return
-    payload = {
-        "state": state,
-        "dmrid": str(DMR_ID),
-        "callsign": CALLSIGN,
-        "attempts": urf_login_attempts,
-        "updated_epoch": int(time.time()),
-    }
-    try:
-        os.makedirs(os.path.dirname(URF_IDENTITY_FILE), exist_ok=True)
-        temporary = URF_IDENTITY_FILE + ".tmp"
-        with open(temporary, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, separators=(",", ":"))
-        os.replace(temporary, URF_IDENTITY_FILE)
-    except OSError:
-        pass
-
-
 def publish_dmr_client(source, now=None):
     if not ROSTER_FILE or not source:
         return
@@ -119,7 +92,7 @@ def publish_dmr_client(source, now=None):
     except (OSError, ValueError):
         pass
     events = prior.get("events", []) if isinstance(prior, dict) else []
-    prior_rows = prior.get("urf_dmr", []) if isinstance(prior, dict) else []
+    prior_rows = prior.get("clients", []) if isinstance(prior, dict) else []
     prior_ids = {str(item.get("dmrid") or item.get("id") or "") for item in prior_rows if isinstance(item, dict)}
     prior_seen = max((int(item.get("last_seen_epoch", 0)) for item in prior_rows if isinstance(item, dict) and str(item.get("dmrid") or item.get("id") or "") == str(source)), default=0)
     # A source returning after the same 45-second expiry used by Connected Clients is a new session.
@@ -136,7 +109,7 @@ def publish_dmr_client(source, now=None):
             if isinstance(item, dict)
             and str(item.get("dmrid") or item.get("id") or "") != str(source)]
     rows.append(row)
-    payload = {"urf_dmr": rows, "events": events, "_asr_meta": {"urf_dmr": {"kind": "current", "mode": "dmr"}}}
+    payload = {"clients": rows, "events": events, "_asr_meta": {"clients": {"kind": "current", "mode": "dmr"}}}
     os.makedirs(os.path.dirname(ROSTER_FILE), exist_ok=True)
     tmp = ROSTER_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
@@ -154,7 +127,7 @@ def remove_dmr_client(source, reason="disconnect"):
         return
     if not isinstance(prior, dict):
         return
-    rows = [row for row in prior.get("urf_dmr", []) if isinstance(row, dict)]
+    rows = [row for row in prior.get("clients", []) if isinstance(row, dict)]
     removed = [row for row in rows if str(row.get("dmrid") or row.get("id") or "") == str(source)]
     if not removed:
         return
@@ -162,7 +135,7 @@ def remove_dmr_client(source, reason="disconnect"):
     events = [item for item in prior.get("events", []) if isinstance(item, dict)]
     for row in removed:
         events.append({"dmrid": str(source), "callsign": row.get("callsign", ""), "event": "disconnect", "epoch": epoch, "reason": reason})
-    prior["urf_dmr"] = [row for row in rows if row not in removed]
+    prior["clients"] = [row for row in rows if row not in removed]
     prior["events"] = events[-100:]
     tmp = ROSTER_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
@@ -398,10 +371,6 @@ def destination_id(packet):
     return None
 
 
-def rewrite_for_urf(packet):
-    return rewrite_dst(packet, 4000 if destination_id(packet) == 4000 else URF_TG)
-
-
 def active_tgif_tg():
     if TARGET_FILE:
         try:
@@ -424,66 +393,17 @@ def inbound_matches_active_tg(packet):
     )
 
 
-def rewrite_for_tgif(packet):
-    if not packet.startswith(b"DMRD") or len(packet) < 15:
+def rewrite_outbound_target(packet):
+    """Address local DMR media to the Net Bridge's selected talkgroup.
+
+    Only a configured TGIF_TARGET_FILE (Net Bridge) retargets traffic; a
+    fixed Standard bridge forwards MMDVM_Bridge's own talkgroup unchanged.
+    Disconnect TG 4000 is never rewritten."""
+    if not TARGET_FILE or not packet.startswith(b"DMRD") or len(packet) < 11:
         return packet
-    out = bytearray(packet)
-    target = active_tgif_tg()
-    out[5:8] = DMR_ID.to_bytes(3, "big")
-    out[8:11] = target.to_bytes(3, "big")
-    out[11:15] = network_id_bytes()
-    return bytes(out)
-
-
-def urf_login(sock):
-    sock.send(b"RPTL" + subscriber_id_bytes())
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        try:
-            packet = sock.recv(256)
-        except socket.timeout:
-            continue
-        if packet.startswith(b"RPTACK") and len(packet) >= 10:
-            # URFD's local managed reflector only validates the standard RPTK
-            # packet shape/DMR identity; the TGIF credential stays on the TGIF side.
-            sock.send(b"RPTK" + subscriber_id_bytes() + (b"\x00" * 32))
-            continue
-        if packet == b"RPTACK":
-            return True
-        if packet.startswith(b"MSTNAK"):
-            return False
-    return False
-
-
-def connect_urf():
-    global urf_login_attempts
-    urf_login_attempts += 1
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("127.0.0.1", URF_LOCAL_PORT))
-    sock.connect((URF_HOST, URF_PORT))
-    sock.settimeout(0.5)
-    if not urf_login(sock):
-        sock.close()
-        publish_urf_identity("rejected")
-        print(
-            f"URFWIL DMR login rejected for DMR ID {DMR_ID}; verify the configured DMR identity",
-            flush=True,
-        )
-        return None
-    sock.setblocking(False)
-    mark_health("urf")
-    publish_urf_identity("authenticated")
-    print(f"URFWIL DMR session connected: {URF_HOST}:{URF_PORT}", flush=True)
-    return sock
-
-
-def close_urf(sock, reason):
-    clear_health("urf")
-    print(f"URFWIL DMR session lost ({reason}); reconnecting", flush=True)
-    try:
-        sock.close()
-    except OSError:
-        pass
+    if destination_id(packet) == 4000:
+        return packet
+    return rewrite_dst(packet, active_tgif_tg())
 
 
 def connect_tgif():
@@ -509,8 +429,6 @@ def validate_config():
         raise ValueError("DMR_NETWORK_ID must fit the MMDVM 32-bit repeater-ID field")
     if not 1 <= TGIF_TG <= 0xFFFFFF or TGIF_TG == 4000:
         raise ValueError("TGIF_TG must be 1-16777215 and cannot be disconnect TG 4000")
-    if URF_ENABLED and not 1 <= URF_TG <= 0xFFFFFF:
-        raise ValueError("URF_TG must be 1-16777215")
 
 
 def main():
@@ -522,25 +440,15 @@ def main():
     tgif = None
 
     print(
-        f"TGIF/URF DMR bridge active: TGIF={TGIF_HOST}:{TGIF_PORT} "
-        f"URF={'disabled' if not URF_ENABLED else f'{URF_HOST}:{URF_PORT}'} "
-        f"TGIF_TG={TGIF_TG} URF_TG={URF_TG}",
+        f"TGIF DMR proxy active: TGIF={TGIF_HOST}:{TGIF_PORT} TGIF_TG={TGIF_TG}"
+        f"{' (Net Bridge target file)' if TARGET_FILE else ''}",
         flush=True,
     )
-    urf = None
-    last_urf_attempt = 0.0
-    last_urf_response = 0.0
-    last_ping = 0.0
     last_tgif_ping = 0.0
     last_tgif_attempt = 0.0
     tgif_authenticated = False
     tgif_login_phase = ""
     clear_health("tgif")
-    clear_health("urf")
-    try:
-        os.unlink(URF_IDENTITY_FILE)
-    except (FileNotFoundError, OSError):
-        pass
 
     while True:
         now = time.monotonic()
@@ -556,28 +464,6 @@ def main():
                 tgif = connect_tgif()
             except OSError as error:
                 print(f"TGIF DMR reconnect failed: {error}", flush=True)
-
-        if URF_ENABLED and urf is None and now - last_urf_attempt >= 2:
-            last_urf_attempt = now
-            try:
-                urf = connect_urf()
-            except OSError as error:
-                print(f"URFWIL DMR reconnect failed: {error}", flush=True)
-            if urf is not None:
-                last_urf_response = now
-                last_ping = now
-
-        if urf is not None and now - last_urf_response >= 15:
-            close_urf(urf, "keepalive response timeout")
-            urf = None
-
-        if urf is not None and now - last_ping >= 5:
-            try:
-                urf.send(b"RPTPING" + subscriber_id_bytes())
-                last_ping = now
-            except OSError as error:
-                close_urf(urf, error)
-                urf = None
 
         # The pinned MMDVM_Bridge sends RPTPING every ten seconds, while TGIF's
         # master can expire an idle peer sooner after only a small amount of
@@ -596,8 +482,6 @@ def main():
         sockets = [local]
         if tgif is not None:
             sockets.append(tgif)
-        if urf is not None:
-            sockets.append(urf)
         readable, _, _ = select.select(sockets, [], [], 1)
         # Traffic-derived roster fallback: expire silent clients after 10 seconds.
         # This keeps stale clients from appearing connected after the app/session is gone.
@@ -605,7 +489,7 @@ def main():
             with open(ROSTER_FILE, "r", encoding="utf-8") as handle:
                 roster = json.load(handle)
             now_epoch = int(time.time())
-            for row in list(roster.get("urf_dmr", [])):
+            for row in list(roster.get("clients", [])):
                 if isinstance(row, dict) and now_epoch - int(row.get("last_seen_epoch", 0)) > 10:
                     remove_dmr_client(int(row.get("dmrid") or row.get("id") or 0), "disconnect")
         except (OSError, ValueError, TypeError):
@@ -626,7 +510,7 @@ def main():
                     # its normal timeout/re-authentication path from running.
                     if tgif is not None and admin_media_allowed(packet, "outbound"):
                         try:
-                            tgif.send(packet)
+                            tgif.send(rewrite_outbound_target(packet))
                         except OSError as error:
                             close_tgif(tgif, error)
                             tgif = None
@@ -674,39 +558,7 @@ def main():
                 if sid:
                     publish_dmr_client(sid)
                 local.sendto(packet, ("127.0.0.1", MMDVM_PORT))
-                if urf is not None and packet.startswith(b"DMRD"):
-                    try:
-                        urf.send(rewrite_for_urf(packet))
-                    except OSError as error:
-                        close_urf(urf, error)
-                        urf = None
                 continue
-
-            try:
-                packet = urf.recv(4096)
-                last_urf_response = time.monotonic()
-                mark_health("urf")
-            except OSError as error:
-                close_urf(urf, error)
-                urf = None
-                continue
-            if packet.startswith(b"MSTPONG"):
-                continue
-            if packet.startswith(b"MSTCL"):
-                close_urf(urf, "server closed the session")
-                urf = None
-                continue
-            if packet.startswith(b"DMRD"):
-                # URFD emits TG9 and may not have a DMR ID for USRP-originated audio.
-                # Present a complete, authenticated DMR identity and the selected TGIF TG.
-                if tgif_authenticated and admin_media_allowed(packet, "outbound"):
-                    try:
-                        tgif.send(rewrite_for_tgif(packet))
-                    except OSError as error:
-                        close_tgif(tgif, error)
-                        tgif = None
-                        tgif_authenticated = False
-                        tgif_login_phase = ""
 
 
 def self_test():
@@ -716,13 +568,10 @@ def self_test():
     packet[5:8] = (1234567).to_bytes(3, "big")
     packet[8:11] = TGIF_TG.to_bytes(3, "big")
     packet[11:15] = (7654321).to_bytes(4, "big")
-    toward_urf = rewrite_for_urf(bytes(packet))
     old_roster = globals().get("ROSTER_FILE", "")
     old_target = globals().get("TARGET_FILE", "")
-    old_identity_file = globals().get("URF_IDENTITY_FILE", "")
     old_control = globals().get("CONTROL_FILE", "")
     old_evidence = globals().get("EVIDENCE_FILE", "")
-    old_attempts = globals().get("urf_login_attempts", 0)
     try:
         with tempfile.TemporaryDirectory() as scratch:
             globals()["CONTROL_FILE"] = os.path.join(scratch, "dmr-admin.json")
@@ -786,21 +635,11 @@ def self_test():
                 handle.write("{bad")
             assert not admin_media_allowed(bytes(packet), "inbound", 222)
             globals()["ROSTER_FILE"] = os.path.join(scratch, "dmr-clients.json")
-            globals()["URF_IDENTITY_FILE"] = os.path.join(scratch, "urf-identity.json")
-            globals()["urf_login_attempts"] = 2
-            publish_urf_identity("rejected")
-            with open(globals()["URF_IDENTITY_FILE"], "r", encoding="utf-8") as handle:
-                identity = json.load(handle)
-            assert identity["state"] == "rejected" and identity["attempts"] == 2
-            publish_urf_identity("authenticated")
-            with open(globals()["URF_IDENTITY_FILE"], "r", encoding="utf-8") as handle:
-                identity = json.load(handle)
-            assert identity["state"] == "authenticated"
             publish_dmr_client(1234567, 100)
             publish_dmr_client(7654321, 101)
             with open(globals()["ROSTER_FILE"], "r", encoding="utf-8") as handle:
                 roster = json.load(handle)
-            assert {row["dmrid"] for row in roster["urf_dmr"]} == {"1234567", "7654321"}
+            assert {row["dmrid"] for row in roster["clients"]} == {"1234567", "7654321"}
             globals()["TARGET_FILE"] = os.path.join(scratch, "net-target")
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("67498\n")
@@ -814,24 +653,22 @@ def self_test():
             packet[15] = 0x00
             assert inbound_matches_active_tg(bytes(packet)) is False
             assert inbound_matches_active_tg(b"MSTPONG") is True
+            outbound = bytearray(packet); outbound[8:11] = (86753).to_bytes(3, "big")
+            assert destination_id(rewrite_outbound_target(bytes(outbound))) == 67498
+            outbound[8:11] = (4000).to_bytes(3, "big")
+            assert destination_id(rewrite_outbound_target(bytes(outbound))) == 4000
+            assert rewrite_outbound_target(b"RPTPING-control") == b"RPTPING-control"
             with open(globals()["TARGET_FILE"], "w", encoding="ascii") as handle:
                 handle.write("4000\n")
             assert active_tgif_tg() == TGIF_TG
     finally:
         globals()["ROSTER_FILE"] = old_roster
         globals()["TARGET_FILE"] = old_target
-        globals()["URF_IDENTITY_FILE"] = old_identity_file
         globals()["CONTROL_FILE"] = old_control
         globals()["EVIDENCE_FILE"] = old_evidence
-        globals()["urf_login_attempts"] = old_attempts
-    assert destination_id(toward_urf) == URF_TG
-    packet[8:11] = (4000).to_bytes(3, "big")
-    assert destination_id(rewrite_for_urf(bytes(packet))) == 4000
-    toward_tgif = rewrite_for_tgif(bytes(packet))
-    assert source_id(toward_tgif) == DMR_ID
-    assert destination_id(toward_tgif) == active_tgif_tg()
-    assert toward_tgif[11:15] == network_id_bytes()
-    print("TGIF/URFWIL DMR adapter self-test: ok")
+    # Without a Net Bridge target file the fixed Standard talkgroup is untouched.
+    assert rewrite_outbound_target(bytes(packet)) == bytes(packet)
+    print("TGIF DMR proxy self-test: ok")
 
 
 if __name__ == "__main__":

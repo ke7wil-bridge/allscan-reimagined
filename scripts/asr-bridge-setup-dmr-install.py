@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -68,7 +69,12 @@ def atomic(path: Path, data: bytes, mode: int) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def file_spec(plan: dict, stage: Path, password: str, creation_id: str) -> dict[str, tuple[bytes, int]]:
+def is_net(plan: dict) -> bool:
+    return str(plan.get("role") or plan["settings"].get("bridge_role") or "standard") == "net"
+
+
+def file_spec(plan: dict, stage: Path, password: str, creation_id: str,
+              static_token: str = "") -> dict[str, tuple[bytes, int]]:
     if not password or len(password) > 128 or any(ord(ch) < 33 or ord(ch) == 127 for ch in password):
         raise InstallError("a valid DMR master credential is required")
     base = plan["resources"]["root"]
@@ -79,13 +85,13 @@ def file_spec(plan: dict, stage: Path, password: str, creation_id: str) -> dict[
         if source.is_symlink() or not source.is_file():
             raise InstallError(f"missing verified binary {name}")
         outputs[f"{base}/{folder}/{name}"] = source.read_bytes(), 0o750
-    proxy = HERE.parent / "runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py"
+    proxy = HERE.parent / "runtime/dmr/asr-tgif-dmr-proxy.py"
     if not proxy.is_file():
-        proxy = HERE / "asr-tgif-urf-dmr-bridge.py"
+        proxy = HERE / "asr-tgif-dmr-proxy.py"
     if proxy.is_symlink() or not proxy.is_file():
         raise InstallError("direct DMR TGIF proxy is unavailable")
     proxy_data = proxy.read_bytes()
-    if (b"URF_ENABLED" not in proxy_data or b"banned_callsigns" not in proxy_data
+    if (b"TGIF_TARGET_FILE" not in proxy_data or b"banned_callsigns" not in proxy_data
             or b"dmr-local-media-v1" not in proxy_data or b"admin_media_allowed" not in proxy_data):
         raise InstallError("direct DMR TGIF proxy lacks verified direct-mode enforcement support")
     outputs.update({
@@ -108,6 +114,13 @@ def file_spec(plan: dict, stage: Path, password: str, creation_id: str) -> dict[
     if admin.is_symlink() or not admin.is_file():
         raise InstallError("direct DMR administration adapter is unavailable")
     outputs[f"{base}/admin/asr-dmr-standalone-admin-adapter.py"] = admin.read_bytes(), 0o750
+    if is_net(plan):
+        # Static talkgroup membership is how the managed Net DMR controller
+        # moves this TGIF session between destinations.
+        token = static_token.strip()
+        if not 16 <= len(token) <= 4096 or any(ord(ch) < 33 or ord(ch) > 126 for ch in token):
+            raise InstallError("the DMR Net Bridge requires a valid TGIF Static TG API token")
+        outputs[plan["resources"]["staticToken"]] = (token + "\n").encode(), 0o600
     for path, content in renderer.unit_texts(plan, creation_id).items():
         outputs[path] = content.encode(), 0o644
     marker = lifecycle.ownership_payload(plan["settings"]["bridge_id"], creation_id)
@@ -139,7 +152,20 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         "credentialRef": f"{plan['resources']['root']}/secrets/master-password",
         "fixedBridgeRecovery": True, "liveAudioVerified": False,
     }
+    net = is_net(plan)
+    if net:
+        entry.update({
+            "cardType": "dmr_net", "title": s["title"] or "DMR Net Bridge",
+            "managedNetControl": True, "fixedBridgeRecovery": False,
+            "managedTargetFile": plan["resources"]["netTarget"],
+            "tgifStaticTokenPath": plan["resources"]["staticToken"],
+            "allowTune": True, "approvedDestinations": [str(s["talkgroup"])],
+        })
+        entry.pop("fixedDestination", None)
     bridges = config.setdefault("bridges", [])
+    prior_net_ids = [str(item.get("id")) for item in bridges
+                     if isinstance(item, dict) and item.get("cardType") in planner.NET_CARD_TYPES
+                     and str(item.get("node", "")) == str(planner.NET_NODE) and item.get("id")]
     matches = [index for index, item in enumerate(bridges) if isinstance(item, dict) and item.get("id") == identity]
     if len(matches) > 1:
         raise InstallError("duplicate DMR bridge identity")
@@ -147,9 +173,27 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         bridges[matches[0]] = entry
     else:
         bridges.append(entry)
+    if net and "netBridgeMode" not in config:
+        config["netBridgeMode"] = "dmr"
     outputs[planner.CONFIG] = json.dumps(config, indent=2, sort_keys=True).encode() + b"\n", config_path.stat().st_mode & 0o777
     rpt_path = rooted(root, planner.RPT)
-    rpt = m17.insert_nodes_mapping(rpt_path.read_text(), plan["bridgeNode"])
+    # Net backends share node 1999. Only the selected Net mode owns its
+    # rpt.conf section; installing an inactive DMR Net backend leaves the live
+    # transport alone and the mode controller performs later swaps.
+    if net and str(config.get("netBridgeMode") or "").lower() != "dmr":
+        modules_path = rooted(root, planner.MODULES)
+        outputs[planner.MODULES] = m17.ensure_usrp_module(modules_path.read_text()).encode(), modules_path.stat().st_mode & 0o777
+        integration_secrets(root, outputs, identity, password, creation_id)
+        return
+    rpt_text = rpt_path.read_text()
+    if net:
+        for old_id in prior_net_ids:
+            if old_id == identity:
+                continue
+            for prefix in (m17.MANAGED_PREFIX, "; ASR MANAGED "):
+                begin, end = f"{prefix}BEGIN {old_id}", f"{prefix}END {old_id}"
+                rpt_text = re.sub(rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*\n?", "", rpt_text)
+    rpt = m17.insert_nodes_mapping(rpt_text, plan["bridgeNode"])
     # Convert only this bridge's exact owned block to the M17 helper's
     # temporary marker format, so an update can replace its existing node.
     owned_begin = f"; BEGIN ASR BRIDGE {identity} {creation_id}"
@@ -160,12 +204,18 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
         rpt = rpt.replace(owned_begin, f"{m17.MANAGED_PREFIX}BEGIN {identity}", 1)
         rpt = rpt.replace(owned_end, f"{m17.MANAGED_PREFIX}END {identity}", 1)
     rpt = m17.upsert_node_section(rpt, identity, plan["bridgeNode"], p["usrp_rx"], p["usrp_tx"])
-    rpt = rpt.replace(f"[{plan['bridgeNode']}] ; M17 Bridge ({identity})", f"[{plan['bridgeNode']}] ; Direct DMR Bridge ({identity})")
+    label = "DMR Net Bridge" if net else "Direct DMR Bridge"
+    rpt = rpt.replace(f"[{plan['bridgeNode']}] ; M17 Bridge ({identity})", f"[{plan['bridgeNode']}] ; {label} ({identity})")
     rpt = rpt.replace(f"{m17.MANAGED_PREFIX}BEGIN {identity}", f"; BEGIN ASR BRIDGE {identity} {creation_id}")
     rpt = rpt.replace(f"{m17.MANAGED_PREFIX}END {identity}", f"; END ASR BRIDGE {identity} {creation_id}")
     outputs[planner.RPT] = rpt.encode(), rpt_path.stat().st_mode & 0o777
     modules_path = rooted(root, planner.MODULES)
     outputs[planner.MODULES] = m17.ensure_usrp_module(modules_path.read_text()).encode(), modules_path.stat().st_mode & 0o777
+    integration_secrets(root, outputs, identity, password, creation_id)
+
+
+def integration_secrets(root: Path, outputs: dict[str, tuple[bytes, int]], identity: str,
+                        password: str, creation_id: str) -> None:
     secrets_path = rooted(root, SECRETS)
     secrets = json.loads(secrets_path.read_text()) if secrets_path.is_file() else {"schema": 1, "bridges": {}}
     if not isinstance(secrets, dict) or not isinstance(secrets.get("bridges"), dict):
@@ -211,6 +261,14 @@ def apply_services(plan: dict, restart_asterisk: bool) -> None:
     raise InstallError("TGIF authentication did not become healthy")
 
 
+def stop_services(plan: dict) -> None:
+    """Install an inactive Net Bridge backend without leaving it enabled."""
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
+    for service in reversed(plan["services"]):
+        subprocess.run(["systemctl", "disable", "--now", service], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def ownership_manifest(plan: dict, creation_id: str) -> dict:
     identity, root = plan["settings"]["bridge_id"], Path(plan["resources"]["root"])
     units = []
@@ -220,16 +278,18 @@ def ownership_manifest(plan: dict, creation_id: str) -> dict:
         units.append({"name": name, "unitFile": str(path), "sha256": lifecycle.sha256_path(path),
                       "ownerMarker": marker})
     found = lifecycle.marked_block(Path(planner.RPT), identity, creation_id)
-    if found is None:
+    if found is None and not is_net(plan):
         raise InstallError("direct DMR Asterisk ownership block is missing")
-    _outside, owned = found
+    owned = found[1] if found is not None else []
     admin_root = Path("/run/asr-standalone-admin") / identity
     return {
         "schema": 1, "ownership": "asr", "createdBy": lifecycle.CREATED_BY,
-        "creationId": creation_id, "bridgeId": identity, "mode": "dmr", "role": "standard",
+        "creationId": creation_id, "bridgeId": identity, "mode": "dmr",
+        "role": "net" if is_net(plan) else "standard",
         "mainNode": str(plan["mainNode"]), "bridgeNode": str(plan["bridgeNode"]),
-        "asteriskBlocks": [{"path": planner.RPT, "marker": identity, "creationId": creation_id,
-                            "sha256": hashlib.sha256("".join(owned).encode()).hexdigest()}],
+        "asteriskBlocks": ([{"path": planner.RPT, "marker": identity, "creationId": creation_id,
+                             "sha256": hashlib.sha256("".join(owned).encode()).hexdigest()}]
+                           if found is not None else []),
         "units": units,
         "ownedPaths": [{"path": str(root), "kind": "directory", "sha256": "",
                         "marker": str(root / ".asr-bridge-owner.json")}],
@@ -244,7 +304,8 @@ def ownership_manifest(plan: dict, creation_id: str) -> dict:
 
 
 def install(root: Path, settings, stage: Path, password: str, *, expected_digest: str,
-            manage_services: bool = False, fail_after: int | None = None) -> dict:
+            manage_services: bool = False, fail_after: int | None = None,
+            static_token: str = "") -> dict:
     if manage_services and root != Path("/"):
         raise InstallError("service management is valid only on the real host")
     plan = planner.plan(root, settings)
@@ -265,7 +326,7 @@ def install(root: Path, settings, stage: Path, password: str, *, expected_digest
             creation_id = manifest["creationId"]
         else:
             intent = lifecycle.preflight_creation({
-                "bridgeId": settings.bridge_id, "mode": "dmr", "role": "standard",
+                "bridgeId": settings.bridge_id, "mode": "dmr", "role": plan.get("role", "standard"),
                 "mainNode": str(plan["mainNode"]), "bridgeNode": str(plan["bridgeNode"]),
                 "units": plan["services"],
                 "runtimePaths": [f"/run/asr-standalone-admin/{settings.bridge_id}/capabilities.json"],
@@ -273,7 +334,7 @@ def install(root: Path, settings, stage: Path, password: str, *, expected_digest
             })
             creation_id = intent["creationId"]
             new_lifecycle = True
-    outputs = file_spec(plan, stage, password, creation_id)
+    outputs = file_spec(plan, stage, password, creation_id, static_token)
     integration_files(root, plan, outputs, password, creation_id)
     allowed = set(old_record.get("ownedFiles", [])) if isinstance(old_record, dict) else set()
     shared = {planner.CONFIG, planner.RPT, planner.MODULES, SECRETS, record_logical}
@@ -308,23 +369,29 @@ def install(root: Path, settings, stage: Path, password: str, *, expected_digest
             for logical in outputs:
                 if logical.startswith(plan["resources"]["root"] + "/"):
                     os.chown(rooted(root, logical), 0, group)
+        net_inactive = is_net(plan) and str(json.loads(rooted(root, planner.CONFIG).read_text()).get(
+            "netBridgeMode") or "").lower() != "dmr"
         if manage_services:
-            apply_services(plan, asterisk_changed)
+            if net_inactive:
+                stop_services(plan)
+            else:
+                apply_services(plan, asterisk_changed)
         if new_lifecycle:
             lifecycle.register_created_manifest(ownership_manifest(plan, creation_id))
         record = {"schema": 1, "bridgeType": "dmr", "architecture": "direct-dvswitch",
+                  "role": plan.get("role", "standard"),
                   "bridgeId": settings.bridge_id, "bridgeNode": plan["bridgeNode"],
                   "dmrNetworkId": plan["dmrNetworkId"], "ports": plan["ports"],
                   "services": plan["services"], "credentialRef": f"{plan['resources']['root']}/secrets/master-password",
                   "creationId": creation_id, "lifecycleOwned": manage_services,
                   "ownedFiles": sorted(path for path in outputs if path not in shared),
-                  "provisioningVerified": manage_services, "liveAudioVerified": False,
+                  "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False,
                   "committedAt": old_record.get("committedAt", int(time.time())) if old_record else int(time.time())}
         atomic(record_path, (json.dumps(record, indent=2, sort_keys=True) + "\n").encode(), 0o600)
         return {"ok": True, "digest": plan["digest"], "bridgeId": settings.bridge_id,
                 "bridgeNode": plan["bridgeNode"], "dmrNetworkId": str(plan["dmrNetworkId"]),
                 "services": plan["services"], "changedFiles": changed, "backup": str(backup),
-                "provisioningVerified": manage_services, "liveAudioVerified": False}
+                "provisioningVerified": manage_services and not net_inactive, "liveAudioVerified": False}
     except Exception:
         for logical in reversed(paths):
             target, original = rooted(root, logical), before[logical]

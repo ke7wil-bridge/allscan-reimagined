@@ -129,6 +129,10 @@ Enable=0
 def run_mmdvm(plan: dict[str, Any]) -> str:
     root, s, p = plan["resources"]["root"], plan["settings"], plan["ports"]
     runtime = f"/run/asr-direct-dmr-{s['bridge_id']}"
+    # The Net Bridge follows the talkgroup selected by the managed Net DMR
+    # controller; a Standard bridge keeps its fixed talkgroup.
+    target = plan.get("resources", {}).get("netTarget")
+    net_target = f"export TGIF_TARGET_FILE={target}\n" if target else ""
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 umask 077
@@ -148,8 +152,8 @@ target.chmod(0o600)
 PY
 export DMR_ID={s['dmr_id']} DMR_NETWORK_ID={plan['dmrNetworkId']}
 export CALLSIGN={s['callsign']} TGIF_HOST={s['master_host']} TGIF_PORT={s['master_port']} TGIF_TG={s['talkgroup']}
-export LOCAL_PORT={p['mmdvm_local']} MMDVM_PORT={p['mmdvm_remote']} URF_ENABLED=0
-export HEALTH_DIR="$runtime" DMR_ROSTER_FILE="$runtime/dmr-clients.json" DMR_CONTROL_FILE="$runtime/dmr-admin.json"
+export LOCAL_PORT={p['mmdvm_local']} MMDVM_PORT={p['mmdvm_remote']}
+{net_target}export HEALTH_DIR="$runtime" DMR_ROSTER_FILE="$runtime/dmr-clients.json" DMR_CONTROL_FILE="$runtime/dmr-admin.json"
 export DMR_EVIDENCE_FILE="$runtime/dmr-admin-enforcement.json"
 export DMR_ID_LOOKUP_FILE={root}/mmdvm/DMRIds.dat
 python3 {root}/mmdvm/asr-tgif-dmr-proxy.py &

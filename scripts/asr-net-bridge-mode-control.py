@@ -133,62 +133,34 @@ def service_units(mode: str, bridge: dict) -> list[str]:
     return units
 
 
-def dmr_compose(bridge: dict) -> Path:
-    bridge_id = str(bridge["id"])
-    expected = Path(f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target")
-    target = Path(str(bridge.get("managedTargetFile", "")))
-    if (bridge.get("managedNetControl") is not True
-            or bridge.get("backendMode") != "managed" or target != expected):
-        raise ModeError("DMR Net Bridge runtime allowlist is invalid")
-    return target.parent.parent / "compose.yml"
+DMR_RUNTIME_BASE = Path("/opt/allscan-reimagined-bridges")
 
 
-def native_dmr_units(bridge: dict) -> list[str]:
+def dmr_runtime_root(bridge: dict) -> Path:
+    """Validate the direct DMR Net runtime and return its managed root."""
     bridge_id = str(bridge["id"])
     if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
         raise ModeError("DMR Net Bridge ID is invalid")
-    return [
-        f"allscan-reimagined-urf-tgif-{bridge_id}.service",
-        f"allscan-reimagined-urfd-{bridge_id}.service",
-        f"allscan-reimagined-tcd-{bridge_id}.service",
-        f"allscan-reimagined-tgif-{bridge_id}.service",
-    ]
+    root = DMR_RUNTIME_BASE / bridge_id
+    target = Path(str(bridge.get("managedTargetFile", "")))
+    if (bridge.get("managedNetControl") is not True
+            or bridge.get("backendMode") != "managed"
+            or bridge.get("architecture") != "direct-dvswitch"
+            or target != root / "tgif-run" / "net-target"):
+        raise ModeError("DMR Net Bridge runtime allowlist is invalid")
+    return root
+
+
+def dmr_units(bridge: dict) -> list[str]:
+    dmr_runtime_root(bridge)
+    bridge_id = str(bridge["id"])
+    return [f"asr-dmr-{part}-{bridge_id}.service" for part in ("vocoder", "mmdvm", "analog", "admin")]
 
 
 def runtime_argv(mode: str, bridge: dict, verb: str) -> list[list[str]]:
     if verb not in {"start", "stop", "status"}:
         raise ModeError("invalid runtime operation")
-    if mode == "dmr":
-        if not CONTAINERIZED:
-            parent, *workers = native_dmr_units(bridge)
-            if verb == "start":
-                return [[SYSTEMCTL, "enable", "--now", parent],
-                        *[[SYSTEMCTL, "start", unit] for unit in workers]]
-            if verb == "stop":
-                return [*[[SYSTEMCTL, "stop", unit] for unit in reversed(workers)],
-                        [SYSTEMCTL, "disable", "--now", parent]]
-            return [[SYSTEMCTL, "is-active", "--quiet", unit]
-                    for unit in (parent, *workers)]
-        compose = dmr_compose(bridge)
-        project = str(bridge["id"])
-        unit = f"allscan-reimagined-urf-tgif-{bridge['id']}.service"
-        if verb == "start":
-            return [
-                [SYSTEMCTL, "enable", unit],
-                ["docker", "compose", "-f", str(compose), "-p", project,
-                 "up", "-d"],
-            ]
-        if verb == "stop":
-            return [
-                ["docker", "compose", "-f", str(compose), "-p", project,
-                 "stop"],
-                [SYSTEMCTL, "disable", unit],
-            ]
-        return [[
-            "docker", "compose", "-f", str(compose), "-p", project,
-            "ps", "--services", "--filter", "status=running",
-        ]]
-    units = service_units(mode, bridge)
+    units = dmr_units(bridge) if mode == "dmr" else service_units(mode, bridge)
     if verb == "start":
         return [[SYSTEMCTL, "enable", "--now", unit] for unit in units]
     if verb == "stop":
@@ -201,12 +173,9 @@ def stop_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         checked(runner(argv, False), f"stopping {mode.upper()} runtime")
     for argv in runtime_argv(mode, bridge, "status"):
         result = runner(argv, False)
-        if mode == "dmr" and CONTAINERIZED:
-            if result.returncode or result.stdout.strip():
-                raise ModeError("DMR runtime did not stop cleanly")
-        elif result.returncode == 0:
+        if result.returncode == 0:
             raise ModeError(f"inactive {mode.upper()} service is still running")
-        elif mode == "dmr" and not CONTAINERIZED:
+        if mode == "dmr":
             # A cleanly stopped or never-loaded worker is already safe. systemd
             # returns nonzero for reset-failed when such a unit is not loaded;
             # that must not roll a valid DMR -> digital mode switch back to DMR.
@@ -220,10 +189,7 @@ def start_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
         ready = True
         for argv in runtime_argv(mode, bridge, "status"):
             result = runner(argv, False)
-            if mode == "dmr" and CONTAINERIZED:
-                if result.returncode or len(result.stdout.splitlines()) < 3:
-                    ready = False
-            elif result.returncode:
+            if result.returncode:
                 ready = False
         if ready:
             return
@@ -344,8 +310,7 @@ def migrate_transport(profile, runner: Runner = run) -> dict:
 
     rx, tx = core.unified_net_usrp_ports()
     files: dict[Path, bool] = {}
-    dmr_root = dmr_compose(bridges["dmr"]).parent
-    files[dmr_root / "config" / "urfd.ini"] = True
+    files[dmr_runtime_root(bridges["dmr"]) / "analog" / "Analog_Bridge.ini"] = False
     for candidate in ("ysf", "p25", "nxdn"):
         bridge_id = str(bridges[candidate]["id"])
         files[Path(f"/opt/Analog_Bridge_{bridge_id}/Analog_Bridge.ini")] = False

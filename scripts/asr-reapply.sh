@@ -315,9 +315,9 @@ for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py a
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
-if [ -f "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" ]; then
-  install -o root -g root -m 755 "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" \
-    /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
+if [ -f "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" ]; then
+  install -o root -g root -m 755 "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" \
+    /usr/local/libexec/allscan-reimagined/asr-tgif-dmr-proxy.py
 fi
 if [ -d "$MASTER_DIR/runtime/urf" ]; then
   install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime

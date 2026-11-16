@@ -40,7 +40,8 @@ def bridge(mode: str, destination: str) -> dict:
     if mode == "dmr":
         value.update({
             "backendMode": "managed", "managedNetControl": True,
-            "managedTargetFile": f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target",
+            "architecture": "direct-dvswitch",
+            "managedTargetFile": f"/opt/allscan-reimagined-bridges/{bridge_id}/tgif-run/net-target",
             "setupPorts": {"usrp_rx": usrp_rx, "usrp_tx": usrp_tx},
         })
     elif mode == "m17":
@@ -100,23 +101,6 @@ class FakeRunner:
         if (argv[0].startswith("/usr/local/sbin/allscan-reimagined-")
                 or argv[0].endswith("asr-container-netns-exec.py")):
             return subprocess.CompletedProcess(argv, 0, '{"ok":true}\n', "")
-        if "docker compose" in joined:
-            if " up -d" in joined:
-                if self.fail_mode == "dmr":
-                    return subprocess.CompletedProcess(argv, 1, "", "injected")
-                self.active["dmr"] = True
-                return subprocess.CompletedProcess(argv, 0, "", "")
-            if joined.endswith(" stop"):
-                self.active["dmr"] = False
-                return subprocess.CompletedProcess(argv, 0, "", "")
-            output = "urfd\ntcd\ntgif\n" if self.active["dmr"] else ""
-            return subprocess.CompletedProcess(argv, 0, output, "")
-        if argv[0] == control.SYSTEMCTL and argv[1] == "start":
-            self.active["dmr"] = True
-            return subprocess.CompletedProcess(argv, 0, "", "")
-        if argv[0] == control.SYSTEMCTL and argv[1] == "stop":
-            self.active["dmr"] = False
-            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.SYSTEMCTL and argv[1] == "reset-failed":
             return subprocess.CompletedProcess(
                 argv, 1 if self.unloaded_dmr_workers else 0, "",
@@ -202,14 +186,10 @@ def main() -> None:
                 "--allow-unconfirmed",
             ]
             dmr_commands = [" ".join(command) for command in runner.commands]
-            if control.CONTAINERIZED:
-                assert any("docker compose" in command and command.endswith(" stop")
-                           for command in dmr_commands)
-            else:
-                assert any("systemctl stop allscan-reimagined-tgif-dmr_net.service" in command
-                           for command in dmr_commands)
-                assert sum("systemctl reset-failed allscan-reimagined-" in command
-                           for command in dmr_commands) == 4
+            assert any(command.endswith("disable --now asr-dmr-mmdvm-dmr_net.service")
+                       for command in dmr_commands)
+            assert sum(" reset-failed asr-dmr-" in command for command in dmr_commands) == 4
+            assert not any("urf" in command or "docker compose" in command for command in dmr_commands)
             assert not any("channel request hangup" in " ".join(command)
                            for command in runner.commands)
             updated = json.loads((profile.asr_config / "config.json").read_text())
@@ -264,15 +244,8 @@ def main() -> None:
             restored = json.loads((profile.asr_config / "config.json").read_text())
             assert restored["netBridgeMode"] == "dmr"
             assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
-            if control.CONTAINERIZED:
-                assert any(
-                    "docker compose" in " ".join(command)
-                    and " ".join(command).endswith(" up -d")
-                    for command in runner.commands
-                )
-            else:
-                assert any("systemctl start allscan-reimagined-tgif-dmr_net.service"
-                           in " ".join(command) for command in runner.commands)
+            assert any(" ".join(command).endswith("enable --now asr-dmr-mmdvm-dmr_net.service")
+                       for command in runner.commands)
 
         with tempfile.TemporaryDirectory() as temporary:
             profile, original = fixture(Path(temporary))

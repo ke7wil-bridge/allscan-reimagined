@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     installed_proxy = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-dmr-proxy.py"
     active_source = installed_proxy.read_text()
     assert all(token in active_source for token in
-               ("URF_ENABLED", "banned_callsigns", "dmr-local-media-v1", "admin_media_allowed"))
+               ("TGIF_TARGET_FILE", "banned_callsigns", "dmr-local-media-v1", "admin_media_allowed"))
     subprocess.run([sys.executable, str(installed_proxy), "--self-test"],
                    check=True, capture_output=True, text=True)
     staged_relay = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-standalone-relay.py"

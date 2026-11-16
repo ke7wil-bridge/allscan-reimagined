@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only provisioning plans for ASR-managed direct DMR bridges."""
+"""Read-only provisioning plans for ASR-managed direct DMR bridges.
+
+A Standard bridge relays one fixed TGIF talkgroup on its own private node.
+A Net bridge shares node 1999 with the other Net Bridge modes and follows
+the talkgroup selected through the managed Net DMR controller.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -41,6 +46,11 @@ class DmrSettings:
     color_code: int = 1
     dmr_to_asl_gain_db: float = 0.0
     asl_to_dmr_gain_db: float = 0.0
+    bridge_role: str = "standard"
+
+
+NET_NODE = 1999
+NET_CARD_TYPES = {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}
 
 
 def load(name: str, filename: str):
@@ -115,10 +125,15 @@ def validate(value: DmrSettings) -> DmrSettings:
         raise PlanError("invalid bridge title")
     if value.bridge_node is not None and not 1001 <= value.bridge_node <= 1999:
         raise PlanError("private bridge node must be in 1001-1999")
+    if value.bridge_role not in {"standard", "net"}:
+        raise PlanError("bridge role must be standard or net")
+    if value.bridge_role == "net" and value.bridge_node not in (None, NET_NODE):
+        raise PlanError("the DMR Net Bridge always uses node 1999")
     return DmrSettings(bridge_id, callsign, value.dmr_id, value.talkgroup, network,
                        host, value.master_port, title, value.bridge_node,
                        value.tgif_essid, value.timeslot, value.color_code,
-                       float(value.dmr_to_asl_gain_db), float(value.asl_to_dmr_gain_db))
+                       float(value.dmr_to_asl_gain_db), float(value.asl_to_dmr_gain_db),
+                       value.bridge_role)
 
 
 def port_block(bridge_id: str) -> dict[str, int]:
@@ -148,6 +163,11 @@ def plan(root: Path, settings: DmrSettings) -> dict[str, Any]:
     matches = [item for item in config["bridges"] if isinstance(item, dict) and item.get("id") == settings.bridge_id]
     if len(matches) > 1 or (matches and matches[0].get("mode") != "dmr"):
         raise PlanError("bridge ID belongs to another or duplicate bridge")
+    net = settings.bridge_role == "net"
+    shared_net_node = net and any(
+        isinstance(item, dict) and item.get("id") != settings.bridge_id
+        and item.get("cardType") in NET_CARD_TYPES and str(item.get("node", "")) == str(NET_NODE)
+        for item in config["bridges"])
     record_path = rooted(root, f"{STATE}/{settings.bridge_id}.json")
     if matches:
         if not record_path.is_file() or record_path.is_symlink():
@@ -156,6 +176,8 @@ def plan(root: Path, settings: DmrSettings) -> dict[str, Any]:
         if record.get("bridgeType") != "dmr" or record.get("architecture") != "direct-dvswitch":
             raise PlanError("installed DMR backend is not an ASR direct-DVSwitch instance")
         node = int(record["bridgeNode"])
+        if (record.get("role") or "standard") != settings.bridge_role:
+            raise PlanError("installed DMR bridge role is immutable; remove and reinstall to change it")
         if settings.bridge_node not in (None, node):
             raise PlanError("installed DMR bridge node is immutable; remove and reinstall to change it")
     else:
@@ -166,14 +188,16 @@ def plan(root: Path, settings: DmrSettings) -> dict[str, Any]:
                     used.add(int(bridge.get("node")))
                 except (TypeError, ValueError):
                     pass
-        node = settings.bridge_node or core.allocate_node(used)
-        if node in used:
+        node = NET_NODE if net else (settings.bridge_node or core.allocate_node(used))
+        if node in used and not shared_net_node:
             raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
+    if net:
+        ports["usrp_rx"], ports["usrp_tx"] = core.unified_net_usrp_ports()
     endpoint_guard = load("asr_bridge_endpoint_guard_asr_bridge_setup_dmr", "asr-bridge-endpoint-collisions.py")
     try:
         endpoint_guard.check_candidate(root, config, settings.bridge_id, "dmr",
-                                       ports, role="standard")
+                                       ports, role=settings.bridge_role)
     except ValueError as exc:
         raise PlanError(str(exc)) from exc
     base = f"{ROOT_BASE}/{settings.bridge_id}"
@@ -187,8 +211,11 @@ def plan(root: Path, settings: DmrSettings) -> dict[str, Any]:
         "dmrNetworkId": network_id(settings.dmr_id, settings.tgif_essid),
         "ports": ports, "gains": {"dmrToAsl": gain_factor(settings.dmr_to_asl_gain_db),
                                      "aslToDmr": gain_factor(settings.asl_to_dmr_gain_db)},
+        "role": settings.bridge_role,
         "resources": {"root": base, "config": CONFIG, "rpt": RPT,
-                      "modules": MODULES, "record": f"{STATE}/{settings.bridge_id}.json"},
+                      "modules": MODULES, "record": f"{STATE}/{settings.bridge_id}.json",
+                      **({"netTarget": f"{base}/tgif-run/net-target",
+                          "staticToken": f"{base}/secrets/tgif-static-token"} if net else {})},
         "services": services,
         "hostState": {"configSha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
                       "rptSha256": hashlib.sha256(rpt_path.read_bytes()).hexdigest(),

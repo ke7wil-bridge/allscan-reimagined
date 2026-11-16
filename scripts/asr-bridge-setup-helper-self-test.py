@@ -75,91 +75,43 @@ def main() -> None:
     except helper.HelperError:
         pass
 
-    dmr = helper.load_module("setup_dmr_test", helper.URF_PLAN_PATH)
+    dmr = helper.load_module("setup_dmr_test", helper.DYNAMIC_DMR_PLAN_PATH)
     dmr_request = {
-        "bridgeId": "urf_dmr", "callsign": "KE7WIL", "digitalId": 3224939,
+        "bridgeId": "dmr_tgif", "callsign": "KE7WIL", "digitalId": 3224939,
         "destination": 86753,
     }
-    dmr_value = helper.dmr_settings(dmr, dmr_request)
-    assert dmr_value.reflector == "URFWIL" and dmr_value.tgif_tg == 86753
-    named_dmr = helper.dmr_settings(dmr, {
-        **dmr_request, "reflector": "URF073", "bridgeNode": 1001,
-        "dmrEnabled": True, "m17Enabled": False, "p25Enabled": False,
-        "nxdnEnabled": False, "ysfEnabled": False,
-    })
-    assert named_dmr.reflector == "URF073" and named_dmr.bridge_node == 1001
-    assert named_dmr.dmr_enabled is True and named_dmr.m17_enabled is False
-    gained_urf = helper.dmr_settings(dmr, {**dmr_request, "urfGainInDb": 5.5, "urfGainOutDb": -3.5})
-    assert gained_urf.urf_gain_in_db == 5.5 and gained_urf.urf_gain_out_db == -3.5
-    for bad_gain in (float("nan"), float("inf"), -21, 13, True):
-        try:
-            dmr.validate(dmr.UrfSettings(**{**gained_urf.__dict__, "urf_gain_in_db": bad_gain}))
-        except dmr.PlanError:
-            pass
-        else:
-            raise AssertionError("invalid URF gain accepted")
-    assert dmr.tgif_network_id(3224939, 1999) == 322493904
-    assert dmr.tgif_network_id(314133, 1001) == 314133
-    test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
-                                           "hotspotEssid": 50})
-    assert test_value.dmr_id == 3224939 and test_value.tgif_essid == 50
-    netoholic_value = helper.dmr_settings(dmr, {
-        "bridgeId": "urfnet", "callsign": "KN4EWT", "digitalId": 3135475,
-        "destination": 67498, "bridgeNode": 1002, "hotspotEssid": 11,
-        "dmrPublicPort": 62030, "m17PublicPort": 17000,
-        "p25PublicPort": 41000, "nxdnPublicPort": 41400,
-        "nxdnReflectorId": 6749, "p25ReflectorId": 6749,
-        "nodeTemplate": "node-main",
-    })
-    assert netoholic_value.dmr_public_port == 62030
-    assert netoholic_value.m17_public_port == 17000
-    assert netoholic_value.p25_public_port == 41000
-    assert netoholic_value.nxdn_public_port == 41400
-    assert netoholic_value.nxdn_reflector_id == 6749
-    assert netoholic_value.p25_reflector_id == 6749
-    assert netoholic_value.node_template == "node-main"
-    assert netoholic_value.legacy_bridge_nodes == ()
-    netoholic_with_retired = helper.dmr_settings(dmr, {
-        "bridgeId": "urfnet", "callsign": "KN4EWT", "digitalId": 3135475,
-        "destination": 67498, "bridgeNode": 1001, "legacyBridgeNodes": "1883, 1886",
-    })
-    assert netoholic_with_retired.legacy_bridge_nodes == (1883, 1886)
-    assert dmr.tgif_network_id(test_value.dmr_id, 1001, test_value.tgif_essid) == 322493950
+    dmr_value = helper.direct_dmr_settings(dmr, dmr_request)
+    assert dmr_value.talkgroup == 86753 and dmr_value.bridge_role == "standard"
+    assert dmr.validate(dmr_value).master_host == "tgif.network"
+    net_value = helper.direct_dmr_settings(dmr, {**dmr_request, "bridgeId": "dmr_tgif_net",
+                                                 "bridgeRole": "net", "bridgeNode": "1999"})
+    assert net_value.bridge_role == "net" and net_value.bridge_node == 1999
+    assert dmr.network_id(3224939, 50) == 322493950
+    assert dmr.network_id(314133, None) == 314133
     try:
-        dmr.validate(dmr.UrfSettings("urf", "N1YKT", 314133, 42450,
-                                     tgif_essid=50))
+        helper.direct_dmr_settings(dmr, {**dmr_request, "bridgeRole": "reflector"})
+        raise AssertionError("unsupported DMR bridge role accepted")
+    except helper.HelperError:
+        pass
+    try:
+        dmr.validate(dmr.DmrSettings("dmr_tgif", "N1YKT", 314133, 42450, tgif_essid=50))
         raise AssertionError("repeater DMR ID accepted a hotspot ESSID")
     except dmr.PlanError as error:
         assert "must not use" in str(error)
-    dmr_ports = dmr.port_block("dmr_tgif_net")
-    rendered_urf = dmr.urfd_ini({
-        "settings": {"reflector": "URFWIL", "callsign": "KE7WIL", "dmr_id": 3224939},
-        "mainNode": 641890,
-        "ports": dmr_ports,
-    })
-    assert f"RxPort = {dmr_ports['usrp_rx']}" in rendered_urf
-    assert f"TxPort = {dmr_ports['usrp_tx']}" in rendered_urf
-    rendered_tcd = dmr.tcd_ini({"ports": dmr_ports})
-    adjusted_tcd = dmr.tcd_ini({
-        "ports": dmr_ports,
-        "settings": {"urf_gain_in_db": 4, "urf_gain_out_db": -6},
-    })
-    assert "UsrpTxGain = 4\n" in adjusted_tcd
-    assert "UsrpRxGain = -6\n" in adjusted_tcd
-
-    for gain in ("DStarGainIn", "DStarGainOut", "DmrYsfGainIn",
-                 "DmrYsfGainOut", "UsrpTxGain", "UsrpRxGain"):
-        assert f"{gain} = 0" in rendered_tcd
-    for invalid_dmr in ({**dmr_request, "authMode": "website"},
-                        {**dmr_request, "network": "custom"}):
-        try:
-            helper.dmr_settings(dmr, invalid_dmr)
-            raise AssertionError("unsupported TGIF authentication or network accepted")
-        except helper.HelperError:
-            pass
     try:
-        helper.dmr_settings(dmr, {**dmr_request, "unexpected": True})
-        raise AssertionError("unsupported DMR request field accepted")
+        dmr.validate(dmr.DmrSettings("dmr_tgif", "N1YKT", 3205161, 42450, network="custom"))
+        raise AssertionError("unsupported DMR network accepted")
+    except dmr.PlanError:
+        pass
+    # URF reflector bridges are retired (#177): the request fails before planning.
+    try:
+        helper.dmr_command({**dmr_request, "bridgePath": "urf"}, False)
+        raise AssertionError("retired URF DMR bridge path accepted")
+    except helper.HelperError as error:
+        assert "no longer supported" in str(error)
+    try:
+        helper.direct_dmr_command({**dmr_request, "reflector": "URFWIL"}, False)
+        raise AssertionError("retired URF DMR field accepted")
     except helper.HelperError:
         pass
 
@@ -264,12 +216,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         config = root / "etc/allscan-reimagined/config.json"
-        token_path = root / "opt/allscan-reimagined-bridges/urf/dmr_tgif_net/secrets/tgif-static-token"
+        token_path = root / "opt/allscan-reimagined-bridges/dmr_tgif_net/secrets/tgif-static-token"
         config.parent.mkdir(parents=True)
         config.write_text(json.dumps({"bridges": [{
             "id": "dmr_tgif_net", "cardType": "dmr_net", "managedNetControl": True,
             "dmrNetworkId": "322493904",
-            "tgifStaticTokenPath": "/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/secrets/tgif-static-token",
+            "tgifStaticTokenPath": "/opt/allscan-reimagined-bridges/dmr_tgif_net/secrets/tgif-static-token",
         }]}))
         original_map = helper.provisioning_config_path
         original_require_root = helper.require_root
@@ -370,22 +322,22 @@ def main() -> None:
             stdout = "LoadState=not-found\nActiveState=inactive\n"
             stderr = ""
         diagnostic = helper.dmr_diagnose(
-            {"bridgeId": "urf"}, runner=lambda *args, **kwargs: DiagnosticResult())
+            {"bridgeId": "dmr_tgif_net"}, runner=lambda *args, **kwargs: DiagnosticResult())
         assert diagnostic["readOnly"] is True
         assert diagnostic["classification"] == "missing_runtime_files"
         assert "password" not in json.dumps(diagnostic).lower()
 
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp) / "runtime"
-            (base / "urf").mkdir(parents=True)
-            (base / "urf" / "runtime.conf").write_text("managed\n")
+            (base / "dmr_tgif_net").mkdir(parents=True)
+            (base / "dmr_tgif_net" / "run-mmdvm.sh").write_text("managed\n")
             class FailedServiceResult:
                 returncode = 0
                 stderr = ""
                 stdout = ("LoadState=loaded\nActiveState=failed\nSubState=failed\n"
                           "Result=failed\nExecMainStatus=1\n")
             failed = helper.dmr_diagnose(
-                {"bridgeId": "urf"}, runner=lambda *args, **kwargs: FailedServiceResult(),
+                {"bridgeId": "dmr_tgif_net"}, runner=lambda *args, **kwargs: FailedServiceResult(),
                 runtime_base=base, state_root=Path(tmp) / "state")
             assert failed["classification"] == "service_startup_failure"
 
@@ -399,13 +351,13 @@ def main() -> None:
                                  "LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n")
                 return result
             auth = helper.dmr_diagnose(
-                {"bridgeId": "urf"}, runner=auth_runner,
+                {"bridgeId": "dmr_tgif_net"}, runner=auth_runner,
                 runtime_base=base, state_root=Path(tmp) / "state")
             assert auth["classification"] == "tgif_authentication_failure"
             assert "authentication failed" not in json.dumps(auth).lower()
         try:
-            helper.dmr_diagnose({"bridgeId": "urf", "secret": "unsafe"})
-            raise AssertionError("URF diagnostics accepted a secret-bearing payload")
+            helper.dmr_diagnose({"bridgeId": "dmr_tgif_net", "secret": "unsafe"})
+            raise AssertionError("DMR diagnostics accepted a secret-bearing payload")
         except helper.HelperError:
             pass
     finally:

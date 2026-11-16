@@ -54,8 +54,6 @@ class FakeRunner:
             return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.SYSTEMCTL and argv[1:3] == ["is-active", "--quiet"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
-        if "compose" in argv and "ps" in argv:
-            return subprocess.CompletedProcess(argv, 0, "urfd\ntcd\ntgif\n", "")
         return subprocess.CompletedProcess(argv, 1, "", "unexpected command")
 
 
@@ -69,10 +67,9 @@ def rejected(function, *args) -> None:
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-managed-dmr-") as temporary:
-        root = Path(temporary) / "urf"
+        root = Path(temporary) / "bridges"
         target = root / "dmr_tgif_net" / "tgif-run" / "net-target"
         target.parent.mkdir(parents=True)
-        (root / "dmr_tgif_net" / "compose.yml").write_text("services: {}\n")
         config_path = Path(temporary) / "config.json"
         config = {
             "node": "641890", "netBridgeMode": "dmr",
@@ -80,7 +77,7 @@ def main() -> None:
                 "id": "dmr_tgif_net", "mode": "dmr", "node": "1999",
                 "cardType": "dmr_net", "backendMode": "managed",
                 "managedNetControl": True,
-                "managedTargetFile": "/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/tgif-run/net-target",
+                "managedTargetFile": "/opt/allscan-reimagined-bridges/dmr_tgif_net/tgif-run/net-target",
                 "dmrId": "3224939", "dmrNetworkId": "322493904",
                 "setupPorts": {"usrp_rx": 52000, "usrp_tx": 52001},
             }],
@@ -94,6 +91,9 @@ def main() -> None:
             "1999      127.0.0.1           0           OUT        00:00:01:000        CONNECTING\n"
         )
         assert ("1999", "OUT") not in control.parse_lstats(connecting)
+        assert control.runtime_units("dmr_tgif_net") == (
+            "asr-dmr-vocoder-dmr_tgif_net.service", "asr-dmr-mmdvm-dmr_tgif_net.service",
+            "asr-dmr-analog-dmr_tgif_net.service", "asr-dmr-admin-dmr_tgif_net.service")
         loaded, bridge = control.bridge_config("dmr_tgif_net", config_path)
         assert control.target_path(bridge, root) == target
         original_root = control.ROOT

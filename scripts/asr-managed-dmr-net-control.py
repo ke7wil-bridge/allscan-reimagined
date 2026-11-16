@@ -26,7 +26,6 @@ if (not os.environ.get(PROFILE_ENV) and os.geteuid() == 0
 CONTAINERIZED = bool(os.environ.get(PROFILE_ENV))
 ASTERISK = Path("/usr/local/libexec/allscan-reimagined/asr-container-asterisk.py"
                  if CONTAINERIZED else "/usr/sbin/asterisk")
-DOCKER = "/usr/bin/docker"
 SYSTEMCTL = "/usr/bin/systemctl"
 LOCK = Path("/run/lock/allscan-reimagined-managed-dmr-net-control.lock")
 UNIFIED_NODE = "1999"
@@ -68,12 +67,13 @@ def config_path() -> Path:
     )
 
 
+RUNTIME_BASE = "/opt/allscan-reimagined-bridges"
+
+
 def runtime_root() -> Path:
     if not os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE"):
-        return Path("/opt/allscan-reimagined-bridges/urf")
-    return provisioning_backend("asr_backend_dmr_runtime").map_path(
-        Path("/"), "/opt/allscan-reimagined-bridges/urf"
-    )
+        return Path(RUNTIME_BASE)
+    return provisioning_backend("asr_backend_dmr_runtime").map_path(Path("/"), RUNTIME_BASE)
 
 
 CONFIG = config_path()
@@ -124,7 +124,7 @@ def bridge_config(bridge_id: str, path: Path = CONFIG) -> tuple[dict, dict]:
 
 def target_path(bridge: dict, root: Path = ROOT) -> Path:
     bridge_id = str(bridge.get("id") or "")
-    logical = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id / "tgif-run" / "net-target"
+    logical = Path(RUNTIME_BASE) / bridge_id / "tgif-run" / "net-target"
     if Path(str(bridge.get("managedTargetFile") or logical)) != logical:
         raise ControlError("invalid managed target path")
     path = root / bridge_id / "tgif-run" / "net-target"
@@ -141,7 +141,7 @@ def target_path(bridge: dict, root: Path = ROOT) -> Path:
 def static_token_path(bridge: dict, root: Path | None = None) -> Path:
     root = ROOT if root is None else root
     bridge_id = str(bridge.get("id") or "")
-    logical = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id / "secrets" / "tgif-static-token"
+    logical = Path(RUNTIME_BASE) / bridge_id / "secrets" / "tgif-static-token"
     configured = Path(str(bridge.get("tgifStaticTokenPath") or logical))
     if configured != logical:
         raise ControlError("invalid TGIF Static TG token path")
@@ -406,25 +406,16 @@ def verify_owner(config: dict, bridge: dict, runner: Runner = run) -> None:
     match = re.search(r"(?mi)^rxchannel\s*:\s*(usrp/\S+)\s*$", channels)
     if not match or match.group(1).lower() != expected:
         raise ControlError("Asterisk node 1999 does not own the unified DMR USRP endpoint")
-    if not CONTAINERIZED:
-        bridge_id = str(bridge["id"])
-        units = (
-            f"allscan-reimagined-urf-tgif-{bridge_id}.service",
-            f"allscan-reimagined-urfd-{bridge_id}.service",
-            f"allscan-reimagined-tcd-{bridge_id}.service",
-            f"allscan-reimagined-tgif-{bridge_id}.service",
-        )
-        if any(runner([SYSTEMCTL, "is-active", "--quiet", unit]).returncode for unit in units):
-            raise ControlError("managed native DMR runtime is not ready")
-        return
-    compose = ROOT / str(bridge["id"]) / "compose.yml"
-    output = checked_output(
-        [DOCKER, "compose", "-f", str(compose), "-p", str(bridge["id"]),
-         "ps", "--services", "--filter", "status=running"],
-        "managed DMR runtime status", runner,
-    )
-    if set(output.split()) != {"urfd", "tcd", "tgif"}:
-        raise ControlError("managed DMR runtime is not exclusively ready")
+    # The direct DVSwitch/TGIF runtime runs as host units on native and
+    # container-backed installs alike.
+    if any(runner([SYSTEMCTL, "is-active", "--quiet", unit]).returncode
+           for unit in runtime_units(str(bridge["id"]))):
+        raise ControlError("managed DMR runtime is not ready")
+
+
+def runtime_units(bridge_id: str) -> tuple[str, ...]:
+    return tuple(f"asr-dmr-{part}-{bridge_id}.service"
+                 for part in ("vocoder", "mmdvm", "analog", "admin"))
 
 
 def status_payload(config: dict, bridge: dict, path: Path, runner: Runner = run) -> dict:
