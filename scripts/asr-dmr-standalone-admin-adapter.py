@@ -133,7 +133,10 @@ def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, dige
 
 
 def run(bridge_id: str, roster: Path, control: Path, runtime: Path, creation_id: str) -> None:
-    runtime.mkdir(parents=True, exist_ok=True); os.chmod(runtime, 0o750)
+    # The API reads only the root-owned 0644 capability manifest. Requests and
+    # results remain 0600, while directory traversal must match the systemd
+    # RuntimeDirectoryMode=0755 contract used by every native admin adapter.
+    runtime.mkdir(parents=True, exist_ok=True); os.chmod(runtime, 0o755)
     atomic(runtime / ".asr-bridge-owner.json", {"schema": 1, "ownership": "asr",
            "createdBy": "allscan-reimagined-bridge-installer", "creationId": creation_id,
            "bridgeId": bridge_id}, 0o640)

@@ -110,6 +110,8 @@ check('"kickClient": True' in DIRECT_DMR_ADMIN
       and '"kickContract": "disconnect-until-reconnect"' in DIRECT_DMR_ADMIN
       and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the exact current-session Kick contract")
+check("os.chmod(runtime, 0o755)" in DIRECT_DMR_ADMIN,
+      "direct DMR hides its root-owned capability manifest from the web API")
 check('"banClient": True' in DIRECT_DMR_ADMIN and '"unbanClient": True' in DIRECT_DMR_ADMIN
       and '"banContract": "global-timed-v1"' in DIRECT_DMR_ADMIN
       and '"appliedPolicyDigest": digest' in DIRECT_DMR_ADMIN,
