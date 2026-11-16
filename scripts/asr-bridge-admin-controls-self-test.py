@@ -71,6 +71,10 @@ check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR 
 check("/run/tgif-dmr" in URF and "/run/dmr-bridge" in URF and "/opt/allscan-reimagined-bridges/urf/*/tgif-run" in URF and "ASR_DMR_RUNTIME_DIR" in URF, "DMR admin helper does not resolve native/container runtime paths")
 check("dmr_admin_capabilities" in URF and "ST_RDONLY" in URF and "controlSafe" in URF,
       "DMR helper does not reject read-only or unsafe administration state")
+check("native_dmr_admin_available" in URF and "enabled & native_modes" in URF,
+      "native DMR Global Ban still depends on the stale legacy TGIF roster")
+check('payload.get("clients", [])' in DIRECT_DMR_ADMIN,
+      "native DMR Kick does not read the node-wide TGIF client snapshot")
 check(":/run/dmr-bridge:rw" in COMPOSE and ":/run/dmr-bridge:ro" not in COMPOSE,
       "container DMR administration runtime remains read-only")
 check("clientId" in LIVE and "expected_id" in URF and "identity is ambiguous" in URF,

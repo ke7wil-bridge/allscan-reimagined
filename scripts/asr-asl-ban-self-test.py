@@ -78,6 +78,7 @@ def run():
             "IAX2/web-2!allstar-public!s!1!Up!Rpt!641890!0!!",
             "ECHOLINK/el0-3!radio-secure!641890!1!Up!Rpt!641890!3000456!N0LOCAL-L!",
             "IAX2/local-4!radio-secure!1001!1!Up!Rpt!1001!641890!Local!",
+            "IAX2/geo-5!geo-admission!s!9!Up!Rpt!641890!67098!!!",
         ]
         state = {"version": 1, "bans": [
             {"kind": "node", "value": "123456", "createdAt": now, "expiresAt": now + 3600, "reason": "", "actor": "test"},
@@ -89,7 +90,7 @@ def run():
         assert ban.read_state()["ownedEcho"] == ["N0GLOBAL-L", "N0LOCAL"]
         assert "765432" in result["externalAst"]
         assert "N0MANUAL" in result["externalEcho"]
-        assert result["removed"] == 3
+        assert result["removed"] == 4
         assert len(fake.channels) == 1 and "local-4" in fake.channels[0]
         assert "N0GLOBAL" in result["externalEcho"]  # pre-existing manual rule
         assert "N0SERVICE" in result["unmappedGlobalRules"]

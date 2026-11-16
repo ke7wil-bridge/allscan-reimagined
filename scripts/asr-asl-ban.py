@@ -293,7 +293,11 @@ def disconnect_active(ami, desired_ast, desired_echo, local):
             continue
         is_iax = channel.upper().startswith("IAX2/")
         is_echo = channel.upper().startswith("ECHOLINK/")
-        match = (is_iax and context == "radio-secure" and cid_number.upper() in desired_ast)
+        # ASL3's geographic admission path uses geo-admission for authenticated
+        # inbound IAX links; older nodes use radio-secure. Both expose the
+        # remote node number in the concise CallerID field.
+        match = (is_iax and context in {"radio-secure", "geo-admission"}
+                 and cid_number.upper() in desired_ast)
         if is_iax and context == "allstar-public":
             # Asterisk's concise listing often has an empty caller name for a
             # web transceiver even though the authenticated channel has one.

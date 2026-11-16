@@ -45,6 +45,8 @@ def control_payload(path: Path) -> dict[str, Any]:
 def current_rows(roster: Path) -> list[dict[str, Any]]:
     payload = read(roster, {})
     rows = payload.get("urf_dmr", []) if isinstance(payload, dict) else []
+    if isinstance(payload, dict) and (not isinstance(rows, list) or not rows):
+        rows = payload.get("clients", [])
     return [row for row in rows if isinstance(row, dict)]
 
 
@@ -92,8 +94,11 @@ def kick(identity: str, roster: Path, control: Path) -> int:
     payload["kicked_ids"] = kicked; atomic(control, payload)
     roster_payload = read(roster, {})
     if isinstance(roster_payload, dict):
-        roster_payload["urf_dmr"] = [row for row in current_rows(roster)
-            if int(str(row.get("dmrid") or row.get("id") or "0")) not in matched]
+        for key in ("urf_dmr", "clients"):
+            rows = roster_payload.get(key)
+            if isinstance(rows, list):
+                roster_payload[key] = [row for row in rows if not isinstance(row, dict)
+                    or int(str(row.get("dmrid") or row.get("id") or "0")) not in matched]
         atomic(roster, roster_payload)
     return len(matched)
 

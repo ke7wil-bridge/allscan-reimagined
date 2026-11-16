@@ -167,6 +167,10 @@ def native_admin_modes():
     }
 
 
+def native_dmr_admin_available():
+    return "dmr" in native_admin_modes()
+
+
 def configured_urf_modes():
     try:
         payload = json.loads(Path(CONFIG).read_text(encoding="utf-8"))
@@ -568,6 +572,11 @@ def write_zello_kick(callsign, actor="system"):
 
 def sync_dmr_ban(rule, banned_state, expected_id=""):
     """Mirror an exact URFWIL callsign ban into the DMR-ID enforcement store."""
+    # Kentucky-style native DMR adapters consume the global callsign policy
+    # directly. Do not consult or mutate a stale legacy TGIF roster alongside
+    # that authoritative adapter.
+    if native_dmr_admin_available():
+        return
     if rule.endswith("*") or not os.path.isdir(os.path.dirname(DMR_CONTROL)):
         return
     try:
@@ -647,8 +656,8 @@ def request_urf_disconnect(callsign, protocol, event, require_connected, actor="
         return int(native_admin_kick(protocol_mode, callsign, actor).get("removed") or 0)
     if protocol == "*":
         enabled = configured_urf_modes()
-        native_required = enabled - {"dmr"}
-        dmr_ready = "dmr" not in enabled or os.path.isfile(DMR_ROSTER)
+        native_required = enabled & native_modes
+        dmr_ready = "dmr" not in enabled or "dmr" in native_modes or os.path.isfile(DMR_ROSTER)
         if native_required and native_required <= native_modes and dmr_ready:
             payload = reconcile_standalone_bans(actor)
             applied = {
@@ -853,7 +862,7 @@ def main():
         assert_ban_allowed(rule)
         duration = (args.protocol or "permanent").strip().lower()
         now = int(time.time())
-        if args.dmr_id:
+        if args.dmr_id and not native_dmr_admin_available():
             dmr_client_id(rule, args.dmr_id)
         if rule not in rules:
             rules.append(rule)

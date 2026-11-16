@@ -110,6 +110,12 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     control_payload = json.loads(control.read_text())
     assert "3205161" in control_payload["kicked_ids"]
     assert [row["callsign"] for row in admin.current_rows(roster)] == ["W7ABC"]
+    roster.write_text(json.dumps({"clients": [
+        {"dmrid": "3228850", "callsign": "KF8DRJ"},
+        {"dmrid": "3027217", "callsign": "VE7KH"},
+    ]}) + "\n")
+    assert admin.kick("KF8DRJ", roster, control) == 1
+    assert [row["callsign"] for row in admin.current_rows(roster)] == ["VE7KH"]
     policy_digest = "1" * 64
     assert admin.apply_policy(control, {"digest": policy_digest,
         "rules": ["314133", "BADGUY", "SPAM*"]}) == policy_digest
