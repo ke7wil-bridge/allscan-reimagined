@@ -50,6 +50,9 @@ check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API
       "URF DMR admin capability is not gated by an authoritative backend probe")
 check("asr_native_urf_client_admin($mode)" in API and "asr_runtime_client_admin" in API,
       "native aggregate URF capability manifests are not used")
+check("$id === $mode . '_net'" in API
+      and "$capabilities = asr_runtime_client_admin($mode, $mode);" in API,
+      "historical mode_net cards cannot resolve their protocol capability adapter")
 if ZELLO:
     check('"ZELLO": "ZELLO"' in URF, "Zello helper protocol missing")
 check("dstar" not in URF.lower(), "D-Star administration remains in the URF helper")

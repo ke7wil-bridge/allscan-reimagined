@@ -734,9 +734,13 @@ try {
     'Zello relay must use the fast producer when present and retain legacy Asterisk fallback when absent',
   )
   assert(
-    appSource.includes('Never promote that node-wide bit into')
+    appSource.includes('const activeRelaySource = connectionRowsRef.current.some')
+      && appSource.includes('candidate.node !== config.node')
+      && appSource.includes('if (row && activeRelaySource)')
+      && appSource.includes("return withStatus(card, 'Relay')")
+      && appSource.includes('Never promote that node-wide bit into')
       && appSource.includes("if (row) {\n          // A pseudo hub can report RPT_TXKEYED continuously"),
-    'ordinary bridge cards must not derive Relay from the pseudo hub RPT_TXKEYED bit',
+    'ordinary bridge cards must use concrete remote activity for Relay without trusting the pseudo hub bit',
   )
   assert(
     appSource.includes('const wasReady = zelloFastRelayReadyRef.current')

@@ -1021,6 +1021,11 @@ function App({ config }: { config: RuntimeConfig }) {
     )
     const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
     const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
+    const activeRelaySource = connectionRowsRef.current.some((candidate) => (
+      !candidate.configuredTransport
+      && candidate.node !== config.node
+      && (candidate.state === 'talking' || candidate.state === 'both')
+    ))
     const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
       ...card,
       status,
@@ -1104,6 +1109,12 @@ function App({ config }: { config: RuntimeConfig }) {
         }
         if (row?.state === 'talking') {
           return withStatus(card, 'Source/TX')
+        }
+        // A concrete keyed remote row means the node is forwarding that audio
+        // to every connected bridge transport. This is bridge-safe RELAY
+        // evidence and does not rely on the pseudo hub's sticky RPT_TXKEYED bit.
+        if (row && activeRelaySource) {
+          return withStatus(card, 'Relay')
         }
         if (row) {
           // A pseudo hub can report RPT_TXKEYED continuously even when every

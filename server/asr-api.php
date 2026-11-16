@@ -372,7 +372,16 @@ function asr_runtime_client_admin(string $id, string $mode): array {
 
 function asr_standalone_client_admin(array $bridge): array {
     if (!empty($bridge['urfReflector'])) return [];
-    return asr_runtime_client_admin((string) ($bridge['id'] ?? ''), asr_bridge_mode($bridge));
+    $id = (string) ($bridge['id'] ?? '');
+    $mode = asr_bridge_mode($bridge);
+    $capabilities = asr_runtime_client_admin($id, $mode);
+    // Native aggregate adapters are keyed by protocol. A standalone card may
+    // retain the historical <mode>_net id, so accept that one constrained
+    // alias only after the exact bridge-id lookup fails.
+    if ($capabilities === [] && $id === $mode . '_net') {
+        $capabilities = asr_runtime_client_admin($mode, $mode);
+    }
+    return $capabilities;
 }
 
 function asr_native_urf_client_admin(string $mode): array {
