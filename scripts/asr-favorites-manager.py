@@ -482,6 +482,34 @@ def self_test() -> None:
         rendered = render(merged)
         assert "W7XYZ Phoenix, Arizona 12345" in rendered
         assert 'Quoted, \\"Description\\" 67890' in rendered
+        # #138: order synchronization must be preview-only until explicitly applied.
+        second = ('label[] = "N0ABC 54321"\n'
+                  'cmd[] = "rpt cmd %node% ilink 3 54321"\n')
+        favorites.write_text(sample + second, encoding="utf-8")
+        order_state = {"files": {"favorites.ini": {"order": ["54321", "12345"]}}}
+        before = favorites.read_bytes()
+        imported_order = upstream_order_preview(favorites, order_state)
+        assert imported_order["upstreamOrder"] == ["12345", "54321"]
+        assert imported_order["different"] is True
+        exported_order = upstream_export_preview(favorites, order_state)
+        assert exported_order["different"] is True
+        assert exported_order["content"].index("54321") < exported_order["content"].index("12345")
+        assert favorites.read_bytes() == before
+        assert upstream_export_preview(favorites, order_state)["token"] == exported_order["token"]
+        for invalid in (["54321", "99999"], ["12345", "12345"]):
+            try:
+                upstream_export_preview(favorites, {"files": {"favorites.ini": {"order": invalid}}})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Ambiguous Favorites membership was accepted")
+        favorites.write_text(sample + "# preserve comment\n" + second, encoding="utf-8")
+        try:
+            upstream_export_preview(favorites, order_state)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Inter-record comment was silently reordered")
     print("Favorites metadata and Supermon import self-test: ok")
 def main() -> int:
     parser = argparse.ArgumentParser()
