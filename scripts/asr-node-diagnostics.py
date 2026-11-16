@@ -117,6 +117,54 @@ def recover(sample, rows, state, runner=subprocess.run, sleeper=time.sleep):
     return {"unit": unit, "reason": "repeated measured PSS pressure", "beforePssKb": off["pssKb"],
             "restartExit": result.returncode, "serviceReady": active, "endToEndAudioConfirmed": False}
 
+def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
+    """Read-only early warning for persistent Asterisk media queues.
+
+    Read only the end of the log (not its entire multi-day history). Never
+    execute Asterisk commands or take corrective actions from this detector.
+    """
+    import datetime
+    now = time.time() if now is None else now
+    log_path = Path(os.getenv("ASR_ASTERISK_LOG_PATH", "/var/log/asterisk/messages.log")) if log_path is None else Path(log_path)
+    try:
+        with log_path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 262144))
+            if fh.tell(): fh.readline()
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        # On container deployments the log is inside the Asterisk container.
+        # Read only its last 256 KiB, bounded by a hard timeout. Never write to
+        # the container or restart Asterisk from the diagnostics sampler.
+        container = os.getenv("ASR_ASTERISK_LOG_CONTAINER", "").strip()
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container):
+            return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+        try:
+            result = runner(["/usr/bin/docker", "exec", container, "tail", "-c", "262144",
+                             "/var/log/asterisk/messages.log"], capture_output=True, timeout=4, check=False)
+            if result.returncode:
+                return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+            lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+        except (OSError, subprocess.TimeoutExpired):
+            return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+    recent = {}
+    pattern = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\].*Exceptionally long voice queue length \((\d+) voice / \d+ total\) queuing to ([-\w/]+);\d+")
+    for line in lines:
+        match = pattern.search(line)
+        if not match: continue
+        # Asterisk container logs use UTC; do not interpret as host-local time.
+        timestamp = datetime.datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+        if not 0 <= now - timestamp <= 300: continue
+        channel = match[3]
+        entry = recent.setdefault(channel, {"count": 0, "first": timestamp, "last": timestamp, "maxVoiceFrames": 0})
+        entry["count"] += 1
+        entry["first"] = min(entry["first"], timestamp)
+        entry["last"] = max(entry["last"], timestamp)
+        entry["maxVoiceFrames"] = max(entry["maxVoiceFrames"], int(match[2]))
+    persistent = [{"channel": name, **value} for name, value in recent.items()
+                  if value["count"] >= 3 and value["last"] - value["first"] >= 10]
+    return {"available": True, "persistentChannels": persistent[:12], "recentWarnings": sum(v["count"] for v in recent.values())}
+
 def sample_once(allow_recovery=True):
     STATE_DIR.mkdir(parents=True, exist_ok=True); os.chmod(STATE_DIR, 0o750)
     # ASTAPI (www-data) publishes its shared feed and talker history here with
@@ -128,7 +176,11 @@ def sample_once(allow_recovery=True):
     sample = {"epoch": epoch, "memAvailableKb": m.get("MemAvailable", 0), "swapUsedKb": swap_used,
               "load1": round(load[0], 2), "load5": round(load[1], 2), "load15": round(load[2], 2),
               "processPssKb": {r["name"]: r["pssKb"] for r in grouped[:20]}}
+    queue_health = asterisk_queue_health()
+    sample["asteriskQueueHealth"] = queue_health
     state = load_json(STATE); warnings = warning_for(sample, state)
+    if queue_health["persistentChannels"]:
+        warnings.append("Asterisk has a persistent unconsumed audio queue; investigate IAXLink and app_rpt before TX hangs.")
     recovery = recover(sample, rows, state) if allow_recovery else None
     atomic(STATE, state, 0o600)
     record = {"sample": sample, "warnings": warnings, "snapshot": rows[:30] if warnings else [], "recovery": recovery}
