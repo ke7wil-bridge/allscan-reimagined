@@ -254,8 +254,29 @@ def read_container_incremental(container, now, runner):
         identity = [device, inode]
         offset = int(state.get("offset", 0))
         gap = ""
+        recovered = []
         if state.get("identity") != identity:
-            if state.get("identity"): gap = "container log rotated; unread records may be missing"
+            if state.get("identity"):
+                gap = "container log rotated; unread records may be missing"
+                rotated = source + ".1"
+                try:
+                    old_stat = runner(["/usr/bin/docker", "exec", container, "stat", "-c",
+                                       "%d:%i:%s", rotated], capture_output=True, timeout=4, check=False)
+                    if not old_stat.returncode:
+                        old_dev, old_ino, old_size = map(int, old_stat.stdout.decode().strip().split(":"))
+                        if [old_dev, old_ino] == state["identity"] and old_size >= offset:
+                            unread = old_size - offset
+                            if unread <= LOG_READ_LIMIT:
+                                old_data = runner(["/usr/bin/docker", "exec", container, "sh", "-c",
+                                    'tail -c +"$1" "$2" | head -c "$3"', "asr-log-reader",
+                                    str(offset + 1), rotated, str(LOG_READ_LIMIT)],
+                                    capture_output=True, timeout=4, check=False)
+                                if not old_data.returncode and len(old_data.stdout) == unread and (
+                                        not unread or old_data.stdout.endswith(bytes([10]))):
+                                    recovered = old_data.stdout.decode("utf-8", "replace").splitlines()
+                                    gap = ""
+                except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired):
+                    pass
             offset = max(0, size - LOG_READ_LIMIT) if not state else 0
         elif offset > size:
             gap = "container log truncated; unread records may be missing"
@@ -276,7 +297,7 @@ def read_container_incremental(container, now, runner):
                    and len(row) == 2 and isinstance(row[0], (int, float))
                    and 0 <= now - row[0] <= STALL_WINDOW]
         stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
-        for line in data[:complete].decode("utf-8", "replace").splitlines():
+        for line in recovered + data[:complete].decode("utf-8", "replace").splitlines():
             if not any(x in line for x in ("Resyncing the jb", "iax2_transmit' queue reached",
                 "Silently dropping frame without existent call number", "Max retries exceeded to host",
                 "Log queue threshold", "Exceptionally long voice queue length")): continue
