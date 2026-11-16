@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { parseReleaseChanges } from '../src/lib/releaseNotes.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,9 +15,12 @@ const actualChanges = parseReleaseChanges(read(`../release-notes/v${version}.md`
 const vitePort = 49159
 const cdpPort = 49160
 const profile = await mkdtemp(join(tmpdir(), 'asr-release-notes-'))
+const chromePath = [process.env.CHROME_BIN, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser']
+  .filter(Boolean).find((candidate) => existsSync(candidate))
+assert.ok(chromePath, 'Chrome or Chromium is required for the release-notes browser self-test')
 const vite = spawn('./node_modules/.bin/vite', ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
   { env: { ...process.env, ASR_MOCK: '1' }, stdio: 'ignore' })
-const chrome = spawn('/usr/bin/chromium', [
+const chrome = spawn(chromePath, [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
   `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' })
