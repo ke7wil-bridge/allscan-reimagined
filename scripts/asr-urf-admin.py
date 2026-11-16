@@ -481,17 +481,35 @@ def write_dmr_kick(callsign, actor="system", expected_id=""):
 
 
 def write_zello_kick(callsign, actor="system"):
-    """Suppress only the current Zello stream; the next transmission may reconnect."""
+    """Suppress the current or next Zello stream for a recent talker."""
     try:
         with open(ZELLO_TALKERS, "r", encoding="utf-8") as handle:
             talkers = json.load(handle)
         updated = os.path.getmtime(ZELLO_TALKERS)
     except (OSError, ValueError) as exc:
         raise RuntimeError("Zello current-talker state is unavailable.") from exc
+    now = int(time.time())
+    target = callsign.strip().upper()
     current = str(talkers.get("current_user") or "").strip().upper()
-    if (not talkers.get("active") or abs(time.time() - updated) > 30
-            or current != callsign.strip().upper()):
-        raise RuntimeError("Zello user is no longer transmitting.")
+    current_active = bool(talkers.get("active")) and abs(now - updated) <= 30 and current == target
+    recent = False
+    for row in talkers.get("recent_users", []) or []:
+        if isinstance(row, dict):
+            name = str(row.get("callsign") or row.get("name") or row.get("username") or "").strip().upper()
+            try:
+                epoch = int(row.get("last_tx_epoch") or row.get("last_seen_epoch") or row.get("timestamp") or 0)
+            except (TypeError, ValueError):
+                epoch = 0
+        else:
+            name = str(row).strip().upper()
+            epoch = 0
+        if name != target:
+            continue
+        recent = (epoch <= 0 and abs(now - updated) <= 43200) or (epoch > 0 and 0 <= now - epoch <= 43200)
+        if recent:
+            break
+    if not current_active and not recent:
+        raise RuntimeError("Zello identity is not in recent activity.")
 
     directory = os.path.dirname(ZELLO_KICKS)
     if not os.path.isdir(directory):
@@ -507,12 +525,11 @@ def write_zello_kick(callsign, actor="system"):
                 payload = prior
         except (OSError, ValueError):
             pass
-        now = int(time.time())
         payload["sessions"] = {
             str(name).upper(): value for name, value in payload["sessions"].items()
             if isinstance(value, dict) and now - int(value.get("createdAt") or 0) <= 300
         }
-        payload["sessions"][current] = {"createdAt": now, "actor": str(actor)[:80]}
+        payload["sessions"][target] = {"createdAt": now, "actor": str(actor)[:80]}
         fd, tmp = tempfile.mkstemp(prefix=".asr-zello-kicks.", dir=directory, text=True)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -529,23 +546,24 @@ def write_zello_kick(callsign, actor="system"):
         fcntl.flock(lock, fcntl.LOCK_UN)
         os.close(lock)
 
-    # The bridge enforces the suppression before another audio frame reaches
-    # Asterisk. Clear the exported active flag so the dashboard follows suit.
-    talkers["active"] = False
-    talkers["current_user"] = ""
-    fd, tmp = tempfile.mkstemp(prefix=".zello-talkers.", dir=os.path.dirname(ZELLO_TALKERS), text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(talkers, handle, separators=(",", ":"))
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, ZELLO_TALKERS)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-    append_audit_event("kick", actor, callsign=current, protocol="ZELLO", removed=1)
-    emit(ok=True, action="kick", callsign=current, protocol="ZELLO",
+    # Clear the exported active flag only when the selected identity owns the
+    # live stream. An idle Kick remains armed for that identity's next stream.
+    if current_active:
+        talkers["active"] = False
+        talkers["current_user"] = ""
+        fd, tmp = tempfile.mkstemp(prefix=".zello-talkers.", dir=os.path.dirname(ZELLO_TALKERS), text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(talkers, handle, separators=(",", ":"))
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, ZELLO_TALKERS)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    append_audit_event("kick", actor, callsign=target, protocol="ZELLO", removed=1)
+    emit(ok=True, action="kick", callsign=target, protocol="ZELLO",
          audit=read_audit_events(), verified=True, removed=1,
-         enforcement="current-zello-stream", quietSeconds=0)
+         enforcement="current-or-next-zello-stream", expiresSeconds=300, quietSeconds=0)
 
 
 def sync_dmr_ban(rule, banned_state, expected_id=""):

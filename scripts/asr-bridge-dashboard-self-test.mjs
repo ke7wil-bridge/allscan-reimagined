@@ -491,6 +491,11 @@ try {
     appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
     'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
   )
+  const bridgeLinkedSource = appSource.slice(appSource.indexOf('const bridgeLinked ='), appSource.indexOf('const standardLinkMissing ='))
+  assert(
+    bridgeLinkedSource.includes("row.state !== 'message'") && !bridgeLinkedSource.includes("row.direction.toUpperCase() === 'OUT'"),
+    'standard bridge link detection rejects an established inbound private-node link',
+  )
   assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')
   assert(!dmrControls.includes('approvedDestinations.length'), 'DMR Net input still depends on an approved list')
   assert(

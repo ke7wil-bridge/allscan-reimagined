@@ -57,14 +57,15 @@ check("$id === $mode . '_net'" in API
 if ZELLO:
     check('"ZELLO": "ZELLO"' in URF, "Zello helper protocol missing")
 check("dstar" not in URF.lower(), "D-Star administration remains in the URF helper")
-check("write_zello_kick" in URF and 'enforcement="current-zello-stream"' in URF,
-      "ASR-managed current-stream Zello Kick is missing")
+check("write_zello_kick" in URF and 'enforcement="current-or-next-zello-stream"' in URF
+      and "expiresSeconds=300" in URF,
+      "ASR-managed current-or-next-stream Zello Kick is missing")
 check("[A-Z0-9_.\\/-]" in API and "[A-Z0-9_./-]" in URF, "Zello underscore identity support missing")
 check("_ke7wil_zello_is_kicked" in ZELLO_PATCH and "_ke7wil_zello_clear_kick" in ZELLO_PATCH,
       "Zello runtime Kick enforcement or stream-stop cleanup is missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP, "Zello Manage Clients UI missing")
-check("Kick the active Zello transmission" in APP and "protocol === 'ZELLO'" in APP,
-      "Zello current-transmission Kick UI/API route is missing")
+check("current or next Zello transmission for up to five minutes" in APP and "protocol === 'ZELLO'" in APP,
+      "Zello one-shot Kick UI/API route is missing")
 check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', 'listBans']" in API, "DMR client administration capability missing")
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
 check("/run/tgif-dmr" in URF and "/run/dmr-bridge" in URF and "/opt/allscan-reimagined-bridges/urf/*/tgif-run" in URF and "ASR_DMR_RUNTIME_DIR" in URF, "DMR admin helper does not resolve native/container runtime paths")

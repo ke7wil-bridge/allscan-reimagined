@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import ast
+import importlib.util
+import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,9 +23,32 @@ check(not ZELLO_COMPOSE or "/run/asr-global:ro" in ZELLO_COMPOSE,
       "Zello global-ban read-only mount missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
       "Zello Manage Clients presentation missing")
-check("Kick the active Zello transmission" in APP
+check("current or next Zello transmission for up to five minutes" in APP
       and "protocol === 'ZELLO'" in APP,
-      "Zello Kick is not restricted to the current transmission")
+      "Zello one-shot Kick is not available for recent talkers")
+
+spec = importlib.util.spec_from_file_location("asr_urf_admin", ROOT / "scripts/asr-urf-admin.py")
+urf_admin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(urf_admin)
+with tempfile.TemporaryDirectory(prefix="asr-zello-kick-self-test-") as raw_tmp:
+    tmp = Path(raw_tmp)
+    urf_admin.ZELLO_TALKERS = str(tmp / "zello-talkers.json")
+    urf_admin.ZELLO_KICKS = str(tmp / "asr-zello-kicks.json")
+    urf_admin.append_audit_event = lambda *args, **kwargs: None
+    emitted = []
+    urf_admin.emit = lambda **kwargs: emitted.append(kwargs)
+    now = int(time.time())
+    Path(urf_admin.ZELLO_TALKERS).write_text(json.dumps({
+        "active": False,
+        "current_user": "",
+        "recent_users": [{"name": "N0CALL", "last_seen_epoch": now - 30}],
+    }), encoding="utf-8")
+    urf_admin.write_zello_kick("n0call", "self-test")
+    kick = json.loads(Path(urf_admin.ZELLO_KICKS).read_text(encoding="utf-8"))
+    check("N0CALL" in kick["sessions"], "recent Zello talker Kick was not armed")
+    check(emitted[-1]["enforcement"] == "current-or-next-zello-stream"
+          and emitted[-1]["expiresSeconds"] == 300,
+          "recent Zello talker Kick did not report its one-shot contract")
 
 with tempfile.TemporaryDirectory(prefix="asr-zello-self-test-") as raw_tmp:
     tmp = Path(raw_tmp)
