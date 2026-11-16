@@ -85,6 +85,7 @@ def main() -> None:
     assert named_dmr.reflector == "URF073" and named_dmr.bridge_node == 1001
     assert named_dmr.dmr_enabled is True and named_dmr.m17_enabled is False
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
+    assert dmr.tgif_network_id(314133, 1001) == 314133
     test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
                                            "hotspotEssid": 50})
     assert test_value.dmr_id == 3224939 and test_value.tgif_essid == 50
@@ -110,6 +111,12 @@ def main() -> None:
     })
     assert netoholic_with_retired.legacy_bridge_nodes == (1883, 1886)
     assert dmr.tgif_network_id(test_value.dmr_id, 1001, test_value.tgif_essid) == 322493950
+    try:
+        dmr.validate(dmr.UrfSettings("urf", "N1YKT", 314133, 42450,
+                                     tgif_essid=50))
+        raise AssertionError("repeater DMR ID accepted a hotspot ESSID")
+    except dmr.PlanError as error:
+        assert "must not use" in str(error)
     dmr_ports = dmr.port_block("dmr_tgif_net")
     rendered_urf = dmr.urfd_ini({
         "settings": {"reflector": "URFWIL", "callsign": "KE7WIL", "dmr_id": 3224939},
