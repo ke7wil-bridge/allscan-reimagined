@@ -15,6 +15,7 @@ import ctypes.util
 import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,20 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SOURCE_CONTROL_SCRIPT = SCRIPT_DIR / "asr-m17-bridge-control.py"
 INSTALLED_CONTROL_SCRIPT = SCRIPT_DIR / "allscan-reimagined-m17-bridge-control"
 CONTROL_SCRIPT = SOURCE_CONTROL_SCRIPT if SOURCE_CONTROL_SCRIPT.is_file() else INSTALLED_CONTROL_SCRIPT
+GAIN_MODULE_PATH = SCRIPT_DIR / "asr-bridge-pcm-gain.py"
+GAIN_MODULE_INSTALLED = SCRIPT_DIR / "allscan-reimagined-bridge-pcm-gain"
+
+
+def load_pcm_gain():
+    path = GAIN_MODULE_PATH if GAIN_MODULE_PATH.is_file() else GAIN_MODULE_INSTALLED
+    if not path.is_file():
+        raise ConnectorError("PCM gain processor is unavailable.")
+    spec = importlib.util.spec_from_file_location("asr_bridge_pcm_gain", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.apply_pcm16_gain
+
+
 USRP_MAGIC = b"USRP"
 USRP_HEADER_SIZE = 32
 USRP_AUDIO_SIZE = 320
@@ -421,6 +436,16 @@ class AudioBridgeCore:
         self.inbound_last_epoch = 0.0
         self.inbound_start_epoch = 0.0
         self.recent_talkers: deque[dict[str, Any]] = deque(maxlen=4)
+        self.inbound_gain_db = self._gain_setting("inboundGainDb")
+        self.outbound_gain_db = self._gain_setting("outboundGainDb")
+        self._apply_gain = load_pcm_gain() if (self.inbound_gain_db or self.outbound_gain_db) else None
+
+    def _gain_setting(self, name: str) -> float:
+        value = self.bridge.get(name, 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not -24 <= value <= 24:
+            raise ConnectorError(f"Invalid {name}: expected -24 to +24 dB.")
+        return float(value)
+
 
     def _finish_inbound(self, epoch: float) -> None:
         if self.inbound_stream_id and self.inbound_source and self.inbound_start_epoch > 0:
@@ -475,7 +500,8 @@ class AudioBridgeCore:
             if self.inbound_stream_id:
                 return []
             self._target()
-            self.outbound_pcm.extend(frame["pcm"])
+            pcm = self._apply_gain(frame["pcm"], self.outbound_gain_db) if self._apply_gain else frame["pcm"]
+            self.outbound_pcm.extend(pcm)
             if len(self.outbound_pcm) < USRP_AUDIO_SIZE * 2:
                 return []
             pcm = bytes(self.outbound_pcm[:USRP_AUDIO_SIZE * 2])
@@ -506,6 +532,8 @@ class AudioBridgeCore:
         self.inbound_last_epoch = epoch
         self.link.note_stream(frame["source"], frame["streamId"], False, now=epoch)
         pcm = self.codec.decode_40ms(frame["payload"])
+        if self._apply_gain:
+            pcm = self._apply_gain(pcm, self.inbound_gain_db)
         output = [
             self._next_usrp(True, pcm[:USRP_AUDIO_SIZE]),
             self._next_usrp(True, pcm[USRP_AUDIO_SIZE:]),
@@ -577,6 +605,11 @@ class ConnectorRuntime:
         self.usrp_next_send_monotonic = 0.0
         self.last_inbound_talker = ""
         self.inbound_audio_peak = 0
+        self.inbound_audio_rms = 0.0
+        self.inbound_audio_epoch = 0.0
+        self.outbound_audio_peak = 0
+        self.outbound_audio_rms = 0.0
+        self.outbound_audio_epoch = 0.0
 
     def _enqueue_usrp_packets(self, packets: list[bytes]) -> None:
         due = max(time.monotonic(), self.usrp_next_send_monotonic)
@@ -584,6 +617,8 @@ class ConnectorRuntime:
             if len(packet) == USRP_VOICE_SIZE:
                 samples = struct.unpack("<160h", packet[USRP_HEADER_SIZE:])
                 self.inbound_audio_peak = max(abs(sample) for sample in samples)
+                self.inbound_audio_rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+                self.inbound_audio_epoch = time.time()
             self.usrp_tx_queue.append((due, packet))
             due += 0.020
         self.usrp_next_send_monotonic = due
@@ -877,6 +912,11 @@ class ConnectorRuntime:
             "outboundStartEpoch": self.outbound_start_epoch,
             "lastInboundTalker": self.last_inbound_talker,
             "inboundAudioPeak": self.inbound_audio_peak,
+            "inboundAudioRms": self.inbound_audio_rms,
+            "inboundAudioEpoch": self.inbound_audio_epoch,
+            "outboundAudioPeak": self.outbound_audio_peak,
+            "outboundAudioRms": self.outbound_audio_rms,
+            "outboundAudioEpoch": self.outbound_audio_epoch,
             "inboundStartEpoch": self.core.inbound_start_epoch,
             "recentTalkers": list(self.core.recent_talkers),
         })
@@ -908,6 +948,11 @@ class ConnectorRuntime:
                     if len(packet) == USRP_VOICE_SIZE:
                         self.packet_counters["usrpVoicePacketsReceived"] += 1
                     usrp_frame = parse_usrp_packet(packet)
+                    if len(packet) == USRP_VOICE_SIZE and usrp_frame["ptt"]:
+                        samples = struct.unpack("<160h", usrp_frame["pcm"])
+                        self.outbound_audio_peak = max(abs(sample) for sample in samples)
+                        self.outbound_audio_rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+                        self.outbound_audio_epoch = time.time()
                     activity_epoch = time.time()
                     if usrp_frame["ptt"]:
                         if not self.outbound_active:
@@ -1124,6 +1169,19 @@ def self_test() -> None:
         pass
     else:
         raise AssertionError("inbound audio was accepted before link confirmation")
+
+    # Verify gain is applied on both real PCM directions before codec encode/after decode.
+    gain_bridge = dict(bridge, inboundGainDb=-6, outboundGainDb=6)
+    gain_core = AudioBridgeCore(control, gain_bridge, core.link, core.codec, stream_id_factory=lambda: 43)
+    assert gain_core.inbound_gain_db == -6 and gain_core.outbound_gain_db == 6
+    assert gain_core._apply_gain(struct.pack("<h", 1000), 6) != struct.pack("<h", 1000)
+    for bad in (float("nan"), 25, True):
+        try:
+            AudioBridgeCore(control, dict(bridge, inboundGainDb=bad), core.link, core.codec)
+        except ConnectorError:
+            pass
+        else:
+            raise AssertionError("invalid gain was accepted")
 
     unqualified = dict(bridge, audioQualified=False)
     codec, error = codec_readiness(unqualified)
