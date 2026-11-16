@@ -35,7 +35,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.3.5 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.4 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -91,7 +91,7 @@ pageInit();
 		<ol class="asr-instructions-steps">
 			<li>Select the bridge and its type. For Net Bridge, check only the modes the node will use; for example, check DMR and YSF and leave P25, NXDN, and M17 unchecked.</li>
 			<li>Complete the visible fields. Station callsign is the node owner’s callsign. DMR ID is the registered numeric radio ID used by DMR and the other digital gateway modes. Destination means the starting talkgroup or reflector for that mode. Host and port identify that mode’s network endpoint.</li>
-			<li>For TGIF, choose Legacy when no personal hotspot key is used, or Secured when TGIF issued a hotspot key. A hotspot key is not the TGIF website password. Use a unique ESSID when the same DMR ID has another hotspot online.</li>
+			<li>For TGIF, choose Legacy when no personal hotspot key is used, or Secured when TGIF issued a hotspot key. A hotspot key is not the TGIF website password. Seven-digit subscriber IDs may use a unique ESSID when another hotspot is online; six-digit repeater IDs must be used unchanged with no ESSID.</li>
 			<li>Select <strong>Check Setup</strong>. This validates and previews; it does not install the bridge. Correct any named field before continuing.</li>
 			<li>Select <strong>Install Bridge</strong> and keep the page open until completion. The install button applies the previewed plan, so a separate <strong>Save All Bridge Changes</strong> click is not required for the managed installation.</li>
 			<li>Reload the dashboard, confirm the expected card and modes appear, then make a short two-way audio test. Use Bridge Diagnostics if the card is not ready or audio works in only one direction.</li>
