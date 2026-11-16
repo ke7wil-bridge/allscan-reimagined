@@ -1,7 +1,7 @@
 export const ASR_WHATS_NEW = {
-  version: '1.0.0-beta.8.3.5',
-  label: 'Beta 8.3.5',
-  summary: 'Adds end-to-end diagnostics for URF installation failures.',
+  version: '1.0.0-beta.8.4',
+  label: 'Beta 8.4',
+  summary: 'Improves bridge reliability, installation diagnostics, and node health visibility.',
   items: [
     'Correlates the browser request, API validation, and privileged helper stage without recording credentials.',
     'Records whether installation started, failed, or completed instead of logging only successful installs.',
