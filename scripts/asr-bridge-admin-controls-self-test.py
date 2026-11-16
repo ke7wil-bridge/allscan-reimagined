@@ -29,6 +29,10 @@ def check(value: bool, message: str) -> None:
 check(API == SERVER_API, "API copies diverged")
 check("function asr_bridge_admin_capabilities" in API, "capability contract missing")
 check("function asr_global_ban_policy_digest" in API, "standalone global-ban policy digest missing")
+check("function asr_global_ban_admin_available" in API
+      and "asr_global_ban_admin_available($mode)" in API
+      and "if ($globalAdmin) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);" in API,
+      "ASR-persisted Ban is not offered independently of native bridge capability")
 check("($cap['bridgeId'] ?? '') !== $id" in API and "($cap['healthy'] ?? false) !== true" in API, "standalone manifest identity/health checks missing")
 check("is_link($path)" in API and "($stat['mode'] ?? 0) & 0022" in API and "($stat['uid'] ?? -1) !== 0" in API, "standalone manifest trust checks missing")
 check("($cap['kickContract'] ?? '') === 'disconnect-until-reconnect'" in API, "standalone Kick session contract missing")

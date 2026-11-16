@@ -313,6 +313,12 @@ function asr_global_ban_policy_digest(): string {
     return hash('sha256', "asr-global-ban-v1\0" . $blacklist . "\0" . $timedBans);
 }
 
+function asr_global_ban_admin_available(string $mode): bool {
+    return in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'zello'], true)
+        && is_executable(ASR_URF_ADMIN_HELPER)
+        && asr_global_ban_policy_digest() !== '';
+}
+
 function asr_runtime_client_admin(string $id, string $mode): array {
     if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
         || !in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
@@ -394,8 +400,12 @@ function asr_bridge_admin_capabilities(array $bridge): array {
     $mode = strtolower((string) ($bridge['mode'] ?? ''));
     $clientAdmin = $urf ? ['listClients'] : [];
     if (!$urf) $clientAdmin = array_merge($clientAdmin, asr_standalone_client_admin($bridge));
-    $globalAdmin = $urf || $mode === 'zello'
-        || in_array('banClient', $clientAdmin, true);
+    // Ban is an ASR-persisted policy, not a native-protocol capability. Offer
+    // it on every supported bridge card whenever the durable policy helper is
+    // available; backend adapters reconcile and enforce the saved policy when
+    // they are present. Kick remains gated by immediate backend support.
+    $globalAdmin = asr_global_ban_admin_available($mode);
+    if ($globalAdmin) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
     if ($urf && $mode === 'dmr' && asr_dmr_admin_runtime_available()) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
     if ($urf && $mode !== 'dmr') {
         if (is_readable('/run/urf-wil/asr-admin-capabilities.json')) {
@@ -404,7 +414,6 @@ function asr_bridge_admin_capabilities(array $bridge): array {
             $clientAdmin = array_merge($clientAdmin, asr_native_urf_client_admin($mode));
         }
     }
-    if ($mode === 'zello' && is_dir('/var/www/html/asr')) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
     $clientAdmin = array_values(array_unique($clientAdmin));
     return [
         'bridgeControl' => $bridgeControl,
