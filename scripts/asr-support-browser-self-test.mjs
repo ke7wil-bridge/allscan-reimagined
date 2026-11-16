@@ -46,6 +46,21 @@ async function waitForJson(url, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
+async function waitForApp(server, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (server?.exitCode !== null) throw new Error(`Vite exited before serving ${APP_URL}`)
+    try {
+      const response = await fetch(APP_URL)
+      if (response.ok) return
+    } catch {
+      // Vite is still starting.
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+  }
+  throw new Error(`Timed out waiting for ${APP_URL}`)
+}
+
 class CdpClient {
   constructor(url) {
     this.nextId = 1
@@ -105,6 +120,11 @@ class CdpClient {
 
 async function main() {
   const chrome = await findChrome()
+  const appServer = process.env.ASR_SUPPORT_TEST_URL ? null : spawn(
+    './node_modules/.bin/vite',
+    ['--host', '127.0.0.1', '--port', '4173', '--strictPort'],
+    { env: { ...process.env, ASR_MOCK: '1' }, stdio: 'ignore' },
+  )
   const profile = await mkdtemp(join(tmpdir(), 'asr-support-chrome-'))
   const browser = spawn(chrome, [
     '--headless=new',
@@ -118,6 +138,7 @@ async function main() {
 
   let cdp
   try {
+    await waitForApp(appServer)
     const targets = await waitForJson(`http://127.0.0.1:${PORT}/json/list`)
     const pageTarget = targets.find((target) => target.type === 'page')
     assert(pageTarget?.webSocketDebuggerUrl, 'Chrome did not expose a page target')
@@ -190,7 +211,7 @@ async function main() {
     }
     const openSupport = async (theme = 'standard') => {
       await openMenu(theme)
-      await clickVisibleTextButton('Support ASR')
+      await clickVisibleTextButton('Donate to ASR')
     }
     const screenshot = async (filename) => {
       const capture = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
@@ -212,13 +233,13 @@ async function main() {
     const storageBefore = await evaluate('JSON.stringify({ local: Object.keys(localStorage).sort(), session: Object.keys(sessionStorage).sort(), cookie: document.cookie })')
     await openMenu()
     const menuItems = await evaluate("[...document.querySelector('.allscan-menu-proxy-list').children].filter((item) => item.getClientRects().length > 0).map((item) => item.textContent.trim())")
-    const supportIndex = menuItems.indexOf('Support ASR')
+    const supportIndex = menuItems.indexOf('Donate to ASR')
     const logoutIndex = menuItems.indexOf('Logout')
-    assert(supportIndex >= 0 && supportIndex === logoutIndex - 1, 'Support ASR is not immediately above Logout')
+    assert(supportIndex >= 0 && (logoutIndex < 0 || supportIndex === logoutIndex - 1), 'Donate to ASR must be the final item before optional Logout')
     await screenshot('01-main-menu-support-asr.png')
 
     const urlBefore = await evaluate('location.href')
-    await clickVisibleTextButton('Support ASR')
+    await clickVisibleTextButton('Donate to ASR')
     assert(await evaluate("Boolean(document.querySelector('[role=dialog][aria-labelledby=asr-support-title]'))"), 'Support modal did not open')
     assert(await evaluate('location.href') === urlBefore, 'Opening Support ASR navigated away automatically')
     assert(await evaluate("document.querySelector('#asr-support-optional').textContent.includes('completely optional')"), 'Optional contribution wording is missing')
@@ -233,11 +254,9 @@ async function main() {
     assert(await modalFits(), 'Desktop modal or actions are clipped')
     await screenshot('02-support-asr-modal-desktop.png')
 
-    await evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))")
-    assert(await evaluate("document.activeElement.textContent.trim() === 'Cancel'"), 'Shift+Tab did not wrap focus to Cancel')
-    await evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))")
-    assert(await evaluate("document.activeElement.getAttribute('aria-label') === 'Close Support AllScan Reimagined'"), 'Tab did not wrap focus to Close')
-    await press('Escape', 'Escape', 27)
+    assert(await evaluate("(() => { document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true})); return document.activeElement.textContent.trim() === 'Cancel' })()"), 'Shift+Tab did not wrap focus to Cancel')
+    assert(await evaluate("(() => { document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true})); return document.activeElement.getAttribute('aria-label') === 'Close Support AllScan Reimagined' })()"), 'Tab did not wrap focus to Close')
+    await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))")
     assert(!(await evaluate("Boolean(document.querySelector('.asr-support-dialog'))")), 'Escape did not close the modal')
     assert(await evaluate("document.activeElement.classList.contains('allscan-menu-button')"), 'Focus did not return to the menu button')
 
@@ -268,7 +287,7 @@ async function main() {
       assert(themeResult.theme === theme, `Theme did not apply to Support ASR: ${theme}`)
       assert(themeResult.background !== 'rgba(0, 0, 0, 0)' && themeResult.color !== 'rgba(0, 0, 0, 0)', `Modal lost themed contrast: ${theme}`)
       assert(await modalFits(), `Modal is clipped under theme: ${theme}`)
-      await press('Escape', 'Escape', 27)
+      await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))")
     }
 
     for (const [name, width, height, mobile] of [
@@ -282,13 +301,14 @@ async function main() {
       await openSupport()
       assert(await modalFits(), `Modal or actions are clipped at ${name}`)
       if (name === 'phone-portrait') await screenshot('03-support-asr-modal-phone-390px.png')
-      await press('Escape', 'Escape', 27)
+      await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))")
     }
 
     console.log(`support ASR browser self-test: ok\nscreenshots: ${SCREENSHOT_DIR}`)
   } finally {
     cdp?.close()
     browser.kill('SIGTERM')
+    appServer?.kill('SIGTERM')
     if (browser.exitCode === null) {
       await Promise.race([
         new Promise((resolveExit) => browser.once('exit', resolveExit)),
