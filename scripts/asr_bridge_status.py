@@ -596,7 +596,7 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
         bridge = next((item for item in configured_bridges
                        if isinstance(item, dict) and item.get("id") == bridge_id), {})
         if bridge.get("backendMode") == "managed":
-            fields = ("gatewayService", "vocoderService", "mmdvmService",
+            fields = ("gatewayService", "ysfGatewayService", "vocoderService", "mmdvmService",
                       "analogBridgeService", "emulatorService", "adminService",
                       "mqttService")
             units = [str(bridge[key]).strip() for key in fields if bridge.get(key)]

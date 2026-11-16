@@ -159,6 +159,21 @@ try {
   assert(urfGroup.every(isUrfReflectorBridge), 'expanded URF protocol cards were not recognized as URF group members')
   assert(bridgeProtocolCardTitle(standaloneZello) === 'Zello Bridge', 'standalone Zello title changed')
   assert(!isUrfReflectorBridge(standaloneZello), 'standalone Zello was incorrectly classified as an URF card')
+  const kentuckyCards = ['dmr', 'ysf', 'p25', 'm17', 'nxdn', 'zello'].map((mode, index) => ({
+    id: mode === 'ysf' ? 'ysf_net' : mode,
+    mode,
+    node: String(1001 + index),
+    title: `${mode.toUpperCase()} Bridge`,
+    detailTitle: 'Recent Talkers',
+    cardType: 'standard',
+    backendMode: mode === 'ysf' ? 'managed' : 'display_only',
+  }))
+  assert(kentuckyCards.every((bridge) => !isUrfReflectorBridge(bridge)), 'standalone Kentucky bridge was classified as URF')
+  assert(
+    orderedVisibleBridgeCards(kentuckyCards, kentuckyCards, 'ysf', 2).map((card) => card.id).join(',')
+      === 'dmr,ysf_net,p25,m17,nxdn,zello',
+    'six standalone bridge cards were split into a special group or reordered',
+  )
   assert(urfReflectorDisplayName(urfGroup) === 'URFNET Bridge', 'URF group heading did not use the configured reflector name')
   assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: '' }))) === 'URF Bridge', 'legacy URFWIL default leaked into a different reflector dashboard')
   assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073', urfName: '' }))) === 'URF073 Bridge', 'explicit URF073 label was not honored')

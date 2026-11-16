@@ -268,6 +268,22 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients > span { backgroun
   .allscan-bridge-grid .allscan-bridge-client-meta { margin-top:3px; font-size:11px; line-height:1.2; }
 }
 
+/* Desktop: use every available equal-width column. Six standalone bridges
+   fit one row on a normal desktop, while narrower windows wrap without
+   stretching the final card. */
+@media (min-width:1201px) {
+  .allscan-bridge-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    justify-content:stretch;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card {
+    width:100%;
+    max-width:none;
+    min-width:0;
+  }
+}
+
 /* Beta 8: unify all bridge cards with the current URF mobile card geometry. */
 @media (max-width:900px) {
   .allscan-bridge-grid { left:50%; right:auto; width:calc(100vw - 40px); max-width:calc(100vw - 40px); margin-left:calc(-50vw + 20px); margin-right:0; grid-template-columns:minmax(0,1fr) !important; gap:6px; }

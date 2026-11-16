@@ -235,6 +235,39 @@ def test_direct_service_discovery() -> None:
         _, issues = status.bridge_service_health(config, "dmr_direct")
         assert len(issues) == 3 and all("not active" in issue for issue in issues)
 
+    ysf_units = [
+        "netoholics-native-ysf-gateway.service",
+        "netoholics-native-ysf-reflector.service",
+        "netoholics-native-ysf-mmdvm.service",
+        "netoholics-native-ysf-analog.service",
+        "netoholics-native-ysf-vocoder.service",
+    ]
+    ysf_config = {"bridgeHealthServices": {"ysf_net": ysf_units}, "bridges": [{
+        "id": "ysf_net", "mode": "ysf", "cardType": "standard",
+        "backendMode": "managed",
+        "ysfGatewayService": ysf_units[0],
+        "mmdvmService": ysf_units[2],
+        "analogBridgeService": ysf_units[3],
+        "emulatorService": ysf_units[4],
+    }]}
+    with patch.object(status.subprocess, "run", side_effect=show):
+        units, issues = status.bridge_service_health(ysf_config, "ysf_net")
+    assert units == ysf_units and issues == []
+    healthy = status.public_entry(ysf_config["bridges"][0], status.initial_activity_state(), units, issues)
+    assert healthy["state"] == "Idle" and healthy["health_severity"] is None
+
+    def one_ysf_offline(args, **_kwargs):
+        active = args[2] != ysf_units[0]
+        return SimpleNamespace(
+            stdout=("ActiveState=active\nNRestarts=0\nActiveEnterTimestampMonotonic=1000000\n" if active else "ActiveState=inactive\n"),
+            returncode=0,
+        )
+    with patch.object(status.subprocess, "run", side_effect=one_ysf_offline):
+        units, issues = status.bridge_service_health(ysf_config, "ysf_net")
+    offline = status.public_entry(ysf_config["bridges"][0], status.initial_activity_state(), units, issues)
+    assert offline["health_severity"] == "offline"
+    assert "gateway" in offline["warning"]
+
 
 def test_standard_payload_and_ambiguity() -> None:
     for invalid in (None, {}, "not-a-list", 7):

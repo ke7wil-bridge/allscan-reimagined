@@ -42,6 +42,35 @@ try {
     assert(result.buttons>0,name+': no visible controls')
     assert(result.scrollWidth<=result.viewport+2,name+': horizontal page overflow '+JSON.stringify(result))
     assert(result.clipped.length===0,name+': clipped controls '+JSON.stringify(result.clipped))
+
+    assert(await evaluate("(() => { const button=document.querySelector('.allscan-menu-button'); button?.click(); return Boolean(button) })()"),name+': menu button missing')
+    await delay(100)
+    const menu = await evaluate(`(() => {
+      const button=document.querySelector('.allscan-menu-button');
+      const panel=document.querySelector('.allscan-menu-panel');
+      if(!button||!panel) return {ok:false,reason:'missing'};
+      const rect=panel.getBoundingClientRect();
+      const visible=panel.getClientRects().length>0&&getComputedStyle(panel).visibility!=='hidden';
+      const items=[...panel.querySelectorAll('a,button')].filter(item=>item.getClientRects().length>0).length;
+      return {ok:visible&&items>0&&rect.left>=-2&&rect.right<=innerWidth+2&&rect.top>=-2&&rect.bottom<=innerHeight+2,rect:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom},items};
+    })()`)
+    assert(menu.ok,name+': menu missing, empty, or clipped '+JSON.stringify(menu))
+
+    if(name==='desktop') {
+      const bridgeLayout=await evaluate(`(() => {
+        const grid=document.querySelector('.allscan-bridge-grid');
+        if(!grid) return {ok:false,reason:'missing grid'};
+        const existing=[...grid.querySelectorAll(':scope > .allscan-bridge-card')];
+        if(!existing.length) return {ok:false,reason:'missing cards'};
+        while(grid.querySelectorAll(':scope > .allscan-bridge-card').length<6) grid.append(existing[0].cloneNode(true));
+        const cards=[...grid.querySelectorAll(':scope > .allscan-bridge-card')].slice(0,6);
+        const rects=cards.map(card=>card.getBoundingClientRect());
+        const widths=rects.map(rect=>rect.width);
+        const tops=rects.map(rect=>rect.top);
+        return {ok:cards.length===6&&Math.max(...widths)-Math.min(...widths)<=1&&Math.max(...tops)-Math.min(...tops)<=1,count:cards.length,widths,tops};
+      })()`)
+      assert(bridgeLayout.ok,'desktop: six bridge cards are not one uniform row '+JSON.stringify(bridgeLayout))
+    }
     console.log(name+': PASS '+result.viewport+'px, '+result.buttons+' visible controls')
   }
 } finally {
