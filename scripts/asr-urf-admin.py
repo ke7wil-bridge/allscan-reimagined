@@ -209,6 +209,9 @@ def reconcile_asl_bans():
         return {"status": "failed", "error": "AllStar/EchoLink ban reconciliation did not complete."}
     if result.returncode != 0 or payload.get("ok") is not True:
         return {"status": "failed", "error": str(payload.get("error") or "AllStar/EchoLink ban reconciliation failed.")[:180]}
+    pending = payload.get("applied", {}).get("pending", {})
+    if isinstance(pending, dict) and pending.get("echolink"):
+        return {"status": "failed", "error": str(pending["echolink"])[:180], **payload}
     return {"status": "applied", **payload}
 
 

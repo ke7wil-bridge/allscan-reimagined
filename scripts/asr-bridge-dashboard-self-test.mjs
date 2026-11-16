@@ -734,8 +734,10 @@ try {
     'Zello relay must use the fast producer when present and retain legacy Asterisk fallback when absent',
   )
   assert(
-    appSource.includes('const activeRelaySource = connectionRowsRef.current.some')
+    appSource.includes("const activeRelaySource = activeTalkerNode !== '' && connectionRowsRef.current.some")
+      && appSource.includes("const activeTalkerNode = currentTalkerRef.current?.node || ''")
       && appSource.includes('candidate.node !== config.node')
+      && appSource.includes('candidate.node === activeTalkerNode')
       && appSource.includes('if (row && activeRelaySource)')
       && appSource.includes("return withStatus(card, 'Relay')")
       && appSource.includes('Never promote that node-wide bit into')

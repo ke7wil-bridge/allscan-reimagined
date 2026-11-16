@@ -8,7 +8,7 @@ import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
-import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
+import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
   activateNetBridgeMode,
@@ -44,6 +44,8 @@ import {
   isUrfReflectorBridge,
   urfReflectorDisplayName,
   fetchUrfBlacklist,
+  fetchAslBans,
+  changeAslBan,
   updateUrfBlacklist,
   kickUrfClient,
   kickStandaloneClient,
@@ -70,6 +72,8 @@ import {
   type ReleaseStatus,
   type UrfBan,
   type UrfAuditEvent,
+  type AslBan,
+  type AslBanKind,
 } from './lib/allscanLive'
 
 const FAST_ACTIVITY_POLL_MS = 250
@@ -678,7 +682,8 @@ function App({ config }: { config: RuntimeConfig }) {
   const [managementTab, setManagementTab] = useState<'clients' | 'bans'>('clients')
   const [aslEnforcementStatus, setAslEnforcementStatus] = useState('')
   const [aslExternal, setAslExternal] = useState<{ allstar: string[]; echolink: string[] }>({ allstar: [], echolink: [] })
-  const [banDialog, setBanDialog] = useState<{ row?: LiveConnectionRow; callsign: string; value: string } | null>(null)
+  const [aslBans, setAslBans] = useState<AslBan[]>([])
+  const [banDialog, setBanDialog] = useState<{ row?: LiveConnectionRow; callsign: string; value: string; aslKind?: AslBanKind } | null>(null)
   const [banDuration, setBanDuration] = useState<UrfBanDuration>('1h')
   const [banStatus, setBanStatus] = useState('')
   const [banBusy, setBanBusy] = useState(false)
@@ -719,6 +724,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const connectionRowsRef = useRef<LiveConnectionRow[]>([])
   const dmrFastActiveRef = useRef(false)
   const fastStandardActivityRef = useRef<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>>({})
+  const currentTalkerRef = useRef<TalkerFeedEntry | null>(null)
   const fastYsfNetActivityRef = useRef<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>>({})
   const fastNextModeActivityRef = useRef<Record<string, FastNextModeActivity>>({})
   const bridgeTalkerIdentityRef = useRef<Record<string, { callsign: string; source: string; description: string }>>({})
@@ -1021,9 +1027,11 @@ function App({ config }: { config: RuntimeConfig }) {
     )
     const localRow = rowsByNode.get(config.node) || connectionRowsRef.current[0]
     const localIsTransmitting = localRow?.state === 'talking' || localRow?.state === 'both'
-    const activeRelaySource = connectionRowsRef.current.some((candidate) => (
+    const activeTalkerNode = currentTalkerRef.current?.node || ''
+    const activeRelaySource = activeTalkerNode !== '' && connectionRowsRef.current.some((candidate) => (
       !candidate.configuredTransport
       && candidate.node !== config.node
+      && candidate.node === activeTalkerNode
       && (candidate.state === 'talking' || candidate.state === 'both')
     ))
     const withStatus = (card: BridgeCardView, status: BridgeCardView['status']) => ({
@@ -1584,6 +1592,7 @@ function App({ config }: { config: RuntimeConfig }) {
         setAdjacentCount(snapshot.adjacentCount)
         setLinkedNodes(snapshot.linkedNodes)
         setLinkedNodeCounts(snapshot.linkedNodeCounts)
+        currentTalkerRef.current = snapshot.currentTalker
         setCurrentTalker(snapshot.currentTalker)
         setRecentTalkers(snapshot.recentTalkers)
         setBridgeState((current) => applyBridgeConnectionOverrides(current))
@@ -2406,18 +2415,27 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function openParticipantBan(row?: LiveConnectionRow) {
-    const callsign = row ? (identityFromConnection(row).callsign || '') : ''
+    const identity = row ? identityFromConnection(row) : undefined
+    const callsign = identity?.callsign || ''
+    const aslKind: AslBanKind | undefined = identity?.network === 'allstar' && identity.nodeNumber
+      ? 'node'
+      : identity?.network === 'echolink' && callsign
+        ? 'echolink-call'
+        : identity?.network === 'iax' && callsign
+          ? 'allstar-call'
+          : undefined
+    const value = aslKind === 'node' ? identity?.nodeNumber || '' : callsign
     if (row && isProtectedBanConnection(row)) {
       setBanStatus('This installed service bridge is protected and cannot be banned.')
       setRowActions(null)
       return
     }
-    if (row && !callsign) {
-      setBanStatus('A verified callsign is required because every ASR ban is global.')
+    if (row && !value) {
+      setBanStatus('This connection does not expose a verified AllStar or EchoLink identity.')
       setRowActions(null)
       return
     }
-    setBanDialog({ row, callsign, value: callsign })
+    setBanDialog({ row, callsign, value, aslKind })
     setBanDuration('1h')
     setBanStatus('')
     setRowActions(null)
@@ -2426,14 +2444,16 @@ function App({ config }: { config: RuntimeConfig }) {
   async function loadAslBans() {
     if (!authStatus.isAdmin) return
     try {
-      const result = await fetchUrfBlacklist()
+      const [result, native] = await Promise.all([fetchUrfBlacklist(), fetchAslBans()])
       setUrfBlacklist(result.rules)
       setUrfBans(result.bans)
       setUrfAudit(result.audit)
-      setAslEnforcementStatus(result.asl?.status === 'applied' ? 'Global policy applied everywhere' : `Global policy pending: ${result.asl?.error || 'Adapter unavailable'}`)
+      setAslBans(native.bans)
+      const echoPending = native.applied.pending?.echolink
+      setAslEnforcementStatus(echoPending ? `AllStar applied; EchoLink pending: ${echoPending}` : 'AllStar / EchoLink policy loaded')
       setAslExternal({
-        allstar: result.asl?.applied?.externalAst || [],
-        echolink: result.asl?.applied?.externalEcho || [],
+        allstar: native.applied.externalAst || [],
+        echolink: native.applied.externalEcho || [],
       })
       setBanStatus('')
     } catch (error) {
@@ -2446,7 +2466,35 @@ function App({ config }: { config: RuntimeConfig }) {
     const value = banDialog.value.trim().toUpperCase()
     try {
       setBanBusy(true)
-      setBanStatus('Applying Global Ban…')
+      setBanStatus(banDialog.aslKind ? 'Applying native connection ban…' : 'Applying Global Ban…')
+      if (banDialog.aslKind) {
+        const result = await changeAslBan('ban', banDialog.aslKind, value, banDuration)
+        setAslBans(result.bans)
+        setAslExternal({ allstar: result.applied.externalAst || [], echolink: result.applied.externalEcho || [] })
+        let disconnectStatus = ''
+        if (banDialog.row) {
+          try {
+            if (/^[0-9]{3,10}$/.test(banDialog.row.node)) {
+              await sendNodeCommand({
+                localNode: config.node, node: banDialog.row.node, action: 'disconnect',
+                permanent: false, autodisc: false, connectedCount, favsfile: selectedFavoriteFile,
+              })
+            } else {
+              const client = (await fetchDropClients()).find((entry) =>
+                entry.label.toUpperCase().includes(banDialog.row!.node.toUpperCase())
+                || entry.label.toUpperCase().includes(banDialog.callsign))
+              if (!client) throw new Error('Active named client was not found.')
+              await dropClientChannel(client.channel)
+            }
+            disconnectStatus = ' Current connection was disconnected.'
+          } catch {
+            disconnectStatus = ' The native deny is active; the session may already be gone.'
+          }
+        }
+        setBanDialog(null)
+        setBanStatus(`Banned ${banDialog.aslKind === 'node' ? 'AllStar node' : banDialog.aslKind === 'echolink-call' ? 'EchoLink callsign' : 'AllStar callsign'} ${value}.${disconnectStatus}`)
+        return
+      }
       if (!/^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(value)) throw new Error('Enter a valid callsign. Every ASR ban is global.')
       if (banDialog.row && isProtectedBanConnection(banDialog.row)) throw new Error('This installed service bridge is protected and cannot be banned.')
       const result = await updateUrfBlacklist('ban', value, banDuration)
@@ -2497,6 +2545,19 @@ function App({ config }: { config: RuntimeConfig }) {
       setBanStatus(result.verified ? `Removed global ban for ${rule}.` : `Global Ban removal is pending full enforcement: ${result.asl?.error || 'Retrying.'}`)
     } catch (error) {
       setBanStatus(error instanceof Error ? error.message : 'Global unban failed.')
+    } finally { setBanBusy(false) }
+  }
+
+  async function removeAslBan(ban: AslBan) {
+    if (!authStatus.isAdmin || banBusy) return
+    try {
+      setBanBusy(true)
+      const result = await changeAslBan('unban', ban.kind, ban.value)
+      setAslBans(result.bans)
+      setAslExternal({ allstar: result.applied.externalAst || [], echolink: result.applied.externalEcho || [] })
+      setBanStatus(`Removed ${ban.kind === 'node' ? 'AllStar node' : ban.kind === 'echolink-call' ? 'EchoLink callsign' : 'AllStar callsign'} ban for ${ban.value}.`)
+    } catch (error) {
+      setBanStatus(error instanceof Error ? error.message : 'Native connection unban failed.')
     } finally { setBanBusy(false) }
   }
 
@@ -4037,7 +4098,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     void loadDropClients()
                   }}>Drop Client…</button>
                 )}
-                {connectionCallsign(rowActions.row) && !isProtectedBanConnection(rowActions.row) ? <button type="button" role="menuitem" onClick={() => openParticipantBan(rowActions.row)}>Ban…</button> : null}
+                {isBannableConnection(rowActions.row) && !isProtectedBanConnection(rowActions.row) ? <button type="button" role="menuitem" onClick={() => openParticipantBan(rowActions.row)}>Ban…</button> : null}
               </div>
             </>, document.body
           ) : null}
@@ -4128,7 +4189,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     <label>Ban duration<select value={urfBanDuration} disabled={urfAccessBusy} onChange={(event) => setUrfBanDuration(event.target.value as UrfBanDuration)}>{URF_BAN_DURATIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                     <button type="button" disabled={urfAccessBusy || !urfAccessRule.trim()} onClick={() => void changeUrfBlacklist('ban', urfAccessRule, urfBanDuration)}>Ban</button>
                   </div>
-                  <div className="allscan-urf-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!urfClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-urf-client-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setUrfAccessOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{connectionCallsign(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setUrfAccessOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
+                  <div className="allscan-urf-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!urfClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-urf-client-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setUrfAccessOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{isBannableConnection(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setUrfAccessOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
                   <div className="allscan-urf-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.flatMap((managedCard) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === managedCard.id); const clientAdmin = bridgeConfig?.adminCapabilities?.clientAdmin || []; const canKick = managedCard.mode.toUpperCase() !== 'ZELLO' && clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan, isUrf: Boolean(bridgeConfig?.urfReflector) })) }).filter((detail) => !urfClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(urfClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = urfBlacklist.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-urf-client-actions">{detail.canKick ? <button type="button" disabled={urfAccessBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode, detail.clientId)}>{detail.isUrf && detail.mode.toUpperCase() === 'DMR' ? 'Disconnect' : 'Kick'}</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign, detail.mode, detail.clientId) : null}</span></span> })}</div>
                   {zelloTalkers.length ? <div className="allscan-urf-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !urfClientFilter.trim() || `${identity} ZELLO`.includes(urfClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const banned = urfBlacklist.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-urf-client-actions">{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
                   </> : <div className="allscan-management-bans">
@@ -4140,6 +4201,11 @@ function App({ config }: { config: RuntimeConfig }) {
                 <strong>{ban.rule}</strong><span>Everywhere · {formatUrfBanRemaining(ban.expiresAt, clock)} · {formatUrfBanExpiration(ban.expiresAt)}</span>
                 <button type="button" disabled={banBusy} onClick={() => void removeGlobalBan(ban.rule)}>Unban</button>
               </div>) : <p>No global bans.</p>}
+              <strong>AllStar / EchoLink native bans</strong>
+              {aslBans.length ? aslBans.map((ban) => <div key={`asl-${ban.kind}-${ban.value}`}>
+                <strong>{ban.value}</strong><span>{ban.kind === 'node' ? 'AllStar node' : ban.kind === 'echolink-call' ? 'EchoLink callsign' : 'AllStar callsign'} · {formatUrfBanRemaining(ban.expiresAt, clock)} · {formatUrfBanExpiration(ban.expiresAt)}</span>
+                <button type="button" disabled={banBusy} onClick={() => void removeAslBan(ban)}>Unban</button>
+              </div>) : <p>No native connection bans.</p>}
               {aslExternal.allstar.length || aslExternal.echolink.length ? <>
                 <strong>Linux / manual restrictions (read only)</strong>
                 {aslExternal.allstar.map((value) => <div key={`external-node-${value}`}><strong>{value}</strong><span>AllStar · manual</span></div>)}
@@ -4477,17 +4543,17 @@ function App({ config }: { config: RuntimeConfig }) {
       {banDialog ? (
         <div className="allscan-drop-client-modal" onClick={() => !banBusy && setBanDialog(null)}>
           <div className="allscan-drop-client-box allscan-connection-ban-dialog" role="dialog" aria-modal="true" aria-label="Ban connection" onClick={(event) => event.stopPropagation()}>
-            <h3>Global Ban</h3>
+            <h3>{banDialog.aslKind === 'node' ? 'AllStar Node Ban' : banDialog.aslKind === 'echolink-call' ? 'EchoLink Ban' : banDialog.aslKind === 'allstar-call' ? 'AllStar Callsign Ban' : 'Global Ban'}</h3>
             {banDialog.row ? <p>{banDialog.row.node} · {banDialog.row.info}</p> : <p>Add a global ban for a disconnected callsign.</p>}
-            <label>Callsign
-              <input value={banDialog.value} maxLength={12} onChange={(event) => setBanDialog({ ...banDialog, value: event.target.value.toUpperCase() })} />
+            <label>{banDialog.aslKind === 'node' ? 'Node' : 'Callsign'}
+              <input value={banDialog.value} maxLength={banDialog.aslKind === 'node' ? 10 : 12} readOnly={Boolean(banDialog.row && banDialog.aslKind)} onChange={(event) => setBanDialog({ ...banDialog, value: event.target.value.toUpperCase() })} />
             </label>
             <label>Duration
               <select value={banDuration} onChange={(event) => setBanDuration(event.target.value as UrfBanDuration)}>
                 {URF_BAN_DURATIONS.map((duration) => <option key={duration.value} value={duration.value}>{duration.label}</option>)}
               </select>
             </label>
-            <p className="allscan-drop-client-help">Applies everywhere ASR can enforce it.{banDialog.row ? ' ASR will disconnect this connection after applying the ban.' : ''}</p>
+            <p className="allscan-drop-client-help">{banDialog.aslKind === 'node' ? 'Blocks this AllStar node in Asterisk.' : banDialog.aslKind ? 'Applies to this native connection type.' : 'Applies everywhere ASR can enforce it.'}{banDialog.row ? ' ASR will disconnect this connection after applying the ban.' : ''}</p>
             {banStatus ? <p role="status">{banStatus}</p> : null}
             <div className="allscan-drop-client-actions">
               <button type="button" className="allscan-action-button" disabled={banBusy || !banDialog.value.trim()} onClick={() => void submitParticipantBan()}>{banBusy ? 'Applying…' : 'Ban'}</button>

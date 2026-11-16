@@ -358,15 +358,23 @@ def reconcile(data, ami, local):
     save_state(data)
     applied_echo = data.get("appliedEcho")
     refresh_needed = isinstance(applied_echo, list) and applied_echo != sorted((existing_echo - previous_echo) | desired_echo)
-    apply_echo(ami, desired_echo, previous_echo, force_restart=refresh_needed)
-    data["appliedEcho"] = sorted(echo_denies(ami)[0])
+    pending = {}
+    try:
+        apply_echo(ami, desired_echo, previous_echo, force_restart=refresh_needed)
+        data["appliedEcho"] = sorted(echo_denies(ami)[0])
+    except Exception as exc:
+        # AllStar denylist changes above are independently verified and must
+        # remain usable when EchoLink cannot safely reload during a session.
+        # Preserve the pending EchoLink error for callers and retry on list/sync.
+        pending["echolink"] = str(exc)[:240]
     data["ownedEcho"] = sorted(owned_echo)
     data["bans"] = active
     save_state(data)
     return {"removed": removed, "allstar": sorted(desired_ast), "echolink": sorted(desired_echo),
             "unmappedGlobalRules": unsupported,
             "externalAst": sorted(ast_entries(ami, local) - owned_ast),
-            "externalEcho": sorted(echo_denies(ami)[0] - owned_echo)}
+            "externalEcho": sorted(echo_denies(ami)[0] - owned_echo),
+            "pending": pending}
 
 
 def main():
@@ -415,6 +423,8 @@ def main():
                 applied = reconcile(data, ami, local)
             finally:
                 ami.close()
+            if args.kind == "echolink-call" and applied.get("pending", {}).get("echolink"):
+                raise RuntimeError(applied["pending"]["echolink"])
         except Exception as exc:
             if args.action in ("ban", "unban"):
                 raise RuntimeError(f"Ban record saved; native enforcement pending: {exc}") from exc

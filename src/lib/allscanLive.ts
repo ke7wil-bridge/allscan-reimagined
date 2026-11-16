@@ -369,7 +369,7 @@ export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, du
 
 export type AslBanKind = 'node' | 'allstar-call' | 'echolink-call'
 export type AslBan = { kind: AslBanKind; value: string; createdAt: number; expiresAt: number; reason: string; actor: string }
-export type AslBanList = { bans: AslBan[]; audit?: Array<{ action: string; kind: string; value: string; at: number; actor?: string }>; applied: { allstar: string[]; echolink: string[]; externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] }; localNode: string }
+export type AslBanList = { bans: AslBan[]; audit?: Array<{ action: string; kind: string; value: string; at: number; actor?: string }>; applied: { allstar: string[]; echolink: string[]; externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[]; pending?: { echolink?: string } }; localNode: string }
 
 export async function fetchAslBans(): Promise<AslBanList> {
   const response = await fetch(`${ASR_API}?action=asl-ban-list`, { credentials: 'same-origin', cache: 'no-store' })

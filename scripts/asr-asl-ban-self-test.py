@@ -131,15 +131,16 @@ def run():
         else:
             raise AssertionError("Configured service callsign was accepted")
         # A busy EchoLink module leaves the update pending; a later list retries it.
-        state["bans"] = [{"kind": "echolink-call", "value": "N0RETRY", "createdAt": now,
-                          "expiresAt": now + 3600, "reason": "", "actor": "test"}]
+        state["bans"] = [
+            {"kind": "echolink-call", "value": "N0RETRY", "createdAt": now,
+             "expiresAt": now + 3600, "reason": "", "actor": "test"},
+            {"kind": "node", "value": "222222", "createdAt": now,
+             "expiresAt": now + 3600, "reason": "", "actor": "test"},
+        ]
         fake.channels = ["ECHOLINK/other-1!radio-secure!641890!1!Up!Rpt!641890!0!N0OTHER!"]
-        try:
-            ban.reconcile(state, fake, "641890")
-        except RuntimeError as exc:
-            assert "active EchoLink session" in str(exc)
-        else:
-            raise AssertionError("EchoLink module restarted while a user was active")
+        pending = ban.reconcile(state, fake, "641890")
+        assert "active EchoLink session" in pending["pending"]["echolink"]
+        assert "222222" in fake.ast, "EchoLink reload failure discarded an applied AllStar node ban"
         assert "N0RETRY" in fake.echo
         fake.channels = []
         ban.reconcile(state, fake, "641890")

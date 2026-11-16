@@ -1546,7 +1546,9 @@ function asr_bridge_status_payload(): array {
             $lastUser = substr(trim((string) ($zelloPayload['last_user'] ?? '')), 0, 120);
             $lastEpoch = $zelloEvents ? (int) ($zelloEvents[0]['epoch'] ?? 0) : 0;
             if ($lastEpoch <= 0 && isset($zelloRows[0]) && is_array($zelloRows[0])) $lastEpoch = asr_client_epoch_value($zelloRows[0]['last_seen_epoch'] ?? 0);
-            $active = !empty($zelloPayload['active']);
+            $zelloUpdated = (int) @filemtime($zelloPath);
+            $zelloActiveFresh = $zelloUpdated > 0 && abs(time() - $zelloUpdated) <= 30;
+            $active = !empty($zelloPayload['active']) && $zelloActiveFresh;
             $current = $active ? substr(trim((string) ($zelloPayload['current_user'] ?? '')), 0, 120) : '';
             $bridge['zello'] = array_merge(is_array($bridge['zello'] ?? null) ? $bridge['zello'] : [], [
                 'active'=>$active, 'role'=>$active ? 'source' : 'idle', 'state'=>$active ? 'TX ACTIVE' : 'Idle',

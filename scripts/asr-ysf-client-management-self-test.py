@@ -215,7 +215,9 @@ check("BAN_DURATIONS" in URF_PATH.read_text(encoding="utf-8") and "expire_timed_
 check("['15m', '1h', '1w', '30d', 'permanent']" in API, "API Ban-duration allowlist is missing")
 check("URF_BAN_DURATIONS" in APP and "formatUrfBanRemaining" in APP, "timed Ban controls/countdown are missing")
 check("window.setInterval(() => void refresh(), 15000)" in APP, "Manage Clients does not refresh automatic expiry")
-check("<h3>Global Ban</h3>" in APP and "Applies everywhere ASR can enforce it." in APP, "global-only Ban dialog is missing")
+check("'Global Ban'" in APP and "Applies everywhere ASR can enforce it." in APP
+      and "'AllStar Node Ban'" in APP and "Blocks this AllStar node in Asterisk." in APP,
+      "protocol-aware Ban dialog is missing")
 check('function globalBanDurationSelect' in APP and '<option value="" disabled>Ban</option>' in APP, "compact Ban-duration dropdown is missing")
 check("AllStar node only" not in APP and "AllStar callsign only" not in APP and "EchoLink callsign only" not in APP, "mode-specific Ban choices remain")
 check("ASR Global Ban List" in APP, "global Ban action feedback missing")

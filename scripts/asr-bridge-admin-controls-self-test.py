@@ -153,6 +153,16 @@ check("&& isBannableConnection(row) && !isProtectedBanConnection(row) ? (" in AP
 check("append_audit_event" in URF and "--actor" in API, "administrator audit attribution is missing")
 check("Recent bridge actions" in APP and "allscan-management-history" in CSS, "bridge administration audit history is not visible")
 check("Manage Kicks & Bans" in APP and "managementTab === 'clients'" in APP and "managementTab === 'bans'" in APP, "unified connection management is missing")
+check("$zelloActiveFresh" in API and "abs(time() - $zelloUpdated) <= 30" in API,
+      "stale Zello producer state can hold TX and downstream RELAY indefinitely")
+check("changeAslBan('ban', banDialog.aslKind" in APP
+      and "identity?.network === 'allstar'" in APP
+      and "'node'" in APP
+      and "AllStar / EchoLink native bans" in APP,
+      "AllStar/EchoLink Ban still routes through the digital Global Ban ledger")
+check("pending[\"echolink\"]" in (ROOT / "scripts/asr-asl-ban.py").read_text(encoding="utf-8")
+      and "payload.get(\"applied\", {}).get(\"pending\", {})" in URF,
+      "pending EchoLink reloads still invalidate an applied AllStar deny")
 check('>Manage Clients</button>' not in APP and '>Manage bans</button>' not in APP, "duplicate management buttons remain")
 check('allscan-connection-node-cell' in APP and '.allscan-connection-node-cell' in CSS and '.allscan-connection-more:hover' in CSS, "compact row menu beside the node number is missing")
 check("formatUrfBanRemaining" in APP and "formatUrfBanExpiration" in APP, "ban expiration display is missing")
