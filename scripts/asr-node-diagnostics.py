@@ -127,6 +127,89 @@ def recover(sample, rows, state, runner=subprocess.run, sleeper=time.sleep):
     return {"unit": unit, "reason": "repeated measured PSS pressure", "beforePssKb": off["pssKb"],
             "restartExit": result.returncode, "serviceReady": active, "endToEndAudioConfirmed": False}
 
+# Native log cursor: bounded per invocation; state survives minute-spaced runs.
+# Explicit test state directory enables isolated regression without production writes.
+LOG_READ_LIMIT = 262144
+LOG_HISTORY_LIMIT = 12000
+def read_incremental_log(path, now):
+    import hashlib, fcntl
+    configured = os.getenv("ASR_ASTERISK_CURSOR_DIR")
+    # Custom log paths in existing offline tests retain their stateless behavior.
+    default = Path(os.getenv("ASR_ASTERISK_LOG_PATH", "/var/log/asterisk/messages.log"))
+    if configured is None and path != default:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - LOG_READ_LIMIT))
+            if fh.tell(): fh.readline()
+            return fh.read().decode("utf-8", "replace").splitlines(), {}
+    directory = Path(configured) if configured else STATE_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(str(path).encode()).hexdigest()[:16]
+    state_path = directory / ("asterisk-cursor-" + key + ".json")
+    lock_path = directory / ("asterisk-cursor-" + key + ".lock")
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_json(state_path)
+        with path.open("rb") as fh:
+            stat = os.fstat(fh.fileno())
+            identity = [stat.st_dev, stat.st_ino]
+            offset = int(state.get("offset", 0))
+            gap = ""
+            if state.get("identity") != identity:
+                if state.get("identity"): gap = "log replaced/rotated; unread records may be missing"
+                offset = max(0, stat.st_size - LOG_READ_LIMIT) if not state else 0
+            elif offset > stat.st_size:
+                gap = "log truncated; unread records may be missing"
+                offset = 0
+            elif state.get("ctimeNs") != stat.st_ctime_ns and stat.st_size == offset and offset:
+                # Same-sized rewrite is not distinguishable from a normal append
+                # by size alone; treat it conservatively as a potential gap.
+                gap = "log changed at checkpoint; possible copy-truncate rewrite"
+                offset = 0
+            if offset and not state.get("identity"):
+                # First-run tail starts in the middle of an arbitrary record.
+                fh.seek(offset - 1)
+                if fh.read(1) != bytes([10]):
+                    fh.readline()
+                    offset = fh.tell()
+            fh.seek(offset)
+            data = fh.read(LOG_READ_LIMIT)
+            # Advance only past complete newline-terminated records.
+            complete = data.rfind(b"\n") + 1
+            if complete == 0 and len(data) == LOG_READ_LIMIT:
+                # Pathological oversized line: advance with an explicit gap.
+                complete = len(data)
+                gap = "oversized log record skipped"
+            lines = data[:complete].decode("utf-8", "replace").splitlines()
+            next_offset = offset + complete
+            backlog = max(0, stat.st_size - next_offset)
+            # Retain bounded five-minute signal history across invocations.
+            previous = state.get("history", [])
+            history = [row for row in previous if isinstance(row, list) and len(row) == 2 and
+                       isinstance(row[0], (int, float)) and now - STALL_WINDOW <= row[0] <= now]
+            import datetime
+            tz = os.getenv("ASR_ASTERISK_LOG_TZ", "local").lower()
+            stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+            for line in lines:
+                if not any(x in line for x in ("Resyncing the jb", "iax2_transmit' queue reached",
+                    "Silently dropping frame without existent call number", "Max retries exceeded to host",
+                    "Log queue threshold", "Exceptionally long voice queue length")): continue
+                m = stamp_re.match(line)
+                if not m: continue
+                try:
+                    dt = datetime.datetime.strptime(m[1], "%Y-%m-%d %H:%M:%S")
+                    if tz == "utc": dt = dt.replace(tzinfo=datetime.timezone.utc)
+                    epoch = dt.timestamp()
+                except ValueError: continue
+                if 0 <= now - epoch <= STALL_WINDOW: history.append([epoch, line[:350]])
+            if len(history) > LOG_HISTORY_LIMIT:
+                history = history[-LOG_HISTORY_LIMIT:]
+                gap = "rolling event history capped; some warning counts may be incomplete"
+            atomic(state_path, {"identity": identity, "offset": next_offset, "history": history,
+                                "ctimeNs": stat.st_ctime_ns}, 0o600)
+            return [row[1] for row in history], {"backlogBytes": backlog, "monitoringGap": gap,
+                                                   "bytesRead": len(data), "cursorOffset": next_offset}
+
 def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     """Read-only early warning for persistent Asterisk media queues.
 
@@ -141,11 +224,7 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     log_tz = os.getenv("ASR_ASTERISK_LOG_TZ", "").strip().lower()
     source_tz = "local"
     try:
-        with log_path.open("rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            fh.seek(max(0, fh.tell() - 262144))
-            if fh.tell(): fh.readline()
-            lines = fh.read().decode("utf-8", "replace").splitlines()
+        lines, monitoring = read_incremental_log(log_path, now)
     except OSError:
         # On container deployments the log is inside the Asterisk container.
         # Read only its last 256 KiB, bounded by a hard timeout. Never write to
@@ -160,6 +239,7 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
                 return {"available": False, "persistentChannels": [], "recentWarnings": 0}
             lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
             source_tz = "utc"
+            monitoring = {"mode": "container-tail", "coverageLimited": True, "bytesRead": len(result.stdout)}
         except (OSError, subprocess.TimeoutExpired):
             return {"available": False, "persistentChannels": [], "recentWarnings": 0}
     use_utc = (log_tz or source_tz) == "utc"
@@ -216,7 +296,8 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     persistent = [{"channel": name, **value} for name, value in recent.items()
                   if value["count"] >= 3 and value["last"] - value["first"] >= 10]
     return {"available": True, "persistentChannels": persistent[:12],
-            "recentWarnings": sum(v["count"] for v in recent.values()), "stall": stall}
+            "recentWarnings": sum(v["count"] for v in recent.values()), "stall": stall,
+            "monitoring": monitoring}
 
 def sample_once(allow_recovery=True):
     STATE_DIR.mkdir(parents=True, exist_ok=True); os.chmod(STATE_DIR, 0o750)
@@ -232,6 +313,8 @@ def sample_once(allow_recovery=True):
     queue_health = asterisk_queue_health()
     sample["asteriskQueueHealth"] = queue_health
     state = load_json(STATE); warnings = warning_for(sample, state)
+    if queue_health.get("monitoring", {}).get("monitoringGap"):
+        warnings.append("Asterisk diagnostic monitoring gap: " + queue_health["monitoring"]["monitoringGap"])
     if queue_health["persistentChannels"]:
         warnings.append("Asterisk has a persistent unconsumed audio queue; investigate IAXLink and app_rpt before TX hangs.")
     if queue_health.get("stall", {}).get("suspected"):
