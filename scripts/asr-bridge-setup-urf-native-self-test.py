@@ -355,6 +355,7 @@ def main() -> None:
         plan = planner.plan(root, settings)
         assert plan["backend"] == "native" and not plan["images"]
         assert planner.tgif_network_id(3224939, 1001, 50) == 322493950
+        assert planner.tgif_network_id(314133, 1001) == 314133
         test_settings = planner.UrfSettings(
             "dmr_tgif", "KE7WIL", 3224939, 86753, "URFWIL", "TGIF DMR", 1001,
             "standard", 50)

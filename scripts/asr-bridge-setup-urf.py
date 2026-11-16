@@ -35,7 +35,12 @@ def port_block(bridge_id: str) -> dict[str, int]:
     return dict(zip(names, range(base, base + len(names))))
 
 def tgif_network_id(dmr_id: int, bridge_node: int, essid: int | None = None) -> int:
-    """Return a stable TGIF hotspot ESSID distinct for each private node."""
+    """Return the TGIF device identity for a repeater or hotspot."""
+    # Six-digit RadioID assignments identify repeaters.  They must be sent to
+    # TGIF unchanged; appending an ESSID turns them into a different hotspot
+    # identity and prevents repeater traffic from being routed as expected.
+    if dmr_id <= 999_999:
+        return dmr_id
     # The qualified managed Net Bridge identity is intentionally independent
     # of its consolidated AllStar transport node and the URFWIL ESSID 01 peer.
     suffix = essid if essid is not None else (4 if bridge_node == 1999 else (bridge_node % 100 or 99))
@@ -119,6 +124,8 @@ def validate(value: UrfSettings) -> UrfSettings:
     if value.tgif_essid is not None and (
             not isinstance(value.tgif_essid, int) or not 1 <= value.tgif_essid <= 99):
         raise PlanError("TGIF hotspot ESSID must be 1-99")
+    if value.dmr_id <= 999_999 and value.tgif_essid is not None:
+        raise PlanError("six-digit repeater DMR IDs must not use a TGIF hotspot ESSID")
     if not isinstance(value.title, str) or not value.title.strip() or len(value.title) > 80 or any(ch in value.title for ch in "\r\n\0"):
         raise PlanError("invalid bridge title")
     if value.bridge_node is not None and not 1001 <= value.bridge_node <= 1999:
