@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return runtime if runtime.is_dir() else native
+    return native if native.is_dir() else runtime
 
 
 GLOBAL_BAN_ROOT = global_ban_root()
@@ -21,7 +21,7 @@ LOCK = GLOBAL_BAN_ROOT / ".asr-asl-bans.lock"
 GLOBAL = GLOBAL_BAN_ROOT / "urfd.blacklist"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
-ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"))
+ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"), Path("/var/www/html/supermon/astdb.txt"))
 DURATIONS = {"15m": 900, "1h": 3600, "1w": 604800, "30d": 2592000, "permanent": 0}
 NODE = re.compile(r"^[0-9]{3,10}$")
 CALL = re.compile(r"^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[LR])?$")
@@ -126,6 +126,7 @@ def global_calls():
 def allstar_nodes_for_calls(calls):
     wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
     nodes = set()
+    mapped = set()
     for path in ASTDB_FILES:
         try:
             lines = path.read_text(errors="replace").splitlines()
@@ -138,9 +139,8 @@ def allstar_nodes_for_calls(calls):
             call = re.sub(r"-(?:L|R)$", "", parts[1].strip().upper())
             if call in wanted:
                 nodes.add(parts[0])
-        if nodes:
-            break
-    return nodes
+                mapped.add(call)
+    return nodes, wanted - mapped
 
 
 def echolink_calls_for_calls(ami, calls):
@@ -281,7 +281,7 @@ def update_echo_config(ami, target, has_deny):
         raise RuntimeError("Asterisk rejected EchoLink deny configuration.")
 
 
-def disconnect_active(ami, desired_ast, desired_echo, local):
+def disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls=()):
     output = ami.command("core show channels concise")
     removed = 0
     for line in output.splitlines():
@@ -305,7 +305,7 @@ def disconnect_active(ami, desired_ast, desired_echo, local):
             caller = re.search(r"(?m)^\s*CALLSIGN=([A-Za-z0-9-]+)\s*$", detail)
             node = re.search(r"(?m)^\s*NODENUM=([0-9]+)\s*$", detail)
             match = match or bool(caller and node and node.group(1) == local
-                                  and caller.group(1).upper() in desired_ast)
+                                  and caller.group(1).upper() in desired_ast_calls)
         match = match or (is_echo and cid_name.upper().removesuffix("-L").removesuffix("-R") in desired_echo)
         if not match:
             continue
@@ -335,8 +335,11 @@ def reconcile(data, ami, local):
     global_rules, unsupported = global_calls()
     desired_ast_calls.update(global_rules)
     desired_echo_calls.update(global_rules)
-    desired_ast.update(desired_ast_calls)
-    desired_ast.update(allstar_nodes_for_calls(desired_ast_calls))
+    mapped_ast_nodes, unmapped_ast_calls = allstar_nodes_for_calls(desired_ast_calls)
+    desired_ast.update(mapped_ast_nodes)
+    # Asterisk's rpt denylist is keyed by AllStar node number. Writing a
+    # callsign there is not enforcement and must never count as verification.
+    unsupported = sorted(set(unsupported) | (set(global_rules) & unmapped_ast_calls))
     desired_echo = echolink_calls_for_calls(ami, desired_echo_calls)
     previous_ast = set(data.get("ownedAst", []))
     previous_echo = set(data.get("ownedEcho", []))
@@ -353,7 +356,7 @@ def reconcile(data, ami, local):
         raise RuntimeError("AllStar native deny entries did not verify.")
     data["ownedAst"] = sorted(owned_ast)
     save_state(data)
-    removed = disconnect_active(ami, desired_ast, desired_echo, local)
+    removed = disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls)
     # Record intended ownership before the remote write so a reload failure can
     # be retried without mistaking our own directive for an external manual ban.
     existing_echo, _ = echo_denies(ami)
@@ -376,6 +379,7 @@ def reconcile(data, ami, local):
     save_state(data)
     return {"removed": removed, "allstar": sorted(desired_ast), "echolink": sorted(desired_echo),
             "unmappedGlobalRules": unsupported,
+            "unmappedAllStarCallsigns": sorted(unmapped_ast_calls),
             "externalAst": sorted(ast_entries(ami, local) - owned_ast),
             "externalEcho": sorted(echo_denies(ami)[0] - owned_echo),
             "pending": pending}

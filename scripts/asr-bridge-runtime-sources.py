@@ -67,6 +67,8 @@ MODES = {
 SOURCE_PATCHES = {
     "p25": [
         "Reflectors.cpp: open the JSON hosts catalog read-only",
+        "P25Gateway: support a disconnectable startup reflector",
+        "P25Gateway: make MQTT opt-in for standalone operation",
         "P25Gateway: treat Static=0 as intentionally disconnected",
         "P25Gateway: publish validated reflector poll-response evidence",
     ],
@@ -307,6 +309,108 @@ def patch_gateway_source(gateway_dir: Path, mode: str) -> None:
         if mode == "nxdn":
             return
     if mode == "p25":
+        path = gateway_dir / "Conf.h"
+        text = path.read_text(encoding="utf-8")
+        original = "\tstd::string  getMQTTAddress() const;"
+        replacement = "\tbool         getMQTTEnabled() const;\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT header no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
+        original = "\tstd::string  m_mqttAddress;"
+        replacement = "\tbool         m_mqttEnabled;\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT member no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
+        original = "\tstd::vector<unsigned int> getNetworkStatic() const;"
+        replacement = "\tunsigned int getNetworkStartup() const;\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway configuration header no longer matches its audited startup patch"
+            )
+        text = text.replace(original, replacement)
+        original = "\tstd::vector<unsigned int> m_networkStatic;;"
+        replacement = "\tunsigned int m_networkStartup;\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway configuration members no longer match its audited startup patch"
+            )
+        path.write_text(text.replace(original, replacement), encoding="utf-8")
+
+        path = gateway_dir / "Conf.cpp"
+        text = path.read_text(encoding="utf-8")
+        original = "m_mqttAddress(\"127.0.0.1\"),\n"
+        replacement = "m_mqttEnabled(false),\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT default no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
+        original = """\t\t} else if (section == SECTION::MQTT) {
+\t\t\tif (::strcmp(key, "Address") == 0)"""
+        replacement = """\t\t} else if (section == SECTION::MQTT) {
+\t\t\tif (::strcmp(key, "Enabled") == 0)
+\t\t\t\tm_mqttEnabled = ::atoi(value) == 1;
+\t\t\telse if (::strcmp(key, "Address") == 0)"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT parser no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
+        original = """std::string CConf::getMQTTAddress() const
+{
+\treturn m_mqttAddress;
+}
+"""
+        replacement = """bool CConf::getMQTTEnabled() const
+{
+\treturn m_mqttEnabled;
+}
+
+""" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway MQTT accessor no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
+        original = "m_networkStatic(),\n"
+        replacement = "m_networkStartup(0U),\n" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway configuration defaults no longer match its audited startup patch"
+            )
+        text = text.replace(original, replacement)
+        original = """\t\t\telse if (::strcmp(key, "Static") == 0) {
+\t\t\t\tchar* p = ::strtok(value, ",\\r\\n");"""
+        replacement = """\t\t\telse if (::strcmp(key, "Startup") == 0)
+\t\t\t\tm_networkStartup = (unsigned int)::atoi(value);
+\t\t\telse if (::strcmp(key, "Static") == 0) {
+\t\t\t\tchar* p = ::strtok(value, ",\\r\\n");"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway configuration parser no longer matches its audited startup patch"
+            )
+        text = text.replace(original, replacement)
+        original = """std::vector<unsigned int> CConf::getNetworkStatic() const
+{
+\treturn m_networkStatic;
+}
+"""
+        replacement = """unsigned int CConf::getNetworkStartup() const
+{
+\treturn m_networkStartup;
+}
+
+""" + original
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway configuration accessors no longer match its audited startup patch"
+            )
+        path.write_text(text.replace(original, replacement), encoding="utf-8")
+
         header = gateway_dir / "P25Gateway.h"
         text = header.read_text(encoding="utf-8")
         original = "\tvoid writeJSONRelinking(unsigned int tg);"
@@ -319,9 +423,45 @@ def patch_gateway_source(gateway_dir: Path, mode: str) -> None:
 
         path = gateway_dir / "P25Gateway.cpp"
         text = path.read_text(encoding="utf-8")
+        original = """\tm_mqtt = new CMQTTConnection(m_conf.getMQTTAddress(), m_conf.getMQTTPort(), m_conf.getMQTTName(), m_conf.getMQTTAuthEnabled(), m_conf.getMQTTUsername(), m_conf.getMQTTPassword(), subscriptions, m_conf.getMQTTKeepalive());
+\tret = m_mqtt->open();
+\tif (!ret)
+\t\treturn 1;
+"""
+        replacement = """\tif (m_conf.getMQTTEnabled()) {
+\t\tm_mqtt = new CMQTTConnection(m_conf.getMQTTAddress(), m_conf.getMQTTPort(), m_conf.getMQTTName(), m_conf.getMQTTAuthEnabled(), m_conf.getMQTTUsername(), m_conf.getMQTTPassword(), subscriptions, m_conf.getMQTTKeepalive());
+\t\tret = m_mqtt->open();
+\t\tif (!ret)
+\t\t\treturn 1;
+\t}
+"""
+        if text.count(original) != 1:
+            raise SourceError(
+                "pinned P25 gateway startup no longer matches its audited optional-MQTT patch"
+            )
+        text = text.replace(original, replacement)
         original = """\tfor (const auto& it : staticIds) {
 \t\tCP25Reflector* reflector = m_reflectors->find(it);"""
-        replacement = """\tfor (const auto& it : staticIds) {
+        replacement = """\tunsigned int startupId = m_conf.getNetworkStartup();
+\tif (startupId != 0U) {
+\t\tCP25Reflector* reflector = m_reflectors->find(startupId);
+\t\tif (reflector != nullptr) {
+\t\t\tm_currentTG       = *reflector;
+\t\t\tm_currentIsStatic = false;
+
+\t\t\tm_remoteNetwork->poll(*reflector);
+\t\t\tm_remoteNetwork->poll(*reflector);
+\t\t\tm_remoteNetwork->poll(*reflector);
+
+\t\t\tLogMessage("Startup linked to reflector %u", startupId);
+\t\t\twriteJSONLinking("startup", startupId);
+\t\t} else {
+\t\t\tLogWarning("Unable to find startup reflector %u", startupId);
+\t\t\twriteJSONFailed("startup", startupId);
+\t\t}
+\t}
+
+\tfor (const auto& it : staticIds) {
 \t\tif (it == 0U) {
 \t\t\twriteJSONUnlinked("startup");
 \t\t\tcontinue;

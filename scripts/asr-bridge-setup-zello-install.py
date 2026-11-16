@@ -103,7 +103,7 @@ def compose_yaml(plan: dict[str, Any]) -> str:
       - {root}/secrets/zello.key:/run/secrets/zello.key:ro
       - {root}/runtime:/run/zello
       - {stock}:/var/www/html/allscan
-      - /run/urf-wil-config:/run/asr-global:ro
+      - /var/lib/allscan-reimagined/admin:/run/asr-global:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -128,7 +128,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStartPre=/bin/mkdir -p {root}/runtime
-ExecStartPre=/bin/sh -c 'if [ ! -e /run/urf-wil-config ]; then mkdir -p /var/lib/allscan-reimagined/global-ban; touch /var/lib/allscan-reimagined/global-ban/urfd.blacklist; ln -s /var/lib/allscan-reimagined/global-ban /run/urf-wil-config; fi'
+ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/urfd.blacklist
 ExecStart=/usr/bin/docker compose -f {compose} up -d
 ExecStop=/usr/bin/docker compose -f {compose} down
 TimeoutStartSec=120

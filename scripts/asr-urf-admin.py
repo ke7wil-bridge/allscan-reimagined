@@ -13,7 +13,7 @@ from pathlib import Path
 
 def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")):
     """Use the Docker mount when present and persistent storage on native nodes."""
-    return runtime if runtime.is_dir() else native
+    return native if native.is_dir() else runtime
 
 
 GLOBAL_BAN_ROOT = global_ban_root()
@@ -137,7 +137,19 @@ def admin_lock():
 
 def reconcile_standalone_bans(actor="system"):
     if not os.path.isfile(STANDALONE_ADMIN_HELPER) or not os.access(STANDALONE_ADMIN_HELPER, os.X_OK):
-        return {"verified": True, "applied": [], "skipped": [], "unavailable": True}
+        # Never report successful global enforcement when a configured native
+        # bridge has no policy reconciliation helper installed.
+        with open(CONFIG, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        native = any(
+            isinstance(bridge, dict)
+            and not bridge.get("urfReflector")
+            and str(bridge.get("mode") or bridge.get("type") or bridge.get("id") or "").lower().startswith(("dmr", "ysf", "p25", "nxdn", "m17"))
+            for bridge in config.get("bridges", [])
+        )
+        if native:
+            raise RuntimeError("Native ASR Global Ban enforcement helper is unavailable.")
+        return {"verified": False, "applied": [], "skipped": [], "unavailable": True}
     try:
         completed = subprocess.run(
             [STANDALONE_ADMIN_HELPER, "reconcile-all", "--actor", actor],
@@ -157,6 +169,15 @@ def reconcile_standalone_bans(actor="system"):
     if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("verified") is not True:
         raise RuntimeError(str((payload or {}).get("error") or "Standalone bridge Global Ban reconciliation failed."))
     return payload
+
+
+def global_enforcement_verified(asl, standalone):
+    """Never certify a global operation when a native adapter was skipped."""
+    return (asl.get("status") == "applied"
+            and not ((asl.get("applied") or {}).get("unmappedGlobalRules"))
+            and standalone.get("verified") is True
+            and not standalone.get("skipped")
+            and not standalone.get("unavailable"))
 
 
 def native_admin_modes():
@@ -218,10 +239,12 @@ def reconcile_asl_bans():
         return {"status": "failed", "error": "AllStar/EchoLink ban reconciliation did not complete."}
     if result.returncode != 0 or payload.get("ok") is not True:
         return {"status": "failed", "error": str(payload.get("error") or "AllStar/EchoLink ban reconciliation failed.")[:180]}
-    pending = payload.get("applied", {}).get("pending", {})
+    applied = payload.get("applied") if isinstance(payload.get("applied"), dict) else {}
+    pending = payload.get("applied", {}).get("pending", {}) if applied else {}
     if isinstance(pending, dict) and pending.get("echolink"):
         return {"status": "failed", "error": str(pending["echolink"])[:180], **payload}
-    return {"status": "applied", **payload}
+    status = "partial" if applied.get("unmappedGlobalRules") else "applied"
+    return {"status": status, **payload}
 
 
 def read_rules():
@@ -647,6 +670,11 @@ def roster_contains(xml, callsign, protocol):
 def request_urf_disconnect(callsign, protocol, event, require_connected, actor="system"):
     if event not in {"kick", "ban", "unban"}:
         raise ValueError("Unsupported URF administrative event.")
+    # Native ASR installations must never send policy events to a stale URF
+    # runtime left behind after the reflector is removed. Native adapters
+    # receive the policy through reconcile_standalone_bans() separately.
+    if protocol == "*" and event in {"ban", "unban"} and "urf" not in configured_backends():
+        return 0
     protocol_mode = {
         "DMRMMDVM": "dmr", "YSF": "ysf", "P25": "p25",
         "NXDN": "nxdn", "M17": "m17",
@@ -879,7 +907,7 @@ def main():
         removed += int(asl.get("applied", {}).get("removed", 0))
         expires_at = int(timed.get(rule, {}).get("expiresAt") or 0)
         append_audit_event("ban", args.actor, rule=rule, duration=duration, expiresAt=expires_at, removed=removed)
-        emit(ok=True, asl=asl, action="ban", rule=rule, duration=duration, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, expiresAt=expires_at, serverEpoch=now, verified=asl.get("status") == "applied", removed=removed, enforcement="immediate_global" if asl.get("status") == "applied" else "partial_pending_asl", reloadSeconds=30)
+        emit(ok=True, asl=asl, action="ban", rule=rule, duration=duration, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, expiresAt=expires_at, serverEpoch=now, verified=global_enforcement_verified(asl, standalone), removed=removed, enforcement="immediate_global" if global_enforcement_verified(asl, standalone) else "partial_pending_enforcement", reloadSeconds=30)
         return
     # Clear known backend enforcement before removing the logical entry. If
     # backend synchronization fails, the visible Global Ban List must remain
@@ -898,7 +926,7 @@ def main():
         raise RuntimeError("URF blacklist write could not be verified.")
     now = int(time.time())
     append_audit_event("unban", args.actor, rule=rule)
-    emit(ok=True, asl=asl, action="unban", rule=rule, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, serverEpoch=now, verified=asl.get("status") == "applied", enforcement="immediate_global" if asl.get("status") == "applied" else "partial_pending_asl", reloadSeconds=30)
+    emit(ok=True, asl=asl, action="unban", rule=rule, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, serverEpoch=now, verified=global_enforcement_verified(asl, standalone), enforcement="immediate_global" if global_enforcement_verified(asl, standalone) else "partial_pending_enforcement", reloadSeconds=30)
 
 
 if __name__ == "__main__":

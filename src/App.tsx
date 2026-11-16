@@ -14,6 +14,7 @@ import {
   activateNetBridgeMode,
   asrPath,
   bridgeCardShowsClientDetails,
+  bridgeDashboardStatusLabel,
   bridgeTalkerFeed,
   relativeBridgeTime,
   disconnectBridge,
@@ -462,12 +463,6 @@ const bridgeRoleClasses = {
   Idle: 'allscan-bridge-card-idle',
   'Source/TX': 'allscan-bridge-card-source',
   Relay: 'allscan-bridge-card-relay',
-}
-
-const bridgeStatusLabels = {
-  Idle: 'IDLE',
-  'Source/TX': 'TX ACTIVE',
-  Relay: 'RELAY',
 }
 
 const bridgeHealthLabels = {
@@ -3005,8 +3000,9 @@ function App({ config }: { config: RuntimeConfig }) {
       setUrfAccessStatus(`${actionLabel === 'Disconnect' ? 'Disconnecting' : 'Kicking'} ${callsign} from ${mode.toUpperCase()}…`)
       const result = bridge.urfReflector || protocol === 'ZELLO'
         ? await kickUrfClient(callsign, protocol, clientId)
-        : await kickStandaloneClient(bridgeId, callsign)
-      setUrfAccessStatus(`${callsign} was ${actionLabel === 'Disconnect' ? 'disconnected' : 'kicked'} from ${mode.toUpperCase()}${result.verified ? ' and backend removal was verified' : ''}. The client may reconnect immediately unless banned.`)
+        : await kickStandaloneClient(bridgeId, callsign, clientId)
+      if (!result.verified || result.removed < 1) throw new Error(`${actionLabel} was not verified by the active backend.`)
+      setUrfAccessStatus(`${callsign} was ${actionLabel === 'Disconnect' ? 'disconnected' : 'kicked'} from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
     } catch (error) {
       setUrfAccessStatus(error instanceof Error ? error.message : 'Bridge client Kick failed.')
     } finally { setUrfAccessBusy(false) }
@@ -4137,6 +4133,8 @@ function App({ config }: { config: RuntimeConfig }) {
                   {urfCards.map((card) => {
                     const clientsOpen = bridgeClientsOpen.has(card.id)
                     const historyOpen = bridgeHistoryOpen.has(card.id)
+                    const dashboardStatusLabel = bridgeDashboardStatusLabel(card)
+                    const dashboardStatusClass = bridgeStatusClasses[card.status]
                     return <article key={card.id} className={`allscan-bridge-card allscan-urf-mini-card${clientsOpen || historyOpen ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}>
                       <div className="allscan-bridge-head">
                         <span className="allscan-bridge-head-title">{card.title.replace(/\s+Bridge$/i, '')}</span>
@@ -4144,12 +4142,12 @@ function App({ config }: { config: RuntimeConfig }) {
                           <button
                             type="button"
                             className={`allscan-bridge-status-control${card.healthSeverity ? ' has-health-issue' : ''}`}
-                            aria-label={card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
-                            title={card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
+                            aria-label={card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${dashboardStatusLabel}`}
+                            title={card.healthSeverity ? card.healthIssues.join('\n') : dashboardStatusLabel}
                             onClick={() => { if (card.healthSeverity && card.healthIssues.length) window.alert(card.healthIssues.join('\n')) }}
                           >
                             {card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
-                            <span className={`allscan-bridge-status rounded-full border ${card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>{card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}</span>
+                            <span className={`allscan-bridge-status rounded-full border ${card.healthSeverity ? pillClasses.neutral : dashboardStatusClass}`}>{card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : dashboardStatusLabel}</span>
                           </button>
                         </span>
                       </div>
@@ -4183,7 +4181,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   })}
                 </div>
                 {urfAccessOpen && authStatus.isAdmin ? createPortal(<div className="allscan-urf-access-modal" role="dialog" aria-modal="true" aria-label="Manage Kicks & Bans" onMouseDown={(event) => { if (event.target === event.currentTarget) setUrfAccessOpen(false) }}><div className="allscan-urf-access-panel"><div className="allscan-urf-access-modal-head"><strong>Manage Kicks & Bans</strong><button type="button" className="allscan-urf-access-close" aria-label="Close Manage Kicks & Bans" onClick={() => setUrfAccessOpen(false)}>×</button></div><div className="allscan-management-tabs" role="tablist" aria-label="Connection management"><button type="button" role="tab" aria-selected={managementTab === 'clients'} onClick={() => setManagementTab('clients')}>Connected clients</button><button type="button" role="tab" aria-selected={managementTab === 'bans'} onClick={() => { setManagementTab('bans'); void loadAslBans() }}>Bans</button></div>{managementTab === 'clients' ? <>
-                  <div className="allscan-urf-admin-scope"><strong>Client administration</strong><span>Ban is global across ASR bridges. Enforcement is applied by each supported backend. Protected service and health-probe identities cannot be banned. Kick affects only the selected current bridge session.</span></div>
+                  <div className="allscan-urf-admin-scope"><strong>Client administration</strong><span>Ban is global across ASR bridges. Enforcement is applied by each supported backend. Protected service and health-probe identities cannot be banned. Kick affects only the selected current bridge session. DMR Kick stops local forwarding until reconnect; it does not remove the upstream TGIF subscriber.</span></div>
                   <div className="allscan-urf-admin-tools">
                     <label>Find connected client<input value={urfClientFilter} onChange={(event) => setUrfClientFilter(event.target.value.toUpperCase())} placeholder="Callsign or mode" maxLength={32} /></label>
                     <label>Ban callsign<input value={urfAccessRule} onChange={(event) => setUrfAccessRule(event.target.value.toUpperCase())} placeholder="Callsign" maxLength={12} disabled={urfAccessBusy} /></label>
@@ -4229,18 +4227,26 @@ function App({ config }: { config: RuntimeConfig }) {
                 const canConnect = bridgeCapabilities.includes('connect')
                 const canDisconnect = bridgeCapabilities.includes('disconnect')
                 const canChangeDestination = bridgeCapabilities.includes('changeDestination')
+                // Standard cards use the AllStar transport independently of
+                // external digital-network reachability. IN and OUT are both
+                // established transports; direction only identifies who linked.
+                const allstarTransportLinked = card.cardType === 'standard' && (
+                  card.allstarLinked || rows.some(
+                    (row) => (row.bridgeId === card.id || row.node === card.node)
+                      && row.state !== 'message',
+                  )
+                )
                 const bridgeLinked = card.cardType !== 'standard'
                   ? card.controlLinked
-                  : card.controlLinked || rows.some(
-                  (row) => (row.bridgeId === card.id || row.node === card.node)
-                    && row.state !== 'message',
-                )
+                  : allstarTransportLinked
                 const standardLinkMissing = card.cardType === 'standard'
                   && !bridgeConfig?.urfReflector
                   && /^\d{3,10}$/.test(card.node)
                   && card.node !== config.node
                   && connectionFeedReady
                   && !bridgeLinked
+                const dashboardStatusLabel = bridgeDashboardStatusLabel(card)
+                const dashboardStatusClass = bridgeStatusClasses[card.status]
                 // Node 1999 has one control-plane owner. Draft fields remain
                 // editable during an operation; only actions are serialized.
                 const modeSwitchBusy = bridgeControlBusy === 'net-bridge-mode'
@@ -4265,15 +4271,15 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button
                         type="button"
                         className={`allscan-bridge-status-control${card.healthSeverity ? ' has-health-issue' : ''}`}
-                        aria-label={standardLinkMissing ? `Warning: AllStar node ${card.node} is not linked` : card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${bridgeStatusLabels[card.status]}`}
-                        title={standardLinkMissing ? `AllStar node ${card.node} is not linked` : card.healthSeverity ? card.healthIssues.join('\n') : bridgeStatusLabels[card.status]}
+                        aria-label={standardLinkMissing ? `Warning: AllStar node ${card.node} is not linked` : card.healthSeverity ? `${bridgeHealthLabels[card.healthSeverity]}: ${card.healthIssues.join(' ')}` : `Status: ${dashboardStatusLabel}`}
+                        title={standardLinkMissing ? `AllStar node ${card.node} is not linked` : card.healthSeverity ? card.healthIssues.join('\n') : dashboardStatusLabel}
                         onClick={() => {
                           if (card.healthSeverity && card.healthIssues.length) window.alert(card.healthIssues.join('\n'))
                         }}
                       >
                         {standardLinkMissing ? <AlertTriangle className="allscan-bridge-health-triangle" aria-hidden="true" /> : card.healthSeverity ? <AlertTriangle className={`allscan-bridge-health-triangle ${bridgeHealthTriangleClasses[card.healthSeverity]}`} aria-hidden="true" /> : null}
-                        <span className={`allscan-bridge-status rounded-full border ${standardLinkMissing || card.healthSeverity ? pillClasses.neutral : bridgeStatusClasses[card.status]}`}>
-                          {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : bridgeStatusLabels[card.status]}
+                        <span className={`allscan-bridge-status rounded-full border ${standardLinkMissing || card.healthSeverity ? pillClasses.neutral : dashboardStatusClass}`}>
+                          {standardLinkMissing ? 'NOT LINKED' : card.healthSeverity ? bridgeHealthLabels[card.healthSeverity] : dashboardStatusLabel}
                         </span>
                       </button>
                     </span>
@@ -4494,7 +4500,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
                             {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={bridgeConfig?.urfReflector && card.mode.toUpperCase() === 'DMR' ? 'Disconnect the selected current DMR client' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Kick the active bridge session')} disabled={urfAccessBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>{bridgeConfig?.urfReflector && card.mode.toUpperCase() === 'DMR' ? 'Disconnect' : 'Kick'}</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity, card.mode, detail.clientId) : null}</div> : null}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={bridgeConfig?.urfReflector && card.mode.toUpperCase() === 'DMR' ? 'Disconnect the selected current DMR client' : card.mode.toUpperCase() === 'DMR' ? 'Kick this source from local DMR media until it reconnects' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Kick the active bridge session')} disabled={urfAccessBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>{bridgeConfig?.urfReflector && card.mode.toUpperCase() === 'DMR' ? 'Disconnect' : 'Kick'}</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity, card.mode, detail.clientId) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}

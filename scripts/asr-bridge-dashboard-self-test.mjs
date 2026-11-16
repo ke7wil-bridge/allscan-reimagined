@@ -20,14 +20,21 @@ const server = await createServer({
 })
 
 try {
+  const activitySource = readFileSync('src/lib/allscanLive.ts', 'utf8')
+  const bridgeCss = readFileSync('src/styles/asr/04-bridge-cards.css', 'utf8')
+  assert(activitySource.includes(".filter((record) => String(record.direction || '').toLowerCase() === 'incoming')"), 'Recent Activity must exclude outgoing and unknown-direction relay events')
+  assert(bridgeCss.includes('.allscan-bridge-grid .allscan-bridge-recent > .allscan-bridge-detail-box') && bridgeCss.includes('max-height: min(360px, 45vh)') && bridgeCss.includes('overflow-y: auto'), 'Recent Activity panels must scroll without stretching bridge grid')
+
   const {
     bridgeConnectionIdentities,
     bridgeProtocolCardTitle,
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
+    bridgeDashboardStatusLabel,
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
     bridgeTalkerFeed,
+    fetchBridgeCards,
     isNodeMessageAuthNotice,
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
@@ -304,6 +311,63 @@ try {
     'collector-persisted last activity was not consumed by the production UI path',
   )
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
+  for (const runtimeOnline of [null, true, false]) {
+    assert(
+      bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Idle', runtimeOnline }) === 'IDLE',
+      'Beta 8.2 idle presentation was replaced by a protocol connectivity label',
+    )
+  }
+  assert(
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Source/TX', runtimeOnline: null }) === 'TX ACTIVE'
+      && bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Relay', runtimeOnline: null }) === 'RELAY',
+    'active voice state did not take precedence over idle connectivity',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ cardType: 'dmr_net', status: 'Idle', runtimeOnline: null }) === 'IDLE',
+    'Net Bridge idle status was changed by Standard Bridge connectivity handling',
+  )
+  const standardModes = ['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'zello']
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => ({
+      json: async () => ({
+        bridge: Object.fromEntries(standardModes.map((mode) => [
+          `${mode}_johnny2`,
+          { role: 'idle', online: mode === 'm17' ? true : mode === 'zello' ? false : null },
+        ])),
+        controls: Object.fromEntries(standardModes.map((mode) => [
+          `${mode}_johnny2`, { allstarLinked: true },
+        ])),
+      }),
+    })
+    const liveCards = (await fetchBridgeCards({
+      node: '623123',
+      bridges: standardModes.map((mode, index) => ({
+        id: `${mode}_johnny2`, mode, node: String(1001 + index), cardType: 'standard',
+        title: `${mode.toUpperCase()} Bridge`, detailTitle: 'Connected Clients',
+      })),
+    })).cards
+    assert(liveCards.length === 6, 'the API/frontend handoff dropped one of the six Standard Bridge cards')
+    assert(
+      liveCards.filter((card) => !['m17', 'zello'].includes(card.mode)).every((card) => card.runtimeOnline === null),
+      'unknown Standard Bridge connectivity was coerced during frontend normalization',
+    )
+    assert(
+      liveCards.every((card) => card.allstarLinked === true),
+      'established AllStar transport state did not reach all six bridge cards',
+    )
+    assert(
+      liveCards.find((card) => card.mode === 'zello')?.runtimeOnline === false,
+      'external Zello connectivity was conflated with its established AllStar transport',
+    )
+    const m17Card = liveCards.find((card) => card.mode === 'm17')
+    assert(
+      m17Card?.runtimeOnline === true && bridgeDashboardStatusLabel(m17Card) === 'IDLE',
+      'M17 connectivity evidence was lost or replaced the Beta 8.2 idle activity label',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
   assert(!bridgeCardShowsClientDetails('dmr_net'), 'DMR Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('ysf_net'), 'YSF Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('p25_net'), 'P25 Net Bridge client details were shown')
@@ -488,8 +552,10 @@ try {
     'a disconnected DMR Net Bridge can still inherit false Relay state from node 1999',
   )
   assert(
-    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
-    'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
+    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: allstarTransportLinked/)
+      && appSource.includes("const allstarTransportLinked = card.cardType === 'standard'")
+      && appSource.includes('card.allstarLinked || rows.some('),
+    'Net Bridge and Standard Bridge transport linkage are not independently modeled',
   )
   const bridgeLinkedSource = appSource.slice(appSource.indexOf('const bridgeLinked ='), appSource.indexOf('const standardLinkMissing ='))
   assert(
@@ -667,7 +733,9 @@ try {
   assert(
     allscanLiveSource.includes("bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []")
       && allscanLiveSource.includes("detailAvailable")
-      && allscanLiveSource.includes("clientMeta"),
+      && allscanLiveSource.includes("clientMeta")
+      && allscanLiveSource.includes("detailKind === 'current' ? 'Connected Clients'")
+      && allscanLiveSource.includes("record.identity_available === false ? 'Unidentified talker'"),
     'bridge detail semantics do not preserve Zello talker history and roster provenance',
   )
   assert(
@@ -823,6 +891,11 @@ try {
       && runtimeBootstrapSource.includes('Refresh now')
       && allscanLiveSource.includes("versionLabel: 'Version temporarily unavailable'"),
     'Restored browser tabs do not recheck the installed version or clearly request a refresh',
+  )
+  assert(
+    appSource.includes('urfCards.map((card) => {')
+      && appSource.includes('const dashboardStatusLabel = bridgeDashboardStatusLabel(card)'),
+    'URF-grouped Standard Bridge cards bypassed tri-state connectivity labels',
   )
 
   console.log('bridge dashboard self-test: ok')

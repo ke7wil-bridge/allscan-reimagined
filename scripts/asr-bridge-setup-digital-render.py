@@ -93,30 +93,40 @@ def gateway_ini(plan: dict[str, Any], stage: Path,
         "FileRoot": f"{name}_{settings['bridge_id']}",
     })
     content = set_ini(content, "Remote Commands", {"Enable": 1, "Port": ports["remote"]})
+    if mode == "p25":
+        # Voice prompts are not part of the headless ASR bridge audio path.
+        content = set_ini(content, "Voice", {"Enabled": 0})
     if mode in {"p25", "nxdn"}:
         if not mqtt_user or not mqtt_password or any(c in mqtt_user + mqtt_password for c in "\r\n\0"):
             raise RenderError("authenticated gateway MQTT settings are required")
-        content = set_ini(content, "MQTT", {
+        mqtt = {
             "Address": "127.0.0.1", "Port": ports["mqtt"], "Auth": 1,
             "Username": mqtt_user, "Password": mqtt_password,
             "Name": f"{mode}_{settings['bridge_id']}",
-        })
+        }
+        if mode == "p25":
+            mqtt["Enabled"] = 1
+        content = set_ini(content, "MQTT", mqtt)
         network = {
             "Port": ports["network"],
             "HostsFile1": f"/opt/{name}_{settings['bridge_id']}/{name}Hosts.json",
             "HostsFile2": f"/opt/{name}_{settings['bridge_id']}/private-hosts.txt",
-            # A Net Bridge must remain disconnected across startup/recovery;
-            # only an explicit control action may select its destination.
-            "Static": (0 if settings.get("bridge_role") == "net"
-                       else settings["destination"]),
             "ReloadTime": 60,
         }
-        if mode == "p25" and settings.get("bridge_role") == "net":
-            # Net Bridge destinations are explicit operator sessions. Keep the
-            # gateway selected (and polling) until Disconnect or a mode switch;
-            # an inactivity unlink would leave the permanent AllStar transport
-            # linked to node 1999 with no digital destination behind it.
-            network["RFHangTime"] = 0
+        if mode == "p25":
+            if settings.get("bridge_role") == "net":
+                # Net Bridge destinations are explicit operator sessions and
+                # must remain disconnected across startup/recovery.
+                network.update({"Startup": 0, "Static": 0, "RFHangTime": 0})
+            else:
+                # Startup selects the fixed reflector after a restart without
+                # making it static, so manual Disconnect remains authoritative.
+                network.update({
+                    "Startup": settings["destination"], "Static": "", "RFHangTime": 0,
+                })
+        else:
+            network["Static"] = (0 if settings.get("bridge_role") == "net"
+                                 else settings["destination"])
         content = set_ini(content, "Network", network)
     else:
         startup = (

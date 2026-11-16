@@ -85,7 +85,7 @@ def run():
             {"kind": "echolink-call", "value": "N0LOCAL", "createdAt": now, "expiresAt": now + 3600, "reason": "", "actor": "test"},
         ], "ownedAst": [], "ownedEcho": []}
         result = ban.reconcile(state, fake, "641890")
-        assert fake.ast == {"765432", "123456", "67098", "N0GLOBAL"}
+        assert fake.ast == {"765432", "123456", "67098"}
         assert fake.echo == {"N0MANUAL", "N0GLOBAL", "N0GLOBAL-L", "N0LOCAL"}
         assert ban.read_state()["ownedEcho"] == ["N0GLOBAL-L", "N0LOCAL"]
         assert "765432" in result["externalAst"]
@@ -94,6 +94,15 @@ def run():
         assert len(fake.channels) == 1 and "local-4" in fake.channels[0]
         assert "N0GLOBAL" in result["externalEcho"]  # pre-existing manual rule
         assert "N0SERVICE" in result["unmappedGlobalRules"]
+        assert "N0GLOBAL" not in fake.ast, "callsign was falsely written as an AllStar node deny key"
+
+        # A syntactically valid global callsign with no ASTDB node mapping is
+        # partial enforcement, never a verified AllStar ban.
+        ban.GLOBAL.write_text("N0MISSING\n")
+        missing = ban.reconcile(state, fake, "641890")
+        assert "N0MISSING" in missing["unmappedGlobalRules"]
+        assert "N0MISSING" in missing["unmappedAllStarCallsigns"]
+        assert "N0MISSING" not in fake.ast
 
         # Expiry removes only ASR owned restrictions; manual entries remain.
         for item in state["bans"]:
