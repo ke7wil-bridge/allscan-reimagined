@@ -235,6 +235,27 @@ ASR_REAPPLY_COMMAND="$SCRIPT_DIR/asr-reapply.sh" \
 [ "$stock_before" = "$(tree_digest "$STOCK_ALLSCAN_DIR")" ]
 grep -q '/asr/assets/index-test.js' "$ASR_WEB_DIR/index.html"
 
+# #122: detect and repair same-length stale frontend JS, including large assets.
+# Reproduce the old integrity bug using a >1 MiB file and unchanged byte count.
+python3 - "$MASTER_DIR/web/assets/index-test.js" "$ASR_WEB_DIR/assets/index-test.js" <<'PYTEST'
+from pathlib import Path
+import sys
+master, deployed = map(Path, sys.argv[1:])
+master.write_bytes(b'A' * (2 * 1024 * 1024))
+deployed.write_bytes(b'B' * (2 * 1024 * 1024))
+assert master.stat().st_size == deployed.stat().st_size
+PYTEST
+ASR_MASTER_DIR="$MASTER_DIR" \
+ASR_WEB_ROOT="$WEB_ROOT" \
+STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" \
+ASR_WEB_DIR="$ASR_WEB_DIR" \
+ASR_INSTALL_LOCK_HELD=1 \
+ASR_INTEGRITY_WEB_ONLY=1 \
+ASR_REAPPLY_COMMAND="$SCRIPT_DIR/asr-reapply.sh" \
+  bash "$SCRIPT_DIR/asr-integrity-check.sh"
+cmp -s "$MASTER_DIR/web/assets/index-test.js" "$ASR_WEB_DIR/assets/index-test.js"
+[ "$stock_before" = "$(tree_digest "$STOCK_ALLSCAN_DIR")" ]
+
 archive="$TEST_ROOT/asr-webroot.tar.gz"
 ln -sfn /etc/allscan/favorites.ini "$ASR_WEB_DIR/favorites.ini"
 COPYFILE_DISABLE=1 tar --no-xattrs \
