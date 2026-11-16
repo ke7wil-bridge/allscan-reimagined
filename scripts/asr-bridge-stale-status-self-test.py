@@ -216,6 +216,18 @@ def test_direct_service_discovery() -> None:
         units, issues = status.bridge_service_health(config, "dmr_direct")
     assert units == ["asr-dmr-mmdvm.service", "asr-dmr-analog.service", "asr-dmr-admin.service"]
     assert issues == [] and runner.call_count == 3
+
+    # Historical service start-time skew is normal after maintenance; only a
+    # fresh partial restart should take an otherwise active chain offline.
+    def skewed_show(args, **_kwargs):
+        epoch = 940_000_000 if args[2] == "asr-dmr-admin.service" else 900_000_000
+        return SimpleNamespace(stdout=f"ActiveState=active\nNRestarts=0\nActiveEnterTimestampMonotonic={epoch}\n", returncode=0)
+    with patch.object(status.time, "monotonic", return_value=1000), patch.object(status.subprocess, "run", side_effect=skewed_show):
+        _, issues = status.bridge_service_health(config, "dmr_direct")
+    assert len(issues) == 1 and "restarted without its companion" in issues[0]
+    with patch.object(status.time, "monotonic", return_value=2000), patch.object(status.subprocess, "run", side_effect=skewed_show):
+        _, issues = status.bridge_service_health(config, "dmr_direct")
+    assert issues == []
     with patch.object(status.subprocess, "run", side_effect=__import__("subprocess").TimeoutExpired("systemctl", 3)):
         _, issues = status.bridge_service_health(config, "dmr_direct")
         assert len(issues) == 3 and all("could not be checked" in issue for issue in issues)

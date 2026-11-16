@@ -626,7 +626,14 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
             issues.append(unit + " restarted unexpectedly; repair the full bridge chain.")
         active_epochs[unit] = epoch
     valid_epochs = [epoch for epoch in active_epochs.values() if epoch > 0]
-    if not issues and len(valid_epochs) > 1 and max(valid_epochs) - min(valid_epochs) > 30_000_000:
+    # A partial chain restart is actionable while it is fresh. Persistent
+    # start-time skew is normal after maintenance and must not leave a healthy
+    # bridge OFFLINE indefinitely.
+    newest_epoch = max(valid_epochs, default=0)
+    recent_restart_cutoff = int(time.monotonic() * 1_000_000) - 300_000_000
+    if (not issues and len(valid_epochs) > 1
+            and newest_epoch >= recent_restart_cutoff
+            and newest_epoch - min(valid_epochs) > 30_000_000):
         newest = max(active_epochs, key=active_epochs.get)
         issues.append(newest + " restarted without its companion bridge services; repair the full bridge chain.")
     return units, issues
