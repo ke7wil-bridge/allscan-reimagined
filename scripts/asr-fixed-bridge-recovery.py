@@ -389,7 +389,7 @@ def main() -> int:
             print(f"Configured fixed bridge node {node} did not establish after both recovery directions.", file=sys.stderr)
         for node in result["unavailable"]:
             print(f"Configured fixed bridge node {node} is not available locally; not reconnecting.", file=sys.stderr)
-        return 0
+        return 1 if result["failed"] else 0
     except RecoveryError as exc:
         print(f"Fixed-bridge recovery failed: {exc}", file=sys.stderr)
         return 1
