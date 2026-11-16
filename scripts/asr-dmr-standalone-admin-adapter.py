@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import json
 import os
 import re
@@ -35,6 +36,24 @@ def read(path: Path, default: Any) -> Any:
         return value
     except (OSError, ValueError):
         return default
+
+
+@contextlib.contextmanager
+def control_lock(path: Path):
+    """Serialize adapter writers without locking the atomically replaced inode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = path.with_name(path.name + ".lock")
+    if lock.is_symlink():
+        raise ValueError("unsafe DMR control lock")
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "rb") as handle:
+            if os.fstat(handle.fileno()).st_nlink != 1:
+                raise ValueError("unsafe DMR control lock links")
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+    finally:
+        pass
 
 
 def control_payload(path: Path) -> dict[str, Any]:
@@ -97,13 +116,14 @@ def apply_policy(control: Path, policy: dict[str, Any], enforcement: Path | None
     if not re.fullmatch(r"[a-f0-9]{64}", digest):
         raise ValueError("global ban policy digest is invalid")
     rules = active_policy_rules(policy)
-    payload = control_payload(control)
-    payload["banned_ids"] = sorted(int(rule) for rule in rules if rule.isdigit())
-    payload["banned_callsigns"] = sorted(rule for rule in rules if not rule.isdigit() and not rule.endswith("*"))
-    payload["banned_prefixes"] = sorted(rule[:-1] for rule in rules if rule.endswith("*"))
-    payload["policy_digest"] = digest
-    payload.setdefault("kicked_ids", {})
-    atomic(control, payload)
+    with control_lock(control):
+        payload = control_payload(control)
+        payload["banned_ids"] = sorted(int(rule) for rule in rules if rule.isdigit())
+        payload["banned_callsigns"] = sorted(rule for rule in rules if not rule.isdigit() and not rule.endswith("*"))
+        payload["banned_prefixes"] = sorted(rule[:-1] for rule in rules if rule.endswith("*"))
+        payload["policy_digest"] = digest
+        payload.setdefault("kicked_ids", {})
+        atomic(control, payload)
     if enforcement is not None:
         wait_for(enforcement, lambda item: valid_enforcement(item)
                  and item.get("appliedPolicyDigest") == digest)
@@ -122,15 +142,18 @@ def kick(identity: str, roster: Path, control: Path, enforcement: Path, token: s
         raise ValueError("client is no longer connected")
     if len(matched) != 1:
         raise ValueError("client identity is ambiguous in the current roster")
-    payload = control_payload(control); kicked = payload.get("kicked_ids", {})
-    if not isinstance(kicked, dict): kicked = {}
-    epoch = int(time.time())
-    for dmr_id in matched: kicked[str(dmr_id)] = epoch
-    tokens = payload.get("kick_tokens", {})
-    if not isinstance(tokens, dict): tokens = {}
-    tokens[str(matched[0])] = token
-    payload["kicked_ids"] = kicked; payload["kick_tokens"] = tokens; atomic(control, payload)
+    with control_lock(control):
+        payload = control_payload(control); kicked = payload.get("kicked_ids", {})
+        if not isinstance(kicked, dict): kicked = {}
+        epoch = int(time.time())
+        for dmr_id in matched: kicked[str(dmr_id)] = epoch
+        tokens = payload.get("kick_tokens", {})
+        if not isinstance(tokens, dict): tokens = {}
+        tokens[str(matched[0])] = token
+        payload["kicked_ids"] = kicked; payload["kick_tokens"] = tokens; atomic(control, payload)
+    expected_digest = str(payload.get("policy_digest") or "")
     wait_for(enforcement, lambda item: valid_enforcement(item)
+             and item.get("appliedPolicyDigest") == expected_digest
              and isinstance(item.get("lastKick"), dict)
              and item["lastKick"].get("dmrid") == str(matched[0])
              and item["lastKick"].get("token") == token)
@@ -138,7 +161,10 @@ def kick(identity: str, roster: Path, control: Path, enforcement: Path, token: s
 
 
 def capability(bridge_id: str, digest: str, enforcement: Path | None = None) -> dict[str, Any]:
-    ready = enforcement is not None and enforcement_ready(enforcement)
+    evidence = enforcement_payload(enforcement) if enforcement is not None else {}
+    ready = (valid_enforcement(evidence)
+             and bool(re.fullmatch(r"[a-f0-9]{64}", str(digest)))
+             and evidence.get("appliedPolicyDigest") == digest)
     return {"schema": 1, "bridgeId": bridge_id, "mode": "dmr",
             "adapter": "direct-dmr-policy-v2", "healthy": ready,
             "enforcementEvidence": "relay-observed-v1",
@@ -174,11 +200,15 @@ def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, enfo
 
 
 def run(bridge_id: str, roster: Path, control: Path, runtime: Path, creation_id: str) -> None:
-    runtime.mkdir(parents=True, exist_ok=True); os.chmod(runtime, 0o750)
+    # Capability metadata is intentionally public to the local ASR web/API
+    # process. Administration requests and results remain mode 0600.
+    runtime.mkdir(parents=True, exist_ok=True); os.chmod(runtime, 0o755)
     atomic(runtime / ".asr-bridge-owner.json", {"schema": 1, "ownership": "asr",
            "createdBy": "allscan-reimagined-bridge-installer", "creationId": creation_id,
            "bridgeId": bridge_id}, 0o640)
-    digest = "0" * 64
+    digest = str(control_payload(control).get("policy_digest") or "0" * 64)
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        digest = "0" * 64
     enforcement = control.with_name("dmr-admin-enforcement.json")
     while True:
         atomic(runtime / "capabilities.json", capability(bridge_id, digest, enforcement), 0o644)

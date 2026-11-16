@@ -26,9 +26,34 @@ def check(value: bool, message: str) -> None:
     if not value:
         raise AssertionError(message)
 
+# Exercise both policy-root selectors with temporary directories, without touching live state.
+import ast
+import tempfile
+with tempfile.TemporaryDirectory() as sandbox:
+    native = Path(sandbox) / "native"
+    legacy = Path(sandbox) / "legacy"
+    legacy.mkdir()
+    for source in (STANDALONE, URF):
+        function = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "global_ban_root")
+        namespace = {"Path": Path}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "<policy-selector-test>", "exec"), namespace)
+        selector = namespace["global_ban_root"]
+        check(selector(runtime=legacy, native=native) == legacy, "legacy fallback broken")
+        native.mkdir(exist_ok=True)
+        check(selector(runtime=legacy, native=native) == native, "native policy precedence broken")
+        native.rmdir()
+
 check(API == SERVER_API, "API copies diverged")
+check("return native if native.is_dir() else runtime" in STANDALONE, "native ASR policy directory must take precedence over legacy URF runtime")
+check("return native if native.is_dir() else runtime" in URF, "legacy administration helper must read the same authoritative ASR policy directory")
+check("is_dir('/var/lib/allscan-reimagined/admin') ? '/var/lib/allscan-reimagined/admin' : '/run/urf-wil-config'" in API, "API digest must use the same native-first ban policy directory")
 check("function asr_bridge_admin_capabilities" in API, "capability contract missing")
 check("function asr_global_ban_policy_digest" in API, "standalone global-ban policy digest missing")
+check('return {"verified": False, "applied": [], "skipped": [], "unavailable": True}' in URF, "missing native reconciliation helper must not claim verified")
+check(URF.count('verified=asl.get("status") == "applied" and standalone.get("verified") is True') == 2,
+      "Ban and Unban must require native and AllStar enforcement proof")
+check(URF.count('else "partial_pending_enforcement"') == 2,
+      "Ban and Unban must disclose partial global enforcement")
 check("($cap['bridgeId'] ?? '') !== $id" in API and "($cap['healthy'] ?? false) !== true" in API, "standalone manifest identity/health checks missing")
 check("is_link($path)" in API and "($stat['mode'] ?? 0) & 0022" in API and "($stat['uid'] ?? -1) !== 0" in API, "standalone manifest trust checks missing")
 check("local-media-block-until-reconnect" in API, "local DMR media enforcement contract missing")
@@ -110,6 +135,11 @@ check('"kickClient": ready' in DIRECT_DMR_ADMIN
       and '"kickContract": "local-media-block-until-reconnect"' in DIRECT_DMR_ADMIN
       and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the exact current-session Kick contract")
+check("os.chmod(runtime, 0o755)" in DIRECT_DMR_ADMIN,
+      "direct DMR capability directory is not traversable by the web/API user")
+check("$direction !== 'incoming'" in API and "$sourceProtocol !== $mode" in API
+      and "'last_source_user' => $lastSourceUser" in API,
+      "standard bridge Last Talker is not gated by inbound protocol evidence")
 check('"banClient": ready' in DIRECT_DMR_ADMIN and '"unbanClient": ready' in DIRECT_DMR_ADMIN
       and '"banContract": "global-timed-v1"' in DIRECT_DMR_ADMIN
       and '"appliedPolicyDigest": digest' in DIRECT_DMR_ADMIN,

@@ -306,7 +306,7 @@ const ASR_STANDALONE_ADMIN_DIR = '/run/asr-standalone-admin';
 const ASR_STANDALONE_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-standalone-admin';
 
 function asr_global_ban_policy_digest(): string {
-	$root = is_dir('/run/urf-wil-config') ? '/run/urf-wil-config' : '/var/lib/allscan-reimagined/admin';
+	$root = is_dir('/var/lib/allscan-reimagined/admin') ? '/var/lib/allscan-reimagined/admin' : '/run/urf-wil-config';
 	$blacklist = @file_get_contents($root . '/urfd.blacklist');
 	$timedBans = @file_get_contents($root . '/asr-timed-bans.json');
     if (!is_string($blacklist) || !is_string($timedBans)) return '';
@@ -1947,30 +1947,39 @@ function asr_standard_bridge_live_statuses(): array {
         if (!in_array($role, ['idle', 'source', 'relay'], true)) $role = 'idle';
         $caller = $role === 'source' ? substr(trim((string) ($entry['current_user'] ?? '')), 0, 120) : '';
         $linked = is_bool($entry['linked'] ?? null) ? (bool) $entry['linked'] : null;
-        $recent = [];
-        foreach ((array) ($entry['recent_users'] ?? []) as $row) {
-            if (!is_array($row)) continue;
-            $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 8));
-            $epoch = max(0, (int) ($row['last_tx_epoch'] ?? 0));
-            if (!preg_match('/^[A-Z0-9]{3,8}$/D', $callsign)
-                || $epoch <= 0 || $epoch > time() + 300 || time() - $epoch > 86400) continue;
-            $recent[] = [
-                'callsign' => $callsign,
-                'last_tx_epoch' => $epoch,
-                'reflector' => substr(strtoupper(trim((string) ($row['reflector'] ?? ''))), 0, 8),
-                'module' => substr(strtoupper(trim((string) ($row['module'] ?? ''))), 0, 1),
-            ];
-            if (count($recent) >= 50) break;
-        }
+        // Last Talker and Recent Activity require protocol-owned source
+        // evidence. A local TX edge may coincide with an AllStar caller, but
+        // that caller is not thereby a confirmed digital-protocol identity.
         $txEvents = [];
         foreach ((array) ($entry['tx_events'] ?? []) as $row) {
             if (!is_array($row)) continue;
             $callsign = strtoupper(substr(trim((string) ($row['callsign'] ?? '')), 0, 20));
             $epoch = max(0, (int) ($row['epoch'] ?? 0));
-            if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{2,19}$/D', $callsign) || $epoch <= 0 || time() - $epoch > 86400) continue;
-            $txEvents[] = ['callsign'=>$callsign, 'event'=>'transmit', 'epoch'=>$epoch, 'start_epoch'=>max(0,(int)($row['start_epoch']??0)), 'duration_seconds'=>max(0,(float)($row['duration_seconds']??0))];
+            $direction = strtolower(trim((string) ($row['direction'] ?? '')));
+            $sourceProtocol = strtolower(trim((string) ($row['source_protocol'] ?? '')));
+            if (!preg_match('/^[A-Z0-9][A-Z0-9 -]{2,19}$/D', $callsign)
+                || $epoch <= 0 || $epoch > time() + 300 || time() - $epoch > 86400
+                || $direction !== 'incoming' || $sourceProtocol !== $mode) continue;
+            $txEvents[] = [
+                'callsign'=>$callsign, 'event'=>'transmit', 'epoch'=>$epoch,
+                'start_epoch'=>max(0,(int)($row['start_epoch']??0)),
+                'duration_seconds'=>max(0,(float)($row['duration_seconds']??0)),
+                'direction'=>'incoming', 'source_protocol'=>strtoupper($mode),
+            ];
             if (count($txEvents) >= 100) break;
         }
+        usort($txEvents, static fn($a, $b): int => (int) ($b['epoch'] ?? 0) <=> (int) ($a['epoch'] ?? 0));
+        $recent = [];
+        $recentSeen = [];
+        foreach ($txEvents as $txEvent) {
+            $callsign = (string) $txEvent['callsign'];
+            if (isset($recentSeen[$callsign])) continue;
+            $recentSeen[$callsign] = true;
+            $recent[] = ['callsign'=>$callsign, 'last_tx_epoch'=>(int)$txEvent['epoch'], 'reflector'=>'', 'module'=>''];
+            if (count($recent) >= 50) break;
+        }
+        $lastSourceUser = (string) ($txEvents[0]['callsign'] ?? '');
+        $lastSourceEpoch = max(0, (int) ($txEvents[0]['epoch'] ?? 0));
         $clientEvents = [];
         foreach ((array) ($entry['client_events'] ?? []) as $row) {
             if (!is_array($row)) continue;
@@ -2002,9 +2011,9 @@ function asr_standard_bridge_live_statuses(): array {
             'last_time_epoch' => max(0, (int) ($entry['last_time_epoch'] ?? 0)),
             'current_user' => $caller,
             'caller' => $caller,
-            'last_user' => substr(trim((string) ($entry['last_user'] ?? '-')), 0, 120),
-            'last_source_user' => substr(trim((string) ($entry['last_source_user'] ?? '')), 0, 120),
-            'last_source_epoch' => max(0, (int) ($entry['last_source_epoch'] ?? 0)),
+            'last_user' => $lastSourceUser !== '' ? $lastSourceUser : '-',
+            'last_source_user' => $lastSourceUser,
+            'last_source_epoch' => $lastSourceEpoch,
             'warning' => substr(trim((string) ($entry['warning'] ?? '')), 0, 160),
             'health_severity' => in_array((string) ($entry['health_severity'] ?? ''), ['warning', 'unhealthy', 'offline'], true) ? (string) $entry['health_severity'] : null,
             'health_issues' => array_values(array_slice(array_filter(array_map(static fn($issue) => substr(trim((string) $issue), 0, 160), is_array($entry['health_issues'] ?? null) ? $entry['health_issues'] : [])), 0, 8)),

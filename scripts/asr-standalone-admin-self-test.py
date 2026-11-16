@@ -170,4 +170,128 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
         stop.set()
         worker.join(timeout=1)
 
+# Every non-DMR mode must fail closed without an authenticated live adapter.
+with tempfile.TemporaryDirectory(prefix="asr-native-mode-gates-") as temporary:
+    base = Path(temporary)
+    admin.CONFIG_PATH = base / "config.json"
+    admin.RUNTIME_ROOT = base / "runtime"
+    admin.RUNTIME_ROOT.mkdir()
+    admin.BLACKLIST = base / "urfd.blacklist"
+    admin.TIMED_BANS = base / "asr-timed-bans.json"
+    admin.BLACKLIST.write_text("# empty\n", encoding="utf-8")
+    admin.TIMED_BANS.write_text("{}\n", encoding="utf-8")
+    for mode in ("ysf", "p25", "nxdn", "m17"):
+        bridge_id = f"{mode}-local"
+        write_json(admin.CONFIG_PATH, {"bridges": [{"id": bridge_id, "mode": mode, "cardType": "standard", "urfReflector": False}]})
+        directory = admin.RUNTIME_ROOT / bridge_id
+        directory.mkdir()
+        directory.chmod(0o755)
+        result = admin.reconcile_all("admin")
+        check(not result["ok"] and not result["verified"] and bridge_id in result["skipped"],
+              f"{mode} missing adapter falsely reported global enforcement")
+        try:
+            admin.kick(bridge_id, "N7TEST", "admin")
+        except (admin.AdminError, FileNotFoundError):
+            pass
+        else:
+            raise AssertionError(f"{mode} Kick accepted without a verified adapter")
+        directory.rmdir()
+
+    # A configured Zello card cannot disappear from global Ban verification.
+    write_json(admin.CONFIG_PATH, {"bridges": [
+        {"id": "zello-local", "mode": "zello", "cardType": "standard"},
+    ]})
+    zello_policy = admin.reconcile_all("admin")
+    check(not zello_policy["ok"] and not zello_policy["verified"]
+          and "zello" in zello_policy["skipped"],
+          "configured Zello falsely reported global Ban enforcement")
+    check(any(item["bridgeId"] == "zello" and item["reason"]
+              for item in zello_policy["failed"]),
+          "Zello global Ban failure did not include a reason")
+
+    # Nonstandard/disabled aggregate cards must not invent enabled protocols.
+    write_json(admin.CONFIG_PATH, {"bridges": [{
+        "id": "inactive-urf", "urfReflector": True, "cardType": "custom",
+        "modes": ["dmr", "ysf", "p25", "nxdn", "m17"],
+    }]})
+    inactive_policy = admin.reconcile_all("admin")
+    check(not inactive_policy["skipped"] and not inactive_policy["failed"],
+          "nonstandard aggregate card was incorrectly included in Ban enforcement")
+
+    # Aggregate DMR must not be silently treated as globally reconciled.
+    write_json(admin.CONFIG_PATH, {"bridges": [{
+        "id": "urfnet", "mode": "urf", "cardType": "standard",
+        "urfReflector": True, "modes": ["dmr"],
+    }]})
+    dmr_policy = admin.reconcile_all("admin")
+    check(not dmr_policy["ok"] and not dmr_policy["verified"]
+          and "dmr" in dmr_policy["skipped"],
+          "aggregate DMR falsely reported global Ban enforcement")
+
+    # Mixed coverage must never be reported as a globally verified Ban.
+    write_json(admin.CONFIG_PATH, {"bridges": [
+        {"id": "ysf-local", "mode": "ysf", "cardType": "standard", "urfReflector": False},
+        {"id": "p25-local", "mode": "p25", "cardType": "standard", "urfReflector": False},
+    ]})
+    result = admin.reconcile_all("admin")
+    check(not result["ok"] and not result["verified"]
+          and set(result["skipped"]) == {"ysf-local", "p25-local"},
+          "multi-mode missing enforcement falsely reported global Ban success")
+    check({item["bridgeId"] for item in result["failed"]}
+          == {"ysf-local", "p25-local"},
+          "global Ban omitted per-bridge failure evidence")
+    check(all(item["reason"] for item in result["failed"]),
+          "global Ban failure evidence omitted a reason")
+    kicked = admin.kick_all("n7test", "admin")
+    check(kicked["callsign"] == "N7TEST" and not kicked["ok"] and not kicked["verified"]
+          and not kicked["complete"], "global Kick falsely reported complete")
+    check({item["bridgeId"] for item in kicked["failed"]}
+          == {"ysf-local", "p25-local", "zello"},
+          "global Kick did not disclose every unavailable mode")
+    check(not kicked["applied"], "global Kick reported unsupported bridge as applied")
+    # A successful native Kick on one bridge cannot mask failures elsewhere.
+    original_kick = admin.kick
+    try:
+        def simulated_kick(bridge_id, identity, actor):
+            if bridge_id == "ysf-local":
+                return {"ok": True, "verified": True, "bridgeId": bridge_id,
+                        "callsign": identity, "removed": 1}
+            raise admin.AdminError("Adapter unavailable")
+        admin.kick = simulated_kick
+        partial = admin.kick_all("N7TEST", "admin")
+        check(len(partial["applied"]) == 1 and partial["applied"][0]["mode"] == "ysf",
+              "global Kick lost successful per-mode evidence")
+        check(not partial["ok"] and not partial["verified"] and not partial["complete"],
+              "partial global Kick falsely reported complete")
+        check({item["mode"] for item in partial["failed"]} == {"p25", "zello"},
+              "partial global Kick lost failed mode evidence")
+    finally:
+        admin.kick = original_kick
+    # Unverified adapter responses must never count as successful global Kick.
+    try:
+        admin.kick = lambda bridge_id, identity, actor: {
+            "ok": True, "verified": False, "removed": 1}
+        unverified = admin.kick_all("N7TEST", "admin")
+        check(not unverified["applied"] and not unverified["verified"],
+              "global Kick trusted an unverified adapter response")
+    finally:
+        admin.kick = original_kick
+    # Aggregate URF modes must also appear individually in failure evidence.
+    write_json(admin.CONFIG_PATH, {"bridges": [{
+        "id": "urfnet", "mode": "urf", "cardType": "standard",
+        "urfReflector": True, "modes": ["dmr", "ysf", "p25", "nxdn", "m17"],
+    }]})
+    aggregate = admin.kick_all("N7TEST", "admin")
+    check(not aggregate["verified"] and not aggregate["complete"],
+          "aggregate global Kick falsely reported success")
+    check({item["mode"] for item in aggregate["failed"]}
+          == {"dmr", "ysf", "p25", "nxdn", "m17", "zello"},
+          "aggregate global Kick omitted one or more mode failures")
+    try:
+        admin.kick_all("INVALID IDENTITY", "admin")
+    except admin.AdminError:
+        pass
+    else:
+        raise AssertionError("global Kick accepted an invalid identity")
+
 print("Standalone bridge administration self-test: ok")

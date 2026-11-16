@@ -82,6 +82,9 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert "test-hotspot-key" not in json.dumps(config)
     installed_proxy = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-dmr-proxy.py"
     assert "URF_ENABLED" in installed_proxy.read_text() and "banned_callsigns" in installed_proxy.read_text()
+    staged_relay = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-standalone-relay.py"
+    assert staged_relay.is_file() and "dmr-local-media-v1" in staged_relay.read_text()
+    assert "asr-tgif-dmr-proxy.py" in (root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/run-mmdvm.sh").read_text()
     changed = install.planner.DmrSettings(**{**settings.__dict__, "dmr_to_asl_gain_db": 3.0})
     edit_plan = install.planner.plan(root, changed)
     edited = install.install(root, changed, stage, "replacement-key", expected_digest=edit_plan["digest"])
@@ -107,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert capabilities["listClients"] is True
     assert capabilities["kickClient"] is False
     enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
-        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": ""}) + "\n")
+        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64}) + "\n")
     capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["kickClient"] is True
     assert capabilities["kickContract"] == "local-media-block-until-reconnect"
@@ -144,5 +147,25 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert control_payload["banned_ids"] == [314133]
     assert control_payload["banned_callsigns"] == ["BADGUY"]
     assert control_payload["banned_prefixes"] == ["SPAM"]
+
+    manifest_runtime = admin_runtime / "manifest"
+    class StopAdapterLoop(Exception):
+        pass
+    original_sleep = admin.time.sleep
+    def stop_adapter_loop(_seconds):
+        raise StopAdapterLoop()
+    admin.time.sleep = stop_adapter_loop
+    try:
+        try:
+            admin.run("dmr_johnny2", roster, control, manifest_runtime, "2" * 32)
+        except StopAdapterLoop:
+            pass
+    finally:
+        admin.time.sleep = original_sleep
+    capability_path = manifest_runtime / "capabilities.json"
+    assert capability_path.is_file()
+    assert manifest_runtime.stat().st_mode & 0o777 == 0o755
+    assert capability_path.stat().st_mode & 0o777 == 0o644
+    assert json.loads(capability_path.read_text())["kickClient"] is True
 
 print("direct DMR managed install/edit/rollback/Kick/Ban: PASS")

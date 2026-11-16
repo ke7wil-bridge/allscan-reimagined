@@ -278,6 +278,8 @@ def test_standard_payload_and_ambiguity() -> None:
             assert payload["bridges"][mode]["caller"] == ""
             assert payload["bridges"][mode]["last_user"] != "-"
             assert len(payload["bridges"][mode]["tx_events"]) == 1
+            assert payload["bridges"][mode]["tx_events"][0]["direction"] == "incoming"
+            assert payload["bridges"][mode]["tx_events"][0]["source_protocol"] == mode.upper()
             assert len(payload["bridges"][mode]["recent_users"]) == 1
 
         expires_at = max(states[mode]["last_source_epoch"] for mode in ("dmr", "ysf")) + status.BRIDGE_RECENT_MAX_AGE_SECONDS + 1

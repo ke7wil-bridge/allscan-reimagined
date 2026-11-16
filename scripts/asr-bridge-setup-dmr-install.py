@@ -97,6 +97,12 @@ def file_spec(plan: dict, stage: Path, password: str, creation_id: str) -> dict[
                                       f"{plan['dmrNetworkId']} {plan['settings']['callsign']}\n").encode(), 0o640),
         f"{base}/secrets/master-password": ((password + "\n").encode(), 0o640),
     })
+    # Stage the legacy standalone relay for explicit, separately validated
+    # migration. Do not switch the active proxy or create a duplicate service.
+    legacy_relay = HERE / "bridge-relays/asr-tgif-standalone-relay.py"
+    if legacy_relay.is_symlink() or not legacy_relay.is_file():
+        raise InstallError("standalone TGIF relay source is unavailable")
+    outputs[f"{base}/mmdvm/asr-tgif-standalone-relay.py"] = legacy_relay.read_bytes(), 0o750
     admin = HERE / "asr-dmr-standalone-admin-adapter.py"
     if admin.is_symlink() or not admin.is_file():
         raise InstallError("direct DMR administration adapter is unavailable")

@@ -13,8 +13,8 @@ from pathlib import Path
 
 
 def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")):
-    """Use the Docker mount when present and persistent storage on native nodes."""
-    return runtime if runtime.is_dir() else native
+    """Prefer persistent ASR policy storage; use legacy runtime only for compatibility."""
+    return native if native.is_dir() else runtime
 
 
 GLOBAL_BAN_ROOT = global_ban_root()
@@ -134,7 +134,7 @@ def admin_lock():
 
 def reconcile_standalone_bans(actor="system"):
     if not os.path.isfile(STANDALONE_ADMIN_HELPER) or not os.access(STANDALONE_ADMIN_HELPER, os.X_OK):
-        return {"verified": True, "applied": [], "skipped": [], "unavailable": True}
+        return {"verified": False, "applied": [], "skipped": [], "unavailable": True}
     try:
         completed = subprocess.run(
             [STANDALONE_ADMIN_HELPER, "reconcile-all", "--actor", actor],
@@ -827,7 +827,7 @@ def main():
         removed += int(asl.get("applied", {}).get("removed", 0))
         expires_at = int(timed.get(rule, {}).get("expiresAt") or 0)
         append_audit_event("ban", args.actor, rule=rule, duration=duration, expiresAt=expires_at, removed=removed)
-        emit(ok=True, asl=asl, action="ban", rule=rule, duration=duration, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, expiresAt=expires_at, serverEpoch=now, verified=asl.get("status") == "applied", removed=removed, enforcement="immediate_global" if asl.get("status") == "applied" else "partial_pending_asl", reloadSeconds=30)
+        emit(ok=True, asl=asl, action="ban", rule=rule, duration=duration, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, expiresAt=expires_at, serverEpoch=now, verified=asl.get("status") == "applied" and standalone.get("verified") is True, removed=removed, enforcement="immediate_global" if asl.get("status") == "applied" and standalone.get("verified") is True else "partial_pending_enforcement", reloadSeconds=30)
         return
     # Clear known backend enforcement before removing the logical entry. If
     # backend synchronization fails, the visible Global Ban List must remain
@@ -846,7 +846,7 @@ def main():
         raise RuntimeError("URF blacklist write could not be verified.")
     now = int(time.time())
     append_audit_event("unban", args.actor, rule=rule)
-    emit(ok=True, asl=asl, action="unban", rule=rule, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, serverEpoch=now, verified=asl.get("status") == "applied", enforcement="immediate_global" if asl.get("status") == "applied" else "partial_pending_asl", reloadSeconds=30)
+    emit(ok=True, asl=asl, action="unban", rule=rule, rules=expected, bans=ban_payload(expected, timed, now), audit=read_audit_events(), standalone=standalone, serverEpoch=now, verified=asl.get("status") == "applied" and standalone.get("verified") is True, enforcement="immediate_global" if asl.get("status") == "applied" and standalone.get("verified") is True else "partial_pending_enforcement", reloadSeconds=30)
 
 
 if __name__ == "__main__":
