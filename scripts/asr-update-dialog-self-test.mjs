@@ -7,6 +7,7 @@ const source = readFileSync(
 )
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const whatsNewSource = readFileSync(new URL('../src/config/whatsNew.ts', import.meta.url), 'utf8')
+const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 const check = (condition, message) => { if (!condition) throw new Error(message) }
 
 check(
@@ -80,11 +81,17 @@ check(
   'What’s New does not open once for each newly installed version.',
 )
 check(
-  whatsNewSource.includes("version: '1.0.0-beta.8.4.3'")
-    && whatsNewSource.includes('repairs a missing updater')
-    && whatsNewSource.includes('clients for bridges supporting client listing')
-    && !/SHA-256|systemd|container ID|CSS selector/.test(whatsNewSource),
-  'What’s New copy is missing, version-mismatched, or too technical.',
+  whatsNewSource.includes(`version: '${version}'`)
+    && whatsNewSource.includes(`v${version}.md?raw`)
+    && whatsNewSource.includes('parseReleaseChanges(releaseNotes)')
+    && !whatsNewSource.includes('items: ['),
+  'What’s New must use every documented change from the installed release, not a highlights list.',
+)
+check(
+  source.includes('tabIndex={0}')
+    && source.includes('ASR_WHATS_NEW.items.length')
+    && source.includes('asr-update-dialog--whats-new'),
+  'Release notes need a keyboard-scrollable region that announces the complete list.',
 )
 
 console.log('ASR update dialog self-test passed')
