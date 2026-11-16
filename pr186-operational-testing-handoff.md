@@ -1,0 +1,7 @@
+# PR #186 operational testing handoff — 2026-11-16
+
+Issue #185 and PR #186 remain **open, pending-testing**. The PR head reported by the operator is `4e00831` with passing CI and five local suites. The corresponding local worktree is `/home/josh/worktrees/asr-pr186-incremental` and was confirmed at `4e00831`.
+
+Operator-confirmed deployments of the diagnostics changes: Phoenix 641894, Kentucky 674982, and Georgia 674980 (`45.76.255.39`). Each hub's original diagnostics script was backed up to `/usr/local/sbin/allscan-reimagined-node-diagnostics.pre-pr186-20261116`. Georgia gained a one-minute systemd timer and a `--no-recovery` diagnostics service; Phoenix and Kentucky existing timers were preserved. At deployment verification all three had operational Asterisk, working incremental log cursors and no reported monitoring gaps or warnings. These are operator handoff facts, not newly independently verified live observations.
+
+Thomas (KN4EWT) is responsible for busy-net live sampling, incremental cursor continuity, missed warnings, monitoring overhead and reporting results in #185. Do not merge #186 or close #185 until operational testing and Josh's approval. PR #186 adds **diagnostic visibility only**; it does not fix the serialized `iax2_transmit` queue bottleneck or implement distributed load balancing. Coordinate the separate capacity work under #187 and bridge work under #134. No additional production deployment is authorized by this handoff.
