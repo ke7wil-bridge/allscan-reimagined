@@ -156,16 +156,36 @@ def read_incremental_log(path, now):
             offset = int(state.get("offset", 0))
             gap = ""
             if state.get("identity") != identity:
-                if state.get("identity"): gap = "log replaced/rotated; unread records may be missing"
+                if state.get("identity"):
+                    gap = "log rotated; unread records may be missing"
+                    # Read remaining bytes from the previous inode when the
+                    # conventional rename-rotation file is still available.
+                    rotated = path.with_name(path.name + ".1")
+                    try:
+                        with rotated.open("rb") as old:
+                            old_stat = os.fstat(old.fileno())
+                            if [old_stat.st_dev, old_stat.st_ino] == state["identity"]:
+                                old.seek(min(offset, old_stat.st_size))
+                                tail = old.read(LOG_READ_LIMIT)
+                                tail_end = tail.rfind(bytes([10])) + 1
+                                if tail_end == len(tail) and old_stat.st_size - offset <= LOG_READ_LIMIT:
+                                    state["rotationTail"] = tail.decode("utf-8", "replace").splitlines()
+                                    gap = ""
+                    except OSError:
+                        pass
                 offset = max(0, stat.st_size - LOG_READ_LIMIT) if not state else 0
             elif offset > stat.st_size:
                 gap = "log truncated; unread records may be missing"
                 offset = 0
-            elif state.get("ctimeNs") != stat.st_ctime_ns and stat.st_size == offset and offset:
-                # Same-sized rewrite is not distinguishable from a normal append
-                # by size alone; treat it conservatively as a potential gap.
-                gap = "log changed at checkpoint; possible copy-truncate rewrite"
-                offset = 0
+            elif offset and state.get("checkpoint"):
+                # Verify the last committed bytes; detects copytruncate followed
+                # by regrowth beyond the old offset (size checks cannot).
+                start = max(0, offset - 128)
+                fh.seek(start)
+                fingerprint = hashlib.sha256(fh.read(offset - start)).hexdigest()
+                if fingerprint != state["checkpoint"]:
+                    gap = "log checkpoint rewritten; possible copytruncate"
+                    offset = 0
             if offset and not state.get("identity"):
                 # First-run tail starts in the middle of an arbitrary record.
                 fh.seek(offset - 1)
@@ -180,7 +200,7 @@ def read_incremental_log(path, now):
                 # Pathological oversized line: advance with an explicit gap.
                 complete = len(data)
                 gap = "oversized log record skipped"
-            lines = data[:complete].decode("utf-8", "replace").splitlines()
+            lines = state.pop("rotationTail", []) + data[:complete].decode("utf-8", "replace").splitlines()
             next_offset = offset + complete
             backlog = max(0, stat.st_size - next_offset)
             # Retain bounded five-minute signal history across invocations.
@@ -205,8 +225,11 @@ def read_incremental_log(path, now):
             if len(history) > LOG_HISTORY_LIMIT:
                 history = history[-LOG_HISTORY_LIMIT:]
                 gap = "rolling event history capped; some warning counts may be incomplete"
+            checkpoint_start = max(0, next_offset - 128)
+            fh.seek(checkpoint_start)
+            checkpoint = hashlib.sha256(fh.read(next_offset - checkpoint_start)).hexdigest()
             atomic(state_path, {"identity": identity, "offset": next_offset, "history": history,
-                                "ctimeNs": stat.st_ctime_ns}, 0o600)
+                                "checkpoint": checkpoint}, 0o600)
             return [row[1] for row in history], {"backlogBytes": backlog, "monitoringGap": gap,
                                                    "bytesRead": len(data), "cursorOffset": next_offset}
 
@@ -305,7 +328,9 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
                     return {"available": False, "persistentChannels": [], "recentWarnings": 0}
                 lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
                 source_tz = "utc"
-                monitoring = {"mode": "container-tail", "coverageLimited": True, "bytesRead": len(result.stdout)}
+                monitoring = {"mode": "container-tail", "coverageLimited": True,
+                              "monitoringGap": "container cursor unavailable; tail-only coverage can miss warnings",
+                              "bytesRead": len(result.stdout)}
             except (OSError, subprocess.TimeoutExpired):
                 return {"available": False, "persistentChannels": [], "recentWarnings": 0}
     use_utc = (log_tz or source_tz) == "utc"

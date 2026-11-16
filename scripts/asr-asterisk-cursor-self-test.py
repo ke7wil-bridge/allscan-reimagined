@@ -30,13 +30,29 @@ with tempfile.TemporaryDirectory() as td:
     assert mod.asterisk_queue_health(log,now)["monitoring"]["backlogBytes"]<burst["monitoring"]["backlogBytes"]
     rotated=Path(td)/"messages.log.1";log.rename(rotated);log.write_text(row(4,tx))
     changed=mod.asterisk_queue_health(log,now)
-    assert "rotated" in changed["monitoring"]["monitoringGap"],changed
+    assert changed["monitoring"]["monitoringGap"]=="",changed
     with log.open("w") as f: f.write(row(5,tx))
     # Truncation is detected if new size is smaller than saved cursor.
     with log.open("a") as f: f.write(row(6,tx)*3)
     mod.asterisk_queue_health(log,now)
     log.write_text(row(7,tx))
     assert "truncated" in mod.asterisk_queue_health(log,now)["monitoring"]["monitoringGap"]
+    # Detect rewrite even when the replacement grows beyond old offset.
+    grow=Path(td)/"regrow.log"
+    grow.write_text(row(1,jb)*3)
+    mod.asterisk_queue_health(grow,now)
+    grow.write_text(row(2,tx)*4)
+    regrown=mod.asterisk_queue_health(grow,now)
+    assert "checkpoint rewritten" in regrown["monitoring"]["monitoringGap"],regrown
+    # Recover unread lines from the renamed original before processing new log.
+    recovery=Path(td)/"rotation.log"
+    recovery.write_text(row(1,jb))
+    mod.asterisk_queue_health(recovery,now)
+    with recovery.open("a") as f: f.write(row(2,tx)*3)
+    recovery.rename(Path(td)/"rotation.log.1")
+    recovery.write_text(row(3,jb))
+    recovered=mod.asterisk_queue_health(recovery,now)
+    assert recovered["stall"]["transmitQueueHighWater"]==3,recovered
     assert mod.asterisk_queue_health(log,now+3600)["stall"]["suspected"] is False
     # An incomplete line must not be consumed until its newline arrives.
     partial=Path(td)/"partial.log"
