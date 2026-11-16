@@ -58,6 +58,8 @@ DMR_ROSTER = os.environ.get("ASR_DMR_ROSTER_FILE", os.path.join(DMR_RUNTIME_DIR,
 DMR_CONTROL = os.environ.get("ASR_DMR_CONTROL_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-admin.json"))
 DMR_DIRECTORY_ROSTER = os.environ.get("ASR_DMR_DIRECTORY_ROSTER_FILE", "/var/www/html/allscan/connected-clients.json")
 ZELLO_RUNTIME_DIR = "/var/www/html/asr"
+ZELLO_TALKERS = "/var/www/html/allscan/zello-talkers.json"
+ZELLO_KICKS = str(GLOBAL_BAN_ROOT / "asr-zello-kicks.json")
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
 PROTOCOLS = {"DMRMMDVM": "DMRMmdvm", "YSF": "YSF", "P25": "P25", "NXDN": "NXDN", "M17": "M17", "ZELLO": "ZELLO"}
@@ -98,6 +100,9 @@ def protected_identities():
         return identities
     if not isinstance(payload, dict):
         return identities
+    local_callsign = str(payload.get("callsign") or "").strip().upper()
+    if re.fullmatch(r"[A-Z0-9][A-Z0-9_./-]{0,14}", local_callsign):
+        identities.add(local_callsign)
     for value in payload.get("filteredStations", []):
         identity = str(value).strip().upper()
         if re.fullmatch(r"[A-Z0-9][A-Z0-9_./-]{0,14}", identity):
@@ -475,6 +480,74 @@ def write_dmr_kick(callsign, actor="system", expected_id=""):
     emit(ok=True, action="kick", callsign=callsign, protocol="DMRMMDVM", audit=read_audit_events(), verified=True, dmrid=str(dmrid), enforcement="disconnect_only", quietSeconds=0)
 
 
+def write_zello_kick(callsign, actor="system"):
+    """Suppress only the current Zello stream; the next transmission may reconnect."""
+    try:
+        with open(ZELLO_TALKERS, "r", encoding="utf-8") as handle:
+            talkers = json.load(handle)
+        updated = os.path.getmtime(ZELLO_TALKERS)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Zello current-talker state is unavailable.") from exc
+    current = str(talkers.get("current_user") or "").strip().upper()
+    if (not talkers.get("active") or abs(time.time() - updated) > 30
+            or current != callsign.strip().upper()):
+        raise RuntimeError("Zello user is no longer transmitting.")
+
+    directory = os.path.dirname(ZELLO_KICKS)
+    if not os.path.isdir(directory):
+        raise RuntimeError("ASR Zello administration storage is unavailable.")
+    lock = os.open(ZELLO_KICKS + ".lock", os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        payload = {"schema": 1, "sessions": {}}
+        try:
+            with open(ZELLO_KICKS, "r", encoding="utf-8") as handle:
+                prior = json.load(handle)
+            if isinstance(prior, dict) and prior.get("schema") == 1 and isinstance(prior.get("sessions"), dict):
+                payload = prior
+        except (OSError, ValueError):
+            pass
+        now = int(time.time())
+        payload["sessions"] = {
+            str(name).upper(): value for name, value in payload["sessions"].items()
+            if isinstance(value, dict) and now - int(value.get("createdAt") or 0) <= 300
+        }
+        payload["sessions"][current] = {"createdAt": now, "actor": str(actor)[:80]}
+        fd, tmp = tempfile.mkstemp(prefix=".asr-zello-kicks.", dir=directory, text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, separators=(",", ":"), sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, ZELLO_KICKS)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        os.close(lock)
+
+    # The bridge enforces the suppression before another audio frame reaches
+    # Asterisk. Clear the exported active flag so the dashboard follows suit.
+    talkers["active"] = False
+    talkers["current_user"] = ""
+    fd, tmp = tempfile.mkstemp(prefix=".zello-talkers.", dir=os.path.dirname(ZELLO_TALKERS), text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(talkers, handle, separators=(",", ":"))
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, ZELLO_TALKERS)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    append_audit_event("kick", actor, callsign=current, protocol="ZELLO", removed=1)
+    emit(ok=True, action="kick", callsign=current, protocol="ZELLO",
+         audit=read_audit_events(), verified=True, removed=1,
+         enforcement="current-zello-stream", quietSeconds=0)
+
+
 def sync_dmr_ban(rule, banned_state, expected_id=""):
     """Mirror an exact URFWIL callsign ban into the DMR-ID enforcement store."""
     if rule.endswith("*") or not os.path.isdir(os.path.dirname(DMR_CONTROL)):
@@ -736,7 +809,8 @@ def main():
             write_dmr_kick(callsign, args.actor, args.dmr_id)
             return
         if protocol == "ZELLO":
-            raise ValueError("Zello does not support disconnecting a channel user.")
+            write_zello_kick(callsign, args.actor)
+            return
         count = request_urf_disconnect(callsign, runtime_protocol, "kick", True, args.actor)
         append_audit_event("kick", args.actor, callsign=callsign, protocol=protocol, removed=count)
         emit(ok=True, action="kick", callsign=callsign, protocol=protocol, audit=read_audit_events(), verified=True, removed=count, enforcement="disconnect_only", quietSeconds=0)

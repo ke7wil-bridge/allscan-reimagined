@@ -278,6 +278,8 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-apache-listeners.py" /us
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" /usr/local/sbin/allscan-reimagined-standard-bridge-repair
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-urf-admin.py" /usr/local/sbin/allscan-reimagined-urf-admin
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
+[ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-zello-session-patch.py" /usr/local/sbin/allscan-reimagined-zello-session-patch
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
@@ -1117,6 +1119,10 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* DMRMMDVM --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban list
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban sync
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban unban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*

@@ -248,6 +248,7 @@ install -m 755 scripts/asr-apache-listeners.py "$STAGE/payload/scripts/asr-apach
 install -m 755 scripts/asr-standard-bridge-repair.py "$STAGE/payload/scripts/asr-standard-bridge-repair.py"
 install -m 755 scripts/asr-urf-admin.py "$STAGE/payload/scripts/asr-urf-admin.py"
 install -m 755 scripts/asr-asl-ban.py "$STAGE/payload/scripts/asr-asl-ban.py"
+install -m 755 scripts/asr-zello-session-patch.py "$STAGE/payload/scripts/asr-zello-session-patch.py"
 install -m 755 scripts/asr-standalone-admin.py "$STAGE/payload/scripts/asr-standalone-admin.py"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"

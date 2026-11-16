@@ -415,6 +415,9 @@ function asr_bridge_admin_capabilities(array $bridge): array {
     // they are present. Kick remains gated by immediate backend support.
     $globalAdmin = asr_global_ban_admin_available($mode);
     if ($globalAdmin) $clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);
+    // Zello has no remote disconnect API. ASR implements Kick as suppression
+    // of the exact current inbound stream, cleared at its on_stream_stop edge.
+    if ($globalAdmin && $mode === 'zello') $clientAdmin[] = 'kickClient';
     if ($urf && $mode === 'dmr' && asr_dmr_admin_runtime_available()) $clientAdmin = array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans']);
     if ($urf && $mode !== 'dmr') {
         if (is_readable('/run/urf-wil/asr-admin-capabilities.json')) {
@@ -438,6 +441,8 @@ function asr_bridge_admin_capabilities(array $bridge): array {
 
 function asr_protected_ban_identities(): array {
     $protected = [];
+    $localCallsign = strtoupper(trim((string) (asr_raw_runtime_config()['callsign'] ?? '')));
+    if (preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $localCallsign)) $protected[$localCallsign] = true;
     foreach (glob('/etc/asterisk/extensions.d/*broadcast*.conf') ?: [] as $path) {
         if (!is_file($path) || !is_readable($path) || filesize($path) > 65536) continue;
         $raw = (string) file_get_contents($path);
@@ -1224,7 +1229,7 @@ function asr_urf_kick_command(string $callsign, string $protocol, string $dmrId 
     $callsign = strtoupper(trim($callsign));
     $protocol = strtoupper(trim($protocol));
     if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
-    if (!in_array($protocol, ['DMRMMDVM', 'YSF', 'P25', 'NXDN', 'M17'], true)) asr_error('Invalid bridge client protocol.');
+    if (!in_array($protocol, ['DMRMMDVM', 'YSF', 'P25', 'NXDN', 'M17', 'ZELLO'], true)) asr_error('Invalid bridge client protocol.');
     if ($protocol === 'DMRMMDVM' && (!preg_match('/^\d{1,8}$/D', $dmrId) || (int) $dmrId < 1 || (int) $dmrId > 16777215)) asr_error('A current DMR client ID is required.');
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
     $command = 'sudo -n ' . escapeshellarg(ASR_URF_ADMIN_HELPER) . ' kick ' . escapeshellarg($callsign) . ' ' . escapeshellarg($protocol);

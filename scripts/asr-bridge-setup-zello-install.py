@@ -36,6 +36,7 @@ def load(name: str, filename: str):
     return module
 
 planner = load("zello_installer_plan", "asr-bridge-setup-zello.py")
+session_patch = load("zello_session_patch", "asr-zello-session-patch.py")
 
 def rooted(root: Path, logical: str) -> Path:
     if not logical.startswith("/") or ".." in Path(logical).parts:
@@ -159,6 +160,10 @@ def prepare_runtime_source(source: Path, destination: Path) -> None:
     usrp = destination / "asl_zello_bridge/usrp.py"
     if not usrp.is_file():
         raise InstallError("Zello runtime is missing asl_zello_bridge/usrp.py")
+    zello = destination / "asl_zello_bridge/zello.py"
+    if not zello.is_file():
+        raise InstallError("Zello runtime is missing asl_zello_bridge/zello.py")
+    session_patch.patch_file(zello)
     text = usrp.read_text()
     marker = "def _commit_usrp_off(self):"
     if marker not in text:

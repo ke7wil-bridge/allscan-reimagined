@@ -637,14 +637,19 @@ def test_zello_relay_startup_reset(zello_installer) -> None:
         source = root / "source"
         (source / "asl_zello_bridge").mkdir(parents=True)
         (source / "asl_zello_bridge/usrp.py").write_text(upstream, encoding="utf-8")
+        (source / "asl_zello_bridge/zello.py").write_text('''import os\nimport json\nimport time\n\ndef _ke7wil_clean_talker_name(user):\n    return str(user or "")\n\ndef _ke7wil_zello_is_banned(user):\n    return False\n\n# KE7WIL safe Zello stream debug export\n\nasync def stream_start(self, user):\n    if _ke7wil_zello_is_banned(user):\n        pass\n\nasync def stream_stop(self, user):\n                                            self._zello_ptt.clear()\n                                            # Drop any decoded PCM left from the completed Zello transmission.\n    pass\n\nasync def binary(self):\n    if _ke7wil_zello_is_banned(self._talk_user):\n        pass\n''', encoding="utf-8")
         first = root / "first"
         zello_installer.prepare_runtime_source(source, first)
         patched = (first / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8")
         assert "self._zello_ptt = zello_ptt\n        _write_relay_state(False)" in patched
         assert "def _commit_usrp_off(self):" in patched
+        zello_patched = (first / "asl_zello_bridge/zello.py").read_text(encoding="utf-8")
+        assert "_ke7wil_zello_is_kicked(user)" in zello_patched
+        assert "_ke7wil_zello_clear_kick(user)" in zello_patched
         second = root / "second"
         zello_installer.prepare_runtime_source(first, second)
         assert (second / "asl_zello_bridge/usrp.py").read_text(encoding="utf-8") == patched
+        assert (second / "asl_zello_bridge/zello.py").read_text(encoding="utf-8") == zello_patched
 
 
 def test_urf_image_transaction(installer) -> None:

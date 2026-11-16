@@ -20,6 +20,7 @@ DIRECT_DMR_INSTALL = (ROOT / "scripts/asr-bridge-setup-dmr-install.py").read_tex
 DIRECT_DMR_RENDER = (ROOT / "scripts/asr-bridge-setup-dmr-render.py").read_text(encoding="utf-8")
 ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
 ZELLO = ZELLO_PATH.read_text(encoding="utf-8") if ZELLO_PATH.exists() else ""
+ZELLO_PATCH = (ROOT / "scripts/asr-zello-session-patch.py").read_text(encoding="utf-8")
 CSS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "src/styles/asr").glob("*.css")))
 
 def check(value: bool, message: str) -> None:
@@ -56,13 +57,14 @@ check("$id === $mode . '_net'" in API
 if ZELLO:
     check('"ZELLO": "ZELLO"' in URF, "Zello helper protocol missing")
 check("dstar" not in URF.lower(), "D-Star administration remains in the URF helper")
-check("request_zello_kick" not in URF and "Zello does not support disconnecting a channel user." in URF, "Zello Kick helper remains")
+check("write_zello_kick" in URF and 'enforcement="current-zello-stream"' in URF,
+      "ASR-managed current-stream Zello Kick is missing")
 check("[A-Z0-9_.\\/-]" in API and "[A-Z0-9_./-]" in URF, "Zello underscore identity support missing")
-if ZELLO:
-    check("_ke7wil_zello_is_banned" in ZELLO and "_ke7wil_zello_take_kick" not in ZELLO, "Zello Ban enforcement missing or Kick remains")
+check("_ke7wil_zello_is_kicked" in ZELLO_PATCH and "_ke7wil_zello_clear_kick" in ZELLO_PATCH,
+      "Zello runtime Kick enforcement or stream-stop cleanup is missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP, "Zello Manage Clients UI missing")
-if ZELLO:
-    check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP, "Zello Kick button remains")
+check("Kick the active Zello transmission" in APP and "protocol === 'ZELLO'" in APP,
+      "Zello current-transmission Kick UI/API route is missing")
 check("$mode === 'dmr'" in API and "['kickClient', 'banClient', 'unbanClient', 'listBans']" in API, "DMR client administration capability missing")
 check("write_dmr_kick" in URF and "dmr-ban" in URF and "dmr-unban" in URF, "DMR Kick/Ban helper path missing")
 check("/run/tgif-dmr" in URF and "/run/dmr-bridge" in URF and "/opt/allscan-reimagined-bridges/urf/*/tgif-run" in URF and "ASR_DMR_RUNTIME_DIR" in URF, "DMR admin helper does not resolve native/container runtime paths")
@@ -102,6 +104,11 @@ check("asr-standalone-admin.py" in NATIVE_REAPPLY and "asr-urf-admin.py" in NATI
       "native installer does not install bridge administration helpers")
 check("allscan-reimagined-standalone-admin kick" in NATIVE_REAPPLY,
       "native sudo policy does not authorize capability-gated standalone Kick")
+check("allscan-reimagined-asl-ban list" in NATIVE_REAPPLY
+      and "allscan-reimagined-asl-ban ban *" in NATIVE_REAPPLY,
+      "native sudo policy does not authorize ASL Ban enforcement")
+check('local_callsign = str(payload.get("callsign")' in URF,
+      "the node's own callsign can still be globally banned")
 check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD_RELEASE
       and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")

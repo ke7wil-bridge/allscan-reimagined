@@ -20,8 +20,9 @@ check(not ZELLO_COMPOSE or "/run/asr-global:ro" in ZELLO_COMPOSE,
       "Zello global-ban read-only mount missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
       "Zello Manage Clients presentation missing")
-check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP,
-      "Zello Kick button remains")
+check("Kick the active Zello transmission" in APP
+      and "protocol === 'ZELLO'" in APP,
+      "Zello Kick is not restricted to the current transmission")
 
 with tempfile.TemporaryDirectory(prefix="asr-zello-self-test-") as raw_tmp:
     tmp = Path(raw_tmp)
