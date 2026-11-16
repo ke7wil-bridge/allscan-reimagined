@@ -17,6 +17,7 @@ MMDVM_PORT = int(os.environ.get("MMDVM_PORT", "62033"))
 URF_HOST = os.environ.get("URF_HOST", "127.0.0.1")
 URF_PORT = int(os.environ.get("URF_PORT", "62030"))
 URF_LOCAL_PORT = int(os.environ.get("URF_LOCAL_PORT", "62032"))
+URF_ENABLED = os.environ.get("URF_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
 URF_TG = int(os.environ.get("URF_TG", "4001"))
 TGIF_TG = int(os.environ.get("TGIF_TG", "86753"))
 TARGET_FILE = os.environ.get("TGIF_TARGET_FILE", "")
@@ -24,9 +25,31 @@ BLOCKED = {int(x) for x in os.environ.get("BLOCKED_DMR_IDS", "").split(",") if x
 HEALTH_DIR = os.environ.get("HEALTH_DIR", "")
 ROSTER_FILE = os.environ.get("DMR_ROSTER_FILE", os.path.join(HEALTH_DIR, "dmr-clients.json") if HEALTH_DIR else "")
 CONTROL_FILE = os.environ.get("DMR_CONTROL_FILE", os.path.join(os.path.dirname(ROSTER_FILE), "dmr-admin.json") if ROSTER_FILE else "")
+ID_LOOKUP_FILE = os.environ.get("DMR_ID_LOOKUP_FILE", "")
 CALLSIGN = os.environ.get("CALLSIGN", "").strip().upper()
 URF_IDENTITY_FILE = os.path.join(HEALTH_DIR, "urf-identity.json") if HEALTH_DIR else ""
 urf_login_attempts = 0
+id_lookup_cache = {"mtime": -1.0, "values": {}}
+
+
+def callsign_for_id(source):
+    if source == DMR_ID and CALLSIGN:
+        return CALLSIGN
+    if not ID_LOOKUP_FILE:
+        return ""
+    try:
+        mtime = os.stat(ID_LOOKUP_FILE).st_mtime
+        if mtime != id_lookup_cache["mtime"]:
+            values = {}
+            with open(ID_LOOKUP_FILE, "r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    fields = line.strip().split()
+                    if len(fields) >= 2 and fields[0].isdigit():
+                        values[int(fields[0])] = fields[1].upper()
+            id_lookup_cache.update({"mtime": mtime, "values": values})
+        return id_lookup_cache["values"].get(int(source), "")
+    except (OSError, ValueError, TypeError):
+        return ""
 
 
 def mark_health(name):
@@ -77,8 +100,9 @@ def publish_dmr_client(source, now=None):
         return
     epoch = int(time.time() if now is None else now)
     row = {"dmrid": str(source), "id": str(source), "last_seen_epoch": epoch, "connected": True}
-    if source == DMR_ID and CALLSIGN:
-        row["callsign"] = CALLSIGN
+    callsign = callsign_for_id(source)
+    if callsign:
+        row["callsign"] = callsign
     prior = {}
     try:
         with open(ROSTER_FILE, "r", encoding="utf-8") as handle:
@@ -139,12 +163,12 @@ def remove_dmr_client(source, reason="disconnect"):
 
 def read_admin_control():
     if not CONTROL_FILE:
-        return set(), {}
+        return set(), {}, set(), set()
     try:
         with open(CONTROL_FILE, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, ValueError):
-        return set(), {}
+        return set(), {}, set(), set()
     banned = {int(value) for value in payload.get("banned_ids", []) if str(value).isdigit()}
     kicked = {}
     for key, value in payload.get("kicked_ids", {}).items():
@@ -153,13 +177,16 @@ def read_admin_control():
                 kicked[int(key)] = int(value)
             except (TypeError, ValueError):
                 pass
-    return banned, kicked
+    exact = {str(value).strip().upper() for value in payload.get("banned_callsigns", []) if str(value).strip()}
+    prefixes = {str(value).strip().upper().rstrip("*") for value in payload.get("banned_prefixes", []) if str(value).strip().rstrip("*")}
+    return banned, kicked, exact, prefixes
 
 
-def write_admin_control(banned, kicked):
+def write_admin_control(banned, kicked, exact=None, prefixes=None):
     if not CONTROL_FILE:
         return
-    payload = {"banned_ids": sorted(banned), "kicked_ids": {str(key): int(value) for key, value in sorted(kicked.items())}}
+    payload = {"banned_ids": sorted(banned), "kicked_ids": {str(key): int(value) for key, value in sorted(kicked.items())},
+               "banned_callsigns": sorted(exact or ()), "banned_prefixes": sorted(prefixes or ())}
     os.makedirs(os.path.dirname(CONTROL_FILE), exist_ok=True)
     tmp = CONTROL_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
@@ -306,7 +333,7 @@ def validate_config():
         raise ValueError("DMR_NETWORK_ID must fit the MMDVM 32-bit repeater-ID field")
     if not 1 <= TGIF_TG <= 0xFFFFFF or TGIF_TG == 4000:
         raise ValueError("TGIF_TG must be 1-16777215 and cannot be disconnect TG 4000")
-    if not 1 <= URF_TG <= 0xFFFFFF:
+    if URF_ENABLED and not 1 <= URF_TG <= 0xFFFFFF:
         raise ValueError("URF_TG must be 1-16777215")
 
 
@@ -320,7 +347,8 @@ def main():
 
     print(
         f"TGIF/URF DMR bridge active: TGIF={TGIF_HOST}:{TGIF_PORT} "
-        f"URF={URF_HOST}:{URF_PORT} TGIF_TG={TGIF_TG} URF_TG={URF_TG}",
+        f"URF={'disabled' if not URF_ENABLED else f'{URF_HOST}:{URF_PORT}'} "
+        f"TGIF_TG={TGIF_TG} URF_TG={URF_TG}",
         flush=True,
     )
     urf = None
@@ -347,7 +375,7 @@ def main():
             except OSError as error:
                 print(f"TGIF DMR reconnect failed: {error}", flush=True)
 
-        if urf is None and now - last_urf_attempt >= 2:
+        if URF_ENABLED and urf is None and now - last_urf_attempt >= 2:
             last_urf_attempt = now
             try:
                 urf = connect_urf()
@@ -452,8 +480,11 @@ def main():
                 if not inbound_matches_active_tg(packet):
                     continue
                 sid = source_id(packet)
-                banned_ids, kicked_ids = read_admin_control()
-                if sid in BLOCKED or sid in banned_ids:
+                banned_ids, kicked_ids, banned_callsigns, banned_prefixes = read_admin_control()
+                source_callsign = callsign_for_id(sid)
+                callsign_banned = bool(source_callsign and (source_callsign in banned_callsigns
+                    or any(source_callsign.startswith(prefix) for prefix in banned_prefixes)))
+                if sid in BLOCKED or sid in banned_ids or callsign_banned:
                     # A blocked subscriber is not an active ASR client. Remove stale
                     # roster presence immediately while retaining event history.
                     remove_dmr_client(sid, "ban")
@@ -466,12 +497,12 @@ def main():
                         # disconnect creates a quiet gap; after 10 quiet seconds the
                         # next packet is treated as a fresh session and may reconnect.
                         kicked_ids[sid] = now_epoch
-                        write_admin_control(banned_ids, kicked_ids)
+                        write_admin_control(banned_ids, kicked_ids, banned_callsigns, banned_prefixes)
                         remove_dmr_client(sid, "kick")
                         print(f"Kicked inbound DMR source ID {sid}", flush=True)
                         continue
                     del kicked_ids[sid]
-                    write_admin_control(banned_ids, kicked_ids)
+                    write_admin_control(banned_ids, kicked_ids, banned_callsigns, banned_prefixes)
                 if sid:
                     publish_dmr_client(sid)
                 local.sendto(packet, ("127.0.0.1", MMDVM_PORT))

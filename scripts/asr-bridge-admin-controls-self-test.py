@@ -15,6 +15,9 @@ NATIVE_REAPPLY = (ROOT / "scripts/asr-reapply.sh").read_text(encoding="utf-8")
 BUILD_RELEASE = (ROOT / "build-release.sh").read_text(encoding="utf-8")
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 LIFECYCLE = (ROOT / "scripts/asr-bridge-lifecycle.py").read_text(encoding="utf-8")
+DIRECT_DMR_ADMIN = (ROOT / "scripts/asr-dmr-standalone-admin-adapter.py").read_text(encoding="utf-8")
+DIRECT_DMR_INSTALL = (ROOT / "scripts/asr-bridge-setup-dmr-install.py").read_text(encoding="utf-8")
+DIRECT_DMR_RENDER = (ROOT / "scripts/asr-bridge-setup-dmr-render.py").read_text(encoding="utf-8")
 ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
 ZELLO = ZELLO_PATH.read_text(encoding="utf-8") if ZELLO_PATH.exists() else ""
 CSS = (ROOT / "src/index.css").read_text(encoding="utf-8")
@@ -96,6 +99,21 @@ check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD
       and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
+check('"kickClient": True' in DIRECT_DMR_ADMIN
+      and '"kickContract": "disconnect-until-reconnect"' in DIRECT_DMR_ADMIN
+      and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
+      "direct DMR does not publish the exact current-session Kick contract")
+check('"banClient": True' in DIRECT_DMR_ADMIN and '"unbanClient": True' in DIRECT_DMR_ADMIN
+      and '"banContract": "global-timed-v1"' in DIRECT_DMR_ADMIN
+      and '"appliedPolicyDigest": digest' in DIRECT_DMR_ADMIN,
+      "direct DMR does not publish the synchronized global Ban contract")
+check("kicked_ids" in DIRECT_DMR_ADMIN and "banned_ids" in DIRECT_DMR_ADMIN
+      and "banned_callsigns" in DIRECT_DMR_ADMIN and "banned_prefixes" in DIRECT_DMR_ADMIN,
+      "direct DMR Kick/Ban controls are not connected to enforcement state")
+check("asr-dmr-standalone-admin-adapter.py" in DIRECT_DMR_INSTALL
+      and "adminService" in DIRECT_DMR_INSTALL
+      and "/run/asr-standalone-admin" in DIRECT_DMR_RENDER,
+      "direct DMR administration adapter is not lifecycle-managed")
 check("Find connected client" in APP and "urfClientFilter" in APP, "URF client search missing")
 check("BANNED" in APP and "Unban" in APP, "URF ban-state workflow missing")
 check("read_rules() != expected" in URF and "verified=True" in URF, "URF write verification missing")
