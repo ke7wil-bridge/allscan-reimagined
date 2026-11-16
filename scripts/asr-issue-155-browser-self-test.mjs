@@ -2,15 +2,42 @@
 // Headless local UI regression test. Does not create a real GitHub issue.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const port = Number(process.env.ASR_155_CDP_PORT || 9345)
 const url = process.env.ASR_155_TEST_URL || 'http://127.0.0.1:4175/asr/?reportBug=1'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+async function findChrome() {
+  for (const candidate of [process.env.CHROME_BIN, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean)) {
+    try {
+      await access(candidate, constants.X_OK)
+      return candidate
+    } catch { /* Try the next conventional browser path. */ }
+  }
+  throw new Error('Chrome or Chromium is required for the Issue #155 browser self-test')
+}
+
+const vite = process.env.ASR_155_TEST_URL ? null : spawn(
+  './node_modules/.bin/vite',
+  ['--host', '127.0.0.1', '--port', '4175', '--strictPort'],
+  { env: { ...process.env, ASR_MOCK: '1', VITE_ASR_SUPPORT_ENDPOINT: 'http://127.0.0.1:8999' }, stdio: 'ignore' },
+)
+async function waitForApp() {
+  for (let i = 0; i < 100; i += 1) {
+    if (vite?.exitCode !== null) throw new Error(`Vite exited before serving ${url}`)
+    try {
+      const response = await fetch(url)
+      if (response.ok) return
+    } catch { /* Vite is still starting. */ }
+    await sleep(100)
+  }
+  throw new Error(`Timed out waiting for ${url}`)
+}
 const profile = await mkdtemp(join(tmpdir(), 'asr-155-browser-'))
-const browser = spawn(process.env.CHROME_BIN || '/usr/bin/chromium', [
+const browser = spawn(await findChrome(), [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
   `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank',
 ], { stdio: 'ignore' })
@@ -75,6 +102,7 @@ try {
   })
   await command('Page.enable')
   await command('Runtime.enable')
+  await waitForApp()
   await command('Page.navigate', { url })
   await until("!!document.querySelector('.asr-feedback-box textarea')", 'report modal')
   assert.match(await evaluate("document.querySelector('.asr-feedback-count').textContent"), /No screenshots selected/)
@@ -147,5 +175,6 @@ try {
 } finally {
   socket?.close()
   browser.kill('SIGTERM')
+  vite?.kill('SIGTERM')
   await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }
