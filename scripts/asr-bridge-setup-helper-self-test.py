@@ -64,6 +64,11 @@ def main() -> None:
     }
     digital_value = helper.digital_settings(digital, "p25", digital_request)
     assert digital_value.mode == "p25" and digital_value.destination == 64189
+    gain_value = helper.digital_settings(digital, "p25", {
+        **digital_request, "digitalToAslGainDb": 5, "aslToDigitalGainDb": -3,
+    })
+    assert gain_value.digital_to_asl_gain_db == 5
+    assert gain_value.asl_to_digital_gain_db == -3
     try:
         helper.digital_settings(digital, "p25", {**digital_request, "unexpected": True})
         raise AssertionError("unsupported digital request field accepted")
@@ -84,6 +89,15 @@ def main() -> None:
     })
     assert named_dmr.reflector == "URF073" and named_dmr.bridge_node == 1001
     assert named_dmr.dmr_enabled is True and named_dmr.m17_enabled is False
+    gained_urf = helper.dmr_settings(dmr, {**dmr_request, "urfGainInDb": 5.5, "urfGainOutDb": -3.5})
+    assert gained_urf.urf_gain_in_db == 5.5 and gained_urf.urf_gain_out_db == -3.5
+    for bad_gain in (float("nan"), float("inf"), -21, 13, True):
+        try:
+            dmr.validate(dmr.UrfSettings(**{**gained_urf.__dict__, "urf_gain_in_db": bad_gain}))
+        except dmr.PlanError:
+            pass
+        else:
+            raise AssertionError("invalid URF gain accepted")
     assert dmr.tgif_network_id(3224939, 1999) == 322493904
     assert dmr.tgif_network_id(314133, 1001) == 314133
     test_value = helper.dmr_settings(dmr, {**dmr_request, "bridgeNode": 1001,
@@ -126,6 +140,13 @@ def main() -> None:
     assert f"RxPort = {dmr_ports['usrp_rx']}" in rendered_urf
     assert f"TxPort = {dmr_ports['usrp_tx']}" in rendered_urf
     rendered_tcd = dmr.tcd_ini({"ports": dmr_ports})
+    adjusted_tcd = dmr.tcd_ini({
+        "ports": dmr_ports,
+        "settings": {"urf_gain_in_db": 4, "urf_gain_out_db": -6},
+    })
+    assert "UsrpTxGain = 4\n" in adjusted_tcd
+    assert "UsrpRxGain = -6\n" in adjusted_tcd
+
     for gain in ("DStarGainIn", "DStarGainOut", "DmrYsfGainIn",
                  "DmrYsfGainOut", "UsrpTxGain", "UsrpRxGain"):
         assert f"{gain} = 0" in rendered_tcd
@@ -221,6 +242,19 @@ def main() -> None:
     }
     zello_value = helper.zello_settings(zello, zello_request)
     assert zello_value.bridge_id == "zello" and zello_value.channel == "My Channel"
+    gained_zello = helper.zello_settings(zello, {
+        **zello_request, "zelloToAslGainDb": 4, "aslToZelloGainDb": -6,
+    })
+    assert gained_zello.zello_to_asl_gain_db == 4
+    assert gained_zello.asl_to_zello_gain_db == -6
+    for invalid in (-21, 13, float("nan"), float("inf"), True):
+        try:
+            zello.validate(zello.ZelloSettings(**{
+                **gained_zello.__dict__, "zello_to_asl_gain_db": invalid,
+            }))
+            raise AssertionError("out-of-range Zello gain accepted")
+        except zello.PlanError:
+            pass
     try:
         helper.zello_settings(zello, {**zello_request, "unexpected": True})
         raise AssertionError("unsupported Zello request field accepted")

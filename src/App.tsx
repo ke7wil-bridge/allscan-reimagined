@@ -612,6 +612,7 @@ function App({ config }: { config: RuntimeConfig }) {
       activeStartEpoch: 0,
       recentTalkers: [],
       recentRows: [],
+      audioMeter: null,
     })),
   }))
   const [bridgeStatusLoaded, setBridgeStatusLoaded] = useState(false)
@@ -1672,6 +1673,7 @@ function App({ config }: { config: RuntimeConfig }) {
               ...card,
               lastCaller: '-',
               connectedClientCount: 0,
+              audioMeter: null,
             })),
           }))
         }

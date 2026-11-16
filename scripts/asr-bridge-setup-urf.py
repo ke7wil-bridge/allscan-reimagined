@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import platform
 import re
 import sys
@@ -95,6 +96,8 @@ class UrfSettings:
     ysf_enabled: bool = True
     urf_enabled: bool = True
     legacy_bridge_nodes: tuple[int, ...] = ()
+    urf_gain_in_db: float = 0.0
+    urf_gain_out_db: float = 0.0
 def load(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
     if not spec or not spec.loader:
@@ -159,6 +162,9 @@ def validate(value: UrfSettings) -> UrfSettings:
     if any(not isinstance(node, int) or not 1 <= node <= 999999 or node in (value.bridge_node,)
            for node in value.legacy_bridge_nodes) or len(set(value.legacy_bridge_nodes)) != len(value.legacy_bridge_nodes):
         raise PlanError("legacy bridge nodes must be unique valid AllStar node numbers, different from the replacement")
+    for label, gain in (("URF incoming gain", value.urf_gain_in_db), ("URF outgoing gain", value.urf_gain_out_db)):
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise PlanError(f"{label} must be between -20 and +12 dB")
     template = value.node_template.strip() if isinstance(value.node_template, str) else None
     if template is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", template):
         raise PlanError("invalid Asterisk node template")
@@ -169,7 +175,8 @@ def validate(value: UrfSettings) -> UrfSettings:
                        value.nxdn_reflector_id, value.p25_reflector_id, value.ysf_registration_id,
                        template, value.dstar_enabled, value.dmrplus_enabled, value.dmr_enabled,
         value.m17_enabled, value.p25_enabled, value.nxdn_enabled, value.ysf_enabled,
-        value.urf_enabled, value.legacy_bridge_nodes)
+        value.urf_enabled, value.legacy_bridge_nodes,
+        float(value.urf_gain_in_db), float(value.urf_gain_out_db))
 def rooted(root: Path, logical: str) -> Path:
     return load("asr_backend_urf", "asr-provisioning-backend.py").map_path(root, logical)
 
@@ -654,7 +661,10 @@ def urfd_ini(plan: dict) -> str:
     return f"""[Names]\nCallsign = {s['reflector']}\nSysopEmail = asr@localhost.invalid\nCountry = US\nSponsor = {s['callsign']} ASR\nDashboardUrl = http://127.0.0.1/\n\n[IP Addresses]\nIPv4Binding = 0.0.0.0\n\n[Modules]\nModules = A\nDescriptionA = All Modes\n\n[Transcoder]\nPort = {p['transcoder']}\nBindingAddress = 127.0.0.1\nModules = A\n\n[Brandmeister]\nEnable = false\nPort = 10002\n\n[DCS]\nEnable = {str(s.get('dstar_enabled', True)).lower()}\nPort = {p['dcs']}\n[DExtra]\nEnable = {str(s.get('dstar_enabled', True)).lower()}\nPort = {p['dextra']}\n[DPlus]\nEnable = {str(s.get('dstar_enabled', True)).lower()}\nPort = {p['dplus']}\n[G3]\nEnable = false\n[DMRPlus]\nEnable = {str(s.get('dmrplus_enabled', True)).lower()}\nPort = {p['dmrplus']}\n[M17]\nEnable = {str(s.get('m17_enabled', True)).lower()}\nPort = {public['m17']}\n[MMDVM]\nEnable = {str(s.get('dmr_enabled', True)).lower()}\nPort = {public['dmr']}\nDefaultId = {s['dmr_id']}\n[NXDN]\nEnable = {str(s.get('nxdn_enabled', True)).lower()}\nPort = {public['nxdn']}\nAutoLinkModule = A\nReflectorID = {nxdn_id}\n[P25]\nEnable = {str(s.get('p25_enabled', True)).lower()}\nPort = {public['p25']}\nAutoLinkModule = A\nReflectorID = {p25_id}\n[URF]\nEnable = {str(s.get('urf_enabled', True)).lower()}\nPort = {public['urf']}\n[USRP]\nEnable = true\nCallsign = {s['callsign']}\nIPAddress = 127.0.0.1\nRxPort = {p['usrp_rx']}\nTxPort = {p['usrp_tx']}\nModule = A\n[YSF]\nEnable = {str(s.get('ysf_enabled', True)).lower()}\nPort = {public['ysf']}\nEnableDGID = false\nAutoLinkModule = A\nDefaultTxFreq = 446500000\nDefaultRxFreq = 446500000\nRegistrationID = {ysf_id}\nRegistrationName = US {s['reflector']}\nRegistrationDescription = ASR managed URF\n[DMR ID DB]\nMode = http\nFilePath = {data}/dmrid.dat\nURL = http://xlxapi.rlx.lu/api/exportdmr.php\nRefreshMin = 179\n[NXDN ID DB]\nMode = http\nFilePath = {data}/nxdn.dat\nURL = https://radioid.net/static/nxdn.csv\nRefreshMin = 1440\n[YSF TX/RX DB]\nMode = http\nFilePath = {data}/ysfnode.dat\nURL = http://xlxapi.rlx.lu/api/exportysfrepeaters.php\nRefreshMin = 191\n[Files]\nPidPath = {data}/urfd.pid\nXmlPath = {data}/urfd.xml\nWhitelistPath = {config}/urfd.whitelist\nBlacklistPath = {config}/urfd.blacklist\nInterlinkPath = {config}/urfd.interlink\nG3TerminalPath = {config}/urfd.terminal\n"""
 
 def tcd_ini(plan: dict) -> str:
-    return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 0\nDStarGainOut = 0\nDmrYsfGainIn = 0\nDmrYsfGainOut = 0\nUsrpTxGain = 0\nUsrpRxGain = 0\n"""
+    gains = plan.get("settings", {})
+    incoming = gains.get("urf_gain_in_db", 0)
+    outgoing = gains.get("urf_gain_out_db", 0)
+    return f"""Port = {plan['ports']['transcoder']}\nServerAddress = 127.0.0.1\nModules = A\nDStarGainIn = 0\nDStarGainOut = 0\nDmrYsfGainIn = 0\nDmrYsfGainOut = 0\nUsrpTxGain = {incoming}\nUsrpRxGain = {outgoing}\n"""
 
 def managed_block_node(text: str, bridge_id: str) -> int | None:
     begin = f"{load('asr_setup_m17_managed_probe','asr-bridge-setup-m17.py').MANAGED_PREFIX}BEGIN {bridge_id}"

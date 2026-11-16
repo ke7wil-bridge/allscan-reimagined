@@ -23,6 +23,8 @@ $payload = json_decode($argv[1], true);
 $relayPayload = $payload['relay'];
 $zelloOnline = null;
 $bridge = ['zello' => $payload['previous']];
+function asr_secure_service_runtime_json($path, $dir) { return null; }
+function asr_pcm_audio_meter($payload, $now) { return []; }
 '''+reducer+'''
 echo json_encode($bridge['zello']);
 '''

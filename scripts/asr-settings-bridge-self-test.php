@@ -55,6 +55,51 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 		"$compatVersion Settings does not expose managed direct-DMR install/edit controls.");
 }
 
+// Issue #136: verify the v1.05 bridge editor persists validated directional gains.
+$gainController = file_get_contents($root . '/compat/allscan-v1.05/asr-settings/settings-controller.php');
+check(is_string($gainController)
+    && str_contains($gainController, 'name="bridgeGainInDb[]"')
+    && str_contains($gainController, 'name="bridgeGainOutDb[]"')
+    && str_contains($gainController, "'gainInDb' => (float)\$gainIn")
+    && str_contains($gainController, "'gainOutDb' => (float)\$gainOut")
+    && str_contains($gainController, '(float)$gainValue < -20')
+    && str_contains($gainController, '(float)$gainValue > 12'),
+    'Bridge gain fields are not saved with bounded validation.');
+check(str_contains($gainController, "'dmrToAslGainDb', 'digitalToAslGainDb'")
+    && str_contains($gainController, "'aslToDmrGainDb', 'aslToDigitalGainDb'")
+    && str_contains($gainController, "'dmr' => ['dmrToAslGainDb', 'aslToDmrGainDb']")
+    && str_contains($gainController, "'m17' => ['digitalToAslGainDb', 'aslToDigitalGainDb']")
+    && str_contains($gainController, "'zello' => ['zelloToAslGainDb', 'aslToZelloGainDb']")
+    && str_contains($gainController, "asrSettingsBridgeGainValue(\$existingGain, 'in')"),
+    'Legacy bridge gain fallback or installer synchronization is missing.');
+check(substr_count($gainController, 'Reset to 0 dB') === 4
+    && str_contains($gainController, "\$payload['urfGainInDb'] = \$urfIn")
+    && str_contains($gainController, "\$payload['urfGainOutDb'] = \$urfOut"),
+    'Bridge gain reset buttons or URF setup gain forwarding missing.');
+check(str_contains($gainController, "name=\"urfGainInDb\"")
+    && str_contains($gainController, "name=\"urfGainOutDb\"")
+    && str_contains($gainController, 'foreach ($urfGainValues as $key => $value) $record[$key] = $value;')
+    && str_contains($gainController, "URF audio gains must be between -20 and +12 dB."),
+    'URF aggregate gain inputs must be saved and validated independently.');
+check(str_contains($gainController, 'if(!empty($bridge[\'urfReflector\']))')
+    && str_contains($gainController, 'foreach ($urfGainValues as $key => $value) $modeRecord[$key] = $value;'),
+    'Legacy per-mode URF gains must not be lost or confused with direct DMR gains.');
+
+
+
+// Exercise the gain lookup itself, including installer changes made after
+// an older generic gain value was saved by the dashboard.
+$gainStart = strpos($gainController, 'function asrSettingsBridgeGainValue(');
+$gainEnd = strpos($gainController, 'function asrSettingsBridgeRowsFromPost(', $gainStart);
+check($gainStart !== false && $gainEnd !== false, 'Bridge gain helper missing.');
+if (!function_exists('asrSettingsBridgeGainValue'))
+    eval(substr($gainController, $gainStart, $gainEnd - $gainStart));
+check(asrSettingsBridgeGainValue(['mode'=>'dmr', 'gainInDb'=>0, 'dmrToAslGainDb'=>5], 'in') === 5.0
+    && asrSettingsBridgeGainValue(['mode'=>'zello', 'gainOutDb'=>0, 'aslToZelloGainDb'=>-3.5], 'out') === -3.5
+    && asrSettingsBridgeGainValue(['mode'=>'urf', 'gainInDb'=>0, 'urfGainInDb'=>4], 'in') === 4.0
+    && asrSettingsBridgeGainValue(['mode'=>'m17', 'digitalToAslGainDb'=>6], 'in') === 6.0,
+    'Installer gain values must take precedence over stale generic values.');
+
 // Execute the same helper used by runtime-config. Johnny2's saved aggregate
 // format is mode=urf with an explicit modes list.
 $runtimeHelper = $root . '/compat/allscan-v1.02/include/asrRuntime.php';
