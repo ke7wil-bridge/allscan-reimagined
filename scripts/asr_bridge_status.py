@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared, evidence-based DMR/YSF activity helpers for AllScan Reimagined."""
+"""Evidence-based activity and connectivity for configured Standard Bridges."""
 
 from __future__ import annotations
 
@@ -73,11 +73,14 @@ YSF_TX_OFF_RE = re.compile(
 )
 P25_SOURCE_RE = re.compile(LINE_PREFIX + r"P25,\s+received network transmission from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
 P25_END_RE = re.compile(LINE_PREFIX + r"P25,\s+network end of transmission\b.*$", re.I)
-NXDN_SOURCE_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF header|network transmission) from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
-NXDN_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received (?:RF|network) end of transmission\b.*$", re.I)
+NXDN_SOURCE_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received network transmission from\s+(.+?)\s+to TG\s+\d+\b.*$", re.I)
+NXDN_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received network end of transmission\b.*$", re.I)
+NXDN_RF_HEADER_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received RF header from\s+.+?\s+to TG\s+\d+\b.*$", re.I)
+NXDN_RF_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received RF end of transmission\b.*$", re.I)
 M17_START_RE = re.compile(LINE_PREFIX + r"USRP voice received as first frame\s*$", re.I)
 M17_END_RE = re.compile(LINE_PREFIX + r"USRP received end of voice transmission,\s*([0-9.]+) seconds\s*$", re.I)
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
+ACTIVE_STATE_MAX_AGE_SECONDS = 300
 BRIDGE_RECENT_MAX_AGE_SECONDS = 86400
 ASTAPI_MAX_AGE_SECONDS = 5.0
 MAX_JSON_BYTES = 2 * 1024 * 1024
@@ -131,6 +134,56 @@ def initial_activity_state() -> dict[str, Any]:
     }
 
 
+def record_transmission(
+    state: dict[str, Any], callsign: str, start_epoch: int, event_epoch: int,
+    now: int, duration: float | None = None, direction: str = "",
+    source_protocol: str = "",
+) -> None:
+    """Retain one completed transmission without duplicating restart replay."""
+    identity = clean_caller(callsign, 120)
+    started = max(0, int(start_epoch))
+    ended = max(0, int(event_epoch))
+    if ended <= 0:
+        return
+    elapsed = max(0.0, float(ended - started) if duration is None else float(duration))
+    event = {
+        "callsign": identity,
+        "identity_available": bool(identity),
+        "event": "transmit",
+        "epoch": ended,
+        "start_epoch": started or ended,
+        "duration_seconds": elapsed,
+        "direction": direction if direction in ("incoming", "outgoing") else "",
+        "source_protocol": re.sub(r"[^A-Za-z0-9]", "", source_protocol).upper()[:8],
+    }
+    retained = [
+        item for item in state.get("tx_events", [])
+        if isinstance(item, dict)
+        and now - int(item.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+        and not (
+            int(item.get("epoch", 0) or 0) == ended
+            and int(item.get("start_epoch", 0) or 0) == event["start_epoch"]
+            and clean_caller(item.get("callsign", ""), 120) == identity
+        )
+    ]
+    retained.append(event)
+    retained.sort(key=lambda item: int(item.get("epoch", 0) or 0), reverse=True)
+    state["tx_events"] = retained[:100]
+    if identity and direction == "incoming":
+        recent = [
+            item for item in state.get("recent_users", [])
+            if isinstance(item, dict)
+            and clean_caller(item.get("callsign", ""), 120).upper() != identity.upper()
+            and now - int(item.get("last_tx_epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+        ]
+        state["recent_users"] = ([{"callsign": identity, "last_tx_epoch": ended}] + recent)[:50]
+        state.update({
+            "last_user": identity,
+            "last_source_user": identity,
+            "last_source_epoch": ended,
+        })
+
+
 def watchdog_event(line: str, mode: str, now: int) -> tuple[int, int] | None:
     """Return anchored watchdog evidence as (epoch, DMR slot or zero)."""
     end_pattern = {
@@ -149,6 +202,7 @@ def apply_activity_line(
     mode: str,
     now: int,
     local_identities: frozenset[str] = frozenset(),
+    relay_identity: str = "",
 ) -> None:
     """Apply only chronological, mode-scoped MMDVM evidence to a live state."""
     text = line.rstrip("\r\n")
@@ -169,6 +223,14 @@ def apply_activity_line(
         tx_off = re.fullmatch(LINE_PREFIX + rf"{mode.upper()},\s+TX state\s*=\s*OFF\b", text, re.I)
     else:
         return
+    # NXDN RF headers are generated on the local RF/USRP-facing leg.
+    # They must not be mistaken for inbound NXDN-network talkers.
+    rf_header = NXDN_RF_HEADER_RE.fullmatch(text) if mode == "nxdn" else None
+    rf_end = NXDN_RF_END_RE.fullmatch(text) if mode == "nxdn" else None
+    if rf_header is not None:
+        tx_on = rf_header
+    if rf_end is not None:
+        tx_off = rf_end
     match = source or end or tx_on or tx_off
     if match is None:
         return
@@ -206,6 +268,7 @@ def apply_activity_line(
         same_stream = (
             state.get("role") == "source" or bool(state.get("network_relay"))
         ) and (mode != "dmr" or source_slot == 0 or source_slot == end_slot)
+        source_user = clean_caller(state.get("current_user", ""), 120)
         if same_stream and epoch >= active_epoch:
             state.update({
                 "role": "idle",
@@ -214,26 +277,22 @@ def apply_activity_line(
                 "source_slot": 0,
                 "network_relay": False,
             })
-            if state.get("last_source_user"):
-                duration = max(0.0, float(epoch) - float(active_epoch))
-                tx_events = [
-                    item for item in state.get("tx_events", [])
-                    if isinstance(item, dict) and now - int(item.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
-                ]
-                tx_events.insert(0, {
-                    "callsign": state["last_source_user"],
-                    "event": "transmit",
-                    "epoch": epoch,
-                    "start_epoch": active_epoch,
-                    "duration_seconds": duration,
-                })
-                state["tx_events"] = tx_events[:100]
-                state["recent_users"] = [{"callsign": state["last_source_user"], "last_tx_epoch": epoch}]
-                state["last_source_epoch"] = epoch
+            if source_user:
+                reported_duration = re.search(
+                    r",\s*([0-9]+(?:\.[0-9]+)?)\s+seconds\b", text, re.IGNORECASE
+                )
+                record_transmission(
+                    state, source_user, active_epoch, epoch, now,
+                    float(reported_duration.group(1)) if reported_duration else None,
+                    "incoming", mode,
+                )
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
         return
 
     if tx_on is not None:
+        # A local protocol TX edge proves relayed activity, but ASTAPI's
+        # current caller is an AllStar identity and cannot identify a digital
+        # source. Preserve the event without fabricating a protocol talker.
         state.update({
             "observed": True,
             "role": "relay",
@@ -250,25 +309,11 @@ def apply_activity_line(
     if tx_off is not None:
         if state.get("role") == "relay":
             active_epoch = int(state.get("active_start_epoch", 0) or 0)
-            relay_user = clean_caller(state.get("relay_user", ""), 20)
-            if relay_user and active_epoch and epoch >= active_epoch:
-                duration = max(0.0, float(epoch) - float(active_epoch))
-                tx_events = [
-                    item for item in state.get("tx_events", [])
-                    if isinstance(item, dict) and now - int(item.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
-                ]
-                tx_events.insert(0, {
-                    "callsign": relay_user,
-                    "event": "transmit",
-                    "epoch": epoch,
-                    "start_epoch": active_epoch,
-                    "duration_seconds": duration,
-                })
-                state["tx_events"] = tx_events[:100]
-                state["recent_users"] = [{"callsign": relay_user, "last_tx_epoch": epoch}]
-                state["last_user"] = relay_user
-                state["last_source_user"] = relay_user
-                state["last_source_epoch"] = epoch
+            if active_epoch and epoch >= active_epoch:
+                record_transmission(
+                    state, "", active_epoch, epoch, now,
+                    direction="outgoing", source_protocol=mode,
+                )
             state.update({
                 "role": "idle",
                 "current_user": "",
@@ -295,9 +340,10 @@ def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
     elif end:
         started = int(state.get("active_start_epoch", 0) or 0)
         if started and epoch >= started:
-            state["tx_events"] = ([{"callsign": "", "event": "transmit", "epoch": epoch,
-                                    "start_epoch": started, "duration_seconds": float(end.group(3))}]
-                                  + state.get("tx_events", []))[:100]
+            record_transmission(
+                state, "", started, epoch, now, float(end.group(3)),
+                "outgoing", "m17",
+            )
         state.update({"observed": True, "role": "idle", "active_start_epoch": 0,
                       "activity_epoch": epoch, "last_event_epoch": epoch})
 
@@ -392,14 +438,20 @@ def _safe_text(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[str, os.sta
         return None
 
 
-def astapi_key_states(
+def astapi_bridge_evidence(
     local_node: str,
     bridge_nodes: set[str],
     now: float | None = None,
     cache_dir: Path = ASTAPI_CACHE_DIR,
-) -> dict[str, bool | None]:
-    """Read explicit tri-state keyed evidence from ASR's fresh ASTAPI cache."""
-    result = {node: None for node in bridge_nodes}
+) -> dict[str, Any]:
+    """Read fresh per-node link/key evidence and the active non-bridge caller."""
+    result: dict[str, Any] = {
+        "keyed": {node: None for node in bridge_nodes},
+        "connected": {node: None for node in bridge_nodes},
+        "caller": "",
+        "caller_node": "",
+        "caller_started_epoch": 0,
+    }
     if not NODE_RE.fullmatch(local_node):
         return result
     payload = _safe_json(cache_dir / f"astapi-{local_node}.json")
@@ -415,18 +467,41 @@ def astapi_key_states(
     rows = local.get("remote_nodes") if isinstance(local, dict) else None
     if not isinstance(rows, list):
         return result
+    result["connected"] = {node: False for node in bridge_nodes}
     for row in rows:
         if not isinstance(row, dict):
             continue
         node = str(row.get("node", ""))
-        if node not in result:
+        if node not in result["keyed"]:
             continue
+        result["connected"][node] = str(row.get("link", "")).strip().lower() == "established"
         keyed = str(row.get("keyed", "")).strip().lower()
         if keyed == "yes":
-            result[node] = True
+            result["keyed"][node] = True
         elif keyed == "no":
-            result[node] = False
+            result["keyed"][node] = False
+    talker = local.get("current_talker") if isinstance(local, dict) else None
+    if isinstance(talker, dict):
+        caller_node = str(talker.get("node", "")).strip()
+        caller = clean_caller(str(talker.get("info", "")), 120)
+        # A bridge transport number is routing metadata, not a talker identity.
+        if caller_node not in bridge_nodes and re.search(r"[A-Za-z]", caller):
+            result.update({
+                "caller": caller,
+                "caller_node": caller_node,
+                "caller_started_epoch": max(0, int(talker.get("started_epoch", 0) or 0)),
+            })
     return result
+
+
+def astapi_key_states(
+    local_node: str,
+    bridge_nodes: set[str],
+    now: float | None = None,
+    cache_dir: Path = ASTAPI_CACHE_DIR,
+) -> dict[str, bool | None]:
+    """Compatibility wrapper for callers that need only keyed evidence."""
+    return astapi_bridge_evidence(local_node, bridge_nodes, now, cache_dir)["keyed"]
 
 
 def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -448,9 +523,8 @@ def all_configured_standard_bridges(config: dict[str, Any]) -> list[dict[str, An
             else "nxdn" if compact.startswith("nxdn")
             else ""
         )
-        # P25, NXDN, and M17 do not have a generic DMR/YSF activity
-        # feed, but their configured cards still require a status entry.
-        # Only DMR/YSF are eligible for the protocol-specific log parser.
+        # Every supported standard digital card requires an explicit status
+        # entry, including protocols whose activity arrives by per-card logs.
         if (
             bridge_id not in seen
             and BRIDGE_ID_RE.fullmatch(bridge_id)
@@ -768,6 +842,13 @@ def standard_live_payload(
     for bridge in visible.values():
         node = str(bridge["node"])
         node_counts[node] = node_counts.get(node, 0) + 1
+    bridge_nodes = {str(bridge["node"]) for bridge in visible.values()}
+    astapi = astapi_bridge_evidence(
+        str(config.get("node", "")), bridge_nodes, now, cache_dir
+    )
+    keys = astapi["keyed"]
+    connected = astapi["connected"]
+    relay_identity = str(astapi.get("caller", ""))
     local_call = clean_caller(str(config.get("callsign", "")), 20).upper()
     local_identities = frozenset(value for value in (local_call, f"{local_call}-RPT" if local_call else "") if value)
     for line in lines:
@@ -783,6 +864,7 @@ def standard_live_payload(
                 mode,
                 now,
                 local_identities,
+                relay_identity,
             )
     for tagged in tagged_lines or []:
         stem, sep, message = tagged.partition("\t")
@@ -796,14 +878,20 @@ def standard_live_payload(
             # similarly formatted message from another bridge to this card.
             expected = f"MMDVM_Bridge_{bridge['id']}"
             if stem == expected:
-                apply_activity_line(states.setdefault(str(bridge["id"]), initial_activity_state()), message, mode, now, local_identities)
+                apply_activity_line(
+                    states.setdefault(str(bridge["id"]), initial_activity_state()),
+                    message, mode, now, local_identities, relay_identity,
+                )
     for tagged in external_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         bridge = visible.get(bridge_id)
         if sep and bridge is not None:
             mode = str(bridge.get("mode", "")).lower()
             if mode in ("dmr", "ysf", "p25", "nxdn"):
-                apply_activity_line(states.setdefault(bridge_id, initial_activity_state()), message, mode, now, local_identities)
+                apply_activity_line(
+                    states.setdefault(bridge_id, initial_activity_state()),
+                    message, mode, now, local_identities, relay_identity,
+                )
     for tagged in m17_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
@@ -814,6 +902,18 @@ def standard_live_payload(
             # Do not retain or invent activity for an ambiguously routed card.
             states[bridge_id] = initial_activity_state()
         state = states.setdefault(bridge_id, initial_activity_state())
+        active_start = int(state.get("active_start_epoch", 0) or 0)
+        if (
+            state.get("role") != "idle"
+            and active_start > 0
+            and now - active_start > ACTIVE_STATE_MAX_AGE_SECONDS
+        ):
+            # A missing EOT must not pin a card active forever. The five-minute
+            # safety window preserves the verified 60-120 second transmissions.
+            state.update({
+                "role": "idle", "current_user": "", "active_start_epoch": 0,
+                "source_slot": 0, "network_relay": False, "relay_user": "",
+            })
         state["tx_events"] = [
             item for item in state.get("tx_events", [])
             if isinstance(item, dict)
@@ -834,12 +934,13 @@ def standard_live_payload(
             state["last_source_user"] = ""
             state["last_source_epoch"] = 0
 
-    bridge_nodes = {str(bridge["node"]) for bridge in visible.values()}
-    keys = astapi_key_states(str(config.get("node", "")), bridge_nodes, now, cache_dir)
     entries: dict[str, dict[str, Any]] = {}
     for bridge_id, bridge in visible.items():
         state = states.setdefault(bridge_id, initial_activity_state())
         node = str(bridge["node"])
+        # A stale or unavailable ASTAPI sample is unknown, not evidence that a
+        # formerly connected bridge remains online.
+        state["online"] = connected.get(node) if isinstance(connected.get(node), bool) else None
         keyed = keys.get(node) if node_counts[node] == 1 else None
         if keyed is True and state.get("role") == "idle":
             # A fresh, explicit keyed sample is proof of transport TX;
@@ -892,6 +993,61 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
             os.unlink(temporary)
 
 
+def restore_standard_states(path: Path, now: int | None = None) -> dict[str, dict[str, Any]]:
+    """Restore retained history after collector restart; never restore a live PTT edge."""
+    def epoch(value: object) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    payload = _safe_json(path)
+    entries = payload.get("bridges") if isinstance(payload, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    current = int(time.time()) if now is None else int(now)
+    states: dict[str, dict[str, Any]] = {}
+    for bridge_id, entry in entries.items():
+        if not BRIDGE_ID_RE.fullmatch(str(bridge_id)) or not isinstance(entry, dict):
+            continue
+        recent_users = entry.get("recent_users") if isinstance(entry.get("recent_users"), list) else []
+        tx_events = entry.get("tx_events") if isinstance(entry.get("tx_events"), list) else []
+        client_events = entry.get("client_events") if isinstance(entry.get("client_events"), list) else []
+        linked_clients = entry.get("linked_clients") if isinstance(entry.get("linked_clients"), list) else []
+        state = initial_activity_state()
+        state.update({
+            "last_user": clean_caller(entry.get("last_user", "-"), 120) or "-",
+            "last_source_user": clean_caller(entry.get("last_source_user", ""), 120),
+            "last_source_epoch": epoch(entry.get("last_source_epoch", 0)),
+            "activity_epoch": epoch(entry.get("activity_epoch", 0)),
+            "online": entry.get("online") if isinstance(entry.get("online"), bool) else None,
+            "linked": entry.get("linked") if isinstance(entry.get("linked"), bool) else None,
+            "reflector": clean_caller(entry.get("reflector", ""), 8),
+            "module": clean_caller(entry.get("module", ""), 1),
+            "link_protocol": clean_caller(entry.get("link_protocol", ""), 20),
+            "recent_users": [
+                row for row in recent_users
+                if isinstance(row, dict)
+                and 0 < epoch(row.get("last_tx_epoch", 0)) <= current + 300
+                and current - epoch(row.get("last_tx_epoch", 0)) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+            ][:50],
+            "tx_events": [
+                row for row in tx_events
+                if isinstance(row, dict)
+                and 0 < epoch(row.get("epoch", 0)) <= current + 300
+                and current - epoch(row.get("epoch", 0)) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+            ][:100],
+            "client_events": [
+                row for row in client_events if isinstance(row, dict)
+            ][:100],
+            "linked_clients": [
+                row for row in linked_clients if isinstance(row, dict)
+            ][:100],
+        })
+        states[str(bridge_id)] = state
+    return states
+
+
 def watch_standard_status(
     config_path: Path = CONFIG_PATH,
     status_path: Path = STANDARD_STATUS_PATH,
@@ -902,7 +1058,7 @@ def watch_standard_status(
     managed_follower = MmdvmFollower(log_dir)
     external_followers: dict[str, MmdvmFollower] = {}
     m17_offsets: dict[str, tuple[int, int]] = {}
-    states: dict[str, dict[str, Any]] = {}
+    states = restore_standard_states(status_path)
     while True:
         # Settings intentionally maintains config.json as root:<web-group>
         # 0664. Its root ownership and single-link regular-file contract make

@@ -402,8 +402,8 @@ export async function kickUrfClient(callsign: string, protocol: string, clientId
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
-export async function kickStandaloneClient(bridgeId: string, callsign: string): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ bridgeId, callsign })
+export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ bridgeId, callsign, clientId })
   const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
@@ -411,7 +411,9 @@ export async function kickStandaloneClient(bridgeId: string, callsign: string): 
   })
   const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Standalone bridge client Kick failed.')
-  return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  if (!result.verified || result.removed < 1) throw new Error('DMR Kick was not verified by the active media relay.')
+  return result
 }
 
 export type BridgeDestination = {
@@ -631,13 +633,12 @@ export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number 
 
 export function bridgeDashboardStatusLabel(
   card: Pick<BridgeCardView, 'cardType' | 'status' | 'runtimeOnline'>,
-): 'IDLE' | 'TX ACTIVE' | 'RELAY' | 'ONLINE' | 'OFFLINE' | 'UNKNOWN' {
+): 'IDLE' | 'TX ACTIVE' | 'RELAY' {
+  // Beta 8.2 used the status pill for voice activity, not network health.
+  // Transport and protocol connectivity remain separate card evidence.
   if (card.status === 'Source/TX') return 'TX ACTIVE'
   if (card.status === 'Relay') return 'RELAY'
-  if (card.cardType !== 'standard') return 'IDLE'
-  if (card.runtimeOnline === true) return 'ONLINE'
-  if (card.runtimeOnline === false) return 'OFFLINE'
-  return 'UNKNOWN'
+  return 'IDLE'
 }
 
 type ConnectedClientsResponse = {
@@ -1702,22 +1703,24 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
 }
 
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
-  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record, index) => {
+  // Recent Activity is a history of transmissions *originating* on the
+  // digital bridge. AllStar-to-digital relays are not digital talkers.
+  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
+    .filter((record) => String(record.direction || '').toLowerCase() === 'incoming')
+    .map((record, index) => {
     const epoch = Number(record.epoch || 0)
     const started = Number(record.start_epoch || epoch)
     const duration = Number(record.duration_seconds || 0)
     const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
     const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
-    return { key: `${mode}-tx-${bridgeClientName(record)}-${epoch}-${index}`, label: bridgeClientName(record), meta: ['TRANSMITTED', time, durationLabel].filter(Boolean).join(' · '), epoch }
-  })
-  const events = (Array.isArray(entry?.client_events) ? entry.client_events : []).map((record, index) => {
-    const epoch = Number(record.epoch || 0)
-    const event = String(record.event || '').toLowerCase()
-    const time = epoch > 0 ? new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
-    return { key: `${mode}-client-${bridgeClientName(record)}-${event}-${epoch}-${index}`, label: bridgeClientName(record), meta: [event === 'connect' ? 'CONNECTED' : event === 'disconnect' ? 'DISCONNECTED' : event.toUpperCase(), time].filter(Boolean).join(' · '), epoch }
+    const identity = bridgeClientName(record)
+    const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
+    const direction = String(record.direction || '').toLowerCase()
+    const activityLabel = direction === 'incoming' ? 'RECEIVED' : direction === 'outgoing' ? 'RELAYED' : 'TRANSMITTED'
+    return { key: `${mode}-tx-${label}-${epoch}-${index}`, label, meta: [activityLabel, time, durationLabel].filter(Boolean).join(' · '), epoch }
   })
   const now = Date.now() / 1000
-  const rows = [...talkers, ...events]
+  const rows = talkers
     .filter((row) => row.epoch > 0 && now - row.epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)
     .sort((a, b) => b.epoch - a.epoch)
     .slice(0, 100)
@@ -1740,6 +1743,7 @@ export async function fetchBridgeCards(
   const bridge = normalizeBridgeRoles(payload.bridge || {})
   const clients = payload.clients || {}
   const clientCounts = payload.clientCounts || {}
+  const clientMeta = payload.clientMeta || {}
   const controls = payload.controls || {}
 
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
@@ -1751,6 +1755,10 @@ export async function fetchBridgeCards(
     const zelloTalkers = bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []
     const detailRows = bridgeConfig.id === 'zello' ? zelloTalkers : cachedDetailRows
     const detailAvailable = true
+    const detailKind = String(clientMeta[bridgeConfig.id]?.kind || '')
+    const detailTitle = bridgeConfig.id === 'zello' || detailKind === 'recent'
+      ? 'Recent Talkers'
+      : detailKind === 'current' ? 'Connected Clients' : bridgeConfig.detailTitle
     const status = mapBridgeStatus(entry)
     const mode = normalizedBridgeMode(bridgeConfig.mode, bridgeConfig.id)
     const control = controls[bridgeConfig.id] || {}
@@ -1781,7 +1789,7 @@ export async function fetchBridgeCards(
       controlLinked: control.linked === true,
       digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
-      detailTitle: bridgeConfig.detailTitle,
+      detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,
         !detailAvailable ? 'Unavailable' : 'None',

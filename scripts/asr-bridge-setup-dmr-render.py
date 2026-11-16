@@ -150,6 +150,7 @@ export DMR_ID={s['dmr_id']} DMR_NETWORK_ID={plan['dmrNetworkId']}
 export CALLSIGN={s['callsign']} TGIF_HOST={s['master_host']} TGIF_PORT={s['master_port']} TGIF_TG={s['talkgroup']}
 export LOCAL_PORT={p['mmdvm_local']} MMDVM_PORT={p['mmdvm_remote']} URF_ENABLED=0
 export HEALTH_DIR="$runtime" DMR_ROSTER_FILE="$runtime/dmr-clients.json" DMR_CONTROL_FILE="$runtime/dmr-admin.json"
+export DMR_EVIDENCE_FILE="$runtime/dmr-admin-enforcement.json"
 export DMR_ID_LOOKUP_FILE={root}/mmdvm/DMRIds.dat
 python3 {root}/mmdvm/asr-tgif-dmr-proxy.py &
 proxy_pid=$!
@@ -226,7 +227,7 @@ Requires={mmdvm}
 [Service]
 Type=simple
 User=root
-Group=root
+Group=asr-bridge
 RuntimeDirectory=asr-standalone-admin/{bridge_id}
 RuntimeDirectoryMode=0750
 ExecStart=/usr/bin/python3 {root}/admin/asr-dmr-standalone-admin-adapter.py {bridge_id} /run/asr-direct-dmr-{bridge_id}/dmr-clients.json /run/asr-direct-dmr-{bridge_id}/dmr-admin.json {owner_marker}

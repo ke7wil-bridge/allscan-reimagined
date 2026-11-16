@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import re
 from pathlib import Path
 
@@ -9,6 +10,7 @@ APP = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
 LIVE = (ROOT / "src/lib/allscanLive.ts").read_text(encoding="utf-8")
 IDENTITY = (ROOT / "src/lib/participantIdentity.ts").read_text(encoding="utf-8")
 URF = (ROOT / "scripts/asr-urf-admin.py").read_text(encoding="utf-8")
+ASL = (ROOT / "scripts/asr-asl-ban.py").read_text(encoding="utf-8")
 STANDALONE = (ROOT / "scripts/asr-standalone-admin.py").read_text(encoding="utf-8")
 REAPPLY = (ROOT / "docker/layered-reapply.sh").read_text(encoding="utf-8")
 NATIVE_REAPPLY = (ROOT / "scripts/asr-reapply.sh").read_text(encoding="utf-8")
@@ -18,8 +20,12 @@ LIFECYCLE = (ROOT / "scripts/asr-bridge-lifecycle.py").read_text(encoding="utf-8
 DIRECT_DMR_ADMIN = (ROOT / "scripts/asr-dmr-standalone-admin-adapter.py").read_text(encoding="utf-8")
 DIRECT_DMR_INSTALL = (ROOT / "scripts/asr-bridge-setup-dmr-install.py").read_text(encoding="utf-8")
 DIRECT_DMR_RENDER = (ROOT / "scripts/asr-bridge-setup-dmr-render.py").read_text(encoding="utf-8")
-ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
+ZELLO_PATH = Path(os.environ.get("ASR_ZELLO_RUNTIME_SOURCE", str(ROOT / "runtime/zello"))) / "asl_zello_bridge/zello.py"
 ZELLO = ZELLO_PATH.read_text(encoding="utf-8") if ZELLO_PATH.exists() else ""
+if not ZELLO:
+    print("Bridge admin Zello runtime enforcement: NOT TESTED (source unavailable)")
+    if os.environ.get("ASR_REQUIRE_ZELLO_ENFORCEMENT_TEST") == "1":
+        raise AssertionError("Zello runtime source unavailable; enforcement unverified")
 CSS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "src/styles/asr").glob("*.css")))
 
 def check(value: bool, message: str) -> None:
@@ -31,15 +37,19 @@ check("function asr_bridge_admin_capabilities" in API, "capability contract miss
 check("function asr_global_ban_policy_digest" in API, "standalone global-ban policy digest missing")
 check("($cap['bridgeId'] ?? '') !== $id" in API and "($cap['healthy'] ?? false) !== true" in API, "standalone manifest identity/health checks missing")
 check("is_link($path)" in API and "($stat['mode'] ?? 0) & 0022" in API and "($stat['uid'] ?? -1) !== 0" in API, "standalone manifest trust checks missing")
-check("($cap['kickContract'] ?? '') === 'disconnect-until-reconnect'" in API, "standalone Kick session contract missing")
+check("local-media-block-until-reconnect" in API, "local DMR media enforcement contract missing")
 check("($cap['kickRequiresCurrentSession'] ?? false) === true" in API and "($cap['kickAllowsImmediateReconnect'] ?? false) === true" in API, "standalone Kick reconnect semantics missing")
 check("($cap['banContract'] ?? '') === 'global-timed-v1'" in API and "hash_equals($policyDigest, $appliedDigest)" in API, "standalone global-ban synchronization proof missing")
+check("($cap['enforcementEvidence'] ?? '') === 'relay-observed-v1'" in API,
+      "standalone controls do not require backend-owned enforcement evidence")
 check("['connect', 'disconnect', 'changeDestination']" in API, "bridge lifecycle capabilities missing")
 check("array_merge($clientAdmin, ['kickClient', 'banClient', 'unbanClient', 'listBans'])" in API, "URF client capabilities missing")
 check("'managementScope' => $globalAdmin ? 'asr-global' : 'bridge'" in API, "ASR-global management scope missing")
 check("'clientAuthority' => $globalAdmin ? 'asr-global-ban' : 'none'" in API, "global-ban authority scope missing")
 check("'banScopeLabel' => $globalAdmin ? 'GLOBAL' : ''" in API, "global ban scope label missing")
-check("is_readable('/run/urf-wil/asr-admin-capabilities.json')" in API
+check("$clientAdmin = array_merge($clientAdmin, ['banClient', 'unbanClient', 'listBans']);" in API, "ASR Global Ban must not depend on protocol Kick capability")
+check("function asr_urf_protocol_admin_runtime_available" in API
+      and "ysfSessionSuppression" in API
       and "asr_dmr_admin_runtime_available()" in API
       and "ASR_URF_ADMIN_HELPER) . ' capabilities" in API
       and "($payload['available'] ?? false) === true" in API,
@@ -84,10 +94,18 @@ check("Ban is global across ASR bridges" in APP, "global-ban scope warning missi
 check("Enforcement is applied by each supported backend" in APP, "partial global-ban enforcement warning missing")
 check("urfGroupTitle" in APP and "URFWIL Bridge" not in APP, "URF group title must derive from configured reflector identity")
 check("Kick affects only the selected current bridge session" in APP, "Kick scope semantics are not explained")
+check("does not remove the upstream TGIF subscriber" in APP
+      and "DMR Kick stops local forwarding until reconnect" in APP,
+      "DMR Kick does not disclose its local-media-only enforcement scope")
 check("allscan-bridge-inline-client-actions" in APP and "allscan-bridge-inline-client-actions" in CSS, "inline client actions are missing")
 check("kickBridgeConnectedClient" in APP and "kickUrfClient" in LIVE and "kickStandaloneClient" in LIVE, "bridge-aware Kick UI/API routing is missing")
-check("standalone-client-kick" in LIVE and "bridgeId" in LIVE, "standalone Kick request is not bridge-specific")
+check("standalone-client-kick" in LIVE and "bridgeId" in LIVE and "clientId" in LIVE
+      and "kickStandaloneClient(bridgeId, callsign, clientId)" in APP
+      and "--client-id" in API and "A current DMR client ID is required." in API
+      and "DMR Kick was not verified by the active media relay." in LIVE,
+      "standalone DMR Kick is not bound to an exact current client ID")
 check("reconcile_standalone_bans" in URF and "reconcile-all" in STANDALONE, "global Ban is not reconciled to standalone adapters")
+check("Native ASR Global Ban enforcement helper is unavailable." in URF, "native bridge must fail closed when policy helper is missing")
 check("disconnect-until-reconnect" in STANDALONE and "appliedPolicyDigest" in STANDALONE, "standalone acknowledgment contracts are incomplete")
 check("allscan-reimagined-standalone-admin" in REAPPLY, "standalone administration helper is not installed")
 check("asr-standalone-admin.py" in NATIVE_REAPPLY and "asr-urf-admin.py" in NATIVE_REAPPLY
@@ -99,17 +117,27 @@ check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-urf-admin.py" in BUILD
       and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
-check('"kickClient": True' in DIRECT_DMR_ADMIN
-      and '"kickContract": "disconnect-until-reconnect"' in DIRECT_DMR_ADMIN
+check('"kickClient": ready' in DIRECT_DMR_ADMIN
+      and '"kickContract": "local-media-block-until-reconnect"' in DIRECT_DMR_ADMIN
       and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the exact current-session Kick contract")
-check('"banClient": True' in DIRECT_DMR_ADMIN and '"unbanClient": True' in DIRECT_DMR_ADMIN
+check("os.chmod(runtime, 0o755)" in DIRECT_DMR_ADMIN,
+      "direct DMR capability directory is not traversable by the web/API user")
+check("($txEvent['direction'] ?? '') === 'incoming'" in API
+      and "strtolower((string) ($txEvent['source_protocol'] ?? '')) === $mode" in API
+      and "'last_source_user' => $lastSourceUser" in API,
+      "standard bridge Last Talker is not gated by inbound protocol evidence")
+check('"banClient": ready' in DIRECT_DMR_ADMIN and '"unbanClient": ready' in DIRECT_DMR_ADMIN
       and '"banContract": "global-timed-v1"' in DIRECT_DMR_ADMIN
       and '"appliedPolicyDigest": digest' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the synchronized global Ban contract")
 check("kicked_ids" in DIRECT_DMR_ADMIN and "banned_ids" in DIRECT_DMR_ADMIN
       and "banned_callsigns" in DIRECT_DMR_ADMIN and "banned_prefixes" in DIRECT_DMR_ADMIN,
       "direct DMR Kick/Ban controls are not connected to enforcement state")
+check("dmr-admin-enforcement.json" in DIRECT_DMR_ADMIN
+      and "client identity is ambiguous" in DIRECT_DMR_ADMIN
+      and 'payload.get("clients")' in DIRECT_DMR_ADMIN,
+      "direct DMR does not require relay evidence and an exact current identity")
 check("asr-dmr-standalone-admin-adapter.py" in DIRECT_DMR_INSTALL
       and "adminService" in DIRECT_DMR_INSTALL
       and "/run/asr-standalone-admin" in DIRECT_DMR_RENDER,
@@ -117,6 +145,11 @@ check("asr-dmr-standalone-admin-adapter.py" in DIRECT_DMR_INSTALL
 check("Find connected client" in APP and "urfClientFilter" in APP, "URF client search missing")
 check("BANNED" in APP and "Unban" in APP, "URF ban-state workflow missing")
 check("read_rules() != expected" in URF and "verified=True" in URF, "URF write verification missing")
+check("unmappedGlobalRules" in ASL and "unmappedAllStarCallsigns" in ASL
+      and "desired_ast.update(mapped_ast_nodes)" in ASL
+      and "desired_ast.update(desired_ast_calls)" not in ASL
+      and 'asl.get("applied") or {}' in URF,
+      "Global Ban can still claim AllStar enforcement without a callsign-to-node mapping")
 check("function asr_urf_normalize_callsign" in API and "function asr_urf_is_service_identity" in API, "YSF service identity normalization missing")
 check("['RFCKRD0', 'YSF-LIVE', 'KF0WSS', 'SRVPROB', 'M7TEST']" in API, "built-in service/probe filter is incomplete")
 check("'filterServiceStations'" in API and "'filteredStations'" in API, "configurable station filtering is missing")

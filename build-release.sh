@@ -303,6 +303,8 @@ bash -n "$STAGE/install.sh"
 bash -n "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
 install -m 644 stock-allscan.json "$STAGE/payload/stock-allscan.json"
+mkdir -p "$STAGE/payload/scripts/bridge-relays"
+install -m 755 scripts/bridge-relays/asr-tgif-standalone-relay.py "$STAGE/payload/scripts/bridge-relays/asr-tgif-standalone-relay.py"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
@@ -326,6 +328,16 @@ import sys
 scripts = Path(sys.argv[1])
 if not (scripts / "asr-asl-ban.py").is_file():
     raise SystemExit("Native Global Ban helper is missing from the release archive")
+# Prevent a release that builds successfully but fails the DMR installer
+# self-test on the target machine due to missing nested relay sources.
+for required in (
+    "bridge-relays/asr-tgif-standalone-relay.py",
+    "asr-dmr-standalone-admin-adapter.py",
+    "asr-bridge-setup-dmr-install.py",
+    "asr-bridge-setup-dmr-self-test.py",
+):
+    if not (scripts / required).is_file():
+        raise SystemExit(f"Managed DMR runtime source missing from release archive: {required}")
 installer_path = scripts / "asr-container-host-install.py"
 tree = ast.parse(installer_path.read_text(encoding="utf-8"), filename=str(installer_path))
 required_groups = {"HOST_FILES", "CONTROL_FILES", "SUPPORT_FILES"}

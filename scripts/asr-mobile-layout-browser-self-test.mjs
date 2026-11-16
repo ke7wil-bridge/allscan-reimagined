@@ -28,20 +28,27 @@ try {
   ws.addEventListener('message', ({data}) => { const x=JSON.parse(data); if (!x.id) return; const p=pending.get(x.id); if (!p) return; pending.delete(x.id); x.error ? p.reject(new Error(x.error.message)) : p.resolve(x.result) })
   await send('Page.enable')
   await send('Runtime.enable')
-  for (const [name,width,height] of [['portrait',390,844],['landscape',844,390],['narrow',360,740],['desktop',1440,900]]) {
+  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['desktop',1440,900]]) {
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<1000})
     await send('Page.navigate',{url:'http://127.0.0.1:4188/asr/'})
     let loaded=false
     for (let i=0;i<100;i++) { await delay(100); try { if (await evaluate("document.readyState === 'complete' && document.body.innerText.includes('Connection Status')")) { loaded=true; break } } catch {} }
     assert(loaded, name + ': dashboard failed to load')
+    await evaluate(`(() => {
+      const button=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('Connected Clients'));
+      if (button && !document.querySelector('.allscan-bridge-detail-box')) button.click();
+    })()`)
+    await delay(50)
     const result=await evaluate(`(() => {
       const viewport=document.documentElement.clientWidth;
       const visible=[...document.querySelectorAll('button')].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none'});
-      return {viewport,scrollWidth:document.documentElement.scrollWidth,buttons:visible.length,clipped:visible.filter(e=>{const r=e.getBoundingClientRect();return r.left < -2 || r.right > viewport+2}).slice(0,8).map(e=>e.textContent.trim().slice(0,60))};
+      const clientLists=[...document.querySelectorAll('.allscan-bridge-detail-box')].map(e=>getComputedStyle(e).overflowY);
+      return {viewport,scrollWidth:document.documentElement.scrollWidth,buttons:visible.length,clientLists,clipped:visible.filter(e=>{const r=e.getBoundingClientRect();return r.left < -2 || r.right > viewport+2}).slice(0,8).map(e=>e.textContent.trim().slice(0,60))};
     })()`)
     assert(result.buttons>0,name+': no visible controls')
     assert(result.scrollWidth<=result.viewport+2,name+': horizontal page overflow '+JSON.stringify(result))
     assert(result.clipped.length===0,name+': clipped controls '+JSON.stringify(result.clipped))
+    assert(result.clientLists.every(value=>value!=='auto'&&value!=='scroll'),name+': bridge client list gained an internal scrollbar '+JSON.stringify(result.clientLists))
     console.log(name+': PASS '+result.viewport+'px, '+result.buttons+' visible controls')
   }
 } finally {

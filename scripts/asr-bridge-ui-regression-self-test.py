@@ -19,8 +19,17 @@ for start in recent_starts:
 client_starts = [m.start() for m in re.finditer(r"card\.detailRows\.map", app)]
 if not client_starts:
     errors.append("Connected Clients rendering path missing")
-elif not any("'Disconnect' : 'Kick'" in app[start:start + 2600] for start in client_starts):
+elif not any("'Disconnect'" in app[start:start + 2600]
+             and "'Kick'" in app[start:start + 2600]
+             for start in client_starts):
     errors.append("Connected Clients lost capability-gated Disconnect/Kick")
+
+link_status_start = app.find("const allstarTransportLinked")
+link_status = app[link_status_start:app.find("const dashboardStatusLabel", link_status_start)]
+if "card.allstarLinked" not in link_status or "row.state !== 'message'" not in link_status:
+    errors.append("standard cards no longer use explicit AllStar transport evidence")
+if "row.direction.toUpperCase() === 'OUT'" in link_status:
+    errors.append("inbound established AllStar transports are incorrectly treated as disconnected")
 
 managed_clients = app[app.find('<b>Digital bridge clients</b>'):app.find('Recent Zello Talkers')]
 if ("clientAdmin.includes('kickClient')" not in managed_clients

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused regression tests for evidence-based DMR/YSF Talking status."""
+"""Focused regressions for evidence-based Standard Bridge status."""
 
 from __future__ import annotations
 
@@ -79,6 +79,19 @@ def test_shared_state_machine() -> None:
     status.reconcile_keyed_source(state, True, 220)
     assert state["role"] == "source"
 
+    # The payload-level safety cap retains normal long transmissions but
+    # prevents a lost EOT from pinning a bridge active indefinitely.
+    stale_config = {"node": "123456", "bridges": [
+        {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+    ]}
+    stale_state = dict(state)
+    stale_state["active_start_epoch"] = 300
+    stale_payload = status.standard_live_payload(
+        stale_config, {"dmr": stale_state}, [],
+        300 + status.ACTIVE_STATE_MAX_AGE_SECONDS + 1, Path("/nonexistent"),
+    )
+    assert stale_payload["bridges"]["dmr"]["role"] == "idle"
+
     # Explicit keyed NO is honored only after the sampling grace.
     state["source_observed_at"] = 300
     status.reconcile_keyed_source(state, False, 302)
@@ -110,6 +123,21 @@ def test_shared_state_machine() -> None:
     assert ysf["role"] == "source", "DMR evidence changed YSF state"
     status.apply_activity_line(ysf, ysf_watchdog("13:00:02"), "ysf", 602)
     assert ysf["role"] == "idle" and ysf["current_user"] == ""
+
+    # A local YSF service identity marks relay traffic, not a new network
+    # talker; its EOT must not reuse a previous caller and create phantom history.
+    ysf = status.initial_activity_state()
+    status.apply_activity_line(ysf, ysf_source("13:01:00", "REMOTE"), "ysf", 603)
+    status.apply_activity_line(ysf, ysf_watchdog("13:01:02"), "ysf", 605)
+    status.apply_activity_line(
+        ysf, ysf_source("13:01:03", "N0LOCAL"), "ysf", 606,
+        frozenset({"N0LOCAL"}),
+    )
+    status.apply_activity_line(
+        ysf, ysf_watchdog("13:01:04"), "ysf", 607,
+        frozenset({"N0LOCAL"}),
+    )
+    assert [row["callsign"] for row in ysf["tx_events"]] == ["REMOTE"]
 
 
 def test_relay_tx_off_evidence() -> None:
@@ -187,17 +215,172 @@ def test_astapi_tri_state() -> None:
             "updated": 1000,
             "current": {"123456": {"remote_nodes": [
                 {"node": "1111", "keyed": "yes"},
-                {"node": "2222", "keyed": "no"},
+                {"node": "2222", "keyed": "no", "link": "Established"},
                 {"node": "3333", "keyed": "N/A"},
-            ]}},
+            ], "current_talker": {
+                "node": "511681", "info": "KR9RK", "started_epoch": 995,
+            }}},
         }), encoding="utf-8")
         path.chmod(0o644)
         values = status.astapi_key_states("123456", {"1111", "2222", "3333", "4444"}, 1000, cache_dir)
         assert values == {"1111": True, "2222": False, "3333": None, "4444": None}
+        evidence = status.astapi_bridge_evidence("123456", {"1111", "2222"}, 1000, cache_dir)
+        assert evidence["connected"] == {"1111": False, "2222": True}
+        assert evidence["caller"] == "KR9RK" and evidence["caller_node"] == "511681"
         path.chmod(0o664)
         assert all(value is None for value in status.astapi_key_states("123456", {"1111", "2222"}, 1000, cache_dir).values())
         path.chmod(0o644)
         assert all(value is None for value in status.astapi_key_states("123456", {"1111"}, 1010, cache_dir).values())
+
+
+def test_november_8_standard_activity_pipeline() -> None:
+    """Use the actual Netoholics P25 log shapes from the November 8 live test."""
+    config = {
+        "node": "674982",
+        "bridges": [
+            {"id": "p25", "mode": "p25", "cardType": "standard", "node": "1003"},
+            {"id": "m17", "mode": "m17", "cardType": "standard", "node": "1004"},
+        ],
+    }
+    incoming = [
+        "p25\tM: 2026-11-08 22:38:46.875 P25, received network transmission from KE7WIL to TG 6749\n",
+        "p25\tM: 2026-11-08 22:39:01.646 P25, network end of transmission, 15.1 seconds, 0% packet loss\n",
+    ]
+    outgoing_start = [
+        "p25\tM: 2026-11-08 22:39:19.029 P25, TX state = ON\n",
+    ]
+    outgoing_end = [
+        "p25\tM: 2026-11-08 22:39:31.674 P25, TX state = OFF\n",
+    ]
+    incoming_now = 1794177541
+    outgoing_now = 1794177559
+    with tempfile.TemporaryDirectory(prefix="asr-november-8-") as raw:
+        root = Path(raw)
+        astapi = root / "astapi-674982.json"
+        astapi.write_text(json.dumps({
+            "updated": incoming_now,
+            "current": {"674982": {"remote_nodes": [
+                {"node": "1003", "keyed": "no", "link": "Established"},
+                {"node": "1004", "keyed": "no", "link": "Established"},
+            ]}},
+        }), encoding="utf-8")
+        astapi.chmod(0o644)
+        states: dict[str, dict] = {}
+        first = status.standard_live_payload(
+            config, states, [], incoming_now, root, external_lines=incoming,
+        )
+        assert first["bridges"]["p25"]["role"] == "idle"
+        assert first["bridges"]["p25"]["last_source_user"] == "KE7WIL"
+        assert first["bridges"]["p25"]["tx_events"][0]["duration_seconds"] == 15.1
+        assert first["bridges"]["p25"]["tx_events"][0]["direction"] == "incoming"
+        assert first["bridges"]["p25"]["tx_events"][0]["source_protocol"] == "P25"
+        assert first["bridges"]["p25"]["online"] is True
+
+        astapi.write_text(json.dumps({
+            "updated": outgoing_now,
+            "current": {"674982": {
+                "remote_nodes": [
+                    {"node": "1003", "keyed": "no", "link": "Established"},
+                    {"node": "1004", "keyed": "no", "link": "Established"},
+                ],
+                "current_talker": {
+                    "node": "674980", "info": "KN4EWT", "started_epoch": outgoing_now,
+                },
+            }},
+        }), encoding="utf-8")
+        second = status.standard_live_payload(
+            config, states, [], outgoing_now, root, external_lines=outgoing_start,
+        )
+        assert second["bridges"]["p25"]["role"] == "relay"
+        third = status.standard_live_payload(
+            config, states, [], outgoing_now + 12, root, external_lines=outgoing_end,
+        )
+        p25 = third["bridges"]["p25"]
+        assert p25["role"] == "idle" and p25["last_source_user"] == "KE7WIL"
+        assert [row["callsign"] for row in p25["tx_events"]] == ["", "KE7WIL"]
+        assert [row["identity_available"] for row in p25["tx_events"]] == [False, True]
+        assert [row["direction"] for row in p25["tx_events"]] == ["outgoing", "incoming"]
+
+        output = root / "bridge-live.json"
+        status.atomic_json(output, third)
+        restored = status.restore_standard_states(output, outgoing_now + 13)
+        replayed = status.standard_live_payload(
+            config, restored, [], outgoing_now + 13, root,
+            external_lines=incoming + outgoing_start + outgoing_end,
+        )
+        assert len(replayed["bridges"]["p25"]["tx_events"]) == 2
+
+        m17 = status.initial_activity_state()
+        status.apply_m17_activity(
+            m17, "M: 2026-11-08 23:05:03.487 USRP voice received as first frame", outgoing_now,
+        )
+        status.apply_m17_activity(
+            m17, "M: 2026-11-08 23:05:05.090 USRP received end of voice transmission, 1.6 seconds", outgoing_now,
+        )
+        assert m17["tx_events"][0]["callsign"] == ""
+        assert m17["tx_events"][0]["identity_available"] is False
+        assert m17["tx_events"][0]["direction"] == "outgoing"
+
+
+def test_simultaneous_relay_identity_and_connection_recovery() -> None:
+    now = 1794179200
+    config = {"node": "674982", "bridges": [
+        {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1001"},
+        {"id": "ysf", "mode": "ysf", "cardType": "standard", "node": "1002"},
+    ]}
+    lines = [
+        "M: 2026-11-08 23:06:40.000 DMR, TX state = ON",
+        "M: 2026-11-08 23:06:40.000 YSF, TX state = ON",
+        "M: 2026-11-08 23:06:41.000 DMR, TX state = OFF, DMR frame count was 1 frame",
+        "M: 2026-11-08 23:06:41.000 YSF, TX state = OFF",
+    ]
+    with tempfile.TemporaryDirectory(prefix="asr-simultaneous-") as raw:
+        root = Path(raw)
+        cache = root / "astapi-674982.json"
+
+        def write_cache(updated: int, nodes: list[str], caller: str = "KR9RK") -> None:
+            cache.write_text(json.dumps({
+                "updated": updated,
+                "current": {"674982": {
+                    "remote_nodes": [
+                        {"node": node, "keyed": "no", "link": "Established"}
+                        for node in nodes
+                    ],
+                    "current_talker": {
+                        "node": "511681", "info": caller, "started_epoch": updated,
+                    },
+                }},
+            }), encoding="utf-8")
+            cache.chmod(0o644)
+
+        write_cache(now, ["1001", "1002"])
+        states: dict[str, dict] = {}
+        payload = status.standard_live_payload(config, states, lines, now + 1, root)
+        for bridge_id in ("dmr", "ysf"):
+            entry = payload["bridges"][bridge_id]
+            assert entry["role"] == "idle" and entry["online"] is True
+            assert entry["last_source_user"] == ""
+            assert entry["tx_events"][0]["callsign"] == ""
+            assert entry["tx_events"][0]["identity_available"] is False
+            assert entry["tx_events"][0]["direction"] == "outgoing"
+            assert entry["tx_events"][0]["duration_seconds"] == 1.0
+
+        write_cache(now + 2, ["1002"])
+        lost = status.standard_live_payload(config, states, [], now + 2, root)
+        assert lost["bridges"]["dmr"]["online"] is False
+        assert lost["bridges"]["ysf"]["online"] is True
+        write_cache(now + 3, ["1001", "1002"])
+        recovered = status.standard_live_payload(config, states, [], now + 3, root)
+        assert recovered["bridges"]["dmr"]["online"] is True
+
+        stale = status.standard_live_payload(config, states, [], now + 20, root)
+        assert stale["bridges"]["dmr"]["online"] is None
+        assert stale["bridges"]["ysf"]["online"] is None
+
+        # A bridge node is transport metadata and must never become a caller.
+        write_cache(now + 4, ["1001", "1002"], "1001")
+        evidence = status.astapi_bridge_evidence("674982", {"1001", "1002"}, now + 4, root)
+        assert evidence["caller"] == ""
 
 
 def test_direct_service_discovery() -> None:
@@ -427,7 +610,14 @@ def test_standard_once_writer() -> None:
         log_dir = root / "logs"
         log_dir.mkdir(mode=0o755)
         log = log_dir / "MMDVM_Bridge-2026-08-21.log"
-        log.write_text(dmr_source("14:45:00", "ONCE", 2) + "\n", encoding="utf-8")
+        current_stamp = status.time.strftime(
+            "%Y-%m-%d %H:%M:%S", status.time.gmtime(status.time.time())
+        )
+        log.write_text(
+            f"M: {current_stamp}.000 DMR Slot 2, received network voice header "
+            "from ONCE to TG 91\n",
+            encoding="utf-8",
+        )
         log.chmod(0o644)
         output = root / "run/bridge-live.json"
         status.watch_standard_status(config_path, output, log_dir, once=True)
@@ -469,7 +659,7 @@ def test_wiring_contracts() -> None:
         assert installer.count("allscan-reimagined-standard-bridge-status.service") >= 4
         assert "/usr/local/sbin/asr_bridge_status.py" in installer
         standard_check = installer.index(
-            'validate_command "configured Standard DMR/YSF status service is active"'
+            'validate_command "configured Standard Bridge status service is active"'
         )
         net_check = installer.index(
             'validate_command "configured DMR Net live service is active"'
@@ -483,13 +673,15 @@ def test_wiring_contracts() -> None:
         assert standard_condition >= 0
         condition = installer[standard_condition:standard_check]
         assert 'item.get("cardType", "standard") == "standard"' in condition
-        assert '.startswith(("dmr", "ysf"))' in condition
+        assert '.startswith(("dmr", "ysf", "p25", "nxdn", "m17"))' in condition
 
 
 def main() -> None:
     test_shared_state_machine()
     test_relay_tx_off_evidence()
     test_astapi_tri_state()
+    test_november_8_standard_activity_pipeline()
+    test_simultaneous_relay_identity_and_connection_recovery()
     test_standard_payload_and_ambiguity()
     test_direct_service_discovery()
     test_log_follower_safety()
@@ -497,7 +689,7 @@ def main() -> None:
     test_standard_once_writer()
     test_net_helpers()
     test_wiring_contracts()
-    print("DMR/YSF stale Talking status self-test: ok")
+    print("Standard Bridge stale/activity status self-test: ok")
 
 
 if __name__ == "__main__":

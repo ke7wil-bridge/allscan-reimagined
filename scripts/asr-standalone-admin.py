@@ -21,7 +21,7 @@ from typing import Any
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUNTIME_ROOT = Path("/run/asr-standalone-admin")
 def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return runtime if runtime.is_dir() else native
+    return native if native.is_dir() else runtime
 
 
 GLOBAL_BAN_ROOT = global_ban_root()
@@ -193,7 +193,9 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
     required = {
         "kick": (
             manifest.get("kickClient") is True
-            and manifest.get("kickContract") == "disconnect-until-reconnect"
+            and manifest.get("kickContract") in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}
+            and (manifest.get("kickContract") != "local-media-block-until-reconnect"
+                 or manifest.get("enforcementEvidence") == "relay-observed-v1")
             and manifest.get("kickRequiresCurrentSession") is True
             and manifest.get("kickAllowsImmediateReconnect") is True
         ),
@@ -242,19 +244,26 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
             result_path.unlink()
 
 
-def kick(bridge_id: str, identity: str, actor: str) -> dict[str, Any]:
+def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict[str, Any]:
     identity = identity.strip().upper()
     if not IDENTITY_RE.fullmatch(identity):
         raise AdminError("Invalid bridge client identity.")
-    result = request(bridge_config(bridge_id), "kick", actor, identity=identity)
-    if result.get("identity") != identity or result.get("enforcement") != "disconnect-until-reconnect":
-        raise AdminError("Standalone Kick acknowledgment did not prove the required session behavior.")
+    bridge = bridge_config(bridge_id)
+    if bridge["_mode"] == "dmr" and (not client_id.isdigit() or not 0 < int(client_id) < 2**24):
+        raise AdminError("A current DMR client ID is required.")
+    result = request(bridge, "kick", actor, identity=identity, clientId=client_id)
+    expected_contract = str(manifest_for(bridge)[1].get("kickContract") or "")
+    if (result.get("identity") != identity or result.get("enforcement") != expected_contract
+            or (bridge["_mode"] == "dmr" and result.get("clientId") != client_id)):
+        raise AdminError("Standalone Kick acknowledgment did not match the attested enforcement contract.")
     removed = int(result.get("removed") or 0)
     if removed < 1:
         raise AdminError("Client was no longer connected or could not be kicked.")
-    append_audit("kick", actor, bridgeId=bridge_id, callsign=identity, removed=removed)
+    append_audit("kick", actor, bridgeId=bridge_id, callsign=identity,
+                 clientId=client_id, removed=removed)
     return {"ok": True, "verified": True, "action": "kick", "bridgeId": bridge_id,
-            "callsign": identity, "removed": removed, "enforcement": result["enforcement"]}
+            "callsign": identity, "clientId": client_id, "removed": removed,
+            "enforcement": result["enforcement"]}
 
 
 def reconcile(bridge_id: str, actor: str = "system") -> dict[str, Any]:
@@ -301,8 +310,11 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         if not supports_policy_reconcile(manifest):
             continue
         applied.append(reconcile(bridge_id, actor))
-    return {"ok": True, "verified": True, "action": "reconcile-all",
-            "applied": applied, "skipped": sorted(set(bridge_ids) - {item["bridgeId"] for item in applied}),
+    skipped = sorted(set(bridge_ids) - {item["bridgeId"] for item in applied})
+    # A missing or incapable adapter is not proof of global enforcement.
+    # The caller must not advertise successful reconciliation of all bridges.
+    return {"ok": True, "verified": not skipped, "action": "reconcile-all",
+            "applied": applied, "skipped": skipped,
             "policyDigest": policy_payload()["digest"]}
 
 
@@ -312,13 +324,14 @@ def main() -> None:
     parser.add_argument("bridge_id", nargs="?")
     parser.add_argument("identity", nargs="?")
     parser.add_argument("--actor", default="system")
+    parser.add_argument("--client-id", default="")
     args = parser.parse_args()
     if not ACTOR_RE.fullmatch(args.actor):
         raise AdminError("Invalid administrator identity.")
     if args.action == "kick":
         if not args.bridge_id or not args.identity:
             raise AdminError("Kick requires BRIDGE_ID and IDENTITY.")
-        emit(**kick(args.bridge_id, args.identity, args.actor))
+        emit(**kick(args.bridge_id, args.identity, args.actor, args.client_id))
     elif args.action == "reconcile":
         if not args.bridge_id:
             raise AdminError("Reconcile requires BRIDGE_ID.")

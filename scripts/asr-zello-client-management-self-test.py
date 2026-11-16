@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
 ZELLO_COMPOSE_PATH = ROOT.parent / "asl3/docker-compose.yml"
 ZELLO_COMPOSE = ZELLO_COMPOSE_PATH.read_text(encoding="utf-8") if ZELLO_COMPOSE_PATH.exists() else ""
-ZELLO_PATH = ROOT.parent / "asl3/zello-bridge/asl_zello_bridge/zello.py"
+ZELLO_PATH = Path(os.environ.get("ASR_ZELLO_RUNTIME_SOURCE", str(ROOT / "runtime/zello"))) / "asl_zello_bridge/zello.py"
 
 
 def check(value: bool, message: str) -> None:
@@ -18,6 +18,11 @@ def check(value: bool, message: str) -> None:
 
 check(not ZELLO_COMPOSE or "/run/asr-global:ro" in ZELLO_COMPOSE,
       "Zello global-ban read-only mount missing")
+INSTALLER = (ROOT / "scripts/asr-bridge-setup-zello-install.py").read_text(encoding="utf-8")
+check("ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/urfd.blacklist" in INSTALLER,
+      "Zello startup must require the native Global Ban blacklist")
+check("/var/lib/allscan-reimagined/global-ban" not in INSTALLER,
+      "Zello installer still initializes obsolete Global Ban directory")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
       "Zello Manage Clients presentation missing")
 check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP,
@@ -25,7 +30,11 @@ check("kickUrfConnectedClient(identity, 'ZELLO')" not in APP,
 
 with tempfile.TemporaryDirectory(prefix="asr-zello-self-test-") as raw_tmp:
     tmp = Path(raw_tmp)
-    if ZELLO_PATH.exists():
+    if not ZELLO_PATH.exists():
+        print("Zello runtime ban enforcement: NOT TESTED (source unavailable)")
+        if os.environ.get("ASR_REQUIRE_ZELLO_ENFORCEMENT_TEST") == "1":
+            raise AssertionError("Zello source unavailable; cannot certify ban enforcement")
+    else:
         source = ZELLO_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source)
         wanted = {"_ke7wil_clean_talker_name", "_ke7wil_zello_is_banned"}
@@ -38,4 +47,4 @@ with tempfile.TemporaryDirectory(prefix="asr-zello-self-test-") as raw_tmp:
         check(namespace["_ke7wil_zello_is_banned"]("AD7TG"), "Zello exact ban failed")
         check(not namespace["_ke7wil_zello_is_banned"]("KE7WIL"), "Zello ban overmatched")
 
-print("Zello client-management self-test: ok")
+print("Zello client-management UI/static checks: ok")

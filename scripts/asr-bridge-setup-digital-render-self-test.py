@@ -30,6 +30,11 @@ def put(root, path, content):
     target.write_text(content)
 
 
+def ini_section(text, name):
+    marker = f"[{name}]\n"
+    return text.split(marker, 1)[1].split("\n[", 1)[0]
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch)
@@ -53,6 +58,16 @@ def main() -> None:
             assert f"FileLevel={1 if mode == 'ysf' else 2}" in gateway
             if mode in ("p25", "nxdn"):
                 assert "Auth=1" in gateway and "Password=test-secret" in gateway
+                if mode == "p25":
+                    assert "Enabled=1" in ini_section(gateway, "MQTT")
+                    assert "Startup=15846" in gateway
+                    assert "Static=\n" in gateway
+                    assert "RFHangTime=0" in gateway
+                    assert "[Voice]\nEnabled=0" in gateway
+                else:
+                    assert "Enabled=1" not in ini_section(gateway, "MQTT")
+                    assert "Static=15846" in gateway
+                    assert "Startup=15846" not in gateway
             else:
                 assert "Hosts=/var/lib/mmdvm/ASR-ysf_test-YSFHosts.txt" in gateway
             analog = renderer.analog_ini(plan)
@@ -101,8 +116,10 @@ def main() -> None:
                     planner.plan(root, net_settings), stage,
                     "test-user", "test-secret",
                 )
+                assert "Startup=0" in net_gateway
                 assert "Static=0" in net_gateway
                 assert "RFHangTime=0" in net_gateway
+                assert "Startup=15846" not in net_gateway
             if mode == "ysf":
                 net_settings = planner.DigitalSettings(
                     mode, "ysf_net", "KE7WIL", 1234567, 64189,

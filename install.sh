@@ -1312,7 +1312,7 @@ validate_command "rollback helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test >/dev/null
 validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
-validate_command "DMR/YSF stale Talking status self-test" \
+validate_command "Standard Bridge stale/activity status self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-stale-status-self-test.py" >/dev/null
 validate_command "bridge Settings self-test" \
   php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php" >/dev/null
@@ -1421,13 +1421,13 @@ raise SystemExit(
         and re.sub(
             r"[^a-z0-9]", "",
             str(item.get("mode", item.get("id", ""))).lower(),
-        ).startswith(("dmr", "ysf"))
+        ).startswith(("dmr", "ysf", "p25", "nxdn", "m17"))
         for item in payload.get("bridges", [])
     ) else 1
 )
 PY
 then
-  validate_command "configured Standard DMR/YSF status service is active" \
+  validate_command "configured Standard Bridge status service is active" \
     systemctl is-active --quiet allscan-reimagined-standard-bridge-status.service
 fi
 if python3 - /etc/allscan-reimagined/config.json <<'PY'

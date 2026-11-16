@@ -628,3 +628,14 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 .allscan-connection-ban-list > div small { flex-basis: 100%; }
 .allscan-connection-ban-list button { border: 1px solid var(--theme-border); border-radius: 4px; background: #24343d; color: inherit; padding: 5px 8px; cursor: pointer; }
 .allscan-urf-access-modal .allscan-connection-ban-list { max-height:none; overflow:visible; }
+
+/* Issue #134: expanding long activity histories must not stretch the entire
+   dashboard row or push the final bridge cards below a page of whitespace. */
+.allscan-bridge-grid .allscan-bridge-recent > .allscan-bridge-detail-box,
+.allscan-urf-mini-card .allscan-bridge-recent > .allscan-bridge-detail-box {
+  max-height: min(360px, 45vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  align-content: start;
+}

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import json
+import fcntl
 import os
+import re
 import select
 import socket
 import struct
@@ -25,11 +27,18 @@ BLOCKED = {int(x) for x in os.environ.get("BLOCKED_DMR_IDS", "").split(",") if x
 HEALTH_DIR = os.environ.get("HEALTH_DIR", "")
 ROSTER_FILE = os.environ.get("DMR_ROSTER_FILE", os.path.join(HEALTH_DIR, "dmr-clients.json") if HEALTH_DIR else "")
 CONTROL_FILE = os.environ.get("DMR_CONTROL_FILE", os.path.join(os.path.dirname(ROSTER_FILE), "dmr-admin.json") if ROSTER_FILE else "")
+EVIDENCE_FILE = os.environ.get(
+    "DMR_EVIDENCE_FILE",
+    os.path.join(os.path.dirname(CONTROL_FILE), "dmr-admin-enforcement.json") if CONTROL_FILE else "",
+)
 ID_LOOKUP_FILE = os.environ.get("DMR_ID_LOOKUP_FILE", "")
 CALLSIGN = os.environ.get("CALLSIGN", "").strip().upper()
 URF_IDENTITY_FILE = os.path.join(HEALTH_DIR, "urf-identity.json") if HEALTH_DIR else ""
 urf_login_attempts = 0
 id_lookup_cache = {"mtime": -1.0, "values": {}}
+last_dropped_kick = {}
+last_evidence_heartbeat = 0
+last_evidence_digest = ""
 
 
 def callsign_for_id(source):
@@ -161,6 +170,138 @@ def remove_dmr_client(source, reason="disconnect"):
     os.replace(tmp, ROSTER_FILE)
 
 
+def supported_admin_policy(payload):
+    """Accept only policy shapes that this packet path can enforce completely."""
+    if not isinstance(payload, dict):
+        return False
+    if not all(isinstance(payload.get(field, []), list)
+               for field in ("banned_ids", "banned_callsigns", "banned_prefixes")):
+        return False
+    if not all(isinstance(payload.get(field, {}), dict)
+               for field in ("kicked_ids", "kick_tokens", "banned_clients")):
+        return False
+    if not re.fullmatch(r"[a-f0-9]{64}", str(payload.get("policy_digest", ""))):
+        return False
+    if any(not str(value).isdigit() or not 0 < int(value) < 2**24
+           for value in payload.get("banned_ids", [])):
+        return False
+    if any(not str(value).isdigit() or not 0 < int(value) < 2**24
+           for value in payload.get("kicked_ids", {})):
+        return False
+    if any(not str(value).isdigit() or not 0 < int(value) < 2**24
+           for value in payload.get("kick_tokens", {})):
+        return False
+    identity = r"[A-Z0-9][A-Z0-9/._-]{0,14}"
+    if any(not re.fullmatch(identity, str(value).strip().upper())
+           for value in payload.get("banned_callsigns", [])):
+        return False
+    if any(not re.fullmatch(identity, str(value).strip().upper())
+           for value in payload.get("banned_prefixes", [])):
+        return False
+    return True
+
+
+def admin_policy():
+    if not CONTROL_FILE:
+        raise ValueError("DMR administration control is unavailable")
+    with open(CONTROL_FILE, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not supported_admin_policy(payload):
+        raise ValueError("DMR administration policy is unsupported")
+    return payload
+
+
+def write_enforcement_evidence(policy, now=None, last_kick=None):
+    global last_evidence_heartbeat, last_evidence_digest
+    if not EVIDENCE_FILE:
+        return
+    epoch = int(time.time() if now is None else now)
+    previous = {}
+    try:
+        with open(EVIDENCE_FILE, "r", encoding="utf-8") as handle:
+            previous = json.load(handle)
+    except (OSError, ValueError):
+        pass
+    if last_kick is None and isinstance(previous, dict) \
+            and previous.get("appliedPolicyDigest") == policy["policy_digest"]:
+        candidate = previous.get("lastKick")
+        if isinstance(candidate, dict) and policy["kick_tokens"].get(candidate.get("dmrid")) == candidate.get("token"):
+            last_kick = candidate
+    payload = {
+        "schema": 1,
+        "contract": "dmr-local-media-v1",
+        "heartbeatEpoch": epoch,
+        "appliedPolicyDigest": policy["policy_digest"],
+        "lastKick": last_kick,
+    }
+    os.makedirs(os.path.dirname(EVIDENCE_FILE), mode=0o750, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".dmr-enforcement.", dir=os.path.dirname(EVIDENCE_FILE))
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o640)
+        os.replace(temporary, EVIDENCE_FILE)
+        last_evidence_heartbeat = epoch
+        last_evidence_digest = policy["policy_digest"]
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def refresh_enforcement_evidence(now=None):
+    """Heartbeat only while the active packet path can enforce the full policy."""
+    policy = admin_policy()
+    epoch = int(time.time() if now is None else now)
+    if epoch != last_evidence_heartbeat or policy["policy_digest"] != last_evidence_digest:
+        write_enforcement_evidence(policy, epoch)
+
+
+def admin_media_allowed(packet, direction, now=None):
+    """Enforce current DMR media policy before either forwarding direction."""
+    sid = source_id(packet)
+    if sid is None:
+        return True  # Authentication, keepalive, and other control traffic.
+    epoch = int(time.time() if now is None else now)
+    try:
+        policy = admin_policy()
+    except (OSError, ValueError, TypeError, AttributeError):
+        # Invalid policy must not be reported or silently bypassed by DMR media.
+        return False
+    if sid in {int(value) for value in policy["banned_ids"]}:
+        remove_dmr_client(sid, "ban")
+        return False
+    exact = {str(value).strip().upper() for value in policy["banned_callsigns"]}
+    prefixes = {str(value).strip().upper() for value in policy["banned_prefixes"]}
+    if exact or prefixes:
+        name = callsign_for_id(sid)
+        if not name or name in exact or any(name.startswith(prefix) for prefix in prefixes):
+            remove_dmr_client(sid, "ban")
+            return False
+    key = str(sid)
+    kicked = policy["kicked_ids"]
+    if key not in kicked:
+        last_dropped_kick.pop(key, None)
+        return True
+    started = int(kicked[key])
+    last_drop = int(last_dropped_kick.get(key, started))
+    if epoch - started > 10 and epoch - last_drop > 10:
+        last_dropped_kick.pop(key, None)
+        return True
+    last_dropped_kick[key] = epoch
+    remove_dmr_client(sid, "kick")
+    token = policy["kick_tokens"].get(key)
+    if isinstance(token, str) and re.fullmatch(r"[a-f0-9]{32}", token):
+        write_enforcement_evidence(
+            policy,
+            epoch,
+            {"dmrid": key, "token": token, "observedEpoch": epoch, "direction": direction},
+        )
+    return False
+
+
 def read_admin_control():
     if not CONTROL_FILE:
         return set(), {}, set(), set()
@@ -182,16 +323,51 @@ def read_admin_control():
     return banned, kicked, exact, prefixes
 
 
-def write_admin_control(banned, kicked, exact=None, prefixes=None):
+def write_admin_control(banned, kicked, exact=None, prefixes=None, *, changed_id=None, expected_epoch=None):
     if not CONTROL_FILE:
         return
-    payload = {"banned_ids": sorted(banned), "kicked_ids": {str(key): int(value) for key, value in sorted(kicked.items())},
-               "banned_callsigns": sorted(exact or ()), "banned_prefixes": sorted(prefixes or ())}
     os.makedirs(os.path.dirname(CONTROL_FILE), exist_ok=True)
-    tmp = CONTROL_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, separators=(",", ":"))
-    os.replace(tmp, CONTROL_FILE)
+    # Share the adapter's stable lock; replacing the control inode must not
+    # discard a simultaneous Global Ban policy digest or Kick token.
+    lock_path = CONTROL_FILE + ".lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        try:
+            with open(CONTROL_FILE, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        # Keep adapter-owned policy fields and newer Kick requests intact.
+        # A stale packet-processing snapshot must not overwrite another Kick.
+        if changed_id is not None:
+            key = str(changed_id)
+            current = payload.get("kicked_ids", {})
+            if not isinstance(current, dict) or current.get(key) != expected_epoch:
+                return
+            if changed_id in kicked:
+                current[key] = int(kicked[changed_id])
+            else:
+                current.pop(key, None)
+                tokens = payload.get("kick_tokens", {})
+                if isinstance(tokens, dict): tokens.pop(key, None)
+            payload["kicked_ids"] = current
+        else:
+            payload["kicked_ids"] = {str(key): int(value) for key, value in sorted(kicked.items())}
+        fd, temporary = tempfile.mkstemp(prefix=".dmr-control.", dir=os.path.dirname(CONTROL_FILE))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, separators=(",", ":"))
+                handle.flush(); os.fsync(handle.fileno())
+            os.chmod(temporary, 0o640)
+            os.replace(temporary, CONTROL_FILE)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def subscriber_id_bytes():
@@ -368,6 +544,12 @@ def main():
 
     while True:
         now = time.monotonic()
+        try:
+            refresh_enforcement_evidence()
+        except (OSError, ValueError, TypeError):
+            # A missing/malformed policy intentionally lets the evidence
+            # heartbeat expire, disabling administrative capabilities.
+            pass
         if tgif is None and now - last_tgif_attempt >= 2:
             last_tgif_attempt = now
             try:
@@ -442,7 +624,7 @@ def main():
                     # particular, do not synthesize MSTPONG here: doing so masks
                     # an upstream session takeover from MMDVM_Bridge and prevents
                     # its normal timeout/re-authentication path from running.
-                    if tgif is not None:
+                    if tgif is not None and admin_media_allowed(packet, "outbound"):
                         try:
                             tgif.send(packet)
                         except OSError as error:
@@ -480,29 +662,15 @@ def main():
                 if not inbound_matches_active_tg(packet):
                     continue
                 sid = source_id(packet)
-                banned_ids, kicked_ids, banned_callsigns, banned_prefixes = read_admin_control()
-                source_callsign = callsign_for_id(sid)
-                callsign_banned = bool(source_callsign and (source_callsign in banned_callsigns
-                    or any(source_callsign.startswith(prefix) for prefix in banned_prefixes)))
-                if sid in BLOCKED or sid in banned_ids or callsign_banned:
+                if sid in BLOCKED:
                     # A blocked subscriber is not an active ASR client. Remove stale
                     # roster presence immediately while retaining event history.
                     remove_dmr_client(sid, "ban")
                     print(f"Blocked inbound DMR source ID {sid}", flush=True)
                     continue
-                if sid in kicked_ids:
-                    now_epoch = int(time.time())
-                    if now_epoch - kicked_ids[sid] <= 10:
-                        # Keep this session kicked while it is still sending. A real
-                        # disconnect creates a quiet gap; after 10 quiet seconds the
-                        # next packet is treated as a fresh session and may reconnect.
-                        kicked_ids[sid] = now_epoch
-                        write_admin_control(banned_ids, kicked_ids, banned_callsigns, banned_prefixes)
-                        remove_dmr_client(sid, "kick")
-                        print(f"Kicked inbound DMR source ID {sid}", flush=True)
-                        continue
-                    del kicked_ids[sid]
-                    write_admin_control(banned_ids, kicked_ids, banned_callsigns, banned_prefixes)
+                if not admin_media_allowed(packet, "inbound"):
+                    print(f"Suppressed inbound DMR source ID {sid}", flush=True)
+                    continue
                 if sid:
                     publish_dmr_client(sid)
                 local.sendto(packet, ("127.0.0.1", MMDVM_PORT))
@@ -531,7 +699,7 @@ def main():
             if packet.startswith(b"DMRD"):
                 # URFD emits TG9 and may not have a DMR ID for USRP-originated audio.
                 # Present a complete, authenticated DMR identity and the selected TGIF TG.
-                if tgif_authenticated:
+                if tgif_authenticated and admin_media_allowed(packet, "outbound"):
                     try:
                         tgif.send(rewrite_for_tgif(packet))
                     except OSError as error:
@@ -552,9 +720,71 @@ def self_test():
     old_roster = globals().get("ROSTER_FILE", "")
     old_target = globals().get("TARGET_FILE", "")
     old_identity_file = globals().get("URF_IDENTITY_FILE", "")
+    old_control = globals().get("CONTROL_FILE", "")
+    old_evidence = globals().get("EVIDENCE_FILE", "")
     old_attempts = globals().get("urf_login_attempts", 0)
     try:
         with tempfile.TemporaryDirectory() as scratch:
+            globals()["CONTROL_FILE"] = os.path.join(scratch, "dmr-admin.json")
+            globals()["EVIDENCE_FILE"] = os.path.join(scratch, "dmr-admin-enforcement.json")
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                json.dump({"policy_digest": "a" * 64, "kick_tokens": {"1234567": "b" * 32},
+                           "banned_ids": [1234567], "banned_callsigns": ["N7BAN"],
+                           "kicked_ids": {"1234567": 100}}, handle)
+            write_admin_control({1234567}, {1234567: 101}, {"N7BAN"}, set())
+            with open(globals()["CONTROL_FILE"], encoding="utf-8") as handle:
+                preserved = json.load(handle)
+            assert preserved["policy_digest"] == "a" * 64
+            assert preserved["kick_tokens"] == {"1234567": "b" * 32}
+            assert preserved["banned_callsigns"] == ["N7BAN"]
+            assert preserved["kicked_ids"] == {"1234567": 101}
+            # A concurrent newer Kick must survive stale expiry processing.
+            write_admin_control({1234567}, {}, changed_id=1234567, expected_epoch=100)
+            with open(globals()["CONTROL_FILE"], encoding="utf-8") as handle:
+                preserved = json.load(handle)
+            assert preserved["kicked_ids"] == {"1234567": 101}
+            write_admin_control({1234567}, {}, changed_id=1234567, expected_epoch=101)
+            with open(globals()["CONTROL_FILE"], encoding="utf-8") as handle:
+                preserved = json.load(handle)
+            assert preserved["kicked_ids"] == {} and preserved["kick_tokens"] == {}
+            policy = {"policy_digest": "c" * 64, "banned_ids": [],
+                      "banned_callsigns": [], "banned_prefixes": [], "banned_clients": {},
+                      "kicked_ids": {}, "kick_tokens": {}}
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                json.dump(policy, handle)
+            assert admin_media_allowed(bytes(packet), "inbound", 200)
+            assert admin_media_allowed(bytes(packet), "outbound", 200)
+            assert admin_media_allowed(b"RPTPING-control", "outbound", 200)
+            policy["banned_ids"] = [1234567]
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                json.dump(policy, handle)
+            assert not admin_media_allowed(bytes(packet), "inbound", 201)
+            assert not admin_media_allowed(bytes(packet), "outbound", 201)
+            policy["banned_ids"] = []
+            policy["kicked_ids"] = {"1234567": 202}
+            policy["kick_tokens"] = {"1234567": "d" * 32}
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                json.dump(policy, handle)
+            assert not admin_media_allowed(bytes(packet), "inbound", 203)
+            with open(globals()["EVIDENCE_FILE"], encoding="utf-8") as handle:
+                evidence = json.load(handle)
+            assert evidence["contract"] == "dmr-local-media-v1"
+            assert evidence["lastKick"] == {"dmrid": "1234567", "token": "d" * 32,
+                                             "observedEpoch": 203, "direction": "inbound"}
+            assert not admin_media_allowed(bytes(packet), "outbound", 208)
+            assert admin_media_allowed(bytes(packet), "outbound", 220)
+            other = bytearray(packet); other[5:8] = (7654321).to_bytes(3, "big")
+            assert admin_media_allowed(bytes(other), "inbound", 208)
+            policy["kicked_ids"] = {}; policy["kick_tokens"] = {}
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                json.dump(policy, handle)
+            refresh_enforcement_evidence(221)
+            with open(globals()["EVIDENCE_FILE"], encoding="utf-8") as handle:
+                evidence = json.load(handle)
+            assert evidence["heartbeatEpoch"] == 221 and evidence["lastKick"] is None
+            with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
+                handle.write("{bad")
+            assert not admin_media_allowed(bytes(packet), "inbound", 222)
             globals()["ROSTER_FILE"] = os.path.join(scratch, "dmr-clients.json")
             globals()["URF_IDENTITY_FILE"] = os.path.join(scratch, "urf-identity.json")
             globals()["urf_login_attempts"] = 2
@@ -591,6 +821,8 @@ def self_test():
         globals()["ROSTER_FILE"] = old_roster
         globals()["TARGET_FILE"] = old_target
         globals()["URF_IDENTITY_FILE"] = old_identity_file
+        globals()["CONTROL_FILE"] = old_control
+        globals()["EVIDENCE_FILE"] = old_evidence
         globals()["urf_login_attempts"] = old_attempts
     assert destination_id(toward_urf) == URF_TG
     packet[8:11] = (4000).to_bytes(3, "big")
