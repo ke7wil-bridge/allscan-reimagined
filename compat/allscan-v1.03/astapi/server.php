@@ -107,10 +107,9 @@ $saved = [];
 $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
-$urfTalkerEvents = asrUrfTalkerEvents();
 $bridgeTalkerEvidence = asrBridgeTalkerEvidence();
 $enrichedTalkerHistory = asrEnrichAllStarTalkers($asrTalkerHistory, $astdb);
-$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, [], '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -167,8 +166,7 @@ while(!empty($fp[$node])) {
 		$current[$node]['remote_nodes'], $node, $info, $astdb
 	);
 	if($nextCurrentTalker !== null) {
-		$urfTalkerEvents = asrUrfTalkerEvents();
-		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
 	// History is transmission-event history, not unique-station history.
 	// If the same node keys three separate times, keep all three events.
@@ -424,7 +422,7 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		$cacheChanged = $updated !== '' && $updated !== $lastUpdate;
 		$guardOpened = $lastGuarded === false && $guarded;
 		if($cacheChanged || ($guardOpened && $updated !== '')) {
-			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents(), '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $guarded);
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {

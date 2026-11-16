@@ -21,7 +21,7 @@ CapabilityBoundingSet=
 LockPersonality=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictSUIDSGID=true
-ReadOnlyPaths=/run/urf-wil-config
+ReadOnlyPaths=/var/lib/allscan-reimagined/admin
 ReadWritePaths=/run/asr-standalone-admin/%i
 
 [Install]

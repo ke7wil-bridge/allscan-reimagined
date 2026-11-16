@@ -11,14 +11,10 @@ import tempfile
 import time
 from pathlib import Path
 
-def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return native if native.is_dir() else runtime
-
-
-GLOBAL_BAN_ROOT = global_ban_root()
+GLOBAL_BAN_ROOT = Path(os.environ.get("ASR_GLOBAL_BAN_ROOT", "/var/lib/allscan-reimagined/admin"))
 STATE = GLOBAL_BAN_ROOT / "asr-asl-bans.json"
 LOCK = GLOBAL_BAN_ROOT / ".asr-asl-bans.lock"
-GLOBAL = GLOBAL_BAN_ROOT / "urfd.blacklist"
+GLOBAL = GLOBAL_BAN_ROOT / "global-bans.list"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
 ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"), Path("/var/www/html/supermon/astdb.txt"))

@@ -20,12 +20,8 @@ from typing import Any
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUNTIME_ROOT = Path("/run/asr-standalone-admin")
-def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return native if native.is_dir() else runtime
-
-
-GLOBAL_BAN_ROOT = global_ban_root()
-BLACKLIST = GLOBAL_BAN_ROOT / "urfd.blacklist"
+GLOBAL_BAN_ROOT = Path(os.environ.get("ASR_GLOBAL_BAN_ROOT", "/var/lib/allscan-reimagined/admin"))
+BLACKLIST = GLOBAL_BAN_ROOT / "global-bans.list"
 TIMED_BANS = GLOBAL_BAN_ROOT / "asr-timed-bans.json"
 AUDIT_LOG = GLOBAL_BAN_ROOT / "asr-admin-audit.jsonl"
 ID_RE = re.compile(r"[a-z][a-z0-9_-]{1,31}")

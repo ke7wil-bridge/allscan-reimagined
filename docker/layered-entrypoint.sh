@@ -246,7 +246,7 @@ install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/
 # with administrator requests and updates every supported backend atomically.
 (
   while :; do
-    /usr/local/sbin/allscan-reimagined-urf-admin expire >/dev/null 2>&1 || true
+    /usr/local/sbin/allscan-reimagined-global-ban expire >/dev/null 2>&1 || true
     sleep 15
   done
 ) &

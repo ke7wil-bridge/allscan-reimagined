@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SERVICE = re.compile(r"(?:allscan-reimagined-(?:m17-bridge@[a-z][a-z0-9_-]{1,31}|urf-tgif-[a-z][a-z0-9_-]{1,31})|(?:p25gateway|nxdngateway|ysfgateway|mmdvm-bridge|analog-bridge|md380-emu|asr-mqtt)-[a-z][a-z0-9_-]{1,31})\.service")
+SERVICE = re.compile(r"(?:allscan-reimagined-m17-bridge@[a-z][a-z0-9_-]{1,31}|asr-dmr-(?:vocoder|mmdvm|analog|admin)-[a-z][a-z0-9_-]{1,31}|(?:p25gateway|nxdngateway|ysfgateway|mmdvm-bridge|analog-bridge|md380-emu|asr-mqtt)-[a-z][a-z0-9_-]{1,31})\.service")
 
 
 def backend():

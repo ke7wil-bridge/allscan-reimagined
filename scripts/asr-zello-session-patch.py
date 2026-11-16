@@ -10,7 +10,7 @@ from pathlib import Path
 
 HELPERS = r'''
 ZELLO_SESSION_KICKS = os.environ.get(
-    "ZELLO_SESSION_KICKS", "/run/urf-wil-config/asr-zello-kicks.json"
+    "ZELLO_SESSION_KICKS", "/var/lib/allscan-reimagined/admin/asr-zello-kicks.json"
 )
 
 

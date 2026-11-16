@@ -57,15 +57,7 @@ def child_environment(profile_path: Path, profile) -> dict[str, str]:
         "DOCKER_CONFIG": DOCKER_CONFIG,
         "BUILDX_CONFIG": BUILDX_CONFIG,
         "ASR_CONTAINER_PROVISIONING_PROFILE": str(profile_path),
-        "ASR_URF_DOCKER_NETWORK_MODE": f"container:{profile.asterisk_container}",
-        "ASR_URF_DOCKER_HOST_BASE": str(profile.runtime_host_root),
     }
-    # Containers which share Asterisk's network namespace cannot use Docker's
-    # per-container 127.0.0.11 resolver.  systemd-resolved's uplink file lists
-    # the actual DNS servers and is safe to bind read-only into those sidecars.
-    resolver = Path("/run/systemd/resolve/resolv.conf")
-    if resolver.is_file():
-        environment["ASR_URF_DOCKER_RESOLV_CONF"] = str(resolver)
     return environment
 
 

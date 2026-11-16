@@ -62,34 +62,40 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
-# Global Ban state must survive native-node reboots. Docker nodes provide the
-# same contract as a bind mount at /run/urf-wil-config, while native nodes keep
-# the canonical files under /var/lib and recreate the runtime link at boot.
+# Global Ban state lives under /var/lib/allscan-reimagined/admin and must
+# survive reboots. Beta 8.5.1 renamed the policy list from the retired URF
+# reflector's urfd.blacklist to global-bans.list; existing bans migrate here.
 if [ "$WEB_ONLY" != "1" ] && [ ! -e /.dockerenv ]; then
   GLOBAL_BAN_DIR="$DATA_DIR/admin"
   install -d -o root -g root -m 755 "$GLOBAL_BAN_DIR"
   for legacy_dir in /run/urf-wil-config "$DATA_DIR/global-ban"; do
     [ -d "$legacy_dir" ] || continue
     [ "$(readlink -f "$legacy_dir")" = "$GLOBAL_BAN_DIR" ] && continue
-    for state_file in urfd.blacklist asr-timed-bans.json asr-admin-audit.jsonl asr-asl-bans.json; do
+    for state_file in asr-timed-bans.json asr-admin-audit.jsonl asr-asl-bans.json; do
       [ -f "$legacy_dir/$state_file" ] && [ ! -e "$GLOBAL_BAN_DIR/$state_file" ] && cp -p "$legacy_dir/$state_file" "$GLOBAL_BAN_DIR/$state_file"
     done
+    [ -f "$legacy_dir/urfd.blacklist" ] && [ ! -e "$GLOBAL_BAN_DIR/global-bans.list" ] && \
+      cp -p "$legacy_dir/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"
   done
-  [ -e "$GLOBAL_BAN_DIR/urfd.blacklist" ] || printf '%s\n' '# Managed by AllScan Reimagined URF Administration' > "$GLOBAL_BAN_DIR/urfd.blacklist"
+  if [ -f "$GLOBAL_BAN_DIR/urfd.blacklist" ] && [ ! -L "$GLOBAL_BAN_DIR/urfd.blacklist" ]; then
+    [ -e "$GLOBAL_BAN_DIR/global-bans.list" ] || cp -p "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"
+    mv "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/.urfd.blacklist.migrated-$(date +%s)"
+  fi
+  [ -e "$GLOBAL_BAN_DIR/global-bans.list" ] || printf '%s\n' '# Managed by AllScan Reimagined Global Ban' > "$GLOBAL_BAN_DIR/global-bans.list"
   [ -e "$GLOBAL_BAN_DIR/asr-timed-bans.json" ] || printf '%s\n' '{}' > "$GLOBAL_BAN_DIR/asr-timed-bans.json"
   [ -e "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl" ] || : > "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
-  chown root:root "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json" "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
-  chmod 644 "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+  chown root:root "$GLOBAL_BAN_DIR/global-bans.list" "$GLOBAL_BAN_DIR/asr-timed-bans.json" "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  chmod 644 "$GLOBAL_BAN_DIR/global-bans.list" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
   chmod 640 "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  # Legacy read-only aliases for software outside ASR that predates the rename
+  # (for example a hand-patched Zello bridge reading
+  # /run/urf-wil-config/urfd.blacklist). ASR itself uses only the paths above.
+  ln -sfn global-bans.list "$GLOBAL_BAN_DIR/urfd.blacklist"
   if [ -d /run/urf-wil-config ] && [ ! -L /run/urf-wil-config ]; then
     mv /run/urf-wil-config "/run/urf-wil-config.pre-asr-$(date +%s)"
   fi
   printf '%s\n' 'L+ /run/urf-wil-config - - - - /var/lib/allscan-reimagined/admin' > /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
   systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
-  [ -L /run/urf-wil-config ] && [ "$(readlink -f /run/urf-wil-config)" = "$GLOBAL_BAN_DIR" ] || {
-    echo "Native Global Ban runtime link could not be created." >&2
-    exit 1
-  }
 fi
 
 safe_chown_files() {
@@ -276,7 +282,20 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /u
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-apache-listeners.py" /usr/local/sbin/allscan-reimagined-apache-listeners
 [ -f "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" /usr/local/sbin/allscan-reimagined-standard-bridge-repair
-install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-urf-admin.py" /usr/local/sbin/allscan-reimagined-urf-admin
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-global-ban.py" /usr/local/sbin/allscan-reimagined-global-ban
+rm -f /usr/local/sbin/allscan-reimagined-urf-admin
+# Native UDP reflector administration proxy (YSF/P25/NXDN/M17 public-port
+# Kick/Ban). Instances run only where /etc/allscan-reimagined/native-udp-admin
+# holds their environment; reinstalling updates running instances in place.
+if [ -f "$MASTER_DIR/scripts/asr-native-udp-admin.py" ] && [ ! -e /.dockerenv ]; then
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-native-udp-admin.py" /usr/local/sbin/allscan-reimagined-native-udp-admin
+  install -o root -g root -m 644 "$MASTER_DIR/ops/native-udp-admin/allscan-reimagined-native-admin@.service" \
+    /etc/systemd/system/allscan-reimagined-native-admin@.service
+  systemctl daemon-reload
+  for unit in $(systemctl list-units --plain --no-legend --state=active 'allscan-reimagined-native-admin@*.service' | awk '{print $1}'); do
+    systemctl try-restart "$unit" || true
+  done
+fi
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
 [ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-zello-session-patch.py" /usr/local/sbin/allscan-reimagined-zello-session-patch
@@ -1152,13 +1171,10 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin capabilities
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin list --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* DMRMMDVM --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban list --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban kick [A-Z0-9_./-]* ZELLO --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban list
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban sync
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *

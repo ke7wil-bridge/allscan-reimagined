@@ -18,8 +18,8 @@ export type BridgeAdminCapabilities = {
   clientAdmin: Array<'listClients' | 'kickClient' | 'banClient' | 'unbanClient' | 'listBans'>
   activity: Array<'currentTalker' | 'lastTalker' | 'recentActivity'>
   lifecycle: Array<'health' | 'readiness' | 'runtimeAvailability'>
-  managementScope: 'bridge' | 'urf-reflector' | 'asr-global' | 'allstar'
-  clientAuthority: 'none' | 'urfd-blacklist' | 'asr-global-ban' | 'allstar-channel'
+  managementScope: 'bridge' | 'asr-global' | 'allstar'
+  clientAuthority: 'none' | 'asr-global-ban' | 'allstar-channel'
   authoritativeClientId: string
   banScopeLabel: string
 }
@@ -34,9 +34,6 @@ export type RuntimeBridgeConfig = {
   cardType?: BridgeCardType
   fixedBridgeRecovery?: boolean
   manualDisconnect?: boolean
-  urfReflector?: boolean
-  urfGroupId?: string
-  urfName?: string
   linkAlias?: string
   m17Module?: string
   backendMode?: 'display_only' | 'managed'
@@ -66,41 +63,8 @@ export type RuntimeConfig = {
 
 const NET_BRIDGE_MODES = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'] as const
 
-export function isUrfReflectorBridge(bridge?: RuntimeBridgeConfig): boolean {
-  if (!bridge || bridge.cardType !== 'standard') return false
-  return bridge.urfReflector === true || Boolean(String(bridge.urfGroupId || '').trim())
-}
-
-export function urfReflectorDisplayName(bridges: RuntimeBridgeConfig[]): string {
-  const names = Array.from(new Set(bridges
-    .filter(isUrfReflectorBridge)
-    .map((bridge) => {
-      const explicitName = String(bridge.urfName || '').trim()
-      const friendlyName = String(bridge.friendlyName || '').trim()
-      // The operator-facing name is intentionally independent of URFD's
-      // protocol identity. Keep urfName as a fallback for older installs.
-      const sourceName = friendlyName || explicitName
-      // Beta 8.2 shipped these installation-specific defaults on other nodes.
-      // Never present them as the operator's reflector identity.
-      if (/^URFWIL(?:\s+(?:Multi-Mode Bridge|Reflector|Bridge))?$/i.test(sourceName)) return /^URF[A-Z0-9]{2,8}$/i.test(explicitName) ? explicitName : ''
-      return sourceName
-        .replace(/\s+Multi-Mode Bridge$/i, '')
-        .replace(/\s+Multi\s+Mode\s+Bridge$/i, '')
-        .replace(/\s+Bridge$/i, '')
-        .trim()
-    })
-    .filter(Boolean)))
-  return names.length === 1 ? `${names[0]} Bridge` : names.length > 1 ? 'URF Reflectors' : 'URF Bridge'
-}
-
-// A shared URF transport does not determine each protocol card's identity.
-// Use the configured protocol, not a stale generic/DMR title from migration.
 export function bridgeProtocolCardTitle(bridge: RuntimeBridgeConfig): string {
-  if (!isUrfReflectorBridge(bridge)) return bridge.title
-  const mode = normalizedBridgeMode(bridge.mode, bridge.id)
-  return ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].includes(mode)
-    ? `${mode.toUpperCase()} Bridge`
-    : bridge.title
+  return bridge.title
 }
 
 export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<string> {
@@ -274,9 +238,7 @@ export function orderedVisibleBridgeCards(
     isNetMode(card)
       && normalizedBridgeMode(card.mode, card.id) === selectedMode,
   )
-  const hiddenStandardIds = new Set(bridges
-    .filter((bridge) => isUrfReflectorBridge(bridge))
-    .map((bridge) => bridge.id))
+  const hiddenStandardIds = new Set<string>()
   const ordered: BridgeCardView[] = []
   const included = new Set<string>()
 
@@ -291,7 +253,6 @@ export function orderedVisibleBridgeCards(
       }
       return
     }
-    if (isUrfReflectorBridge(bridge)) return
     const card = cardsById.get(bridge.id)
     if (card && card.cardType === 'standard' && !included.has(card.id)) {
       ordered.push(card)
@@ -309,30 +270,13 @@ export function orderedVisibleBridgeCards(
   return ordered
 }
 
-export type UrfClient = { callsign: string; mode: string; module: string; connected: string; lastHeard: string }
-export type UrfEvent = { event: 'connect' | 'disconnect' | 'kick' | 'ban' | 'tx_start' | 'tx_stop'; mode: string; callsign: string; client?: string; module: string; epoch: number }
-export type UrfStatus = {
-  ok: boolean; online: boolean; stale: boolean; ageSeconds?: number; version?: string
-  clients: UrfClient[]; recent: Array<{ callsign: string; viaNode: string; module: string; viaPeer: string; lastHeard: string }>
-  events: UrfEvent[]; currentTalker?: UrfEvent | null
-  modes: Record<string, { clients: number; active: boolean }>; updatedEpoch?: number; eventUpdatedEpoch?: number; error?: string
-}
+export type GlobalBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
+export type GlobalBanAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
+export type GlobalBanList = { rules: string[]; bans: GlobalBan[]; audit: GlobalBanAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
 
-export async function fetchUrfStatus(signal?: AbortSignal): Promise<UrfStatus> {
-  const response = await fetch(`${ASR_API}?action=urf-status`, { credentials: 'same-origin', cache: 'no-store', signal })
-  const payload = (await response.json()) as UrfStatus
-  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'URF status could not be loaded.')
-  return payload
-}
-
-export type UrfBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
-export type UrfAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
-export type UrfAccessList = { rules: string[]; bans: UrfBan[]; audit: UrfAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
-
-export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
-  const suffix = mode ? `&mode=${encodeURIComponent(mode)}` : ''
-  const response = await fetch(`${ASR_API}?action=urf-access-list${suffix}`, { credentials: 'same-origin', cache: 'no-store' })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; asl?: UrfAccessList['asl'] }
+export async function fetchGlobalBans(): Promise<GlobalBanList> {
+  const response = await fetch(`${ASR_API}?action=global-ban-list`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; asl?: GlobalBanList['asl'] }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban list could not be loaded.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -343,16 +287,16 @@ export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
   }
 }
 
-export type UrfBlacklistMutation = UrfAccessList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
+export type GlobalBanMutation = GlobalBanList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
 
-export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, duration = 'permanent', mode = '', clientId = ''): Promise<UrfBlacklistMutation> {
-  const body = new URLSearchParams({ verb, rule, duration, mode, clientId })
-  const response = await fetch(`${ASR_API}?action=urf-access-control`, {
+export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, duration = 'permanent'): Promise<GlobalBanMutation> {
+  const body = new URLSearchParams({ verb, rule, duration })
+  const response = await fetch(`${ASR_API}?action=global-ban-control`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-access-control' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'global-ban-control' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: UrfAccessList['asl'] }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl'] }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban update failed.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -391,15 +335,15 @@ export async function changeAslBan(verb: 'ban' | 'unban', kind: AslBanKind, valu
   return payload
 }
 
-export async function kickUrfClient(callsign: string, protocol: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ callsign, protocol, clientId })
-  const response = await fetch(`${ASR_API}?action=urf-client-kick`, {
+export async function kickZelloClient(callsign: string): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ callsign })
+  const response = await fetch(`${ASR_API}?action=zello-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-client-kick' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'zello-client-kick' },
     body: body.toString(),
   })
   const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
-  if (!response.ok || !payload.ok) throw new Error(payload.error || 'URF client kick failed.')
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Zello Kick failed.')
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
@@ -1530,9 +1474,6 @@ export function netBridgeTalkerDestinationLabel(
 }
 
 function bridgeTalkerNodeLabel(card: BridgeCardView) {
-  if (card.mode === 'urf') {
-    return String(card.reflector || card.title || card.node || 'URF Reflector').trim()
-  }
   if (card.node === '1999' || card.cardType !== 'standard') return 'Net Bridge'
   return String(card.node || card.title || 'Digital Bridge').trim()
 }
@@ -1923,13 +1864,6 @@ export async function fetchFastNextModeActivity(signal?: AbortSignal): Promise<R
     }
   }
   return cards
-}
-
-export async function fetchDmrFastSource(signal?: AbortSignal): Promise<{ active: boolean; callsign: string }> {
-  const response = await fetch(`${ASR_API}?action=dmr-fast-source`, { credentials: 'same-origin', cache: 'no-store', signal })
-  if (!response.ok) throw new Error('DMR fast source unavailable')
-  const payload = await response.json() as { active?: boolean; callsign?: string }
-  return { active: payload.active === true, callsign: String(payload.callsign || '') }
 }
 
 export async function fetchZelloFastRelay(signal?: AbortSignal): Promise<{ active: boolean; updatedEpochMs: number }> {

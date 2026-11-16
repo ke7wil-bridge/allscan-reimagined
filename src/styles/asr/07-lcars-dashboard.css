@@ -435,9 +435,6 @@
   html[data-asr-theme="lcars-frame"] .allscan-bridge-section > .allscan-section-title {
     margin-bottom: 6px !important;
   }
-  html[data-asr-theme="lcars-frame"] .allscan-urf-group {
-    margin-top: 0;
-  }
 }
 
 /* ST:ASL module-title typography: Node Controls is the single visual reference. */
@@ -621,13 +618,6 @@ html[data-asr-theme="lcars-frame"] .allscan-favorite-drag:hover {
 html[data-asr-theme="lcars-frame"] .allscan-favorites-options {
   margin-bottom: 2px !important;
 }
-
-/* ST:ASL bridge cards: dark structural chrome with restrained LCARS accents. */
-html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
-  background: #09080b !important;
-  color: #f5eadc !important;
-  border-color: #4a4037 !important;
-}
 html[data-asr-theme="lcars-frame"] .allscan-bridge-card {
   --lcars-bridge-edge: var(--lcars-tan);
   background: #09080b !important;
@@ -662,15 +652,6 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-detail-wrap {
 html[data-asr-theme="lcars-frame"] .allscan-bridge-head-title {
   color: #f5eadc !important;
   font-weight: 800 !important;
-}
-
-/* ST:ASL URFWIL group bar: quiet structural label; bridge-card accents carry LCARS color. */
-html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
-  position: relative;
-  background: #09080b !important;
-  border-top: 1px solid #4a4037 !important;
-  border-bottom: 1px solid #4a4037 !important;
-  box-shadow: none !important;
 }
 
 /* ST:ASL desktop header: four approved controls; dropdowns open cleanly below both button rows. */

@@ -455,16 +455,6 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 }
 .allscan-favorites-table-wrap { margin-top: 0 !important; }
 
-/* URFWIL group header sits between the section title and individual bridge-card headers. */
-.allscan-urf-group-title {
-  font-size: 1rem !important;
-  font-weight: 700 !important;
-}
-html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-urf-group-title {
-  background: #15171a !important;
-  border-bottom-color: #3b3e42;
-}
-
 /* Favorite color picker: explicit read-only hex display plus clickable presets. */
 .allscan-favorite-color-popover .allscan-favorite-color-hex {
   display: flex !important;

@@ -102,6 +102,8 @@ def compose_yaml(plan: dict[str, Any]) -> str:
       USRP_GAIN_TX_DB: "{plan['settings'].get('zello_to_asl_gain_db', 0)}"
       ZELLO_PRIVATE_KEY: "/run/secrets/zello.key"
       ASR_ZELLO_HEALTH: "/run/zello/status.json"
+      ZELLO_GLOBAL_BANS: "/run/asr-global/global-bans.list"
+      ZELLO_SESSION_KICKS: "/run/asr-global/asr-zello-kicks.json"
     volumes:
       - {root}/secrets/zello.json:/run/secrets/zello.json:ro
       - {root}/secrets/zello.key:/run/secrets/zello.key:ro
@@ -132,7 +134,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStartPre=/bin/mkdir -p {root}/runtime
-ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/urfd.blacklist
+ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/global-bans.list
 ExecStart=/usr/bin/docker compose -f {compose} up -d
 ExecStop=/usr/bin/docker compose -f {compose} down
 TimeoutStartSec=120
