@@ -1,0 +1,15 @@
+[Unit]
+Description=Publish this hub to ASR Plus and execute queued commands
+After=asterisk.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asrplus-agent --config /etc/asrplus-agent.json
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadOnlyPaths=/etc/asrplus-agent.json /root/.ssh /var/lib/asterisk/astdb.txt /var/www/html/allscan

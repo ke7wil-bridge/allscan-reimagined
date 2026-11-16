@@ -1,0 +1,9 @@
+[Unit]
+Description=Verify ASR Plus after ASR is replaced
+
+[Path]
+PathChanged=/var/www/html/asr/index.html
+Unit=asrplus-reapply.service
+
+[Install]
+WantedBy=multi-user.target

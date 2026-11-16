@@ -1,0 +1,17 @@
+[Unit]
+Description=Build the private ASR Plus connection snapshot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asrplus-status
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/allscan-reimagined /var/lib/asl3-geo-monitor /var/lib/asterisk/astdb.txt /var/lib/asrplus/remote-status /var/www/html/allscan
+ReadWritePaths=/run/allscan-reimagined

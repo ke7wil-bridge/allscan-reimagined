@@ -1,0 +1,37 @@
+{
+  "stateFile": "/var/lib/asl3-geo-monitor/admission_state.json",
+  "astdbFile": "/var/lib/asterisk/astdb.txt",
+  "hubs": [
+    {
+      "id": "kentucky",
+      "name": "Netoholics Kentucky",
+      "location": "Kentucky",
+      "node": "674982",
+      "capacity": 75,
+      "staleAfterSeconds": 180,
+      "statusFile": "/var/www/html/allscan/public-status.json",
+      "talkerStatusFile": "/var/www/html/allscan/.netoholics-public-status-talker-live.json",
+      "stateKey": "kentucky"
+    },
+    {
+      "id": "phoenix",
+      "name": "Netoholics Phoenix",
+      "location": "Phoenix, Arizona",
+      "node": "641894",
+      "capacity": 75,
+      "staleAfterSeconds": 180,
+      "statusFile": "/var/lib/asrplus/remote-status/phoenix.json",
+      "stateKey": "phoenix"
+    },
+    {
+      "id": "georgia",
+      "name": "Netoholics Georgia",
+      "location": "Georgia",
+      "node": "674980",
+      "capacity": 75,
+      "staleAfterSeconds": 180,
+      "statusFile": "/var/lib/asrplus/remote-status/georgia.json",
+      "stateKey": "georgia"
+    }
+  ]
+}

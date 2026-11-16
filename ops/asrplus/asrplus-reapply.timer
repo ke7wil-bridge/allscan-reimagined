@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic ASR Plus integrity check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Unit=asrplus-reapply.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore and verify the update-safe ASR Plus web page
+After=apache2.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asrplus-reapply
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/asrplus/current /var/www/html/asr
+ReadWritePaths=/var/www/html/asrplus

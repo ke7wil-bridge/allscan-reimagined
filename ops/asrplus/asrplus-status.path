@@ -1,0 +1,11 @@
+[Unit]
+Description=Rebuild ASR Plus immediately when hub telemetry changes
+
+[Path]
+PathChanged=/var/www/html/allscan/public-status.json
+PathChanged=/var/www/html/allscan/.netoholics-public-status-talker-live.json
+PathChanged=/var/lib/asrplus/status-event
+Unit=asrplus-status.service
+
+[Install]
+WantedBy=multi-user.target

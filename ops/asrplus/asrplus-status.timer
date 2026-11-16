@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh ASR Plus connections every five seconds
+
+[Timer]
+OnBootSec=5
+OnUnitActiveSec=5
+AccuracySec=1
+Unit=asrplus-status.service
+
+[Install]
+WantedBy=timers.target
