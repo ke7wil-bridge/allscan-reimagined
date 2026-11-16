@@ -61,6 +61,17 @@ def expect_error(callable_value, phrase: str) -> None:
 
 
 def main() -> None:
+    # #117: adding USRP must never rewrite an unrelated EchoLink module
+    # directive, whether it is explicitly loaded or disabled by the operator.
+    for echolink_line in ('load = chan_echolink.so', 'noload = chan_echolink.so'):
+        original = f'[modules]\n{echolink_line}\nnoload = chan_usrp.so\n'
+        updated = m17.ensure_usrp_module(original)
+        assert echolink_line in updated.splitlines(), updated
+        assert updated.count(echolink_line) == 1
+        assert 'load = chan_usrp.so' in updated
+        assert 'noload = chan_usrp.so' not in updated
+        assert m17.ensure_usrp_module(updated) == updated
+
     migrated_states = m17.ensure_bridge_control_states(
         "[asr-bridge-controlstates]\n"
         "0 = rptena,lnkena,apdis,totena,ufdis,noice\n"
@@ -76,6 +87,21 @@ def main() -> None:
         reflector="M17-TST", host="127.0.0.1", port=17000,
         module="A", title="Test M17 Bridge",
     )
+
+    entry = m17.bridge_entry(settings, 1006, (17000, 17001, 17002))
+    assert entry["fixedBridgeRecovery"] is True
+    for old, expected in ((False, False), (True, True), (None, True)):
+        previous = {"id": "m17_test", "mode": "m17", "node": "1006"}
+        if old is not None:
+            previous["fixedBridgeRecovery"] = old
+        updated = m17.update_config({"bridges": [previous]}, dict(entry))
+        assert updated["bridges"][0]["fixedBridgeRecovery"] is expected
+    net_entry_for_update = m17.bridge_entry(
+        m17.M17Settings(**{**settings.__dict__, "card_type": "m17_net"}),
+        1999, (17000, 52000, 52001),
+    )
+    assert m17.update_config({"bridges": [{"id": "m17_test", "mode": "m17", "fixedBridgeRecovery": True}]},
+                             net_entry_for_update)["bridges"][0]["fixedBridgeRecovery"] is False
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
