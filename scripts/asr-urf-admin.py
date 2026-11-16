@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import time
@@ -56,6 +57,7 @@ def dmr_runtime_dir():
 DMR_RUNTIME_DIR = dmr_runtime_dir()
 DMR_ROSTER = os.environ.get("ASR_DMR_ROSTER_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-clients.json"))
 DMR_CONTROL = os.environ.get("ASR_DMR_CONTROL_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-admin.json"))
+DMR_ENFORCEMENT = os.environ.get("ASR_DMR_ENFORCEMENT_FILE", os.path.join(DMR_RUNTIME_DIR, "dmr-admin-enforcement.json"))
 DMR_DIRECTORY_ROSTER = os.environ.get("ASR_DMR_DIRECTORY_ROSTER_FILE", "/var/www/html/allscan/connected-clients.json")
 ZELLO_RUNTIME_DIR = "/var/www/html/asr"
 ZELLO_TALKERS = "/var/www/html/allscan/zello-talkers.json"
@@ -486,25 +488,43 @@ def write_dmr_kick(callsign, actor="system", expected_id=""):
     banned = sorted({int(value) for value in payload.get("banned_ids", []) if str(value).isdigit()})
     kicked = {str(key): int(value) for key, value in payload.get("kicked_ids", {}).items() if str(key).isdigit()}
     clients = {str(key): str(value).upper() for key, value in payload.get("banned_clients", {}).items() if str(key).isdigit()}
+    tokens = {str(key): str(value) for key, value in payload.get("kick_tokens", {}).items() if str(key).isdigit()}
     # The TGIF master owns the remote session, so local Disconnect is enforced
     # at the inbound adapter. Its rolling quiet-gap contract blocks the current
     # stream and treats later traffic after the disconnect gap as a reconnect.
+    token = secrets.token_hex(16)
     kicked[str(dmrid)] = int(time.time())
-    remove_dmr_roster_client(dmrid, "kick")
+    tokens[str(dmrid)] = token
     directory = os.path.dirname(DMR_CONTROL)
     if not os.path.isdir(directory) or not os.access(directory, os.W_OK):
         raise RuntimeError("DMR administration runtime is unavailable.")
     fd, tmp = tempfile.mkstemp(prefix=".dmr-admin.", dir=directory, text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"banned_ids": banned, "banned_clients": clients, "kicked_ids": kicked}, handle, separators=(",", ":"))
+            payload.update({"banned_ids": banned, "banned_clients": clients,
+                            "kicked_ids": kicked, "kick_tokens": tokens})
+            json.dump(payload, handle, separators=(",", ":"))
         os.chmod(tmp, 0o664)
         os.replace(tmp, DMR_CONTROL)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-    append_audit_event("kick", actor, callsign=callsign, protocol="DMRMMDVM", dmrid=str(dmrid))
-    emit(ok=True, action="kick", callsign=callsign, protocol="DMRMMDVM", audit=read_audit_events(), verified=True, dmrid=str(dmrid), enforcement="disconnect_only", quietSeconds=0)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            with open(DMR_ENFORCEMENT, "r", encoding="utf-8") as handle:
+                proof = json.load(handle)
+        except (OSError, ValueError):
+            proof = {}
+        observed = proof.get("lastKick", {}) if isinstance(proof, dict) else {}
+        if observed.get("dmrid") == str(dmrid) and observed.get("token") == token:
+            append_audit_event("kick", actor, callsign=callsign, protocol="DMRMMDVM", dmrid=str(dmrid))
+            emit(ok=True, action="kick", callsign=callsign, protocol="DMRMMDVM",
+                 audit=read_audit_events(), verified=True, dmrid=str(dmrid),
+                 enforcement="local_media_block_until_reconnect", quietSeconds=10)
+            return
+        time.sleep(.1)
+    raise RuntimeError("DMR relay did not verify that the selected source's media was blocked.")
 
 
 def write_zello_kick(callsign, actor="system"):
@@ -622,7 +642,6 @@ def sync_dmr_ban(rule, banned_state, expected_id=""):
                 return
         for dmrid in ids:
             banned.add(dmrid); kicked.pop(str(dmrid), None); clients[str(dmrid)] = target
-            remove_dmr_roster_client(dmrid, "ban")
     else:
         if not ids:
             # Use only an authoritative current roster mapping; never infer a
@@ -830,7 +849,6 @@ def main():
             banned.add(dmrid)
             kicked.pop(str(dmrid), None)
             banned_clients[str(dmrid)] = args.rule.strip().upper()
-            remove_dmr_roster_client(dmrid, "ban")
         else:
             banned.discard(dmrid)
             banned_clients.pop(str(dmrid), None)
