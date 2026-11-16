@@ -210,6 +210,67 @@ def read_incremental_log(path, now):
             return [row[1] for row in history], {"backlogBytes": backlog, "monitoringGap": gap,
                                                    "bytesRead": len(data), "cursorOffset": next_offset}
 
+def read_container_incremental(container, now, runner):
+    """Read-only bounded container cursor, using POSIX tools and a host checkpoint."""
+    import fcntl, hashlib, datetime
+    directory = Path(os.getenv("ASR_ASTERISK_CURSOR_DIR", str(STATE_DIR)))
+    directory.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(("container:" + container).encode()).hexdigest()[:16]
+    state_path = directory / ("asterisk-cursor-" + key + ".json")
+    with (directory / ("asterisk-cursor-" + key + ".lock")).open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_json(state_path)
+        source = "/var/log/asterisk/messages.log"
+        stat_result = runner(["/usr/bin/docker", "exec", container, "stat", "-c", "%d:%i:%s", source],
+                             capture_output=True, timeout=4, check=False)
+        if stat_result.returncode: raise OSError("container log stat failed")
+        try:
+            device, inode, size = map(int, stat_result.stdout.decode().strip().split(":"))
+        except (ValueError, UnicodeError) as exc:
+            raise OSError("invalid container log stat") from exc
+        identity = [device, inode]
+        offset = int(state.get("offset", 0))
+        gap = ""
+        if state.get("identity") != identity:
+            if state.get("identity"): gap = "container log rotated; unread records may be missing"
+            offset = max(0, size - LOG_READ_LIMIT) if not state else 0
+        elif offset > size:
+            gap = "container log truncated; unread records may be missing"
+            offset = 0
+        # tail's +N counts bytes from 1, head caps output; no shell interpolation.
+        command = 'tail -c +"$1" "$2" | head -c "$3"'
+        result = runner(["/usr/bin/docker", "exec", container, "sh", "-c", command,
+                         "asr-log-reader", str(offset + 1), source, str(LOG_READ_LIMIT)],
+                        capture_output=True, timeout=4, check=False)
+        if result.returncode: raise OSError("container log read failed")
+        data = result.stdout[:LOG_READ_LIMIT]
+        complete = data.rfind(bytes([10])) + 1
+        if not complete and len(data) == LOG_READ_LIMIT:
+            complete = len(data)
+            gap = "oversized container log record skipped"
+        next_offset = offset + complete
+        history = [row for row in state.get("history", []) if isinstance(row, list)
+                   and len(row) == 2 and isinstance(row[0], (int, float))
+                   and 0 <= now - row[0] <= STALL_WINDOW]
+        stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+        for line in data[:complete].decode("utf-8", "replace").splitlines():
+            if not any(x in line for x in ("Resyncing the jb", "iax2_transmit' queue reached",
+                "Silently dropping frame without existent call number", "Max retries exceeded to host",
+                "Log queue threshold", "Exceptionally long voice queue length")): continue
+            match = stamp_re.match(line)
+            if not match: continue
+            try:
+                moment = datetime.datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S")
+                timestamp = moment.replace(tzinfo=datetime.timezone.utc).timestamp()
+            except ValueError: continue
+            if 0 <= now - timestamp <= STALL_WINDOW: history.append([timestamp, line[:350]])
+        if len(history) > LOG_HISTORY_LIMIT:
+            history = history[-LOG_HISTORY_LIMIT:]
+            gap = "container rolling event history capped"
+        atomic(state_path, {"identity": identity, "offset": next_offset, "history": history}, 0o600)
+        return [row[1] for row in history], {"mode": "container-incremental", "bytesRead": len(data),
+                "cursorOffset": next_offset, "backlogBytes": max(0, size-next_offset), "monitoringGap": gap}
+
 def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     """Read-only early warning for persistent Asterisk media queues.
 
@@ -233,15 +294,20 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container):
             return {"available": False, "persistentChannels": [], "recentWarnings": 0}
         try:
-            result = runner(["/usr/bin/docker", "exec", container, "tail", "-c", "262144",
-                             "/var/log/asterisk/messages.log"], capture_output=True, timeout=4, check=False)
-            if result.returncode:
-                return {"available": False, "persistentChannels": [], "recentWarnings": 0}
-            lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+            lines, monitoring = read_container_incremental(container, now, runner)
             source_tz = "utc"
-            monitoring = {"mode": "container-tail", "coverageLimited": True, "bytesRead": len(result.stdout)}
         except (OSError, subprocess.TimeoutExpired):
-            return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+            # Compatibility fallback for older container images without stat/sh.
+            try:
+                result = runner(["/usr/bin/docker", "exec", container, "tail", "-c", "262144",
+                                 "/var/log/asterisk/messages.log"], capture_output=True, timeout=4, check=False)
+                if result.returncode:
+                    return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+                lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+                source_tz = "utc"
+                monitoring = {"mode": "container-tail", "coverageLimited": True, "bytesRead": len(result.stdout)}
+            except (OSError, subprocess.TimeoutExpired):
+                return {"available": False, "persistentChannels": [], "recentWarnings": 0}
     use_utc = (log_tz or source_tz) == "utc"
     def parse(stamp):
         moment = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
