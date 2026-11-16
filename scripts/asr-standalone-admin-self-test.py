@@ -17,8 +17,10 @@ spec.loader.exec_module(admin)
 
 def write_json(path, payload, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
-    path.chmod(mode)
+    temporary = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
+    temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+    temporary.chmod(mode)
+    os.replace(temporary, path)
 
 
 def check(value, message):
@@ -62,15 +64,19 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
     manifest_path = bridge_dir / "capabilities.json"
     write_json(manifest_path, manifest)
     stop = threading.Event()
+    processed = set()
 
     def adapter():
         while not stop.is_set():
             for request_path in runtime.glob("*/request-*.json"):
+                if request_path in processed:
+                    continue
                 active_manifest_path = request_path.parent / "capabilities.json"
                 try:
                     request = json.loads(request_path.read_text(encoding="utf-8"))
                 except FileNotFoundError:
                     continue
+                processed.add(request_path)
                 result = {
                     "schema": 1, "nonce": request["nonce"],
                     "bridgeId": request["bridgeId"], "mode": request["mode"],
