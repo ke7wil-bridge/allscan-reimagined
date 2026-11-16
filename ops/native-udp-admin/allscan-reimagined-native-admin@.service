@@ -1,0 +1,28 @@
+[Unit]
+Description=AllScan Reimagined native %i reflector administration proxy
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/allscan-reimagined/native-udp-admin/%i.env
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/allscan-reimagined/native-udp-admin/%i.env
+ExecStart=/usr/local/sbin/allscan-reimagined-native-udp-admin
+Restart=on-failure
+RestartSec=2s
+MemoryMax=64M
+TasksMax=32
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+ReadOnlyPaths=/run/urf-wil-config
+ReadWritePaths=/run/asr-standalone-admin/%i
+
+[Install]
+WantedBy=multi-user.target
