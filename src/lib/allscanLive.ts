@@ -32,6 +32,8 @@ export type RuntimeBridgeConfig = {
   detailTitle: string
   friendlyName?: string
   cardType?: BridgeCardType
+  fixedBridgeRecovery?: boolean
+  manualDisconnect?: boolean
   urfReflector?: boolean
   urfGroupId?: string
   urfName?: string
@@ -91,13 +93,23 @@ export function urfReflectorDisplayName(bridges: RuntimeBridgeConfig[]): string 
   return names.length === 1 ? `${names[0]} Bridge` : names.length > 1 ? 'URF Reflectors' : 'URF Bridge'
 }
 
+// A shared URF transport does not determine each protocol card's identity.
+// Use the configured protocol, not a stale generic/DMR title from migration.
+export function bridgeProtocolCardTitle(bridge: RuntimeBridgeConfig): string {
+  if (!isUrfReflectorBridge(bridge)) return bridge.title
+  const mode = normalizedBridgeMode(bridge.mode, bridge.id)
+  return ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].includes(mode)
+    ? `${mode.toUpperCase()} Bridge`
+    : bridge.title
+}
+
 export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<string> {
   return new Set<string>(NET_BRIDGE_MODES.filter((mode) => bridges.some((bridge) =>
     bridge.node === '1999' && bridge.cardType === `${mode}_net`,
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.3.5'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.4'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -115,6 +127,7 @@ export const defaultRuntimeConfig: RuntimeConfig = {
   protectedBanIdentities: [],
   bridges: [],
 }
+
 
 export type RowState = 'idle' | 'unknown' | 'talking' | 'relay' | 'both' | 'normal' | 'message'
 
@@ -182,6 +195,10 @@ export type FavoritesPayload = {
   rows: FavoriteNode[]
   files: FavoritesFileOption[]
   selectedFile: string
+  fileExists?: boolean
+  fileReadable?: boolean
+  filePath?: string
+  fileBytes?: number | null
 }
 
 export type CustomCommand = {
@@ -227,6 +244,7 @@ export type BridgeCardView = {
   activeStartEpoch: number
   recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
   recentRows: BridgeDetailItem[]
+  audioLevels?: { incoming: number | null; outgoing: number | null }
 }
 
 /**
@@ -598,6 +616,24 @@ type BridgeEntry = {
   module?: string
   link_protocol?: string
   linked_clients?: Array<Record<string, unknown>>
+  inboundAudioRms?: number
+  outboundAudioRms?: number
+  inboundAudioEpoch?: number
+  outboundAudioEpoch?: number
+}
+
+/**
+ * Shared PCM16 audio meter contract for every bridge mode.
+ * A producer must publish RMS amplitude (0..32768) and sample epoch seconds.
+ * Missing, stale, future-dated or invalid samples never become fake zero readings.
+ */
+export function bridgeAudioMeterPercent(rms: unknown, epoch: unknown, nowSeconds = Date.now() / 1000): number | null {
+  if (typeof rms !== 'number' || !Number.isFinite(rms) || rms < 0 || rms > 32768) return null
+  if (typeof epoch !== 'number' || !Number.isFinite(epoch) || epoch <= 0) return null
+  if (epoch > nowSeconds + 1 || nowSeconds - epoch > 3) return null
+  // Display dBFS across a useful 60 dB dynamic range, rather than raw PCM percentage.
+  const dbfs = rms > 0 ? 20 * Math.log10(rms / 32768) : -60
+  return Math.round(Math.min(100, Math.max(0, (dbfs + 60) / 60 * 100)))
 }
 
 export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number {
@@ -1136,7 +1172,7 @@ export function subscribeConnectionFeed(
 }
 
 export async function manageFavorite(args: {
-  operation: 'preview-import' | 'import' | 'update-description' | 'reset-description' | 'set-color' | 'reset-appearance' | 'reorder' | 'reset-order' | 'reset-favorite'
+  operation: 'preview-import' | 'import' | 'update-description' | 'reset-description' | 'set-color' | 'reset-appearance' | 'reorder' | 'reset-order' | 'reset-favorite' | 'preview-upstream-order' | 'import-upstream-order' | 'preview-export-upstream-order' | 'export-upstream-order'
   favsfile: string
   node?: string
   value?: string
@@ -1194,7 +1230,47 @@ export async function fetchFavorites(favsfile = ''): Promise<FavoritesPayload> {
     rows: payload.rows || [],
     files: payload.files || [],
     selectedFile: payload.selectedFile || '',
+    fileExists: payload.fileExists,
+    fileReadable: payload.fileReadable,
+    filePath: payload.filePath,
+    fileBytes: payload.fileBytes,
   }
+}
+
+export async function inspectFavoritesFiles(): Promise<{ files: Array<{ path: string; exists: boolean; symlink: boolean; readable: boolean; bytes: number | null }> }> {
+  const response = await fetch(`${ASR_API}?action=favorites-diagnostics`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = await response.json() as { ok?: boolean; error?: string; files: Array<{ path: string; exists: boolean; symlink: boolean; readable: boolean; bytes: number | null }> }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites diagnostics unavailable.')
+  return payload
+}
+
+export async function recoverFavoritesFile(args: { operation: 'preview-recovery' | 'restore-backup'; favsfile: string; source: string; token?: string }): Promise<{ token?: string; changed?: boolean; backup?: string; bytes?: number; existingBytes?: number }> {
+  const response = await fetch(`${ASR_API}?action=favorites-recovery`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ action: 'favorites-recovery', ...args, token: args.token || '' }).toString(),
+  })
+  const payload = await response.json() as { ok?: boolean; error?: string; token?: string; changed?: boolean; backup?: string; bytes?: number; existingBytes?: number }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites recovery failed.')
+  return payload
+}
+
+export async function editFavoritesFile(favsfile: string, content: string, expectedHash: string): Promise<{ backup?: string; changed?: boolean }> {
+  const response = await fetch(`${ASR_API}?action=favorites-edit`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ action: 'favorites-edit', favsfile, content, expectedHash }).toString(),
+  })
+  const payload = await response.json() as { ok?: boolean; error?: string; backup?: string; changed?: boolean }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites edit failed.')
+  return payload
+}
+
+export async function viewFavoritesFile(favsfile: string): Promise<{ name: string; path: string; content: string; hash: string }> {
+  const response = await fetch(`${ASR_API}?action=favorites-view&favsfile=${encodeURIComponent(favsfile)}`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = await response.json() as { ok?: boolean; error?: string; name: string; path: string; content: string; hash: string }
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Favorites file is not accessible.')
+  return payload
 }
 
 export async function fetchCustomCommands(): Promise<CustomCommandsPayload> {
@@ -1483,6 +1559,9 @@ function bridgeTalkerEntry(
 ): TalkerFeedEntry | null {
   const identity = String(callsign || '').trim()
   if (!identity || identity === '-') return null
+  // Private AllStar transport numbers are not digital caller identities.
+  // Do not render them as talkers when a bridge status feed lacks a callsign.
+  if ((card.node === '1001' || card.node === '1999') && (identity === '1001' || identity === '1999')) return null
   return {
     node: bridgeTalkerNodeLabel(card),
     info: identity,
@@ -1695,7 +1774,7 @@ export async function fetchBridgeCards(
       id: bridgeConfig.id,
       mode,
       node: bridgeConfig.node,
-      title: bridgeConfig.title,
+      title: bridgeProtocolCardTitle(bridgeConfig),
       cardType,
       status,
       lastCaller: resolveBridgeLastCaller(entry, status, config),
@@ -1736,6 +1815,10 @@ export async function fetchBridgeCards(
         duration: Math.max(0, Number(record.duration_seconds) || 0),
       })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
       recentRows: formatBridgeRecentRows(entry, mode),
+      audioLevels: {
+        incoming: bridgeAudioMeterPercent(entry?.inboundAudioRms, entry?.inboundAudioEpoch),
+        outgoing: bridgeAudioMeterPercent(entry?.outboundAudioRms, entry?.outboundAudioEpoch),
+      },
     }
   })
 
