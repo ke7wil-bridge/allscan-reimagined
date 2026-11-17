@@ -72,8 +72,6 @@ check(str_contains($gainController, "'dmrToAslGainDb', 'digitalToAslGainDb'")
     && str_contains($gainController, "asrSettingsBridgeGainValue(\$existingGain, 'in')"),
     'Legacy bridge gain fallback or installer synchronization is missing.');
 
-
-
 // Exercise the gain lookup itself, including installer changes made after
 // an older generic gain value was saved by the dashboard.
 $gainStart = strpos($gainController, 'function asrSettingsBridgeGainValue(');
@@ -82,6 +80,141 @@ check($gainStart !== false && $gainEnd !== false, 'Bridge gain helper missing.')
 if (!function_exists('asrSettingsBridgeGainValue'))
     eval(substr($gainController, $gainStart, $gainEnd - $gainStart));
 
+check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
+	'Add Bridge does not expose exactly one unified Net Bridge choice.');
+
+check(!str_contains($settingsSource, '<option value="net">Net Bridge</option>'),
+	'Add Bridge still exposes per-mode Net Bridge installation.');
+foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
+	check(str_contains($settingsSource, "'{$mode}' =>") || str_contains($settingsSource, "'{$mode}'=>"), "Unified setup is missing $mode.");
+check(!str_contains($settingsSource, 'm17.example.net'), 'Fake M17 host default remains in Settings.');
+$helperSource = file_get_contents($root . '/scripts/asr-bridge-setup-helper.py');
+check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"')
+	&& str_contains($helperSource, 'allscan-reimagined-net-bridge-mode-control'),
+	'Unified setup can bypass the constrained lifecycle controller.');
+$savedPost = $_POST;
+$_POST = [
+	'setupNetModes' => ['dmr','ysf'], 'setupCallsign' => 'KE7WIL', 'setupDigitalId' => '3224939',
+	'setupMainNode' => '641890', 'setupNetDmrDestination' => '86753', 'setupTgifAuthMode' => 'secured',
+	'setupNetYsfDestination' => '64189', 'setupNetYsfName' => 'US-KE7WIL-YSF',
+	'setupNetYsfHost' => '127.0.0.1', 'setupNetYsfPort' => '42000',
+];
+$selectiveError = '';
+$selectivePayload = asrSettingsNetBridgeSetupPayload(false, $selectiveError);
+check($selectiveError === '' && array_keys($selectivePayload['modes']) === ['dmr','ysf'],
+	'DMR/YSF-only Net Bridge setup did not ignore unselected mode fields.');
+$_POST = $savedPost;
+$reapplySource = file_get_contents($root . '/scripts/asr-reapply.sh');
+check(is_string($reapplySource)
+	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-plan')
+	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-install'),
+	'Web provisioning lacks constrained sudo access to the unified Net Bridge helper.');
+
+$unified = [];
+foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
+	$unified[] = ['id'=>$mode . '_net', 'mode'=>$mode, 'node'=>'1999', 'cardType'=>$mode . '_net', 'title'=>strtoupper($mode) . ' Net Bridge'];
+ob_start();
+asrSettingsUnifiedNetBridgePanel($unified, 'dmr');
+$unifiedHtml = (string)ob_get_clean();
+check(substr_count($unifiedHtml, 'asr-unified-net-bridge-settings') === 1
+	&& substr_count($unifiedHtml, 'class="asr-net-mode-settings"') === 5
+	&& substr_count($unifiedHtml, 'asr-bridge-drag-handle') === 1
+	&& !str_contains($unifiedHtml, 'asr-bridge-delete'),
+	'Existing unified configuration did not render as one Settings bridge with five modes.');
+check(str_contains($settingsSource, "function orderRows()")
+	&& str_contains($settingsSource, "closest('.asr-bridge-order-item')")
+	&& str_contains($settingsSource, '$lastNetBridgeIndex'),
+	'Unified Net Bridge ordering is not wired into the shared drag controls.');
+check(str_contains($settingsSource, 'TGIF device DMR ID/ESSID:')
+	&& str_contains($settingsSource, 'TGIFSTG1')
+	&& str_contains($settingsSource, 'short hexadecimal Token ID'),
+	'DMR security guidance does not distinguish the exact device ID and full TGIF secret.');
+check(str_contains($settingsSource, 'data-net-bridge-reset-button')
+	&& str_contains($settingsSource, "'net-bridge-reset'")
+	&& str_contains($settingsSource, 'Other bridges and saved settings will not be changed.'),
+	'Settings does not expose the confirmed, isolated Net Bridge runtime reset.');
+
+$ysfHosts = tempnam(sys_get_temp_dir(), 'asr-ysf-hosts-');
+check(is_string($ysfHosts), 'Unable to create temporary YSF catalog.');
+file_put_contents($ysfHosts, "32453;KC-WIDE;test;example.net;42000\n");
+$duplicateError = '';
+$duplicateAccepted = asrSettingsValidateCustomYsfCatalog([[
+	'cardType'=>'ysf_net', 'ysfHostsPath'=>$ysfHosts,
+	'ysfCustomReflectors'=>[['id'=>'32453','name'=>'KC-WIDE','host'=>'remote.example','port'=>42000]],
+]], $duplicateError);
+unlink($ysfHosts);
+check($duplicateAccepted === false && str_contains($duplicateError, 'catalog destination 32453'),
+	'Duplicate custom YSF reflector was not rejected before save.');
+
+function expectFailure(callable $operation, string $needle): void {
+	try {
+		$operation();
+		throw new RuntimeException('Expected Settings validation to fail.');
+	} catch(RuntimeException $error) {
+		check(strpos($error->getMessage(), $needle) !== false, 'Unexpected validation error: ' . $error->getMessage());
+	}
+}
+
+function postedBridge(array $values, array $existing = [], string $mainNode = '123456'): array {
+	$defaults = [
+		'bridgeId' => [''], 'bridgeMode' => ['dmr'], 'bridgeNode' => ['4321'],
+		'bridgeTitle' => [''], 'bridgeDetailTitle' => [''], 'bridgeFriendlyName' => [''],
+		'bridgeClientSource' => ['auto'], 'bridgeClientUrl' => [''], 'bridgeClientUsername' => [''],
+		'bridgeClientPassword' => [''], 'bridgeCardType' => ['standard'], 'bridgeFixedRecovery' => ['0'],
+		'bridgeBackendMode' => ['managed'], 'bridgePermission' => [''], 'bridgeApprovedDestinations' => [''],
+		'bridgeAbinfoPath' => [''], 'bridgeDvswitchScript' => [''], 'bridgeAnalogConfig' => [''],
+		'bridgeYsfGatewayConfig' => [''], 'bridgeMmdvmConfig' => [''], 'bridgeYsfGatewayService' => [''],
+		'bridgeMmdvmService' => [''], 'bridgeAnalogBridgeService' => [''], 'bridgeEmulatorService' => [''],
+		'bridgeYsfHostsPath' => [''], 'bridgeYsfCustomReflectors' => [''], 'bridgeAllowTune' => ['0'],
+		'bridgeInstance' => [''], 'bridgeGatewayConfig' => [''], 'bridgeGatewayService' => [''],
+		'bridgeDigitalMmdvmService' => [''], 'bridgeDigitalAnalogService' => [''], 'bridgeDigitalEmulatorService' => [''],
+		'bridgeMqttName' => [''], 'bridgeMmdvmMqttName' => [''], 'bridgeFixedDestination' => [''],
+		'bridgeM17Callsign' => [''], 'bridgeM17BindPort' => [''], 'bridgeM17UsrpRxPort' => [''],
+		'bridgeM17UsrpTxPort' => [''], 'bridgeM17Reflector' => [''], 'bridgeM17Host' => [''],
+		'bridgeM17Port' => [''], 'bridgeM17Module' => [''],
+	];
+	$_POST = array_replace($defaults, $values);
+	$error = '';
+	$rows = asrSettingsBridgeRowsFromPost($error, $existing, $mainNode);
+	if($error !== '') throw new RuntimeException($error);
+	check(count($rows) === 1, 'Expected exactly one bridge row.');
+	return $rows[0];
+}
+
+foreach(['dmr', 'ysf', 'zello'] as $mode) {
+	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
+	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");
+}
+$existingP25 = [[
+	'id'=>'p25_net', 'mode'=>'p25', 'node'=>'1999', 'cardType'=>'p25_net',
+	'backendMode'=>'managed', 'digitalMode'=>'p25', 'bridgeRole'=>'net',
+	'instance'=>'p25_net', 'gatewayConfig'=>'/opt/P25Gateway_p25_net/P25Gateway.ini',
+	'gatewayService'=>'p25gateway-p25_net.service', 'mmdvmService'=>'mmdvm-bridge-p25_net.service',
+	'analogBridgeService'=>'analog-bridge-p25_net.service', 'mqttHost'=>'127.0.0.1',
+	'mqttPort'=>39971, 'mqttName'=>'p25_p25_net', 'mmdvmMqttName'=>'mmdvm_p25_p25_net',
+	'bridgePermission'=>'self_owned', 'fixedDestination'=>'64189',
+	'approvedDestinations'=>['64189'], 'allowTune'=>true,
+	'setupPorts'=>['mqtt'=>39971, 'usrp_rx'=>52000, 'usrp_tx'=>52001],
+]];
+$savedP25 = postedBridge([
+	'bridgeId'=>['p25_net'], 'bridgeMode'=>['p25'], 'bridgeNode'=>['1999'],
+	'bridgeCardType'=>['p25_net'], 'bridgeBackendMode'=>['managed'],
+	'bridgePermission'=>['self_owned'], 'bridgeInstance'=>['p25_net'],
+	'bridgeGatewayConfig'=>['/opt/P25Gateway_p25_net/P25Gateway.ini'],
+	'bridgeGatewayService'=>['p25gateway-p25_net.service'],
+	'bridgeDigitalMmdvmService'=>['mmdvm-bridge-p25_net.service'],
+	'bridgeDigitalAnalogService'=>['analog-bridge-p25_net.service'],
+	'bridgeMqttName'=>['p25_p25_net'], 'bridgeMmdvmMqttName'=>['mmdvm_p25_p25_net'],
+	'bridgeFixedDestination'=>['64189'], 'bridgeApprovedDestinations'=>['64189'],
+], $existingP25);
+check(($savedP25['mqttPort'] ?? null) === 39971
+	&& ($savedP25['setupPorts']['mqtt'] ?? null) === 39971,
+	'P25 Settings save replaced the provisioned MQTT port with the legacy default.');
+check(asrSettingsDefaultDetailTitle('zello') === 'Recent Talkers', 'Zello detail default is not mode-aware.');
+check(asrSettingsDefaultDetailTitle('p25') === 'Linked Clients', 'P25 detail default is not mode-aware.');
+check(asrSettingsClientPayloadHasSupportedShape([]), 'An authoritative empty client list was rejected.');
+check(asrSettingsClientPayloadHasSupportedShape(['clients' => []]), 'A grouped client list was rejected.');
+check(!asrSettingsClientPayloadHasSupportedShape(['status' => 'ok']), 'An unrelated JSON object was accepted as a client feed.');
 $filterError = '';
 check(asrSettingsCleanFilteredStations("n0call\nSRV_custom,n0call", $filterError) === ['N0CALL', 'SRV_CUSTOM'], 'Custom station filters were not normalized and deduplicated.');
 check($filterError === '', 'Valid custom station filters reported an error.');
@@ -91,6 +224,19 @@ check(asrSettingsDefaultConfig()['filterServiceStations'] === true, 'Built-in st
 
 check(str_contains($settingsSource, '$next[\'bridgeOrderVersion\'] = 2;'), 'Bridge saves do not mark the explicit unified order schema.');
 check(str_contains($settingsSource, 'if($bridgeOrderVersion < 2)'), 'Legacy bridge ordering does not migrate standard cards ahead of the unified group.');
+
+ob_start();
+asrSettingsBridgePanel(['id'=>'zello','mode'=>'zello','cardType'=>'standard','node'=>'1003','title'=>'Zello'], [], [], ['available'=>true,'bridges'=>[]]);
+$zelloMarkup = (string)ob_get_clean();
+check(strpos($zelloMarkup, 'data-bridge-tab-label="Recent Talkers"') !== false, 'Zello talker tab was not named for its real data.');
+check(strpos($zelloMarkup, 'not a list of signed-in Zello users') !== false && strpos($zelloMarkup, 'does not kick or disconnect Zello accounts') !== false, 'Zello talker capability is misleading.');
+
+ob_start();
+asrSettingsBridgePanel(['id'=>'dmr','mode'=>'dmr','cardType'=>'standard','node'=>'1002','title'=>'DMR'], [], [], ['available'=>true,'bridges'=>[]]);
+$dmrMarkup = (string)ob_get_clean();
+check(strpos($dmrMarkup, 'data-bridge-tab-label="TGIF Sessions"') !== false, 'DMR does not expose the authoritative TGIF session workflow.');
+check((bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dmrMarkup), 'DMR still exposes the duplicate generic client-source path.');
+check(strpos($dmrMarkup, 'name="bridgeDetailTitle[]"') !== false, 'Advanced client/talker heading lost its round-trip field name.');
 
 $display = postedBridge(['bridgeMode' => ['p25'], 'bridgeBackendMode' => ['display_only']]);
 check($display['backendMode'] === 'display_only' && !isset($display['gatewayConfig']), 'P25 display-only card gained managed resources.');
@@ -319,7 +465,6 @@ $_POST = [
 	'setupBridgeId' => 'dmr_tgif', 'setupTitle' => 'DMR Bridge',
 	'setupCallsign' => 'ke7wil', 'setupDigitalId' => '3224939',
 	'setupDestination' => '86753', 'setupTgifEssid' => '50',
-	'dmrEnabled' => 'true', 'm17Enabled' => 'false',
 ];
 $dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
 
