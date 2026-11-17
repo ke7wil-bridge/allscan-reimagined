@@ -136,3 +136,21 @@ with tempfile.TemporaryDirectory(prefix="asr-native-admin-test-") as raw:
     finally:
         m17.close()
     print("native admin proxy ban matches callsign suffixes (M17 KE7WIL-02): PASS")
+
+    # A proxy whose reflector port has no listener must not claim enforcement.
+    nxdn = Harness("nxdn", root / "nxdn")
+    try:
+        nxdn.upstream.close()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            manifest = json.loads((nxdn.runtime / "nxdn" / "capabilities.json").read_text())
+            if manifest["healthy"] is False:
+                break
+            time.sleep(0.2)
+        assert manifest["healthy"] is False and manifest["upstreamListening"] is False
+        assert manifest["banClient"] is False and manifest["kickClient"] is False
+    finally:
+        nxdn.process.terminate()
+        nxdn.process.wait(timeout=5)
+        nxdn.client.close()
+    print("native admin proxy reports unhealthy with no reflector listener: PASS")

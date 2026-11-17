@@ -148,6 +148,24 @@ class Session:
         self.upstream.close()
 
 
+def upstream_listening():
+    """True when some local UDP socket is bound to the reflector port.
+
+    Kentucky's proxies pointed at a retired port for weeks while reporting
+    healthy, so Global Ban claimed verified enforcement that never happened.
+    """
+    wanted = f":{UPSTREAM_PORT:04X}"
+    for table in ("/proc/net/udp", "/proc/net/udp6"):
+        try:
+            with open(table, encoding="ascii") as handle:
+                next(handle, None)
+                if any(line.split()[1].endswith(wanted) for line in handle if len(line.split()) > 1):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
 def validate_environment():
     if not ID_RE.fullmatch(BRIDGE_ID):
         raise ValueError("Invalid ASR bridge identifier.")
@@ -178,6 +196,7 @@ def main():
     rules, applied, healthy = [], "", False
     policy_stamp = None
     last_manifest = 0.0
+    last_reachable = None
     print(
         f"ASR {MODE.upper()} admin proxy active on {len(publics)} frontend(s): "
         f"{PUBLIC_PORT} to {UPSTREAM_HOST}:{UPSTREAM_PORT}",
@@ -281,15 +300,21 @@ def main():
             path.unlink(missing_ok=True)
 
         if now - last_manifest >= 1:
+            reachable = upstream_listening()
+            if reachable != last_reachable:
+                state = "is listening" if reachable else "has no listener; reporting unhealthy"
+                print(f"Reflector port {UPSTREAM_PORT} {state}.", flush=True)
+                last_reachable = reachable
+            serving = healthy and reachable
             atomic_json(RUNTIME / "capabilities.json", {
                 "schema": 1, "bridgeId": BRIDGE_ID, "mode": MODE,
                 "adapter": "asr-native-udp-proxy", "heartbeatEpoch": int(time.time()),
                 "enforcementEvidence": "relay-observed-v1",
-                "healthy": healthy, "listClients": True,
-                "kickClient": healthy, "kickContract": "disconnect-hold-v1",
+                "healthy": serving, "listClients": True, "upstreamListening": reachable,
+                "kickClient": serving, "kickContract": "disconnect-hold-v1",
                 "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": False,
                 "kickHoldSeconds": KICK_HOLD_SECONDS,
-                "banClient": healthy, "unbanClient": healthy, "listBans": healthy,
+                "banClient": serving, "unbanClient": serving, "listBans": serving,
                 "banContract": "global-timed-v1", "appliedPolicyDigest": applied,
             }, mode=0o644)
             last_manifest = now
