@@ -180,7 +180,10 @@ python3 "$ROOT/scripts/asr-favorites-order-self-test.py"
 python3 "$ROOT/scripts/asr-favorites-source.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate-integration-self-test.py"
-python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
+# Exercises asr-configure.sh, which needs PHP like the PHP self-tests above.
+if command -v php >/dev/null 2>&1; then
+  python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
+fi
 python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
