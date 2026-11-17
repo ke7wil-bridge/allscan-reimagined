@@ -45,6 +45,20 @@ with tempfile.TemporaryDirectory() as temporary:
             raise AssertionError("protected service identity was bannable")
         except ValueError:
             pass
+        # The local node, bridge nodes and Net node 1999 are never bannable,
+        # directly or through a covering prefix rule.
+        config = Path(temporary) / "config.json"
+        config.write_text(json.dumps({"node": "674982", "callsign": "KN4EWT",
+                                      "bridges": [{"id": "dmr", "node": "1001"}, {"id": "zello", "node": "1006"}]}))
+        ban.CONFIG = str(config)
+        for rule in ("674982", "6749*", "1001", "1006", "1999", "1*", "KN4EWT", "KN4E*"):
+            try:
+                ban.assert_ban_allowed(rule)
+                raise AssertionError(f"protected infrastructure identity was bannable: {rule}")
+            except ValueError:
+                pass
+        for rule in ("N0ASRT", "674983", "2*"):
+            ban.assert_ban_allowed(rule)
     finally:
         os.environ.pop("ASR_GLOBAL_BAN_ROOT", None)
 

@@ -55,6 +55,15 @@ def protected_identities():
         identity = str(value).strip().upper()
         if re.fullmatch(r"[A-Z0-9][A-Z0-9_./-]{0,14}", identity):
             identities.add(identity)
+    # The node's own AllStar number, its bridge nodes and the shared Net
+    # Bridge node are infrastructure, never ban targets. A prefix rule that
+    # would cover any of them (for example 6749* or 1*) is refused too.
+    nodes = [payload.get("node"), "1999"]
+    nodes += [bridge.get("node") for bridge in payload.get("bridges", []) if isinstance(bridge, dict)]
+    for value in nodes:
+        node = str(value or "").strip()
+        if re.fullmatch(r"[0-9]{3,10}", node):
+            identities.add(node)
     return identities
 
 
