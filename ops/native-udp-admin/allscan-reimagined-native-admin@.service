@@ -22,7 +22,12 @@ LockPersonality=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictSUIDSGID=true
 ReadOnlyPaths=/var/lib/allscan-reimagined/admin
-ReadWritePaths=/run/asr-standalone-admin/%i
+# systemd creates the per-bridge runtime directory (also after a reboot clears
+# /run) and makes it the only writable path. The instance name must equal the
+# bridge card ID in config.json, e.g. allscan-reimagined-native-admin@ysf_net.
+RuntimeDirectory=asr-standalone-admin/%i
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=restart
 
 [Install]
 WantedBy=multi-user.target

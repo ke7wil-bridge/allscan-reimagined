@@ -52,6 +52,8 @@ udp_admin = (ROOT / "scripts/asr-native-udp-admin.py").read_text(encoding="utf-8
 assert f'"ASR_GLOBAL_POLICY_DIR", "{STORE}"' in udp_admin and 'POLICY_DIR / "global-bans.list"' in udp_admin
 unit = (ROOT / "ops/native-udp-admin/allscan-reimagined-native-admin@.service").read_text(encoding="utf-8")
 assert f"ReadOnlyPaths={STORE}" in unit and "urf" not in unit.lower()
+# The runtime directory must survive a reboot clearing /run (#134 Kentucky deploy).
+assert "RuntimeDirectory=asr-standalone-admin/%i" in unit and "ReadWritePaths=/run/asr-standalone-admin" not in unit
 
 reapply = (ROOT / "scripts/asr-reapply.sh").read_text(encoding="utf-8")
 assert 'GLOBAL_BAN_DIR="$DATA_DIR/admin"' in reapply
