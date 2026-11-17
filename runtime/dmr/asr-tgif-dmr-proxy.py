@@ -31,6 +31,30 @@ ID_LOOKUP_FILE = os.environ.get("DMR_ID_LOOKUP_FILE", "")
 CALLSIGN = os.environ.get("CALLSIGN", "").strip().upper()
 id_lookup_cache = {"mtime": -1.0, "values": {}}
 last_dropped_kick = {}
+
+
+def _kick_hold_seconds():
+    """A Kick refuses the station's media for a bounded hold (disconnect-hold-v1)."""
+    try:
+        value = int(os.environ.get("DMR_KICK_HOLD_SECONDS", "300"))
+    except ValueError:
+        value = 300
+    return min(3600, max(30, value))
+
+
+KICK_HOLD_SECONDS = _kick_hold_seconds()
+
+
+def kick_active(started, epoch):
+    return 0 <= epoch - int(started) < KICK_HOLD_SECONDS
+
+
+def applied_kicks(policy, epoch):
+    """Kick tokens this proxy is enforcing right now; the adapter's Kick proof."""
+    tokens = policy.get("kick_tokens", {})
+    return {str(key): tokens[str(key)] for key, started in policy.get("kicked_ids", {}).items()
+            if kick_active(started, epoch) and isinstance(tokens.get(str(key)), str)
+            and re.fullmatch(r"[a-f0-9]{32}", tokens[str(key)])}
 last_evidence_heartbeat = 0
 last_evidence_digest = ""
 
@@ -206,6 +230,8 @@ def write_enforcement_evidence(policy, now=None, last_kick=None):
         "heartbeatEpoch": epoch,
         "appliedPolicyDigest": policy["policy_digest"],
         "lastKick": last_kick,
+        "kickHoldSeconds": KICK_HOLD_SECONDS,
+        "appliedKicks": applied_kicks(policy, epoch),
     }
     os.makedirs(os.path.dirname(EVIDENCE_FILE), mode=0o750, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".dmr-enforcement.", dir=os.path.dirname(EVIDENCE_FILE))
@@ -258,9 +284,7 @@ def admin_media_allowed(packet, direction, now=None):
     if key not in kicked:
         last_dropped_kick.pop(key, None)
         return True
-    started = int(kicked[key])
-    last_drop = int(last_dropped_kick.get(key, started))
-    if epoch - started > 10 and epoch - last_drop > 10:
+    if not kick_active(kicked[key], epoch):
         last_dropped_kick.pop(key, None)
         return True
     last_dropped_kick[key] = epoch
@@ -620,8 +644,13 @@ def self_test():
             assert evidence["contract"] == "dmr-local-media-v1"
             assert evidence["lastKick"] == {"dmrid": "1234567", "token": "d" * 32,
                                              "observedEpoch": 203, "direction": "inbound"}
+            assert evidence["appliedKicks"] == {"1234567": "d" * 32}
+            assert evidence["kickHoldSeconds"] == KICK_HOLD_SECONDS
             assert not admin_media_allowed(bytes(packet), "outbound", 208)
-            assert admin_media_allowed(bytes(packet), "outbound", 220)
+            # A quiet gap must not readmit the kicked station during the hold.
+            assert not admin_media_allowed(bytes(packet), "outbound", 220)
+            assert not admin_media_allowed(bytes(packet), "inbound", 202 + KICK_HOLD_SECONDS - 1)
+            assert admin_media_allowed(bytes(packet), "inbound", 202 + KICK_HOLD_SECONDS)
             other = bytearray(packet); other[5:8] = (7654321).to_bytes(3, "big")
             assert admin_media_allowed(bytes(other), "inbound", 208)
             policy["kicked_ids"] = {}; policy["kick_tokens"] = {}
@@ -631,6 +660,7 @@ def self_test():
             with open(globals()["EVIDENCE_FILE"], encoding="utf-8") as handle:
                 evidence = json.load(handle)
             assert evidence["heartbeatEpoch"] == 221 and evidence["lastKick"] is None
+            assert evidence["appliedKicks"] == {}
             with open(globals()["CONTROL_FILE"], "w", encoding="utf-8") as handle:
                 handle.write("{bad")
             assert not admin_media_allowed(bytes(packet), "inbound", 222)

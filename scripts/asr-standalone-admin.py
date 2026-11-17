@@ -237,7 +237,8 @@ def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict
     if not IDENTITY_RE.fullmatch(identity):
         raise AdminError("Invalid bridge client identity.")
     bridge = bridge_config(bridge_id)
-    if bridge["_mode"] == "dmr" and (not client_id.isdigit() or not 0 < int(client_id) < 2**24):
+    # DMR client IDs are 7-digit radio IDs or 9-digit hotspot IDs (radio ID + ESSID).
+    if bridge["_mode"] == "dmr" and (not re.fullmatch(r"[0-9]{1,9}", client_id) or int(client_id) < 1):
         raise AdminError("A current DMR client ID is required.")
     result = request(bridge, "kick", actor, identity=identity, clientId=client_id)
     expected_contract = str(manifest_for(bridge)[1].get("kickContract") or "")

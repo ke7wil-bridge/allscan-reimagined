@@ -18,6 +18,18 @@ NONCE_RE = re.compile(r"[a-f0-9]{32}")
 IDENTITY_RE = re.compile(r"[A-Z0-9][A-Z0-9_.\/-]{0,14}\*?")
 
 
+def radio_id(value: Any) -> int | None:
+    """Radio ID for a roster ID: a 9-digit hotspot ID is the 7-digit radio ID
+    plus a 2-digit ESSID, and DMR media always carries the 24-bit radio ID."""
+    text = str(value or "")
+    if not text.isdigit():
+        return None
+    number = int(text)
+    if number > 0xFFFFFF and len(text) == 9:
+        number //= 100
+    return number if 0 < number <= 0xFFFFFF else None
+
+
 def atomic(path: Path, payload: Any, mode: int = 0o640) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -88,6 +100,15 @@ def valid_enforcement(payload: dict[str, Any], now: int | None = None) -> bool:
             and abs((int(time.time()) if now is None else now) - epoch) <= 5)
 
 
+def kick_hold_seconds(payload: dict[str, Any]) -> int | None:
+    """The relay's attested Kick hold, or None for a relay that cannot hold (pre-#134)."""
+    hold = payload.get("kickHoldSeconds")
+    if isinstance(hold, int) and not isinstance(hold, bool) and 30 <= hold <= 3600 \
+            and isinstance(payload.get("appliedKicks"), dict):
+        return hold
+    return None
+
+
 def wait_for(path: Path, predicate, timeout: float = 8.0) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -135,8 +156,9 @@ def apply_policy(control: Path, policy: dict[str, Any], enforcement: Path | None
                 matched = callsign if callsign in exact else next(
                     (prefix + "*" for prefix in prefixes if callsign.startswith(prefix)), ""
                 )
-                if dmrid.isdigit() and 0 < int(dmrid) < 2**24 and matched:
-                    clients[dmrid] = matched
+                radio = radio_id(dmrid)
+                if radio is not None and matched:
+                    clients[str(radio)] = matched
         payload["banned_clients"] = clients
         payload["banned_ids"] = sorted(
             {int(rule) for rule in rules if rule.isdigit()}
@@ -157,43 +179,51 @@ def apply_policy(control: Path, policy: dict[str, Any], enforcement: Path | None
 def kick(identity: str, client_id: str, roster: Path, control: Path,
          enforcement: Path, token: str) -> int:
     identity = identity.upper()
-    if not client_id.isdigit() or not 0 < int(client_id) < 2**24:
+    if radio_id(client_id) is None:
         raise ValueError("current DMR client ID is invalid")
     matched = []
     for row in current_rows(roster):
         dmr_id = str(row.get("dmrid") or row.get("id") or "")
         callsign = str(row.get("callsign") or "").upper()
         if dmr_id == client_id and identity in {dmr_id, callsign}:
-            matched.append(int(dmr_id))
+            # Hold the radio itself: its media carries the radio ID, not the hotspot ID.
+            matched.append(radio_id(dmr_id))
     matched = sorted(set(matched))
     if not matched:
         raise ValueError("client is no longer connected")
     if len(matched) != 1:
         raise ValueError("client identity is ambiguous in the current roster")
+    try:
+        hold = kick_hold_seconds(wait_for(enforcement, lambda item: kick_hold_seconds(item) is not None, 3.0))
+    except ValueError:
+        raise ValueError("DMR relay does not support the Kick hold; update the relay") from None
     with control_lock(control):
         payload = control_payload(control); kicked = payload.get("kicked_ids", {})
         if not isinstance(kicked, dict): kicked = {}
-        epoch = int(time.time())
-        for dmr_id in matched: kicked[str(dmr_id)] = epoch
         tokens = payload.get("kick_tokens", {})
         if not isinstance(tokens, dict): tokens = {}
+        epoch = int(time.time())
+        # Drop Kicks whose hold has ended so the control file stays small.
+        for key in [key for key, started in kicked.items()
+                    if not isinstance(started, int) or epoch - started >= hold]:
+            kicked.pop(key, None); tokens.pop(key, None)
+        for dmr_id in matched: kicked[str(dmr_id)] = epoch
         tokens[str(matched[0])] = token
         payload["kicked_ids"] = kicked; payload["kick_tokens"] = tokens; atomic(control, payload)
     expected_digest = str(payload.get("policy_digest") or "")
+    # The relay acknowledges the Kick as soon as it reads it, so a silent
+    # station can be kicked too; it then refuses that station's media for the hold.
     wait_for(enforcement, lambda item: valid_enforcement(item)
              and item.get("appliedPolicyDigest") == expected_digest
-             and isinstance(item.get("lastKick"), dict)
-             and item["lastKick"].get("dmrid") == str(matched[0])
-             and item["lastKick"].get("token") == token
-             and item["lastKick"].get("direction") in {"incoming", "inbound", "outgoing", "outbound"}
-             and isinstance(item["lastKick"].get("observedEpoch"), int)
-             and abs(int(time.time()) - item["lastKick"]["observedEpoch"]) <= 5)
+             and isinstance(item.get("appliedKicks"), dict)
+             and item["appliedKicks"].get(str(matched[0])) == token)
     return len(matched)
 
 
 def capability(bridge_id: str, digest: str, enforcement: Path | None = None) -> dict[str, Any]:
     evidence = enforcement_payload(enforcement) if enforcement is not None else {}
     healthy = valid_enforcement(evidence)
+    hold = kick_hold_seconds(evidence)
     ready = (healthy
              and bool(re.fullmatch(r"[a-f0-9]{64}", str(digest)))
              and evidence.get("appliedPolicyDigest") == digest)
@@ -201,8 +231,9 @@ def capability(bridge_id: str, digest: str, enforcement: Path | None = None) -> 
             "adapter": "direct-dmr-policy-v2", "healthy": healthy,
             "enforcementEvidence": "relay-observed-v1",
             "heartbeatEpoch": int(time.time()), "listClients": True,
-            "kickClient": ready, "kickContract": "local-media-block-until-reconnect",
-            "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": True,
+            "kickClient": ready and hold is not None, "kickContract": "disconnect-hold-v1",
+            "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": False,
+            "kickHoldSeconds": hold if hold is not None else 300,
             "banClient": ready, "unbanClient": ready, "listBans": ready,
             "banContract": "global-timed-v1", "appliedPolicyDigest": digest}
 
@@ -223,7 +254,8 @@ def handle(request_path: Path, bridge_id: str, roster: Path, control: Path, enfo
             raise ValueError("kick identity is invalid")
         result.update({"identity": identity, "clientId": client_id,
                        "removed": kick(identity, client_id, roster, control, enforcement, nonce),
-                       "enforcement": "local-media-block-until-reconnect"})
+                       "enforcement": "disconnect-hold-v1",
+                       "holdSeconds": kick_hold_seconds(enforcement_payload(enforcement))})
     elif action == "reconcile":
         digest = apply_policy(control, request.get("policy") if isinstance(request.get("policy"), dict) else {}, enforcement, roster)
         result.update({"appliedPolicyDigest": digest, "removed": 0})

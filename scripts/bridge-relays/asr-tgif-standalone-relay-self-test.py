@@ -35,36 +35,36 @@ with tempfile.TemporaryDirectory() as directory:
     assert not Path(relay.EVIDENCE_FILE).exists(), 'Ban must not forge Kick evidence'
     policy(kicked_ids={sid: 102}, kick_tokens={sid: token})
     assert not Path(relay.EVIDENCE_FILE).exists(), 'Control update alone must not acknowledge Kick'
-    assert not relay.admin_allowed(packet, 103)
-    assert receipt()['lastKick'] == {'dmrid': sid, 'token': token}
+    # The Kick is acknowledged once the relay has read and is holding it, even
+    # while the station is silent (no transmission is needed to confirm it).
+    relay.refresh_evidence(102)
+    assert receipt()['appliedKicks'] == {sid: token}
     assert receipt()['appliedPolicyDigest'] == digest
-    first = receipt()['lastKick']
+    assert receipt()['kickHoldSeconds'] == relay.KICK_HOLD_SECONDS
+    assert not relay.admin_allowed(packet, 103)
     # A second Kick must not be acknowledged using the first Kick's token.
     next_token = 'c' * 32
     policy(kicked_ids={sid: 104}, kick_tokens={sid: next_token})
-    assert receipt()['lastKick'] == first
-    assert not relay.admin_allowed(packet, 105)
-    assert receipt()['lastKick'] == {'dmrid': sid, 'token': next_token}
+    assert receipt()['appliedKicks'] == {sid: token}
     relay.refresh_evidence(106)
-    assert receipt()['lastKick'] == {'dmrid': sid, 'token': next_token}
+    assert receipt()['appliedKicks'] == {sid: next_token}
     assert receipt()['heartbeatEpoch'] == 106
     policy(policy_digest='d' * 64)
     relay.refresh_evidence(107)
-    assert receipt()['lastKick'] is None, 'policy change must invalidate old Kick receipt'
+    assert receipt()['appliedKicks'] == {}, 'cleared Kick must not stay acknowledged'
     assert receipt()['appliedPolicyDigest'] == 'd' * 64
     policy(kicked_ids={sid: 104}, kick_tokens={sid: next_token})
-    relay.refresh_evidence(108)
-    assert receipt()['lastKick'] is None, 'old receipt must not revive on policy rollback'
 
-    # No receipt is allowed for a different subscriber.
+    # Unrelated subscribers are never held off.
     other = bytearray(packet)
     other[5:8] = (7654321).to_bytes(3, 'big')
     assert relay.admin_allowed(other, 106)
-    assert receipt()['lastKick'] is None, 'unrelated traffic cannot restore invalidated receipt'
     assert json.loads(Path(relay.CONTROL_FILE).read_text())['kicked_ids'][sid] == 104
     assert not relay.admin_allowed(packet, 110)
     assert not relay.admin_allowed(packet, 114), 'continuous stream must remain blocked'
-    assert relay.admin_allowed(packet, 125), 'quiet gap permits a new stream'
+    assert not relay.admin_allowed(packet, 125), 'a quiet gap must not readmit a kicked station'
+    assert not relay.admin_allowed(packet, 104 + relay.KICK_HOLD_SECONDS - 1)
+    assert relay.admin_allowed(packet, 104 + relay.KICK_HOLD_SECONDS), 'Kick hold expires'
     policy()
     assert relay.admin_allowed(packet, 126), 'Unban / cleared Kick permits traffic'
     Path(relay.CONTROL_FILE).write_text('{bad')

@@ -45,6 +45,15 @@ if __name__ == '__main__':
         adapter.atomic(evidence, {'schema': 1, 'contract': 'dmr-local-media-v1',
                                   'heartbeatEpoch': int(time.time()),
                                   'appliedPolicyDigest': digest})
-        assert adapter.capability('test', digest, evidence)['kickClient'], 'matching evidence must enable controls'
+        legacy = adapter.capability('test', digest, evidence)
+        assert legacy['banClient'] and not legacy['kickClient'], 'a relay without the Kick hold must not offer Kick'
+        adapter.atomic(evidence, {'schema': 1, 'contract': 'dmr-local-media-v1',
+                                  'heartbeatEpoch': int(time.time()),
+                                  'appliedPolicyDigest': digest,
+                                  'kickHoldSeconds': 300, 'appliedKicks': {}})
+        current = adapter.capability('test', digest, evidence)
+        assert current['kickClient'], 'matching evidence must enable controls'
+        assert current['kickContract'] == 'disconnect-hold-v1' and current['kickHoldSeconds'] == 300
+        assert current['kickAllowsImmediateReconnect'] is False
         assert not adapter.capability('test', 'c' * 64, evidence)['kickClient'], 'restart must not trust unrelated policy' 
         print('DMR admin concurrent control writers: PASS')

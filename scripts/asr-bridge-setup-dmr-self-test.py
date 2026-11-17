@@ -154,10 +154,12 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["healthy"] is False and capabilities["kickClient"] is False
     enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
-        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64}) + "\n")
+        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64,
+        "kickHoldSeconds": 300, "appliedKicks": {}}) + "\n")
     capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["kickClient"] is True
-    assert capabilities["kickContract"] == "local-media-block-until-reconnect"
+    assert capabilities["kickContract"] == "disconnect-hold-v1"
+    assert capabilities["kickHoldSeconds"] == 300 and capabilities["kickAllowsImmediateReconnect"] is False
     assert capabilities["banClient"] is True and capabilities["unbanClient"] is True
     assert capabilities["banContract"] == "global-timed-v1"
     active = admin.active_policy_rules({"rules": [], "timedBans": {
@@ -172,11 +174,8 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
             tokens = payload.get("kick_tokens", {})
             digest = payload.get("policy_digest", "")
             proof = {"schema": 1, "contract": "dmr-local-media-v1",
-                     "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": digest}
-            if tokens:
-                dmrid, token = next(iter(tokens.items()))
-                proof["lastKick"] = {"dmrid": dmrid, "token": token,
-                                     "observedEpoch": int(time.time()), "direction": "inbound"}
+                     "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": digest,
+                     "kickHoldSeconds": 300, "appliedKicks": dict(tokens)}
             enforcement.write_text(json.dumps(proof) + "\n")
             time.sleep(.01)
     worker = threading.Thread(target=relay_evidence, daemon=True); worker.start()
@@ -227,7 +226,9 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert capability_path.is_file()
     assert manifest_runtime.stat().st_mode & 0o777 == 0o755
     assert capability_path.stat().st_mode & 0o777 == 0o644
-    assert json.loads(capability_path.read_text())["kickClient"] is True
+    upgraded_caps = json.loads(capability_path.read_text())
+    # A relay that predates the Kick hold keeps Ban but must not offer Kick.
+    assert upgraded_caps["banClient"] is True and upgraded_caps["kickClient"] is False
     upgraded_control = json.loads(control.read_text())
     assert upgraded_control["banned_ids"] == [314133]
     assert "3205161" in upgraded_control["kicked_ids"]

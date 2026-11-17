@@ -20,6 +20,30 @@ ROSTER_FILE = os.environ.get("DMR_ROSTER_FILE", "/run/allscan-reimagined/tgif-us
 ROSTER_MAX_AGE = 30
 
 
+def _kick_hold_seconds():
+    """A Kick refuses the station's media for a bounded hold (disconnect-hold-v1)."""
+    try:
+        value = int(os.environ.get("DMR_KICK_HOLD_SECONDS", "300"))
+    except ValueError:
+        value = 300
+    return min(3600, max(30, value))
+
+
+KICK_HOLD_SECONDS = _kick_hold_seconds()
+
+
+def kick_active(started, epoch):
+    return 0 <= epoch - int(started) < KICK_HOLD_SECONDS
+
+
+def applied_kicks(policy, epoch):
+    """Kick tokens this relay is enforcing right now; the adapter's Kick proof."""
+    tokens = policy.get("kick_tokens", {})
+    return {str(key): tokens[str(key)] for key, started in policy.get("kicked_ids", {}).items()
+            if kick_active(started, epoch) and isinstance(tokens.get(str(key)), str)
+            and re.fullmatch(r"[a-f0-9]{32}", tokens[str(key)])}
+
+
 def destination(packet):
     return int.from_bytes(packet[8:11], "big") if packet.startswith(b"DMRD") and len(packet) >= 16 else None
 
@@ -100,13 +124,25 @@ def read_fresh_roster(now=None):
     return rows
 
 
+def roster_radio_id(value):
+    """Radio ID for a roster row: a 9-digit hotspot ID is the 7-digit radio ID
+    plus a 2-digit ESSID, and DMR media always carries the 24-bit radio ID."""
+    text = str(value or "")
+    if not text.isdigit():
+        return None
+    number = int(text)
+    if number > 0xFFFFFF and len(text) == 9:
+        number //= 100
+    return number if 0 < number <= 0xFFFFFF else None
+
+
 def callsign_for_id(sid, now=None):
     """Resolve a unique roster callsign; unknown identities cannot bypass name bans."""
     rows = read_fresh_roster(now)
     epoch = time.time() if now is None else now
     names = {str(row.get("callsign", "")).strip().upper()
              for row in rows if isinstance(row, dict)
-             and str(row.get("dmrid") or row.get("id") or "") == str(sid)
+             and roster_radio_id(row.get("dmrid") or row.get("id")) == int(sid)
              and ("last_seen_epoch" not in row or
                   (isinstance(row["last_seen_epoch"], (int, float)) and
                    0 <= epoch - row["last_seen_epoch"] <= ROSTER_MAX_AGE))
@@ -137,21 +173,10 @@ def admin_allowed(packet, now=None):
         if not isinstance(kicked, dict):
             return False
         key = str(sid)
-        if key not in kicked:
+        if key not in kicked or not kick_active(kicked[key], epoch):
             _last_dropped_kick.pop(key, None)
             return True
-        started = int(kicked[key])
-        if epoch - started > 10 and epoch - _last_dropped_kick.get(key, started) > 10:
-            _last_dropped_kick.pop(key, None)
-            return True
-        token = payload.get("kick_tokens", {}).get(key)
         _last_dropped_kick[key] = epoch
-        if isinstance(token, str) and re.fullmatch(r"[a-f0-9]{32}", token):
-            digest = payload.get("policy_digest", "")
-            if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest):
-                write_evidence({"schema": 1, "contract": "dmr-local-media-v1", "heartbeatEpoch": epoch,
-                                "appliedPolicyDigest": digest,
-                                "lastKick": {"dmrid": key, "token": token}})
         return False
     except (OSError, ValueError, TypeError, AttributeError):
         # Never claim successful policy enforcement when the control is unreadable.
@@ -190,9 +215,12 @@ def refresh_evidence(now=None):
     if not (isinstance(last_kick, dict)
             and policy["kick_tokens"].get(last_kick.get("dmrid")) == last_kick.get("token")):
         last_kick = None
+    epoch = int(time.time() if now is None else now)
     write_evidence({"schema": 1, "contract": "dmr-local-media-v1",
-                    "heartbeatEpoch": int(time.time() if now is None else now),
-                    "appliedPolicyDigest": digest, "lastKick": last_kick})
+                    "heartbeatEpoch": epoch,
+                    "appliedPolicyDigest": digest, "lastKick": last_kick,
+                    "kickHoldSeconds": KICK_HOLD_SECONDS,
+                    "appliedKicks": applied_kicks(policy, epoch)})
 
 
 UPSTREAM_ERRORS = (ConnectionRefusedError, ConnectionResetError, TimeoutError)
@@ -302,10 +330,19 @@ def self_test():
             json.dump({"banned_ids": [1234567], "kicked_ids": {}}, handle)
         assert not admin_allowed(packet)
         with open(CONTROL_FILE, "w", encoding="utf-8") as handle:
-            json.dump({"banned_ids": [], "kicked_ids": {"1234567": 100}}, handle)
+            json.dump({"banned_ids": [], "kicked_ids": {"1234567": 100},
+                       "kick_tokens": {"1234567": "a" * 32}, "policy_digest": "b" * 64}, handle)
         assert not admin_allowed(packet, 105)
-        assert admin_allowed(packet, 120)
+        # The station keys up again after a quiet gap: still refused during the hold.
+        assert not admin_allowed(packet, 100 + KICK_HOLD_SECONDS - 1)
+        assert admin_allowed(packet, 100 + KICK_HOLD_SECONDS)
         assert json.load(open(CONTROL_FILE, encoding="utf-8"))["kicked_ids"] == {"1234567": 100}
+        refresh_evidence(105)
+        evidence = json.load(open(EVIDENCE_FILE, encoding="utf-8"))
+        assert evidence["appliedKicks"] == {"1234567": "a" * 32}
+        assert evidence["kickHoldSeconds"] == KICK_HOLD_SECONDS
+        refresh_evidence(100 + KICK_HOLD_SECONDS)
+        assert json.load(open(EVIDENCE_FILE, encoding="utf-8"))["appliedKicks"] == {}
     original = bytes(packet)
     rewritten = rewrite_outbound(original, tg, subscriber, 313547501)
     assert rewritten[5:8] == subscriber.to_bytes(3, "big")

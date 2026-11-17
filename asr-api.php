@@ -1239,7 +1239,8 @@ function asr_standalone_kick_command(string $bridgeId, string $callsign, string 
     $callsign = strtoupper(trim($callsign));
     if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid bridge client identity.');
     if (asr_bridge_mode($bridge) === 'dmr'
-        && (!preg_match('/^[0-9]{1,8}$/D', $clientId) || (int) $clientId < 1 || (int) $clientId > 16777215)) {
+        && (!preg_match('/^[0-9]{1,9}$/D', $clientId) || (int) $clientId < 1)) {
+        // 7-digit radio IDs, or 9-digit hotspot IDs (radio ID + 2-digit ESSID).
         asr_error('A current DMR client ID is required.');
     }
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);

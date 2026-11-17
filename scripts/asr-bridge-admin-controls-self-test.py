@@ -107,8 +107,9 @@ check("asr-standalone-admin.py" in BUILD_RELEASE and "asr-global-ban.py" in BUIL
       and "asr-asl-ban.py" in BUILD_RELEASE,
       "native release archive omits bridge administration helpers")
 check("validate_admin_capabilities" in LIFECYCLE and "requires its administration capability manifest" in LIFECYCLE, "bridge installation does not require administration parity")
-check('"kickClient": ready' in DIRECT_DMR_ADMIN
-      and '"kickContract": "local-media-block-until-reconnect"' in DIRECT_DMR_ADMIN
+check('"kickClient": ready and hold is not None' in DIRECT_DMR_ADMIN
+      and '"kickContract": "disconnect-hold-v1"' in DIRECT_DMR_ADMIN
+      and '"kickAllowsImmediateReconnect": False' in DIRECT_DMR_ADMIN
       and '"kickRequiresCurrentSession": True' in DIRECT_DMR_ADMIN,
       "direct DMR does not publish the exact current-session Kick contract")
 check("os.chmod(runtime, 0o755)" in DIRECT_DMR_ADMIN,
