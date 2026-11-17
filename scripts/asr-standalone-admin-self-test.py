@@ -232,26 +232,30 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
         except admin.AdminError as error:
             check("DMR client ID" in str(error), "missing DMR ID failure was not explicit")
 
-        # A native URF aggregate uses mode-named runtime proxies even though
-        # only one aggregate bridge is stored in config.json.
+        # URF reflectors were retired (#177): a leftover aggregate card is not
+        # administrable even when a mode-named native proxy is running, and it
+        # is not counted toward Global Ban reconciliation.
         aggregate_dir = runtime / "ysf"
         aggregate_dir.mkdir()
         aggregate_dir.chmod(0o755)
-        aggregate_manifest = {
+        write_json(aggregate_dir / "capabilities.json", {
             **manifest, "bridgeId": "ysf", "mode": "ysf",
             "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64,
-        }
-        write_json(aggregate_dir / "capabilities.json", aggregate_manifest)
+        })
         write_json(config, {"bridges": [{
             "id": "urfnet", "mode": "urf", "cardType": "standard",
             "urfReflector": True, "modes": ["ysf"],
         }]})
-        kicked = admin.kick("ysf", "N7URF", "admin")
-        check(kicked["bridgeId"] == "ysf" and kicked["removed"] == 1,
-              "aggregate URF Kick did not use its native mode proxy")
+        for bridge_id in ("ysf", "urfnet"):
+            try:
+                admin.kick(bridge_id, "N7URF", "admin")
+                raise AssertionError(f"retired URF aggregate accepted a Kick via {bridge_id}")
+            except admin.AdminError:
+                pass
         reconciled = admin.reconcile_all("admin")
-        check([item["mode"] for item in reconciled["applied"]] == ["ysf"],
-              "aggregate URF policy did not reconcile through its native proxy")
+        check(reconciled["applied"] == [] and reconciled["skipped"] == [],
+              "retired URF aggregate took part in Global Ban reconciliation")
+
     finally:
         stop.set()
         worker.join(timeout=1)

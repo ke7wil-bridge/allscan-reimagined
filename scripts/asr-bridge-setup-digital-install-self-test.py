@@ -124,4 +124,8 @@ def exercise(stage_root):
     print("digital service activation/rollback sequencing: PASS")
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        # Needs the compiled, source-verified gateway bundles from a build host.
+        print("digital service activation/rollback sequencing: NOT RUN (pass a verified upstream staging directory: python3 scripts/asr-bridge-setup-digital-install-self-test.py <stage-root>)")
+        sys.exit(0)
     exercise(Path(sys.argv[1]))

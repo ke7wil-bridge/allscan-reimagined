@@ -135,4 +135,8 @@ def main() -> None:
     print("digital render source integration: PASS")
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        # Needs the compiled, source-verified gateway bundles from a build host.
+        print("digital render against upstream bundles: NOT RUN (pass a verified upstream staging directory: python3 scripts/asr-bridge-setup-digital-render-self-test.py <stage-root>)")
+        sys.exit(0)
     main()
