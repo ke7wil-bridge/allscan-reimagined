@@ -121,6 +121,7 @@ python3 "$ROOT/scripts/asr-bridge-endpoint-collisions-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
+python3 "$ROOT/scripts/asr-retired-reflector-absence-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
@@ -148,7 +149,6 @@ python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
 TMPDIR=$(python3 -c 'import os; print(os.path.realpath("/tmp"))') \
   python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
-python3 "$ROOT/scripts/asr-bridge-setup-urf-native-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
@@ -269,7 +269,7 @@ install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scrip
 install -m 755 scripts/asr-reapply-apache-self-test.py "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
-for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-bridge-setup-dmr-net-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-bridge-setup-dmr-net-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
 for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
@@ -277,7 +277,6 @@ for container_script in asr-provisioning-detect.py asr-container-host-client.py 
 done
 install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"
 mkdir -p "$STAGE/payload/runtime"
-cp -a runtime/urf "$STAGE/payload/runtime/urf"
 cp -a runtime/dmr "$STAGE/payload/runtime/dmr"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"

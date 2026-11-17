@@ -90,30 +90,8 @@ check(count($state['history']) === 4, 'talker history did not remain capped at f
 check(array_column($state['history'], 'duration') === [5, 4, 3, 2], 'repeated local transmissions were lost, deduplicated, or misordered');
 check(count(array_unique(array_column($state['history'], 'info'))) === 1 && $state['history'][0]['info'] === 'NY7S', 'local callsign did not survive repeated talker history events');
 
-$persisted = asrEnrichUrfTalker([
-	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
-	'started_epoch'=>1791322064, 'event_epoch'=>1791322067, 'duration'=>3,
-], $events, $astdb);
-check($persisted['info'] === 'KQ6K', 'node 1001 history did not retain the actual URF caller');
-check($persisted['source'] === 'YSF', 'node 1001 history did not retain protocol provenance');
-check($persisted['transport'] === 'URFWIL', 'URFWIL transport context was not preserved');
-check($persisted['description'] === 'Multi-Mode Bridge', 'transport description was discarded during identity enrichment');
-check($persisted['location'] === 'Moorpark, CA', 'caller location was not retained from the local node database');
-
-$split = asrEnrichUrfTalker([
-	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
-	'started_epoch'=>1791321993, 'event_epoch'=>1791322049, 'duration'=>56,
-], $events, $astdb);
-check($split['info'] === 'KQ6K' && $split['source'] === 'YSF', 'overlapping lifecycle identity did not repair split AllStar history');
-
-$live = asrEnrichUrfTalker([
-	'node'=>'1001', 'info'=>'URFWIL Multi-Mode Bridge', 'source'=>'AllStar',
-	'started_epoch'=>1791322064,
-], array_slice($events, 0, 3), $astdb);
-check($live['info'] === 'KQ6K' && $live['source'] === 'YSF', 'open transmission identity was not available at start');
-
-$latched = asrEnrichUrfTalker([
-	'node'=>'1001', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'URFWIL',
+$latched = asrEnrichBridgeTalker([
+	'node'=>'1001', 'info'=>'KQ6K', 'source'=>'YSF', 'transport'=>'Bridge',
 	'started_epoch'=>1791322064, 'event_epoch'=>1791322067,
 ], [], $astdb);
 check($latched['info'] === 'KQ6K' && $latched['source'] === 'YSF', 'real identity regressed without ephemeral event data');

@@ -373,8 +373,15 @@ function asr_runtime_client_admin(string $id, string $mode): array {
 }
 
 function asr_is_retired_reflector_bridge($bridge): bool {
-    return is_array($bridge)
-        && (!empty($bridge['urfReflector']) || strtolower((string) ($bridge['mode'] ?? '')) === 'urf');
+    // Retired URF reflector cards: the aggregate record and its per-mode
+    // digital cards. Zello cards installed by older releases also carried the
+    // URF grouping flag; they remain ordinary Standard Zello bridges.
+    if (!is_array($bridge)) return false;
+    $mode = strtolower((string) ($bridge['mode'] ?? ''));
+    if ($mode === 'urf') return true;
+    return !empty($bridge['urfReflector'])
+        && in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
+        && (string) ($bridge['cardType'] ?? 'standard') === 'standard';
 }
 
 function asr_standalone_client_admin(array $bridge): array {

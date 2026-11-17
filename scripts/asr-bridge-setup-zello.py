@@ -190,7 +190,6 @@ def integration_files(root: Path, plan: dict[str, Any]) -> dict[str, tuple[bytes
         "clientUrl": "", "clientUsername": "", "cardType": "standard",
         "backendMode": "managed", "bridgePermission": "self_owned",
         "fixedBridgeRecovery": False, "allowTune": False,
-        "urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL",
         "instance": settings["bridge_id"], "setupPorts": ports,
         "zelloChannel": settings["channel"], "liveAudioVerified": False,
         "zelloToAslGainDb": settings["zello_to_asl_gain_db"],

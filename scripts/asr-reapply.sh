@@ -62,6 +62,55 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
+# URF reflector support was retired in Beta 8.5.1 (#177). Move any saved URF
+# reflector cards (the aggregate record and its per-mode digital cards) out
+# of config.json into retired-urf-bridges.json after a full backup. Zello cards
+# that carried the old grouping flag stay. No runtime data or credential is
+# deleted; installed URF services are left exactly as they are.
+if [ "$WEB_ONLY" != "1" ] && [ -f /etc/allscan-reimagined/config.json ]; then
+  python3 -I - /etc/allscan-reimagined/config.json <<'PY_RETIRE_URF' || { echo "URF card retirement failed; config.json was not changed." >&2; exit 1; }
+import json, os, sys, tempfile, time
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    config = json.load(handle)
+bridges = config.get("bridges") if isinstance(config, dict) else None
+if not isinstance(bridges, list):
+    raise SystemExit(0)
+def retired(bridge):
+    if not isinstance(bridge, dict):
+        return False
+    mode = str(bridge.get("mode") or "").lower()
+    return mode == "urf" or (bool(bridge.get("urfReflector")) and mode in {"dmr", "ysf", "p25", "nxdn", "m17"}
+                             and str(bridge.get("cardType") or "standard") == "standard")
+gone = [bridge for bridge in bridges if retired(bridge)]
+if not gone:
+    raise SystemExit(0)
+stamp = time.strftime("%Y%m%d-%H%M%S")
+directory = os.path.dirname(path)
+info = os.stat(path)
+with open(path, "rb") as source, open(os.path.join(directory, f"config.json.pre-urf-retirement-{stamp}"), "wb") as backup:
+    backup.write(source.read())
+retired_path = os.path.join(directory, "retired-urf-bridges.json")
+try:
+    with open(retired_path, encoding="utf-8") as handle:
+        previous = json.load(handle)
+except (OSError, ValueError):
+    previous = {"schema": 1, "retired": []}
+previous.setdefault("retired", []).append({"retiredAt": stamp, "bridges": gone})
+config["bridges"] = [bridge for bridge in bridges if not retired(bridge)]
+for target, payload, mode in ((retired_path, previous, 0o600), (path, config, info.st_mode & 0o777)):
+    descriptor, temporary = tempfile.mkstemp(prefix=".asr-urf-retire.", dir=directory)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.chmod(temporary, mode)
+    if target == path:
+        os.chown(temporary, info.st_uid, info.st_gid)
+    os.replace(temporary, target)
+print(f"Retired {len(gone)} URF reflector card(s); backup config.json.pre-urf-retirement-{stamp}")
+PY_RETIRE_URF
+fi
+
 # Global Ban state lives under /var/lib/allscan-reimagined/admin and must
 # survive reboots. Beta 8.5.1 renamed the policy list from the retired URF
 # reflector's urfd.blacklist to global-bans.list; existing bans migrate here.
@@ -330,7 +379,7 @@ if ! getent passwd asr-bridge >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
   fi
 fi
-for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
@@ -338,14 +387,19 @@ if [ -f "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" ]; then
   install -o root -g root -m 755 "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" \
     /usr/local/libexec/allscan-reimagined/asr-tgif-dmr-proxy.py
 fi
-if [ -d "$MASTER_DIR/runtime/urf" ]; then
-  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf.new
-  cp -a "$MASTER_DIR/runtime/urf" /usr/local/share/allscan-reimagined/runtime/urf.new
-  chown -R root:root /usr/local/share/allscan-reimagined/runtime/urf.new
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf
-  mv /usr/local/share/allscan-reimagined/runtime/urf.new /usr/local/share/allscan-reimagined/runtime/urf
+# The direct DMR installer stages the standalone TGIF relay from beside itself.
+if [ -f "$MASTER_DIR/scripts/bridge-relays/asr-tgif-standalone-relay.py" ]; then
+  install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined/bridge-relays
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/bridge-relays/asr-tgif-standalone-relay.py" \
+    /usr/local/libexec/allscan-reimagined/bridge-relays/asr-tgif-standalone-relay.py
 fi
+# URF reflector support was retired in Beta 8.5.1 (#177). Remove only the
+# ASR-shipped program copies; installed bridges, data and credentials stay.
+rm -rf /usr/local/share/allscan-reimagined/runtime/urf
+rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-urf.py \
+  /usr/local/libexec/allscan-reimagined/asr-bridge-setup-urf-install.py \
+  /usr/local/libexec/allscan-reimagined/asr-bridge-urf-native-runtime.py \
+  /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
 if [ -d "$MASTER_DIR/runtime/zello" ]; then
   install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
   rm -rf /usr/local/share/allscan-reimagined/runtime/zello.new

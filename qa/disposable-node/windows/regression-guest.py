@@ -15,7 +15,6 @@ tests = [
     ('asr-m17-bridge-control.py', '--self-test'),
     ('asr-m17-usrp-connector.py', '--self-test'),
     ('asr-bridge-setup-dmr-self-test.py',),
-    ('asr-bridge-setup-urf-native-self-test.py',),
     ('asr-bridge-lifecycle.py', 'self-test'),
 ]
 for name, *arguments in tests:

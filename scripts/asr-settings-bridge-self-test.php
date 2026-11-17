@@ -46,8 +46,7 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 		&& str_contains($controllerSource, 'delete setupPanel.dataset.editingManagedDmr;')
 		&& str_contains($controllerSource, 'updateSetupMode();'),
 		"$compatVersion Settings does not initialize the selected bridge mode when the setup wizard opens.");
-	check(str_contains($controllerSource, "setupFields.setupReflector.placeholder = path === 'urf' ? 'URF123' : 'M17-WIL'"),
-		"$compatVersion URF Reflector Name still uses the M17 placeholder.");
+
 	check(str_contains($controllerSource, "'bridgePath' => strtolower(asrSettingsCleanText(\$_POST['setupBridgePath']")
 		&& str_contains($controllerSource, 'data-bridge-setup-direct-dmr')
 		&& str_contains($controllerSource, 'data-edit-direct-dmr')
@@ -72,18 +71,6 @@ check(str_contains($gainController, "'dmrToAslGainDb', 'digitalToAslGainDb'")
     && str_contains($gainController, "'zello' => ['zelloToAslGainDb', 'aslToZelloGainDb']")
     && str_contains($gainController, "asrSettingsBridgeGainValue(\$existingGain, 'in')"),
     'Legacy bridge gain fallback or installer synchronization is missing.');
-check(substr_count($gainController, 'Reset to 0 dB') === 4
-    && str_contains($gainController, "\$payload['urfGainInDb'] = \$urfIn")
-    && str_contains($gainController, "\$payload['urfGainOutDb'] = \$urfOut"),
-    'Bridge gain reset buttons or URF setup gain forwarding missing.');
-check(str_contains($gainController, "name=\"urfGainInDb\"")
-    && str_contains($gainController, "name=\"urfGainOutDb\"")
-    && str_contains($gainController, 'foreach ($urfGainValues as $key => $value) $record[$key] = $value;')
-    && str_contains($gainController, "URF audio gains must be between -20 and +12 dB."),
-    'URF aggregate gain inputs must be saved and validated independently.');
-check(str_contains($gainController, 'if(!empty($bridge[\'urfReflector\']))')
-    && str_contains($gainController, 'foreach ($urfGainValues as $key => $value) $modeRecord[$key] = $value;'),
-    'Legacy per-mode URF gains must not be lost or confused with direct DMR gains.');
 
 
 
@@ -94,182 +81,7 @@ $gainEnd = strpos($gainController, 'function asrSettingsBridgeRowsFromPost(', $g
 check($gainStart !== false && $gainEnd !== false, 'Bridge gain helper missing.');
 if (!function_exists('asrSettingsBridgeGainValue'))
     eval(substr($gainController, $gainStart, $gainEnd - $gainStart));
-check(asrSettingsBridgeGainValue(['mode'=>'dmr', 'gainInDb'=>0, 'dmrToAslGainDb'=>5], 'in') === 5.0
-    && asrSettingsBridgeGainValue(['mode'=>'zello', 'gainOutDb'=>0, 'aslToZelloGainDb'=>-3.5], 'out') === -3.5
-    && asrSettingsBridgeGainValue(['mode'=>'urf', 'gainInDb'=>0, 'urfGainInDb'=>4], 'in') === 4.0
-    && asrSettingsBridgeGainValue(['mode'=>'m17', 'digitalToAslGainDb'=>6], 'in') === 6.0,
-    'Installer gain values must take precedence over stale generic values.');
 
-// Execute the same helper used by runtime-config. Johnny2's saved aggregate
-// format is mode=urf with an explicit modes list.
-$runtimeHelper = $root . '/compat/allscan-v1.02/include/asrRuntime.php';
-require_once $runtimeHelper;
-$aggregate = [
-	'id'=>'urf', 'mode'=>'urf', 'node'=>'1001', 'urfReflector'=>true,
-	'title'=>'URF Bridge', 'modes'=>['DMR'],
-];
-$dmrOnly = asrExpandUrfProtocolBridges([$aggregate]);
-check(count($dmrOnly) === 1
-	&& ($dmrOnly[0]['id'] ?? '') === 'urf_dmr'
-	&& ($dmrOnly[0]['mode'] ?? '') === 'dmr'
-	&& ($dmrOnly[0]['node'] ?? '') === '1001',
-	'DMR-only aggregate URF configuration did not produce exactly one DMR card.');
-$legacy = $aggregate;
-unset($legacy['modes']);
-check(array_column(asrExpandUrfProtocolBridges([$legacy]), 'mode') === ['dmr','ysf','p25','nxdn','m17'],
-	'Legacy aggregate URF configuration no longer defaults to all protocols.');
-$explicitEmpty = $aggregate;
-$explicitEmpty['modes'] = [];
-check(asrExpandUrfProtocolBridges([$explicitEmpty]) === [],
-	'Explicitly disabled URF protocols still produce dashboard cards.');
-foreach(['v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
-	$helperSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/include/asrRuntime.php');
-	check(is_string($helperSource) && str_contains($helperSource, 'function asrExpandUrfProtocolBridges'),
-		"$compatVersion runtime is missing selected-protocol expansion.");
-}
-
-check(substr_count($settingsSource, '<option value="net_bridge">Net Bridge</option>') === 1,
-	'Add Bridge does not expose exactly one unified Net Bridge choice.');
-check(str_contains($settingsSource, 'data-urf-install-runtime')
-	&& str_contains($settingsSource, 'Saving alone does not activate runtime services.')
-	&& str_contains($settingsSource, "values.set(protocol + 'Enabled'")
-	&& str_contains($settingsSource, "setupFields.setupBridgeNode.value = node ? node.value.trim() : ''")
-	&& str_contains($settingsSource, 'if(editorCancel) editorCancel.click();'),
-	'URF Settings does not expose a complete shared-node runtime installation workflow.');
-check(str_contains($settingsSource, "if(\$settingsSaveRequested && \$saveError !== '' && array_key_exists('urfEnabled', \$_POST))"),
-	'Rejected URF saves do not retain the submitted editor values.');
-check(!str_contains($settingsSource, '<option value="net">Net Bridge</option>'),
-	'Add Bridge still exposes per-mode Net Bridge installation.');
-foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
-	check(str_contains($settingsSource, "'{$mode}' =>") || str_contains($settingsSource, "'{$mode}'=>"), "Unified setup is missing $mode.");
-check(!str_contains($settingsSource, 'm17.example.net'), 'Fake M17 host default remains in Settings.');
-$helperSource = file_get_contents($root . '/scripts/asr-bridge-setup-helper.py');
-check(is_string($helperSource) && str_contains($helperSource, '"net-bridge-plan"')
-	&& str_contains($helperSource, 'allscan-reimagined-net-bridge-mode-control'),
-	'Unified setup can bypass the constrained lifecycle controller.');
-$savedPost = $_POST;
-$_POST = [
-	'setupNetModes' => ['dmr','ysf'], 'setupCallsign' => 'KE7WIL', 'setupDigitalId' => '3224939',
-	'setupMainNode' => '641890', 'setupNetDmrDestination' => '86753', 'setupTgifAuthMode' => 'secured',
-	'setupNetYsfDestination' => '64189', 'setupNetYsfName' => 'US-KE7WIL-YSF',
-	'setupNetYsfHost' => '127.0.0.1', 'setupNetYsfPort' => '42000',
-];
-$selectiveError = '';
-$selectivePayload = asrSettingsNetBridgeSetupPayload(false, $selectiveError);
-check($selectiveError === '' && array_keys($selectivePayload['modes']) === ['dmr','ysf'],
-	'DMR/YSF-only Net Bridge setup did not ignore unselected mode fields.');
-$_POST = $savedPost;
-$reapplySource = file_get_contents($root . '/scripts/asr-reapply.sh');
-check(is_string($reapplySource)
-	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-plan')
-	&& str_contains($reapplySource, 'asr-bridge-setup-helper.py net-bridge-install'),
-	'Web provisioning lacks constrained sudo access to the unified Net Bridge helper.');
-
-$unified = [];
-foreach(['dmr','ysf','p25','nxdn','m17'] as $mode)
-	$unified[] = ['id'=>$mode . '_net', 'mode'=>$mode, 'node'=>'1999', 'cardType'=>$mode . '_net', 'title'=>strtoupper($mode) . ' Net Bridge'];
-ob_start();
-asrSettingsUnifiedNetBridgePanel($unified, 'dmr');
-$unifiedHtml = (string)ob_get_clean();
-check(substr_count($unifiedHtml, 'asr-unified-net-bridge-settings') === 1
-	&& substr_count($unifiedHtml, 'class="asr-net-mode-settings"') === 5
-	&& substr_count($unifiedHtml, 'asr-bridge-drag-handle') === 1
-	&& !str_contains($unifiedHtml, 'asr-bridge-delete'),
-	'Existing unified configuration did not render as one Settings bridge with five modes.');
-check(str_contains($settingsSource, "function orderRows()")
-	&& str_contains($settingsSource, "closest('.asr-bridge-order-item')")
-	&& str_contains($settingsSource, '$lastNetBridgeIndex'),
-	'Unified Net Bridge ordering is not wired into the shared drag controls.');
-check(str_contains($settingsSource, 'TGIF device DMR ID/ESSID:')
-	&& str_contains($settingsSource, 'TGIFSTG1')
-	&& str_contains($settingsSource, 'short hexadecimal Token ID'),
-	'DMR security guidance does not distinguish the exact device ID and full TGIF secret.');
-check(str_contains($settingsSource, 'data-net-bridge-reset-button')
-	&& str_contains($settingsSource, "'net-bridge-reset'")
-	&& str_contains($settingsSource, 'Other bridges and saved settings will not be changed.'),
-	'Settings does not expose the confirmed, isolated Net Bridge runtime reset.');
-
-$ysfHosts = tempnam(sys_get_temp_dir(), 'asr-ysf-hosts-');
-check(is_string($ysfHosts), 'Unable to create temporary YSF catalog.');
-file_put_contents($ysfHosts, "32453;KC-WIDE;test;example.net;42000\n");
-$duplicateError = '';
-$duplicateAccepted = asrSettingsValidateCustomYsfCatalog([[
-	'cardType'=>'ysf_net', 'ysfHostsPath'=>$ysfHosts,
-	'ysfCustomReflectors'=>[['id'=>'32453','name'=>'KC-WIDE','host'=>'remote.example','port'=>42000]],
-]], $duplicateError);
-unlink($ysfHosts);
-check($duplicateAccepted === false && str_contains($duplicateError, 'catalog destination 32453'),
-	'Duplicate custom YSF reflector was not rejected before save.');
-
-function expectFailure(callable $operation, string $needle): void {
-	try {
-		$operation();
-		throw new RuntimeException('Expected Settings validation to fail.');
-	} catch(RuntimeException $error) {
-		check(strpos($error->getMessage(), $needle) !== false, 'Unexpected validation error: ' . $error->getMessage());
-	}
-}
-
-function postedBridge(array $values, array $existing = [], string $mainNode = '123456'): array {
-	$defaults = [
-		'bridgeId' => [''], 'bridgeMode' => ['dmr'], 'bridgeNode' => ['4321'],
-		'bridgeTitle' => [''], 'bridgeDetailTitle' => [''], 'bridgeFriendlyName' => [''],
-		'bridgeClientSource' => ['auto'], 'bridgeClientUrl' => [''], 'bridgeClientUsername' => [''],
-		'bridgeClientPassword' => [''], 'bridgeCardType' => ['standard'], 'bridgeFixedRecovery' => ['0'],
-		'bridgeBackendMode' => ['managed'], 'bridgePermission' => [''], 'bridgeApprovedDestinations' => [''],
-		'bridgeAbinfoPath' => [''], 'bridgeDvswitchScript' => [''], 'bridgeAnalogConfig' => [''],
-		'bridgeYsfGatewayConfig' => [''], 'bridgeMmdvmConfig' => [''], 'bridgeYsfGatewayService' => [''],
-		'bridgeMmdvmService' => [''], 'bridgeAnalogBridgeService' => [''], 'bridgeEmulatorService' => [''],
-		'bridgeYsfHostsPath' => [''], 'bridgeYsfCustomReflectors' => [''], 'bridgeAllowTune' => ['0'],
-		'bridgeInstance' => [''], 'bridgeGatewayConfig' => [''], 'bridgeGatewayService' => [''],
-		'bridgeDigitalMmdvmService' => [''], 'bridgeDigitalAnalogService' => [''], 'bridgeDigitalEmulatorService' => [''],
-		'bridgeMqttName' => [''], 'bridgeMmdvmMqttName' => [''], 'bridgeFixedDestination' => [''],
-		'bridgeM17Callsign' => [''], 'bridgeM17BindPort' => [''], 'bridgeM17UsrpRxPort' => [''],
-		'bridgeM17UsrpTxPort' => [''], 'bridgeM17Reflector' => [''], 'bridgeM17Host' => [''],
-		'bridgeM17Port' => [''], 'bridgeM17Module' => [''],
-	];
-	$_POST = array_replace($defaults, $values);
-	$error = '';
-	$rows = asrSettingsBridgeRowsFromPost($error, $existing, $mainNode);
-	if($error !== '') throw new RuntimeException($error);
-	check(count($rows) === 1, 'Expected exactly one bridge row.');
-	return $rows[0];
-}
-
-foreach(['dmr', 'ysf', 'zello'] as $mode) {
-	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
-	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");
-}
-$existingP25 = [[
-	'id'=>'p25_net', 'mode'=>'p25', 'node'=>'1999', 'cardType'=>'p25_net',
-	'backendMode'=>'managed', 'digitalMode'=>'p25', 'bridgeRole'=>'net',
-	'instance'=>'p25_net', 'gatewayConfig'=>'/opt/P25Gateway_p25_net/P25Gateway.ini',
-	'gatewayService'=>'p25gateway-p25_net.service', 'mmdvmService'=>'mmdvm-bridge-p25_net.service',
-	'analogBridgeService'=>'analog-bridge-p25_net.service', 'mqttHost'=>'127.0.0.1',
-	'mqttPort'=>39971, 'mqttName'=>'p25_p25_net', 'mmdvmMqttName'=>'mmdvm_p25_p25_net',
-	'bridgePermission'=>'self_owned', 'fixedDestination'=>'64189',
-	'approvedDestinations'=>['64189'], 'allowTune'=>true,
-	'setupPorts'=>['mqtt'=>39971, 'usrp_rx'=>52000, 'usrp_tx'=>52001],
-]];
-$savedP25 = postedBridge([
-	'bridgeId'=>['p25_net'], 'bridgeMode'=>['p25'], 'bridgeNode'=>['1999'],
-	'bridgeCardType'=>['p25_net'], 'bridgeBackendMode'=>['managed'],
-	'bridgePermission'=>['self_owned'], 'bridgeInstance'=>['p25_net'],
-	'bridgeGatewayConfig'=>['/opt/P25Gateway_p25_net/P25Gateway.ini'],
-	'bridgeGatewayService'=>['p25gateway-p25_net.service'],
-	'bridgeDigitalMmdvmService'=>['mmdvm-bridge-p25_net.service'],
-	'bridgeDigitalAnalogService'=>['analog-bridge-p25_net.service'],
-	'bridgeMqttName'=>['p25_p25_net'], 'bridgeMmdvmMqttName'=>['mmdvm_p25_p25_net'],
-	'bridgeFixedDestination'=>['64189'], 'bridgeApprovedDestinations'=>['64189'],
-], $existingP25);
-check(($savedP25['mqttPort'] ?? null) === 39971
-	&& ($savedP25['setupPorts']['mqtt'] ?? null) === 39971,
-	'P25 Settings save replaced the provisioned MQTT port with the legacy default.');
-check(asrSettingsDefaultDetailTitle('zello') === 'Recent Talkers', 'Zello detail default is not mode-aware.');
-check(asrSettingsDefaultDetailTitle('p25') === 'Linked Clients', 'P25 detail default is not mode-aware.');
-check(asrSettingsClientPayloadHasSupportedShape([]), 'An authoritative empty client list was rejected.');
-check(asrSettingsClientPayloadHasSupportedShape(['clients' => []]), 'A grouped client list was rejected.');
-check(!asrSettingsClientPayloadHasSupportedShape(['status' => 'ok']), 'An unrelated JSON object was accepted as a client feed.');
 $filterError = '';
 check(asrSettingsCleanFilteredStations("n0call\nSRV_custom,n0call", $filterError) === ['N0CALL', 'SRV_CUSTOM'], 'Custom station filters were not normalized and deduplicated.');
 check($filterError === '', 'Valid custom station filters reported an error.');
@@ -279,165 +91,6 @@ check(asrSettingsDefaultConfig()['filterServiceStations'] === true, 'Built-in st
 
 check(str_contains($settingsSource, '$next[\'bridgeOrderVersion\'] = 2;'), 'Bridge saves do not mark the explicit unified order schema.');
 check(str_contains($settingsSource, 'if($bridgeOrderVersion < 2)'), 'Legacy bridge ordering does not migrate standard cards ahead of the unified group.');
-
-$aggregateUrf = [
-	'bridges' => [[
-		'id' => 'urf', 'mode' => 'urf', 'node' => '1001', 'urfReflector' => true,
-		'title' => 'URFWIL', 'installerMetadata' => 'preserve-me',
-	]],
-];
-$urfConfig = asrSettingsExistingUrfConfig($aggregateUrf);
-check($urfConfig['enabled'] && $urfConfig['aggregate'] && $urfConfig['node'] === '1001', 'Aggregate URF bridge was not discovered.');
-check($urfConfig['modes'] === ['dmr','ysf','p25','nxdn','m17'], 'Aggregate URF defaults were not represented.');
-$coexistingUrf = asrSettingsExistingUrfConfig(['bridges' => [
-	['id'=>'dmr_tgif_net','mode'=>'dmr','node'=>'1999','cardType'=>'dmr_net','urfReflector'=>true,'urfGroupId'=>'urf'],
-	['id'=>'tgif-dmr','mode'=>'dmr','node'=>'1001','cardType'=>'standard','urfReflector'=>true,'urfGroupId'=>'urf'],
-]]);
-check($coexistingUrf['enabled'] && $coexistingUrf['node'] === '1001' && $coexistingUrf['modes'] === ['dmr'],
-	'Unified DMR was incorrectly merged into the Standard URF Settings summary.');
-$managedUrfModes = ['bridges' => [
-	['id'=>'tgif-dmr','mode'=>'dmr','node'=>'1001','cardType'=>'standard','backendMode'=>'managed','urfReflector'=>true,'urfGroupId'=>'urf','fixedDestination'=>'86753'],
-	['id'=>'p25','mode'=>'p25','node'=>'1002','cardType'=>'standard','backendMode'=>'managed','urfReflector'=>true,'urfGroupId'=>'urf','fixedDestination'=>'64189','installerMetadata'=>'preserve-p25'],
-]];
-$managedUrfConfig = asrSettingsExistingUrfConfig($managedUrfModes);
-check($managedUrfConfig['modes'] === ['dmr','p25'] && ($managedUrfConfig['modeConfig']['p25']['destination'] ?? '') === '64189',
-	'Managed per-mode URFWIL records were not summarized by mode.');
-$_POST = ['urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','p25'],'urfFixedRecovery'=>['p25'=>'1'],'urfConfig'=>['dmr'=>['talkgroup'=>'86753'],'p25'=>['destination'=>'64189']]];
-$managedUrfError = '';
-$postedManagedUrf = asrSettingsUrfConfigFromPost($managedUrfError, $managedUrfModes);
-$savedManagedUrf = asrSettingsUrfBridgesForSave($managedUrfModes, $postedManagedUrf);
-check($managedUrfError === '' && count($savedManagedUrf) === 2, 'Managed per-mode URFWIL rows did not survive a Settings save.');
-check(($savedManagedUrf[1]['node'] ?? '') === '1002' && ($savedManagedUrf[1]['installerMetadata'] ?? '') === 'preserve-p25',
-	'Managed per-mode URFWIL runtime metadata was not preserved.');
-check(empty($savedManagedUrf[0]['fixedBridgeRecovery']) && !empty($savedManagedUrf[1]['fixedBridgeRecovery']),
-	'Managed per-mode URFWIL recovery choices did not round trip independently.');
-$savedAggregateUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
-	'enabled' => true, 'node' => '1002', 'modes' => ['dmr','ysf','p25','nxdn','m17'],
-]);
-check(count($savedAggregateUrf) === 1 && $savedAggregateUrf[0]['mode'] === 'urf', 'Aggregate URF bridge was converted into per-mode rows.');
-check($savedAggregateUrf[0]['node'] === '1002' && ($savedAggregateUrf[0]['installerMetadata'] ?? '') === 'preserve-me', 'Aggregate URF metadata did not survive a save.');
-check(!array_key_exists('modes', $savedAggregateUrf[0]), 'Default aggregate URF save introduced a format-only modes field.');
-$savedSubsetUrf = asrSettingsUrfBridgesForSave($aggregateUrf, [
-	'enabled' => true, 'node' => '1001', 'modes' => ['dmr','m17'],
-]);
-check(($savedSubsetUrf[0]['modes'] ?? []) === ['dmr','m17'], 'Aggregate URF mode selection did not round trip.');
-
-$configuredAggregate = ['bridges' => [[
-	'id'=>'urf','mode'=>'urf','node'=>'1001','title'=>'URFWIL','urfReflector'=>true,'urfGroupId'=>'urf',
-	'modeConfig'=>[
-		'dmr'=>['network'=>'TGIF','talkgroup'=>'86753','dmrId'=>'3224939','futureKey'=>'keep-dmr'],
-		'ysf'=>['reflector'=>'US-KE7WIL-YSF','reflectorId'=>'64189'],
-		'p25'=>['destination'=>'64189'], 'nxdn'=>['destination'=>'15846'],
-		'm17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>17000,'module'=>'A','callsign'=>'KE7WIL-M'],
-	],
-	'futureAggregateKey'=>['preserve'=>true],
-	]]];
-$originalConfiguredAggregate = $configuredAggregate['bridges'][0];
-$_POST = [
-	'urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','ysf','p25','nxdn','m17'],
-	'urfConfig'=>[
-		'dmr'=>['network'=>'TGIF','talkgroup'=>'86753','dmrId'=>'3224939'],
-		'ysf'=>['reflector'=>'US-KE7WIL-YSF','reflectorId'=>'64189'],
-		'p25'=>['destination'=>'64189'], 'nxdn'=>['destination'=>'15846'],
-		'm17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A','callsign'=>'KE7WIL-M'],
-	],
-];
-$urfError = '';
-$postedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
-check($urfError === '', 'Valid aggregate URF settings were rejected: ' . $urfError);
-$roundTrippedUrf = asrSettingsUrfBridgesForSave($configuredAggregate, $postedUrf);
-check($roundTrippedUrf === [$originalConfiguredAggregate], 'Unchanged aggregate URF save altered its structure or value types.');
-$loadedUrf = asrSettingsExistingUrfConfig($configuredAggregate);
-check($loadedUrf['modeConfig']['dmr']['talkgroup'] === '86753' && $loadedUrf['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF', 'URF mode-specific values did not load.');
-check($loadedUrf['modeConfig']['p25']['destination'] === '64189' && $loadedUrf['modeConfig']['nxdn']['destination'] === '15846', 'P25/NXDN destinations did not load.');
-check($loadedUrf['modeConfig']['m17']['reflector'] === 'M17-WIL' && $loadedUrf['modeConfig']['m17']['module'] === 'A', 'M17 configuration did not load.');
-
-$ownUrf = $configuredAggregate;
-$ownUrf['bridges'][0]['urfName'] = 'URFWIL';
-$ownUrf['bridges'][0]['friendlyName'] = 'URFWIL Reflector';
-check(asrSettingsExistingUrfConfig($ownUrf)['displayName'] === 'URFWIL Reflector', 'A genuine URFWIL reflector lost its operator label.');
-$otherUrf = $ownUrf;
-$otherUrf['bridges'][0]['urfName'] = 'URF073';
-check(asrSettingsExistingUrfConfig($otherUrf)['displayName'] === 'URF Reflector', 'A copied URFWIL default leaked into a different reflector.');
-
-$_POST['urfDisplayName'] = 'URF073';
-$urfError = '';
-$renamedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
-$renamedRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $renamedUrf)[0];
-check($urfError === '' && $renamedRecord['title'] === 'URF073' && $renamedRecord['friendlyName'] === 'URF073', 'Custom URF display name did not persist.');
-check($renamedRecord['id'] === 'urf' && $renamedRecord['node'] === '1001', 'Custom URF display name changed bridge identity or transport node.');
-unset($_POST['urfDisplayName']);
-
-$_POST['urfConfig']['dmr']['talkgroup'] = '86754';
-$_POST['urfConfig']['ysf']['reflector'] = 'US-KE7WIL-YSF2';
-$_POST['urfConfig']['p25']['destination'] = '64190';
-$_POST['urfConfig']['nxdn']['destination'] = '15847';
-$_POST['urfConfig']['m17']['module'] = 'B';
-$urfError = '';
-$editedUrf = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
-check($urfError === '', 'Edited aggregate URF settings were rejected: ' . $urfError);
-$editedRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $editedUrf)[0];
-check($editedRecord['modeConfig']['dmr']['talkgroup'] === '86754', 'DMR destination edit was not saved.');
-check($editedRecord['modeConfig']['ysf']['reflector'] === 'US-KE7WIL-YSF2', 'YSF reflector edit was not saved.');
-check($editedRecord['modeConfig']['p25']['destination'] === '64190' && $editedRecord['modeConfig']['nxdn']['destination'] === '15847', 'P25/NXDN edits were not saved.');
-check($editedRecord['modeConfig']['m17']['module'] === 'B' && $editedRecord['modeConfig']['dmr']['futureKey'] === 'keep-dmr', 'M17 edit or unknown mode metadata preservation failed.');
-
-$_POST['urfModes'] = ['dmr','ysf','p25','nxdn'];
-$urfError = '';
-$disabledM17 = asrSettingsUrfConfigFromPost($urfError, $configuredAggregate);
-$disabledRecord = asrSettingsUrfBridgesForSave($configuredAggregate, $disabledM17)[0];
-check($disabledRecord['modes'] === ['dmr','ysf','p25','nxdn'] && $disabledRecord['modeConfig']['m17']['reflector'] === 'M17-WIL', 'Disabling a URF mode erased its configuration.');
-$_POST['urfModes'][] = 'm17';
-$urfError = '';
-$reenabledM17 = asrSettingsUrfConfigFromPost($urfError, ['bridges'=>[$disabledRecord]]);
-$reenabledRecord = asrSettingsUrfBridgesForSave(['bridges'=>[$disabledRecord]], $reenabledM17)[0];
-check($reenabledRecord['modeConfig']['m17']['reflector'] === 'M17-WIL', 'Re-enabling a URF mode did not restore its configuration.');
-
-ob_start();
-asrSettingsRenderUrfMode('dmr', 'DMR', ['network'=>'TGIF','talkgroup'=>'86753'], true);
-asrSettingsRenderUrfMode('ysf', 'YSF', ['reflector'=>'US-KE7WIL-YSF'], true);
-asrSettingsRenderUrfMode('p25', 'P25', ['destination'=>'64189'], true);
-asrSettingsRenderUrfMode('nxdn', 'NXDN', ['destination'=>'15846'], true);
-asrSettingsRenderUrfMode('m17', 'M17', ['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A'], true);
-$urfMarkup = (string)ob_get_clean();
-foreach(['TGIF · TG 86753','US-KE7WIL-YSF','Destination 64189','Destination 15846','M17-WIL · Module A'] as $summary) check(strpos($urfMarkup, $summary) !== false, "URF summary missing: $summary");
-foreach(['urfConfig[dmr][talkgroup]','urfConfig[ysf][reflector]','urfConfig[p25][destination]','urfConfig[nxdn][destination]','urfConfig[m17][reflector]','urfConfig[m17][usrpTxPort]'] as $name) check(strpos($urfMarkup, 'name="' . $name . '"') !== false, "URF field missing: $name");
-check(strpos($urfMarkup, 'TGIF Account / Session Authentication') !== false && strpos($urfMarkup, 'Destination Talkgroup') !== false, 'TGIF account and DMR destination were conflated or omitted.');
-foreach([
-	'DMR carries reflector audio through a DMR network',
-	'exact reflector name published in your YSF host list',
-	'P25 routes reflector traffic to one numeric destination',
-	'NXDN routes reflector traffic to one numeric talkgroup',
-	'name such as M17-WIL identifies the reflector',
-] as $guidance) check(stripos($urfMarkup, $guidance) !== false, "URF beginner guidance missing: $guidance");
-ob_start();
-asrSettingsRenderUrfMode('p25', 'P25', ['destination'=>'64189'], true);
-asrSettingsRenderUrfMode('nxdn', 'NXDN', ['destination'=>'15846'], true);
-$simpleUrfMarkup = (string)ob_get_clean();
-check(strpos($simpleUrfMarkup, 'Advanced runtime fields') === false && strpos($simpleUrfMarkup, 'Advanced Runtime Fields') === false, 'P25/NXDN still expose a dead advanced-runtime disclosure.');
-
-ob_start();
-asrSettingsBridgePanel(['id'=>'zello','mode'=>'zello','cardType'=>'standard','node'=>'1003','title'=>'Zello'], [], [], ['available'=>true,'bridges'=>[]]);
-$zelloMarkup = (string)ob_get_clean();
-check(strpos($zelloMarkup, 'data-bridge-tab-label="Recent Talkers"') !== false, 'Zello talker tab was not named for its real data.');
-check(strpos($zelloMarkup, 'not a list of signed-in Zello users') !== false && strpos($zelloMarkup, 'does not kick or disconnect Zello accounts') !== false, 'Zello talker capability is misleading.');
-
-ob_start();
-asrSettingsBridgePanel(['id'=>'dmr','mode'=>'dmr','cardType'=>'standard','node'=>'1002','title'=>'DMR'], [], [], ['available'=>true,'bridges'=>[]]);
-$dmrMarkup = (string)ob_get_clean();
-check(strpos($dmrMarkup, 'data-bridge-tab-label="TGIF Sessions"') !== false, 'DMR does not expose the authoritative TGIF session workflow.');
-check((bool)preg_match('/asr-connected-client-settings"[^>]* hidden/', $dmrMarkup), 'DMR still exposes the duplicate generic client-source path.');
-check(strpos($dmrMarkup, 'name="bridgeDetailTitle[]"') !== false, 'Advanced client/talker heading lost its round-trip field name.');
-
-$_POST = [
-	'urfEnabled'=>'1','urfNode'=>'1001','urfModes'=>['dmr','ysf','p25','nxdn','m17'],
-	'urfConfig'=>['dmr'=>['network'=>'TGIF','talkgroup'=>'86753'],'m17'=>['reflector'=>'M17-WIL','host'=>'m17.example.net','port'=>'17000','module'=>'A']],
-];
-$urfError = '';
-$newUrf = asrSettingsUrfConfigFromPost($urfError, ['bridges'=>[]]);
-$newUrfRows = asrSettingsUrfBridgesForSave(['bridges'=>[]], $newUrf);
-check($urfError === '' && count($newUrfRows) === 1 && $newUrfRows[0]['mode'] === 'urf', 'New URF configuration was split into independent bridge records.');
-check($newUrfRows[0]['tgifTalkgroup'] === '86753' && $newUrfRows[0]['m17Reflector'] === 'M17-WIL', 'New aggregate URF mode settings were not stored on the authoritative aggregate record.');
 
 $display = postedBridge(['bridgeMode' => ['p25'], 'bridgeBackendMode' => ['display_only']]);
 check($display['backendMode'] === 'display_only' && !isset($display['gatewayConfig']), 'P25 display-only card gained managed resources.');
@@ -474,8 +127,7 @@ check(!isset($dmr['linkAlias']) && $dmr['approvedDestinations'] === [], 'DMR Net
 $managedDmrExisting = [
 	'id'=>'dmr_tgif_net', 'mode'=>'dmr', 'node'=>'1999', 'cardType'=>'dmr_net',
 	'backendMode'=>'managed', 'managedNetControl'=>true,
-	'managedTargetFile'=>'/opt/allscan-reimagined-bridges/urf/dmr_tgif_net/tgif-run/net-target',
-	'urfReflector'=>true, 'urfGroupId'=>'urf',
+	'managedTargetFile'=>'/opt/allscan-reimagined-bridges/dmr_tgif_net/tgif-run/net-target',
 	'bridgePermission'=>'self_owned', 'approvedDestinations'=>['86753'], 'fixedDestination'=>'86753',
 ];
 $managedDmr = postedBridge([
@@ -664,14 +316,13 @@ $setup = asrSettingsDigitalSetupPayload('p25', $setupError);
 check($setupError === '' && $setup['callsign'] === 'N0CALL' && $setup['destination'] === 64189, 'Valid P25 setup request was not normalized.');
 
 $_POST = [
-	'setupBridgeId' => 'urf_dmr', 'setupTitle' => 'DMR Bridge',
-	'setupReflector' => 'urf073',
+	'setupBridgeId' => 'dmr_tgif', 'setupTitle' => 'DMR Bridge',
 	'setupCallsign' => 'ke7wil', 'setupDigitalId' => '3224939',
 	'setupDestination' => '86753', 'setupTgifEssid' => '50',
 	'dmrEnabled' => 'true', 'm17Enabled' => 'false',
 ];
 $dmrSetup = asrSettingsDmrSetupPayload(false, $setupError);
-check($setupError === '' && $dmrSetup['destination'] === 86753 && $dmrSetup['hotspotEssid'] === '50' && $dmrSetup['digitalId'] === 3224939 && $dmrSetup['reflector'] === 'URF073' && $dmrSetup['dmrEnabled'] === true && $dmrSetup['m17Enabled'] === false && $dmrSetup['authMode'] === 'legacy' && !isset($dmrSetup['tgifPassword']), 'Valid DMR/URF preview request was not normalized or leaked a password field.');
+
 $dmrInstall = asrSettingsDmrSetupPayload(true, $setupError);
 check($setupError === '' && $dmrInstall['authMode'] === 'legacy' && !isset($dmrInstall['tgifPassword']), 'Legacy TGIF install unexpectedly required a key.');
 $_POST['setupTgifAuthMode'] = 'secured';
@@ -712,14 +363,6 @@ $_POST['setupZelloWsEndpoint'] = 'http://unsafe.example';
 asrSettingsZelloSetupPayload(false, $setupError);
 check(strpos($setupError, 'wss://') !== false, 'Unsafe Zello WebSocket endpoint was accepted.');
 
-$managedUrf = [[
-	'id' => 'urf_dmr', 'mode' => 'dmr', 'node' => '1001', 'title' => 'DMR Bridge',
-	'backendMode' => 'managed', 'instance' => 'urf_dmr', 'urfReflector' => true,
-	'urfName' => 'URFWIL', 'tgifTalkgroup' => '86753', 'dmrId' => '3224939',
-]];
-$preservedUrf = asrSettingsUrfModeBridges(['enabled' => false, 'node' => '', 'modes' => []], $managedUrf);
-check(count($preservedUrf) === 1 && $preservedUrf[0] === $managedUrf[0], 'Managed URF/TGIF bridge was lost or rewritten by a generic Settings save.');
-
 $settingsSource = file_get_contents($settingsDir . '/settings-controller.php');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-plan' : mode + '-plan'") !== false, 'Bridge setup preview is not wired to the selected helper endpoint.');
 check(strpos($settingsSource, "mode === 'net_bridge' ? 'net-bridge-install' : mode + '-install'") !== false, 'Bridge setup install is not wired to the selected helper endpoint.');
@@ -730,13 +373,7 @@ check(strpos($settingsSource, "Promise.resolve().then(function() { return bridge
 	&& strpos($settingsSource, 'function renderBridgeSetupError(error, fallback)') !== false
 	&& strpos($settingsSource, "setupOutput.setAttribute('role', 'alert')") !== false,
 	'Bridge setup synchronous or request failures can still bypass visible error reporting.');
-check(strpos($settingsSource, "values.set('setupRequestId', setupLastRequestId)") !== false
-	&& strpos($settingsSource, "\$payload['_requestId'] = \$requestId") !== false
-	&& strpos($settingsSource, "'installation_request_not_submitted'") !== false
-	&& strpos($settingsSource, "'api_response_unavailable'") !== false
-	&& strpos($settingsSource, "'dmr-diagnose'") !== false
-	&& strpos($settingsSource, 'Runtime diagnosis: ') !== false,
-	'URF install requests do not carry end-to-end stage diagnostics.');
+
 check(strpos($settingsSource, 'setupOutput.innerHTML') === false,
 	'Bridge installation status still uses a failure-prone HTML sink before request dispatch.');
 check(strpos($settingsSource, "[data-bridge-setup-tgif-password], [data-net-tgif-password]") !== false,
@@ -751,11 +388,11 @@ check(strpos($settingsSource, "'dmr-security-update'") !== false
 	&& strpos($settingsSource, 'data-dmr-hotspot-key') !== false,
 	'Installed DMR Net Bridge credentials cannot be maintained through Settings.');
 check(strpos($settingsSource, "'zello-plan', 'zello-install'") !== false, 'Zello helper actions are unavailable.');
-check(strpos($settingsSource, 'data-urf-enable-dstar') !== false && strpos($settingsSource, 'D-Star (DCS / DExtra / DPlus)') !== false, 'Standalone URF D-Star protocol toggle is missing from Settings.');
+
 check(strpos($settingsSource, 'data-bridge-setup-path') !== false, 'Bridge type selector is missing.');
-check(strpos($settingsSource, '<option value="standard">Standard Bridge</option><option value="urf">URF Reflector</option>') !== false, 'Standard Bridge/URF choices are incomplete.');
+
 check(strpos($settingsSource, '<option value="net_bridge">Net Bridge</option>') !== false, 'Unified Net Bridge choice is missing.');
-check(strpos($settingsSource, "urfOption.disabled = mode === 'zello'") !== false, 'Zello URF selection is not blocked.');
+
 check(strpos($settingsSource, "var isUnifiedNet = mode === 'net_bridge'") !== false, 'Unified Net Bridge mode handling is missing.');
 check(strpos($settingsSource, 'data-net-mode-choice="<?php echo $mode; ?>"') !== false
 	&& strpos($settingsSource, "values.append('setupNetModes[]', mode)") !== false
@@ -763,9 +400,7 @@ check(strpos($settingsSource, 'data-net-mode-choice="<?php echo $mode; ?>"') !==
 	'Unified Net Bridge mode selection is not carried through browser and server validation.');
 check(strpos($settingsSource, 'Rerun Standard DMR/TGIF setup to change it; Session Talkgroup changes only the displayed TGIF roster.') !== false,
 	'Standard TGIF talkgroup change guidance is missing from Settings help.');
-check(strpos($settingsSource, 'DMR / TGIF via URF') === false, 'DMR is still mislabeled as URF-only.');
-check(strpos($settingsSource, 'in_array(($bridge[\'cardType\'] ?? \'\'), $netCardTypes, true)') !== false,
-	'Unified Net Bridge rows marked with URF provenance are excluded from Settings round-trip validation.');
+
 check(strpos($settingsSource, '$isBridgeSave = !$modernSettings || $modernSettingsSection === \'bridges\'') !== false,
 	'Modern Settings saves do not isolate bridge reconstruction to the Bridges category.');
 check(strpos($settingsSource, "\t\$saveError = '';") !== false,

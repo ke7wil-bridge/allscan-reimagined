@@ -18,7 +18,7 @@ const runtimeConfig = {
   footerLogo: `${ASR_BASE}/asr-logo-bright-r-tight.png`,
   versionLabel: 'v1.0.0 Beta 8.1.5.11',
   bridges: [
-    { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard', urfReflector: 'URF073', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
+    { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
     { id: 'dmr_net', mode: 'dmr', node: '100004', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
     { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
     { id: 'ysf_net', mode: 'ysf', node: '100005', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
@@ -669,7 +669,7 @@ export function allscanMockPlugin(): Plugin {
       const projectRoot = server.config.root
       let favoritesFailuresRemaining = process.env.ASR_MOCK_FAVORITES_FAIL_ONCE === '1' ? 1 : 0
       const dmrClients = defaultDmrClients.map((client) => ({ ...client }))
-      let urfBans: string[] = []
+      let globalBans: string[] = []
       const bridgeControlState: MockBridgeControlState = {
         dmrNetDestination: '12345',
         dmrNetLinked: true,
@@ -736,8 +736,8 @@ export function allscanMockPlugin(): Plugin {
               },
             }), 'application/json; charset=utf-8')
           }
-          if (action === 'urf-access-list') return serveText(res, jsonResponse({ ok: true, rules: urfBans, bans: urfBans.map((rule) => ({ rule, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
-          if (action === 'urf-client-kick') {
+          if (action === 'global-ban-list') return serveText(res, jsonResponse({ ok: true, rules: globalBans, bans: globalBans.map((rule) => ({ rule, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+          if (action === 'standalone-client-kick') {
             return void readFormBody(req).then((form) => {
               const callsign = String(form.get('callsign') || '').toUpperCase()
               const clientId = String(form.get('clientId') || '')
@@ -747,20 +747,16 @@ export function allscanMockPlugin(): Plugin {
               return serveText(res, jsonResponse({ ok: true, verified: true, removed: 1, dmrid: clientId }), 'application/json; charset=utf-8')
             })
           }
-          if (action === 'urf-access-control') {
+          if (action === 'global-ban-control') {
             return void readFormBody(req).then((form) => {
               const verb = String(form.get('verb') || '')
               const rule = String(form.get('rule') || '').toUpperCase()
-              const clientId = String(form.get('clientId') || '')
               if (verb === 'ban') {
-                const index = dmrClients.findIndex((client) => client.callsign === rule && client.dmrid === clientId)
-                if (index < 0) return serveText(res, jsonResponse({ ok: false, error: 'DMR client is no longer in the current TGIF roster.' }), 'application/json; charset=utf-8')
-                dmrClients.splice(index, 1)
-                urfBans = [...new Set([...urfBans, rule])]
+                globalBans = [...new Set([...globalBans, rule])]
               } else if (verb === 'unban') {
-                urfBans = urfBans.filter((item) => item !== rule)
+                globalBans = globalBans.filter((item) => item !== rule)
               }
-              return serveText(res, jsonResponse({ ok: true, verified: true, enforcement: 'immediate', reloadSeconds: 0, removed: verb === 'ban' ? 1 : 0, rules: urfBans, bans: urfBans.map((item) => ({ rule: item, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+              return serveText(res, jsonResponse({ ok: true, verified: true, enforcement: 'immediate', reloadSeconds: 0, removed: verb === 'ban' ? 1 : 0, rules: globalBans, bans: globalBans.map((item) => ({ rule: item, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
             })
           }
           if (action === 'bridge-destinations') {

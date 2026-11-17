@@ -39,8 +39,6 @@ try {
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
     orderedVisibleBridgeCards,
-    isUrfReflectorBridge,
-    urfReflectorDisplayName,
     provisionedNetBridgeModes,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
@@ -52,7 +50,7 @@ try {
   // The same schema applies to every bridge type, including future backends.
   const priorFetch = globalThis.fetch
   try {
-    const testBridges = ['dmr', 'p25', 'nxdn', 'ysf', 'm17', 'zello', 'urf'].map((mode) => ({
+    const testBridges = ['dmr', 'p25', 'nxdn', 'ysf', 'm17', 'zello'].map((mode) => ({
       id: `vu_${mode}`, mode, node: '1999', title: mode, detailTitle: 'Clients', cardType: 'standard',
     }))
     globalThis.fetch = async () => ({
@@ -195,30 +193,11 @@ try {
     savedStandardLast.join(',') === 'ysf_net,zello',
     'an explicit v2 Net Bridge-before-Zello order was not preserved',
   )
-  const hiddenReflector = { id: 'urf', node: '1001', cardType: 'standard', mode: 'urf', urfReflector: true }
-  assert(
-    !orderedVisibleBridgeCards([...orderConfig, hiddenReflector], [...orderCards, hiddenReflector], 'ysf')
-      .some((card) => card.id === 'urf'),
-    'the shared URF reflector leaked into the dashboard bridge-card fallback pass',
-  )
-  const urfGroup = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].map((mode) => ({
-    id: `urf_${mode}`, mode, node: '1001', title: `${mode.toUpperCase()} Bridge`,
-    detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: true,
-    urfGroupId: 'urfnet', urfName: 'URFNET',
-  }))
-  for (const bridge of urfGroup) {
-    assert(bridgeProtocolCardTitle({ ...bridge, title: 'DMR Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
-      `URF ${bridge.mode} inherited an incorrect DMR protocol label`)
-    assert(bridgeProtocolCardTitle({ ...bridge, title: 'Generic Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
-      `URF ${bridge.mode} did not use its configured protocol identity`)
-  }
   const standaloneZello = {
     id: 'zello', mode: 'zello', node: '1002', title: 'Zello Bridge',
-    detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: false,
+    detailTitle: 'Connected Clients', cardType: 'standard',
   }
-  assert(urfGroup.every(isUrfReflectorBridge), 'expanded URF protocol cards were not recognized as URF group members')
   assert(bridgeProtocolCardTitle(standaloneZello) === 'Zello Bridge', 'standalone Zello title changed')
-  assert(!isUrfReflectorBridge(standaloneZello), 'standalone Zello was incorrectly classified as an URF card')
   const kentuckyCards = ['dmr', 'ysf', 'p25', 'm17', 'nxdn', 'zello'].map((mode, index) => ({
     id: mode === 'ysf' ? 'ysf_net' : mode,
     mode,
@@ -228,24 +207,13 @@ try {
     cardType: 'standard',
     backendMode: mode === 'ysf' ? 'managed' : 'display_only',
   }))
-  assert(kentuckyCards.every((bridge) => !isUrfReflectorBridge(bridge)), 'standalone Kentucky bridge was classified as URF')
   assert(
     orderedVisibleBridgeCards(kentuckyCards, kentuckyCards, 'ysf', 2).map((card) => card.id).join(',')
       === 'dmr,ysf_net,p25,m17,nxdn,zello',
     'six standalone bridge cards were split into a special group or reordered',
   )
-  assert(urfReflectorDisplayName(urfGroup) === 'URFNET Bridge', 'URF group heading did not use the configured reflector name')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: '' }))) === 'URF Bridge', 'legacy URFWIL default leaked into a different reflector dashboard')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073', urfName: '' }))) === 'URF073 Bridge', 'explicit URF073 label was not honored')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URF073' }))) === 'URF073 Bridge', 'legacy label did not yield to an authoritative URF073 reflector identity')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URFWIL' }))) === 'URFWIL Bridge', 'actual URFWIL reflector identity was incorrectly suppressed')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073' }))) === 'URF073 Bridge', 'operator URF display name did not override the runtime identity')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading duplicated a configured Multi-Mode Bridge suffix')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'Desert Link Bridge' }))) === 'Desert Link Bridge', 'URF group heading duplicated a configured Bridge suffix')
-  assert(urfReflectorDisplayName(urfGroup.map(({ urfName, ...bridge }) => ({ ...bridge, friendlyName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading did not derive the reflector name from its friendly name')
-  const dashboardCards = [...urfGroup, standaloneZello]
-  const dashboardOrder = orderedVisibleBridgeCards(dashboardCards, dashboardCards, 'dmr')
-  assert(dashboardOrder.length === 1 && dashboardOrder[0].id === 'zello', 'URF cards leaked into the standalone grid or Zello was hidden')
+  const dashboardOrder = orderedVisibleBridgeCards([standaloneZello], [standaloneZello], 'dmr')
+  assert(dashboardOrder.length === 1 && dashboardOrder[0].id === 'zello', 'standalone Zello was hidden')
 
   const sharedTransports = ['p25', 'ysf'].map((mode) => ({
     ...netBridges[0], id: `${mode}_net`, mode, node: '1999', cardType: `${mode}_net`,
@@ -558,21 +526,6 @@ try {
       && asrApiSource.includes(". ' is not active.'"),
     'authoritative P25, NXDN, or M17 readiness failures are not exposed as card health',
   )
-  assert(
-    asrApiSource.includes('function asr_standard_urf_runtime_paths()')
-      && asrApiSource.includes("'/opt/allscan-reimagined-bridges/urf/' . $id . '/data'"),
-    'managed Standard URF cards still depend on the legacy global runtime path',
-  )
-  assert(
-    asrApiSource.includes("is_readable($nativeUnit) && is_readable($legacy . '/asr-live-events.jsonl')")
-      && asrApiSource.includes("'events' => $eventBase . '/asr-live-events.jsonl'"),
-    'native managed URF TX events are not read from their systemd runtime directory',
-  )
-  assert(
-    asrApiSource.includes("$mode === 'USRP' || $mode === 'DMR'")
-      && asrApiSource.includes("$mode === 'M17' && preg_match('/\\s+N$/D'"),
-    'proxied M17/YSF/P25/NXDN clients are still hidden as loopback transport legs',
-  )
   const dmrControls = appSource.match(
     /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
   )?.[0] || ''
@@ -687,8 +640,8 @@ try {
   )
   for (const api of ['asr-api.php', 'server/asr-api.php']) {
     const apiSource = readFileSync(new URL(`../${api}`, import.meta.url), 'utf8')
-    assert(apiSource.includes('asrExpandUrfProtocolBridges($storedBridges)'),
-      `${api} displays unchecked URF protocols`)
+    assert(apiSource.includes('!asr_is_retired_reflector_bridge($bridge)'),
+      `${api} displays retired URF reflector cards`)
   }
   assert(
     appSource.includes('allscan-controls-lower-row')
@@ -792,12 +745,9 @@ try {
     'bridge detail semantics do not preserve Zello talker history and roster provenance',
   )
   assert(
-    appSource.includes('allscan-urf-mini-card')
-      && appSource.includes('allscan-urf-mini-grid')
-      && appSource.includes('<span>Connected Clients</span>')
-      && appSource.includes('<span>Recent Activity</span>')
-      && appSource.includes('<span>Last Talker</span>'),
-    'URF modes are not rendered as compact standard bridge cards',
+    !appSource.includes('allscan-urf-')
+      && appSource.includes('Recent Activity<'),
+    'URF card markup remains or bridge activity section is missing',
   )
   assert(
     appSource.includes('allscan-controls-lower-row')
@@ -913,14 +863,14 @@ try {
   )
   assert(
     appSource.includes('const FAST_ACTIVITY_POLL_MS = 250')
-      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5
+      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4
       && !appSource.includes('window.setInterval(tick, 100)'),
     'Every fast activity feed must remain single-flight at the bounded shared cadence',
   )
   assert(
     !appSource.includes('window.setInterval(tick, 100)')
-      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5,
-    'all five fast bridge feeds must remain single-flight and back off while the page is hidden',
+      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4,
+    'all four fast bridge feeds must remain single-flight and back off while the page is hidden',
   )
   assert(
     asrApiSource.includes("function asr_m17_runtime_status(string $bridgeId): array")
@@ -944,11 +894,6 @@ try {
       && runtimeBootstrapSource.includes('Refresh now')
       && allscanLiveSource.includes("versionLabel: 'Version temporarily unavailable'"),
     'Restored browser tabs do not recheck the installed version or clearly request a refresh',
-  )
-  assert(
-    appSource.includes('urfCards.map((card) => {')
-      && appSource.includes('const dashboardStatusLabel = bridgeDashboardStatusLabel(card)'),
-    'URF-grouped Standard Bridge cards bypassed tri-state connectivity labels',
   )
 
   console.log('bridge dashboard self-test: ok')

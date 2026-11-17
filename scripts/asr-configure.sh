@@ -31,10 +31,8 @@ getent group "$WEB_GROUP" >/dev/null 2>&1 || { echo "Web-server group not found.
 
 if [ -s "$CONFIG_FILE" ] && [ "$FORCE" -eq 0 ]; then
   # Existing bridge identity is operator configuration. In particular, a
-  # self-owned Standard bridge is not proof that it belongs to a shared URF
-  # reflector. Only the explicit URF provisioning workflow may add those
-  # fields; maintenance upgrades must leave bridge records byte-for-byte
-  # unchanged.
+  # maintenance upgrades must leave bridge records byte-for-byte unchanged;
+  # only explicit provisioning workflows may add bridge fields.
   if ! php -r '
     $data = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
     exit(array_key_exists("requireLogin", $data) ? 0 : 1);

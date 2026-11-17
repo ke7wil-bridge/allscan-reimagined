@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Regression checks for Docker and native Global Ban storage selection."""
+"""Regression checks for the native ASR Global Ban policy store (#177)."""
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+STORE = "/var/lib/allscan-reimagined/admin"
 
 
 def load(name: str, relative: str):
@@ -20,48 +23,63 @@ def load(name: str, relative: str):
 
 
 with tempfile.TemporaryDirectory() as temporary:
-    base = Path(temporary)
-    runtime = base / "run" / "urf-wil-config"
-    native = base / "var" / "lib" / "allscan-reimagined" / "admin"
-    native.mkdir(parents=True)
-    for index, relative in enumerate((
-        "scripts/asr-urf-admin.py",
-        "scripts/asr-asl-ban.py",
-        "scripts/asr-standalone-admin.py",
-    )):
-        module = load(f"asr_global_ban_storage_{index}", relative)
-        assert module.global_ban_root(runtime, native) == native, f"{relative} did not fall back to native persistent storage"
-        runtime.mkdir(parents=True, exist_ok=True)
-        assert module.global_ban_root(runtime, native) == native, f"{relative} did not prefer the ASR-owned persistent policy store"
-        runtime.rmdir()
-        # Native store must remain authoritative even when the old runtime
-        # directory exists; removing that runtime must not lose ban state.
-        (native / "urfd.blacklist").write_text("KE7WIL\n", encoding="utf-8")
-        runtime.mkdir(parents=True)
-        (runtime / "urfd.blacklist").write_text("OTHER\n", encoding="utf-8")
-        chosen = module.global_ban_root(runtime, native)
-        assert (chosen / "urfd.blacklist").read_text(encoding="utf-8") == "KE7WIL\n"
-        runtime.joinpath("urfd.blacklist").unlink()
-        runtime.rmdir()
+    os.environ["ASR_GLOBAL_BAN_ROOT"] = temporary
+    try:
+        # Every policy consumer resolves the same store and list name.
+        for index, relative in enumerate(("scripts/asr-global-ban.py", "scripts/asr-asl-ban.py",
+                                          "scripts/asr-standalone-admin.py")):
+            module = load(f"asr_global_ban_storage_{index}", relative)
+            assert str(module.GLOBAL_BAN_ROOT) == temporary, f"{relative} ignored the policy store root"
+        ban = sys.modules["asr_global_ban_storage_0"]
+        assert ban.BLACKLIST == str(Path(temporary) / "global-bans.list")
+        assert sys.modules["asr_global_ban_storage_1"].GLOBAL == Path(temporary) / "global-bans.list"
+        assert sys.modules["asr_global_ban_storage_2"].BLACKLIST == Path(temporary) / "global-bans.list"
+        ban.write_rules(["KE7WIL", "N0*", "KE7WIL"])
+        assert ban.read_rules() == ["KE7WIL", "N0*"]
+        assert (Path(temporary) / "global-bans.list").read_text().startswith("# Managed by AllScan Reimagined Global Ban\n")
+        timed = ban.set_ban_expiration({}, "KE7WIL", "1h", now=1000)
+        ban.write_timed_bans(timed)
+        assert ban.read_timed_bans() == {"KE7WIL": {"createdAt": 1000, "expiresAt": 4600}}
+        try:
+            ban.assert_ban_allowed("RFCKRD0")
+            raise AssertionError("protected service identity was bannable")
+        except ValueError:
+            pass
+    finally:
+        os.environ.pop("ASR_GLOBAL_BAN_ROOT", None)
+
+udp_admin = (ROOT / "scripts/asr-native-udp-admin.py").read_text(encoding="utf-8")
+assert f'"ASR_GLOBAL_POLICY_DIR", "{STORE}"' in udp_admin and 'POLICY_DIR / "global-bans.list"' in udp_admin
+unit = (ROOT / "ops/native-udp-admin/allscan-reimagined-native-admin@.service").read_text(encoding="utf-8")
+assert f"ReadOnlyPaths={STORE}" in unit and "urf" not in unit.lower()
 
 reapply = (ROOT / "scripts/asr-reapply.sh").read_text(encoding="utf-8")
 assert 'GLOBAL_BAN_DIR="$DATA_DIR/admin"' in reapply
-assert "allscan-reimagined-global-ban.conf" in reapply
-assert "L+ /run/urf-wil-config" in reapply
-assert "systemd-tmpfiles --create" in reapply
+# Existing bans migrate once from the retired URF list name.
+assert 'cp -p "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"' in reapply
+assert 'cp -p "$legacy_dir/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"' in reapply
+# Read-only aliases remain for software outside ASR.
+assert 'ln -sfn global-bans.list "$GLOBAL_BAN_DIR/urfd.blacklist"' in reapply
+assert "L+ /run/urf-wil-config" in reapply and "systemd-tmpfiles --create" in reapply
+assert "/usr/local/sbin/allscan-reimagined-global-ban" in reapply
+assert "allscan-reimagined-urf-admin " not in reapply
+
+docker_reapply = (ROOT / "docker/layered-reapply.sh").read_text(encoding="utf-8")
+assert "install_helper asr-global-ban.py allscan-reimagined-global-ban" in docker_reapply
+assert "GLOBAL_BAN_DIR=/var/lib/allscan-reimagined/admin" in docker_reapply
 
 api = (ROOT / "asr-api.php").read_text(encoding="utf-8")
-assert "is_dir('/var/lib/allscan-reimagined/admin') ? '/var/lib/allscan-reimagined/admin' : '/run/urf-wil-config'" in api
-
-print("global ban storage self-test: ok")
+assert f"const ASR_GLOBAL_BAN_ROOT = '{STORE}';" in api
+assert "ASR_GLOBAL_BAN_ROOT . '/global-bans.list'" in api
+assert "urf-wil-config" not in api
 
 zello = (ROOT / "scripts/asr-bridge-setup-zello-install.py").read_text(encoding="utf-8")
 assert "- /var/lib/allscan-reimagined/admin:/run/asr-global:ro" in zello
+assert 'ZELLO_GLOBAL_BANS: "/run/asr-global/global-bans.list"' in zello
+assert 'ZELLO_SESSION_KICKS: "/run/asr-global/asr-zello-kicks.json"' in zello
+assert f"ExecStartPre=/usr/bin/test -f {STORE}/global-bans.list" in zello
 
-assert "ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/urfd.blacklist" in zello
-assert "ExecStartPre=/bin/sh -c 'if [ ! -e /run/urf-wil-config ]" not in zello
-
-admin = load("asr_global_ban_verification_test", "scripts/asr-urf-admin.py")
+admin = sys.modules["asr_global_ban_storage_0"]
 assert admin.global_enforcement_verified({"status": "applied"}, {"verified": True, "applied": [], "skipped": []})
 assert not admin.global_enforcement_verified(
     {"status": "applied", "applied": {"unmappedGlobalRules": ["N0MISSING"]}},
@@ -69,3 +87,7 @@ assert not admin.global_enforcement_verified(
 for native in ({"verified": False, "skipped": ["p25"]}, {"verified": False, "unavailable": True}, {"verified": True, "skipped": ["nxdn"]}):
     assert not admin.global_enforcement_verified({"status": "applied"}, native)
 assert not admin.global_enforcement_verified({"status": "pending"}, {"verified": True, "skipped": []})
+assert json.loads(json.dumps(admin.ban_payload(["KE7WIL"], {}, now=1))) == [
+    {"rule": "KE7WIL", "createdAt": 0, "expiresAt": 0, "remainingSeconds": 0}]
+
+print("global ban storage self-test: ok")
