@@ -1385,8 +1385,31 @@ EOF
 OOMScoreAdjust=-750
 Nice=-5
 EOF
+  # Timed Global Bans must lift on time even when nobody has the dashboard
+  # open (#179); the dashboard poll was the only host-side expiry trigger.
+  cat > /etc/systemd/system/allscan-reimagined-global-ban-expire.service <<'EOF'
+[Unit]
+Description=Expire timed AllScan Reimagined Global Bans
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-global-ban expire --actor system
+Nice=10
+EOF
+  cat > /etc/systemd/system/allscan-reimagined-global-ban-expire.timer <<'EOF'
+[Unit]
+Description=Expire timed ASR Global Bans every minute
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
   systemctl daemon-reload
   systemctl enable --now allscan-reimagined-node-diagnostics.timer >/dev/null 2>&1 || true
+  systemctl enable --now allscan-reimagined-global-ban-expire.timer >/dev/null 2>&1 || true
 fi
 
 if command -v apache2ctl >/dev/null 2>&1; then

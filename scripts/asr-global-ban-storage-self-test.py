@@ -79,6 +79,9 @@ assert 'ln -sfn global-bans.list "$GLOBAL_BAN_DIR/urfd.blacklist"' in reapply
 assert "L+ /run/urf-wil-config" in reapply and "systemd-tmpfiles --create" in reapply
 assert "/usr/local/sbin/allscan-reimagined-global-ban" in reapply
 assert "allscan-reimagined-urf-admin " not in reapply
+# Timed bans expire on a schedule, not only when the dashboard polls (#179).
+assert "ExecStart=/usr/local/sbin/allscan-reimagined-global-ban expire --actor system" in reapply
+assert "systemctl enable --now allscan-reimagined-global-ban-expire.timer" in reapply
 
 docker_reapply = (ROOT / "docker/layered-reapply.sh").read_text(encoding="utf-8")
 assert "install_helper asr-global-ban.py allscan-reimagined-global-ban" in docker_reapply
