@@ -167,16 +167,25 @@ def append_audit(action: str, actor: str, **details: Any) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+def kick_terms_valid(manifest: dict[str, Any]) -> bool:
+    """Instant-reconnect contracts, or a bounded reconnect hold (disconnect-hold-v1)."""
+    contract = manifest.get("kickContract")
+    if contract in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}:
+        return manifest.get("kickAllowsImmediateReconnect") is True
+    hold = manifest.get("kickHoldSeconds")
+    return (contract == "disconnect-hold-v1" and manifest.get("kickAllowsImmediateReconnect") is False
+            and isinstance(hold, int) and not isinstance(hold, bool) and 30 <= hold <= 3600)
+
+
 def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> dict[str, Any]:
     directory, manifest = manifest_for(bridge)
     required = {
         "kick": (
             manifest.get("kickClient") is True
-            and manifest.get("kickContract") in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}
+            and kick_terms_valid(manifest)
             and (manifest.get("kickContract") != "local-media-block-until-reconnect"
                  or manifest.get("enforcementEvidence") == "relay-observed-v1")
             and manifest.get("kickRequiresCurrentSession") is True
-            and manifest.get("kickAllowsImmediateReconnect") is True
         ),
         "reconcile": (
             supports_policy_reconcile(manifest)

@@ -102,6 +102,8 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
     write_json(manifest_path, manifest)
     stop = threading.Event()
 
+    handled = set()
+
     def adapter():
         while not stop.is_set():
             for request_path in runtime.glob("*/request-*.json"):
@@ -110,6 +112,11 @@ with tempfile.TemporaryDirectory(prefix="asr-standalone-admin-test-") as tempora
                     request = json.loads(request_path.read_text(encoding="utf-8"))
                 except FileNotFoundError:
                     continue
+                # Answer each request once; re-handling a request the caller has
+                # not yet removed rewrote the manifest heartbeat (flaky test).
+                if request["nonce"] in handled:
+                    continue
+                handled.add(request["nonce"])
                 result = {
                     "schema": 1, "nonce": request["nonce"],
                     "bridgeId": request["bridgeId"], "mode": request["mode"],

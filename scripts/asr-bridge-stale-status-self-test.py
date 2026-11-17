@@ -777,6 +777,31 @@ def main() -> None:
     test_standard_once_writer()
     test_net_helpers()
     test_wiring_contracts()
+    # A managed YSF card whose log is the plain MMDVM_Bridge file (Kentucky)
+    # takes its talkers from the card's own activityLog fields (#134).
+    managed = {
+        "dmr": {"id": "dmr", "mode": "dmr", "node": "1001", "activityLogDirectory": "/var/log/mmdvm",
+                "activityLogStem": "MMDVM_Bridge_Netoholics_DMR"},
+        "ysf_net": {"id": "ysf_net", "mode": "ysf", "node": "1002", "backendMode": "managed",
+                    "activityLogDirectory": "/var/log/mmdvm", "activityLogStem": "MMDVM_Bridge"},
+        "m17": {"id": "m17", "mode": "m17", "node": "1004", "activityLogDirectory": "/var/log/m17",
+                "activityLogStem": "USRP2M17"},
+    }
+    explicit = {"dmr": {"directory": "/var/log/mmdvm", "stem": "MMDVM_Bridge_Netoholics_DMR"}}
+    sources = status.card_activity_sources(explicit, managed)
+    assert sources["ysf_net"] == {"directory": "/var/log/mmdvm", "stem": "MMDVM_Bridge"}, sources
+    assert sources["dmr"] is explicit["dmr"] and "m17" not in sources
+    shared = status.card_activity_sources({}, {**managed, "ysf_two": {**managed["ysf_net"], "id": "ysf_two"}})
+    assert ("ysf_net" in shared) != ("ysf_two" in shared), "one log was routed to two cards"
+    config = {"node": "674982", "callsign": "KN4EWT", "bridges": [
+        {"id": "ysf_net", "mode": "ysf", "cardType": "standard", "node": "1002", "backendMode": "managed"}]}
+    with tempfile.TemporaryDirectory(prefix="asr-ysf-card-log-") as raw:
+        payload = status.standard_live_payload(
+            config, {}, [], 1200, Path(raw),
+            external_lines=[
+                "ysf_net\tM: 2026-08-21 19:40:00.000 YSF, received network data from KE7WIL     to ALL        at KE7WIL    ",
+                "ysf_net\tM: 2026-08-21 19:40:04.100 YSF, received network end of transmission, 4.1 seconds, 0% packet loss, BER: 0.0%"])
+    assert payload["bridges"]["ysf_net"]["last_user"] == "KE7WIL", payload["bridges"]["ysf_net"]
     print("Standard Bridge stale/activity status self-test: ok")
 
 

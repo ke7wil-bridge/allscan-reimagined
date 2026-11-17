@@ -126,6 +126,7 @@ python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
 python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"
+python3 "$ROOT/scripts/asr-native-udp-admin-self-test.py"
 python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test

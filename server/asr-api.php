@@ -350,11 +350,19 @@ function asr_runtime_client_admin(string $id, string $mode): array {
 
     $result = [];
     if (($cap['listClients'] ?? false) === true) $result[] = 'listClients';
+    $kickContract = (string) ($cap['kickContract'] ?? '');
+    $kickHold = $cap['kickHoldSeconds'] ?? null;
+    // disconnect-hold-v1 refuses the kicked identity for a bounded hold, since
+    // radios re-poll within seconds and an instant reconnect undoes the Kick.
+    $kickTerms = (in_array($kickContract, ['disconnect-until-reconnect', 'local-media-block-until-reconnect'], true)
+            && ($cap['kickAllowsImmediateReconnect'] ?? false) === true)
+        || ($kickContract === 'disconnect-hold-v1'
+            && ($cap['kickAllowsImmediateReconnect'] ?? null) === false
+            && is_int($kickHold) && $kickHold >= 30 && $kickHold <= 3600);
     if (($cap['kickClient'] ?? false) === true
         && ($cap['enforcementEvidence'] ?? '') === 'relay-observed-v1'
-        && in_array(($cap['kickContract'] ?? ''), ['disconnect-until-reconnect', 'local-media-block-until-reconnect'], true)
         && ($cap['kickRequiresCurrentSession'] ?? false) === true
-        && ($cap['kickAllowsImmediateReconnect'] ?? false) === true) {
+        && $kickTerms) {
         $result[] = 'kickClient';
     }
 

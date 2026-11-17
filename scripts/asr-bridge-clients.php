@@ -1173,7 +1173,7 @@ function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): s
 }
 
 function asrRunningReflectorConfig(string $binaryName): string {
-	if(!preg_match('/^(?:P25Reflector|NXDNReflector|mrefd)$/D', $binaryName))
+	if(!preg_match('/^(?:P25Reflector|NXDNReflector|YSFReflector|mrefd)$/D', $binaryName))
 		return '';
 	$configs = [];
 	foreach(glob('/proc/[0-9]*/cmdline') ?: [] as $cmdlinePath) {
@@ -1184,7 +1184,7 @@ function asrRunningReflectorConfig(string $binaryName): string {
 		if($arguments === [] || basename($arguments[0]) !== $binaryName)
 			continue;
 		foreach(array_slice($arguments, 1) as $argument) {
-			if(!is_string($argument) || !preg_match('#^/[^\0]+\.(?:ini|cfg|conf)$#iD', $argument))
+			if(!is_string($argument) || !preg_match('#^/[^\0]+\.(?:ini|cfg|conf)(?:\.staged)?$#iD', $argument))
 				continue;
 			$trusted = asrTrustedReadableFile($argument, true);
 			if($trusted !== '')
@@ -1522,6 +1522,12 @@ function asrBuiltinZelloRows(): array {
 
 function asrLatestYsfLog(): string {
 	$files = [];
+	// A reflector may log outside the stock directories; follow the running
+	// YSFReflector's own [Log] settings first (Beta 8.5.1 YSF roster empty).
+	$configPath = asrRunningReflectorConfig('YSFReflector');
+	$configured = $configPath === '' ? '' : asrReflectorLogPathFromConfig($configPath);
+	if($configured !== '' && is_readable($configured))
+		$files[] = $configured;
 	foreach(ASR_YSF_LOG_DIRS as $directory) {
 		$today = $directory . '/YSFReflector-' . gmdate('Y-m-d') . '.log';
 		if(is_readable($today))

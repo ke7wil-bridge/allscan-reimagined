@@ -2325,8 +2325,13 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function globalBanDurationSelect(identity: string) {
-    const callsign = identity.replace(/\s+[A-Z]$/i, '').trim().toUpperCase()
-    if (!/^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(callsign)) return null
+    // A Global Ban rule is any ASR identity (callsign, M17 base call, Zello
+    // username up to 15 characters). M17/YSF suffixes such as KE7WIL-02 or
+    // KE7WIL/P ban the base callsign, which the reflector proxies match.
+    const shown = identity.replace(/\s+[A-Z]$/i, '').trim().toUpperCase()
+    const suffixed = /^([A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7})[-/][A-Z0-9]{1,4}$/.exec(shown)
+    const callsign = suffixed ? suffixed[1] : shown
+    if (!/^[A-Z0-9][A-Z0-9_./-]{0,14}$/.test(callsign)) return null
     const banned = globalBanRules.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule)
     if (banned) return null
     return <select value="" aria-label={`Ban ${callsign}`} disabled={banAdminBusy} onChange={(event) => {
@@ -4370,7 +4375,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
                             {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Kick this source from local DMR media until it reconnects' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Kick the active bridge session')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Kick this source from local DMR media until it reconnects' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Disconnect this station and refuse it for five minutes')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}

@@ -156,6 +156,37 @@ def run():
         ban.reconcile(state, fake, "641890")
         assert "N0RETRY" in ban.read_state()["appliedEcho"]
         assert ("refresh", "chan_echolink.so") in fake.calls
+
+        # A node without chan_echolink (Phoenix) must still enforce AllStar
+        # node bans; Asterisk rejects every EchoLink CLI command there.
+        class NoEchoAMI(FakeAMI):
+            def command(self, value):
+                if value == "module show like chan_echolink.so":
+                    self.calls.append(("command", value))
+                    return "Module Description Use Count Status Support Level\n0 modules loaded"
+                if value.startswith("echolink "):
+                    raise RuntimeError("Asterisk rejected the requested operation.")
+                return super().command(value)
+
+            def action(self, name, **fields):
+                if name in ("GetConfig", "UpdateConfig", "ModuleLoad", "ModuleCheck"):
+                    raise AssertionError(f"EchoLink {name} used on a node without EchoLink")
+                return super().action(name, **fields)
+
+        ban.save_state({"version": 1, "bans": [], "ownedAst": [], "ownedEcho": [], "audit": []})
+        state = ban.read_state()
+        state["bans"] = [{"kind": "node", "value": "67098", "createdAt": now,
+                          "expiresAt": now + 900, "reason": "", "actor": "test"}]
+        noecho = NoEchoAMI()
+        noecho.channels = ["IAX2/doug-1!radio-secure!641890!1!Up!Rpt!641890!67098!Doug!"]
+        result = ban.reconcile(state, noecho, "641890")
+        assert "67098" in noecho.ast, "AllStar node ban not applied without EchoLink"
+        assert result["removed"] == 1 and not noecho.channels, "banned node was not disconnected"
+        assert result["echolinkAvailable"] is False and result["pending"] == {}
+        state = ban.read_state()
+        state["bans"].append({"kind": "echolink-call", "value": "N0ECHO", "createdAt": now,
+                              "expiresAt": now + 900, "reason": "", "actor": "test"})
+        assert "not loaded" in ban.reconcile(state, noecho, "641890")["pending"]["echolink"]
     print("ASL native ban policy self-test: ok")
 
 

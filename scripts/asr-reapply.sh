@@ -383,6 +383,33 @@ for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py a
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
+# Running DMR admin adapters keep the code they started with, so an upgrade
+# that changes the adapter must refresh every installed copy and restart the
+# services using it; otherwise the dashboard keeps reading the old capability
+# manifest (Beta 8.5.1: DMR Kick missing after upgrade).
+DMR_ADAPTER_SRC="$MASTER_DIR/scripts/asr-dmr-standalone-admin-adapter.py"
+if [ -f "$DMR_ADAPTER_SRC" ]; then
+  dmr_adapter_changed=0
+  for adapter_copy in /opt/allscan-reimagined-bridges/*/admin/asr-dmr-standalone-admin-adapter.py; do
+    [ -f "$adapter_copy" ] || continue
+    if ! cmp -s "$DMR_ADAPTER_SRC" "$adapter_copy"; then
+      install -m 750 -o "$(stat -c %u "$adapter_copy")" -g "$(stat -c %g "$adapter_copy")" "$DMR_ADAPTER_SRC" "$adapter_copy"
+      dmr_adapter_changed=1
+    fi
+  done
+  adapter_sum=$(sha256sum "$DMR_ADAPTER_SRC" | cut -d' ' -f1)
+  for unit in $(systemctl list-units --plain --no-legend --state=active --type=service | awk '{print $1}'); do
+    exec_line=$(systemctl show -p ExecStart --value "$unit" 2>/dev/null)
+    case "$exec_line" in *asr-dmr-standalone-admin-adapter.py*) ;; *) continue ;; esac
+    started=$(systemctl show -p ExecMainStartTimestampMonotonic --value "$unit" 2>/dev/null)
+    marker="/run/allscan-reimagined/dmr-adapter-$unit.sha256"
+    if [ "$dmr_adapter_changed" = "1" ] || [ "$(cat "$marker" 2>/dev/null)" != "$adapter_sum:$started" ]; then
+      systemctl try-restart "$unit" >/dev/null 2>&1 || true
+      install -d -m 755 /run/allscan-reimagined
+      printf '%s:%s\n' "$adapter_sum" "$(systemctl show -p ExecMainStartTimestampMonotonic --value "$unit" 2>/dev/null)" > "$marker"
+    fi
+  done
+fi
 if [ -f "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" ]; then
   install -o root -g root -m 755 "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" \
     /usr/local/libexec/allscan-reimagined/asr-tgif-dmr-proxy.py

@@ -126,13 +126,12 @@ html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span { backgroun
   .allscan-bridge-grid .allscan-bridge-client-meta { margin-top:3px; font-size:11px; line-height:1.2; }
 }
 
-/* Desktop: use every available equal-width column. Six standalone bridges
-   fit one row on a normal desktop, while narrower windows wrap without
-   stretching the final card. */
+/* Desktop: equal-width columns, at most five per row (#134 acceptance); a
+   sixth bridge wraps to the next row. Narrower windows wrap earlier. */
 @media (min-width:1201px) {
   .allscan-bridge-grid {
     display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    grid-template-columns:repeat(auto-fit,minmax(max(220px,calc((100% - 24px) / 5)),1fr));
     justify-content:stretch;
   }
   .allscan-bridge-grid > .allscan-bridge-card {

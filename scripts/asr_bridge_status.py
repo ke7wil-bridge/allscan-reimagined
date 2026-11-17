@@ -1059,6 +1059,33 @@ def restore_standard_states(path: Path, now: int | None = None) -> dict[str, dic
     return states
 
 
+def card_activity_sources(
+    sources: dict[str, Any], configured: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Add each card's own activityLogDirectory/activityLogStem.
+
+    A managed card is skipped by the shared untagged log path, so without an
+    explicit source its talkers never reach the card (Beta 8.5.1: YSF on the
+    plain MMDVM_Bridge log showed no Talking/Last Talker). An explicit
+    bridgeActivityLogs entry still wins; a log already claimed by another
+    card is never shared.
+    """
+    merged = dict(sources)
+    claimed = {
+        (str(item.get("directory")), str(item.get("stem")))
+        for item in sources.values() if isinstance(item, dict)
+    }
+    for bridge_id, bridge in configured.items():
+        if bridge_id in merged or str(bridge.get("mode", "")).lower() not in ("dmr", "ysf", "p25", "nxdn"):
+            continue
+        directory, stem = bridge.get("activityLogDirectory"), bridge.get("activityLogStem")
+        if not isinstance(directory, str) or not isinstance(stem, str) or (directory, stem) in claimed:
+            continue
+        merged[bridge_id] = {"directory": directory, "stem": stem}
+        claimed.add((directory, stem))
+    return merged
+
+
 def watch_standard_status(
     config_path: Path = CONFIG_PATH,
     status_path: Path = STANDARD_STATUS_PATH,
@@ -1083,6 +1110,7 @@ def watch_standard_status(
         external_lines: list[str] = []
         sources = config.get("bridgeActivityLogs", {})
         configured = {str(b["id"]): b for b in all_configured_standard_bridges(config)}
+        sources = card_activity_sources(sources if isinstance(sources, dict) else {}, configured)
         if isinstance(sources, dict):
             for bridge_id, location in sources.items():
                 if bridge_id not in configured or not isinstance(location, dict):
@@ -1092,7 +1120,7 @@ def watch_standard_status(
                     continue
                 if not ((directory == "/var/log/mmdvm" or
                          re.fullmatch(r"/var/log/netoholics/[a-z0-9_-]+", directory)) and
-                        MMDVM_LOG_STEM_RE.fullmatch(stem)):
+                        (MMDVM_LOG_STEM_RE.fullmatch(stem) or stem == "MMDVM_Bridge")):
                     continue
                 follower_key = directory + "/" + stem
                 follower_instance = external_followers.setdefault(follower_key, MmdvmFollower(Path(directory)))

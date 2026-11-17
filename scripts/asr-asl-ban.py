@@ -139,6 +139,13 @@ def allstar_nodes_for_calls(calls):
     return nodes, wanted - mapped
 
 
+def echolink_available(ami):
+    """True only when chan_echolink is loaded; nodes without EchoLink must
+    still enforce AllStar bans (Phoenix rejected `echolink dbdump`)."""
+    modules = ami.command("module show like chan_echolink.so")
+    return bool(re.search(r"(?m)^chan_echolink\.so\s+.*\bRunning\b", modules))
+
+
 def echolink_calls_for_calls(ami, calls):
     wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
     result = set(wanted)
@@ -336,7 +343,8 @@ def reconcile(data, ami, local):
     # Asterisk's rpt denylist is keyed by AllStar node number. Writing a
     # callsign there is not enforcement and must never count as verification.
     unsupported = sorted(set(unsupported) | (set(global_rules) & unmapped_ast_calls))
-    desired_echo = echolink_calls_for_calls(ami, desired_echo_calls)
+    has_echolink = echolink_available(ami)
+    desired_echo = echolink_calls_for_calls(ami, desired_echo_calls) if has_echolink else set()
     previous_ast = set(data.get("ownedAst", []))
     previous_echo = set(data.get("ownedEcho", []))
     existing = ast_entries(ami, local)
@@ -353,6 +361,16 @@ def reconcile(data, ami, local):
     data["ownedAst"] = sorted(owned_ast)
     save_state(data)
     removed = disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls)
+    if not has_echolink:
+        data["bans"] = active
+        save_state(data)
+        explicit_echo = sorted(row["value"] for row in active if row["kind"] == "echolink-call")
+        pending = {"echolink": "EchoLink is not loaded on this node; EchoLink bans cannot be enforced."} if explicit_echo else {}
+        return {"removed": removed, "allstar": sorted(desired_ast), "echolink": [],
+                "unmappedGlobalRules": unsupported,
+                "unmappedAllStarCallsigns": sorted(unmapped_ast_calls),
+                "externalAst": sorted(ast_entries(ami, local) - owned_ast),
+                "externalEcho": [], "echolinkAvailable": False, "pending": pending}
     # Record intended ownership before the remote write so a reload failure can
     # be retried without mistaking our own directive for an external manual ban.
     existing_echo, _ = echo_denies(ami)

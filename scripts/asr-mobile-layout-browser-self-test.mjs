@@ -74,9 +74,12 @@ try {
         const rects=cards.map(card=>card.getBoundingClientRect());
         const widths=rects.map(rect=>rect.width);
         const tops=rects.map(rect=>rect.top);
-        return {ok:cards.length===6&&Math.max(...widths)-Math.min(...widths)<=1&&Math.max(...tops)-Math.min(...tops)<=1,count:cards.length,widths,tops};
+        // At most five cards per row (#134): five share the first row and the
+        // sixth wraps to a second row at the same width.
+        const firstRow=tops.slice(0,5);
+        return {ok:cards.length===6&&Math.max(...widths)-Math.min(...widths)<=1&&Math.max(...firstRow)-Math.min(...firstRow)<=1&&tops[5]>tops[0]+1,count:cards.length,widths,tops};
       })()`)
-      assert(bridgeLayout.ok,'desktop: six bridge cards are not one uniform row '+JSON.stringify(bridgeLayout))
+      assert(bridgeLayout.ok,'desktop: bridge cards are not five uniform cards per row '+JSON.stringify(bridgeLayout))
     }
     console.log(name+': PASS '+result.viewport+'px, '+result.buttons+' visible controls')
   }

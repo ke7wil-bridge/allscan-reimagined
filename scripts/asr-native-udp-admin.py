@@ -28,6 +28,11 @@ TIMED_BANS = POLICY_DIR / "asr-timed-bans.json"
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 IDENTITY_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.\/-]{0,14}$")
 NONCE_RE = re.compile(r"^[a-f0-9]{32}$")
+# Radios and hotspots re-poll within seconds, so a Kick that only drops the
+# session is undone immediately (Beta 8.5.1 P25/NXDN acceptance). A kicked
+# identity is refused for this hold, matching the Zello five-minute Kick.
+KICK_HOLD_SECONDS = max(30, min(3600, int(os.environ.get("ASR_KICK_HOLD_SECONDS", "300"))))
+SUFFIX_RE = re.compile(r"[-/][A-Z0-9]{1,4}$")
 SUPPORTED = {"ysf", "p25", "nxdn", "m17"}
 def atomic_json(path, payload, mode=0o640):
     descriptor, temporary = tempfile.mkstemp(prefix=".asr-native-", dir=path.parent)
@@ -111,9 +116,16 @@ def current_policy():
     return sorted(set(rules)), digest
 
 
+def base_identity(identity):
+    """KE7WIL-02 (M17 module/SSID) and KE7WIL/P belong to callsign KE7WIL."""
+    return SUFFIX_RE.sub("", identity) or identity
+
+
 def is_banned(identity, rules):
+    candidates = {identity, base_identity(identity)}
     return any(
-        identity.startswith(rule[:-1]) if rule.endswith("*") else identity == rule
+        any(item.startswith(rule[:-1]) for item in candidates) if rule.endswith("*")
+        else rule in candidates
         for rule in rules
     )
 
@@ -162,6 +174,7 @@ def main():
         public6.bind((PUBLIC_IPV6_HOST, PUBLIC_PORT))
         publics.append(public6)
     sessions = {}
+    kicked = {}
     rules, applied, healthy = [], "", False
     policy_stamp = None
     last_manifest = 0.0
@@ -183,6 +196,14 @@ def main():
             for address, session in list(sessions.items())
             if session.identity == identity
         )
+
+    def kick_held(identity, now):
+        key = base_identity(identity)
+        until = kicked.get(key, 0)
+        if until and until <= now:
+            kicked.pop(key, None)
+            return False
+        return bool(until)
 
     def reconcile(force=False):
         nonlocal rules, applied, healthy, policy_stamp
@@ -243,9 +264,10 @@ def main():
                     removed = drop_identity(identity)
                     if removed < 1:
                         raise ValueError("Client was no longer connected or could not be kicked.")
+                    kicked[base_identity(identity)] = time.monotonic() + KICK_HOLD_SECONDS
                     response.update(
                         ok=True, verified=True, identity=identity, removed=removed,
-                        enforcement="disconnect-until-reconnect",
+                        enforcement="disconnect-hold-v1", holdSeconds=KICK_HOLD_SECONDS,
                     )
                 else:
                     raise ValueError("Unsupported native bridge administrative action.")
@@ -264,8 +286,9 @@ def main():
                 "adapter": "asr-native-udp-proxy", "heartbeatEpoch": int(time.time()),
                 "enforcementEvidence": "relay-observed-v1",
                 "healthy": healthy, "listClients": True,
-                "kickClient": healthy, "kickContract": "disconnect-until-reconnect",
-                "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": True,
+                "kickClient": healthy, "kickContract": "disconnect-hold-v1",
+                "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": False,
+                "kickHoldSeconds": KICK_HOLD_SECONDS,
                 "banClient": healthy, "unbanClient": healthy, "listBans": healthy,
                 "banContract": "global-timed-v1", "appliedPolicyDigest": applied,
             }, mode=0o644)
@@ -299,7 +322,7 @@ def main():
                     if session is not None and session.identity != identity:
                         drop(address)
                         session = None
-                    if not healthy or is_banned(identity, rules):
+                    if not healthy or is_banned(identity, rules) or kick_held(identity, now):
                         if session is not None:
                             drop(address)
                         continue
@@ -308,7 +331,7 @@ def main():
                         sessions[address] = session
                 if session is None:
                     continue
-                if is_banned(session.identity, rules):
+                if is_banned(session.identity, rules) or kick_held(session.identity, now):
                     drop(address)
                     continue
                 session.last_seen = now
