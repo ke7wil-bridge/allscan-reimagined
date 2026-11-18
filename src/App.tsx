@@ -2917,7 +2917,13 @@ function App({ config }: { config: RuntimeConfig }) {
       const durationLabel = verb === 'ban' ? ` for ${GLOBAL_BAN_DURATIONS.find((option) => option.value === duration)?.label || duration}` : ''
       const removal = verb === 'ban' && result.removed > 0 ? ` ${result.removed} active backend session${result.removed === 1 ? ' was' : 's were'} removed immediately.` : ''
       const aslLimit = result.asl?.status !== 'applied' || result.asl?.applied?.unmappedGlobalRules?.includes(normalized) ? ` Global enforcement pending: ${result.asl?.error || 'This callsign could not be mapped.'}` : ''
-      setBanAdminStatus(`${normalized} was ${action} the ASR Global Ban List${durationLabel}${result.verified ? ' and the saved logical/backend state was verified' : ''}.${removal}${aslLimit}`)
+      const tgif = result.tgif
+      const tgifNote = !tgif || tgif.status === 'unavailable' || tgif.status === 'not-configured' ? ''
+        : tgif.status !== 'applied' ? ` TGIF talkgroup ban list was not updated: ${(tgif.errors || [])[0] || tgif.error || 'TGIF did not answer'}.`
+        : tgif.noDmrId?.includes(normalized) ? ' TGIF has no DMR ID for this callsign, so the TGIF talkgroup ban list was not changed.'
+        : verb === 'ban' ? ` Also banned on TGIF talkgroup ${tgif.talkgroup || ''}.`.replace(' .', '.')
+        : ` Removed from the TGIF talkgroup ${tgif.talkgroup || ''} ban list.`.replace('  ', ' ')
+      setBanAdminStatus(`${normalized} was ${action} the ASR Global Ban List${durationLabel}${result.verified ? ' and the saved logical/backend state was verified' : ''}.${removal}${aslLimit}${tgifNote}`)
     } catch (error) {
       setBanAdminStatus(error instanceof Error ? error.message : 'Global Ban update failed.')
     } finally { setBanAdminBusy(false) }

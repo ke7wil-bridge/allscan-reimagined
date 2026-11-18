@@ -27,6 +27,7 @@ ZELLO_TALKERS = "/var/www/html/allscan/zello-talkers.json"
 ZELLO_KICKS = str(GLOBAL_BAN_ROOT / "asr-zello-kicks.json")
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
+TGIF_SESSION_HELPER = os.environ.get("ASR_TGIF_SESSION_HELPER", "/usr/local/sbin/allscan-reimagined-tgif-user-session")
 BAN_DURATIONS = {"15m": 15 * 60, "1h": 60 * 60, "1w": 7 * 24 * 60 * 60, "30d": 30 * 24 * 60 * 60, "permanent": 0}
 RULE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_./-]{0,14}\*?$")
 PROTECTED_IDENTITIES = {"RFCKRD0", "YSF-LIVE", "KF0WSS"}
@@ -152,6 +153,37 @@ def reconcile_asl_bans():
         return {"status": "failed", "error": str(pending["echolink"])[:180], **payload}
     status = "partial" if applied.get("unmappedGlobalRules") else "applied"
     return {"status": status, **payload}
+
+
+def reconcile_tgif_bans(force=False):
+    """Mirror callsign bans onto the signed-in TGIF talkgroup's access list.
+
+    TGIF is a separate network: its result is reported on its own and never
+    changes whether ASR's own enforcement is verified.
+    """
+    if not os.path.isfile(TGIF_SESSION_HELPER) or not os.access(TGIF_SESSION_HELPER, os.X_OK):
+        return {"status": "unavailable", "error": "TGIF session helper is unavailable."}
+    command = [TGIF_SESSION_HELPER, "ban-sync", "node"] + (["--force"] if force else [])
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return {"status": "failed", "error": "TGIF ban sync did not finish."}
+    payload = None
+    for line in reversed(completed.stdout.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+            break
+    if not isinstance(payload, dict):
+        return {"status": "failed", "error": "TGIF ban sync returned no result."}
+    if payload.get("configured") is False:
+        return {"status": "not-configured", "error": str(payload.get("error") or "")[:180]}
+    keep = {key: payload[key] for key in ("talkgroup", "rules", "added", "removed", "noDmrId", "errors", "cached") if key in payload}
+    status = "applied" if payload.get("ok") is True and payload.get("verified") is True else "failed"
+    return {"status": status, **keep}
 
 
 def read_rules():
@@ -436,7 +468,8 @@ def main():
         asl = reconcile_asl_bans()
         if args.action == "expire":
             emit(ok=True, asl=asl, action="expire", expired=expired, rules=sorted(set(rules)),
-                 bans=ban_payload(rules, timed), standalone=standalone, serverEpoch=int(time.time()))
+                 bans=ban_payload(rules, timed), standalone=standalone, tgif=reconcile_tgif_bans(),
+                 serverEpoch=int(time.time()))
         else:
             emit(ok=True, asl=asl, rules=sorted(set(rules)), bans=ban_payload(rules, timed),
                  audit=read_audit_events(), standalone=standalone, serverEpoch=int(time.time()), reloadSeconds=30)
@@ -463,7 +496,8 @@ def main():
     standalone = reconcile_standalone_bans(args.actor)
     asl = reconcile_asl_bans()
     verified = global_enforcement_verified(asl, standalone)
-    common = dict(ok=True, asl=asl, action=args.action, rule=rule, rules=expected,
+    tgif = reconcile_tgif_bans(force=True)
+    common = dict(ok=True, asl=asl, tgif=tgif, action=args.action, rule=rule, rules=expected,
                   bans=ban_payload(expected, timed, now), audit=None, standalone=standalone,
                   serverEpoch=now, verified=verified,
                   enforcement="immediate_global" if verified else "partial_pending_enforcement",

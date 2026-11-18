@@ -483,7 +483,357 @@ def collect_all() -> int:
     return 0
 
 
+# --- Global Ban to TGIF talkgroup ACL ------------------------------------
+# ASR Global Ban rules are mirrored onto the signed-in talkgroup's TGIF access
+# list ("Deny Access" by DMR ID), so a ban stops the station on the whole
+# talkgroup, not only on this node's bridge. Only entries ASR created (label
+# prefix + this session's author) are ever changed or removed.
+ADMIN_ROOT = Path(os.environ.get('ASR_GLOBAL_BAN_ROOT', '/var/lib/allscan-reimagined/admin'))
+TGIF_API = 'https://api.tgif.network'
+ACL_LABEL_PREFIX = 'ASR Global Ban: '
+ACL_COMMENT = 'Added by AllScan Reimagined Global Ban; removed by ASR on unban or expiry.'
+ACL_FLAG_ENABLED, ACL_FLAG_WLBL, ACL_FLAG_UUID, ACL_FLAG_ACCESS = 0x01, 0x02, 0x20, 0x80
+ACL_BAN_FLAGS = ACL_FLAG_ENABLED | ACL_FLAG_WLBL | ACL_FLAG_UUID | ACL_FLAG_ACCESS
+# Durations TGIF's own panel offers; -1 is permanent. ASR removes the entry
+# itself when its ban ends, and re-adds it if a ban outlives the 4-week cap.
+ACL_DURATIONS = (900, 3600, 43200, 86400, 259200, 604800, 2419200)
+ACL_RECHECK_SECONDS = 600
+CALLSIGN_BAN = re.compile(r'(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*[0-9])[A-Z0-9]{3,8}')
+
+
+def ban_sync_state_path() -> Path:
+    return ADMIN_ROOT / 'asr-tgif-bans.json'
+
+
+def ban_sync_status_path() -> Path:
+    return RUNTIME / 'ban-sync.json'
+
+
+def session_opener(data: dict):
+    jar = http.cookiejar.CookieJar()
+    now = int(time.time())
+    for item in data.get('cookies', []):
+        if not isinstance(item, dict):
+            continue
+        expires = int(item.get('expires') or 0)
+        name = str(item.get('name') or '').strip()
+        value = str(item.get('value') or '')
+        if not name or not value or (expires > 0 and expires <= now):
+            continue
+        jar.set_cookie(http.cookiejar.Cookie(
+            0, name, value, None, False, str(item.get('domain') or 'tgif.network'), True, False,
+            str(item.get('path') or '/'), True, bool(item.get('secure')), None, True, None, None, {}, False))
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    opener.addheaders = [('User-Agent', USER_AGENT)]
+    return opener
+
+
+class TgifAcl:
+    """The talkgroup ACL requests that TGIF's own control panel sends."""
+
+    def __init__(self, data: dict):
+        self.talkgroup = str(data.get('talkgroup') or '').strip()
+        if not re.fullmatch(r'[1-9][0-9]{0,7}', self.talkgroup):
+            raise RuntimeError('TGIF talkgroup is not configured')
+        self.author = str(data.get('callsign') or '').strip().upper()
+        self.opener = session_opener(data)
+
+    def _post(self, fields: list[tuple[str, str]]) -> dict:
+        body = urllib.parse.urlencode(fields + [('tgid', self.talkgroup)]).encode()
+        raw = self.opener.open(TGIF_BASE + '/tgcontrol.php', data=body, timeout=12).read()
+        try:
+            payload = json.loads(raw.decode('utf-8', 'ignore'))
+        except ValueError:
+            raise RuntimeError('TGIF session was rejected; sign in to TGIF again in ASR Settings')
+        if not isinstance(payload, dict) or int(payload.get('code') or 0) != 200:
+            message = str(payload.get('msg') if isinstance(payload, dict) else '')[:160]
+            raise RuntimeError(f'TGIF refused the request{": " + message if message else ""}')
+        return payload
+
+    def entries(self) -> list[dict]:
+        rows = self._post([('action', 'getAll'), ('page', 'acl')]).get('msg')
+        if isinstance(rows, dict):
+            rows = list(rows.values())
+        return [row for row in rows or [] if isinstance(row, dict) and 'entryid' in row]
+
+    def add_ban(self, ids: list[str], duration: int, label: str) -> None:
+        fields = [('action', 'add'), ('flags', str(ACL_BAN_FLAGS)), ('duration', str(duration)),
+                  ('label', label), ('comment', ACL_COMMENT)]
+        fields += [('uuid[]', value) for value in ids]
+        self._post(fields)
+
+    def remove(self, entry_id: int) -> None:
+        self._post([('action', 'removeEntry'), ('entryid', str(entry_id)), ('page', 'acl')])
+
+    def lookup_ids(self, callsign: str) -> list[str]:
+        url = TGIF_API + '/dmr/userdb/' + urllib.parse.quote(callsign)
+        payload = json.loads(self.opener.open(url, timeout=12).read().decode('utf-8', 'ignore'))
+        if not isinstance(payload, list):
+            raise RuntimeError(f'TGIF DMR ID lookup for {callsign} failed')
+        ids = []
+        for value in payload:
+            text = str(value).strip()
+            if re.fullmatch(r'[1-9][0-9]{0,8}', text) and text not in ids:
+                ids.append(text)
+        return ids
+
+
+def acl_duration(expires_at: int, now: int) -> int:
+    if expires_at <= 0:
+        return -1
+    remaining = max(1, expires_at - now)
+    return next((value for value in ACL_DURATIONS if value >= remaining), ACL_DURATIONS[-1])
+
+
+def desired_tgif_bans(author: str, now: int) -> dict[str, int]:
+    """Active Global Ban callsign rules -> expiresAt (0 = permanent)."""
+    rules = []
+    try:
+        lines = (ADMIN_ROOT / 'global-bans.list').read_text(encoding='utf-8').splitlines()
+    except FileNotFoundError:
+        lines = []
+    for line in lines:
+        token = re.split(r'[\s,]+', line.strip(), maxsplit=1)[0].upper()
+        if token and not token.startswith('#'):
+            rules.append(token)
+    try:
+        timed = json.loads((ADMIN_ROOT / 'asr-timed-bans.json').read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        timed = {}
+    if not isinstance(timed, dict):
+        raise RuntimeError('Timed-ban state is unreadable')
+    desired = {}
+    for rule in rules:
+        # Prefix (*) and numeric node rules have no DMR ID to ban on TGIF.
+        if not CALLSIGN_BAN.fullmatch(rule) or rule == author:
+            continue
+        record = timed.get(rule)
+        expires = int(record.get('expiresAt') or 0) if isinstance(record, dict) else 0
+        if expires and expires <= now:
+            continue
+        desired[rule] = expires
+    return desired
+
+
+def read_ban_sync_state() -> dict:
+    try:
+        payload = json.loads(ban_sync_state_path().read_text(encoding='utf-8'))
+    except (FileNotFoundError, ValueError):
+        return {'schema': 1, 'rules': {}, 'verifiedAt': 0}
+    if not isinstance(payload, dict) or not isinstance(payload.get('rules'), dict):
+        return {'schema': 1, 'rules': {}, 'verifiedAt': 0}
+    return payload
+
+
+def ban_sync(user_id: str = NODE_SCOPE, acl: 'TgifAcl | None' = None, now: int | None = None, force: bool = False) -> dict:
+    import fcntl
+    now = int(time.time()) if now is None else int(now)
+    if acl is None:
+        try:
+            acl = TgifAcl(load_token(user_id))
+        except RuntimeError as exc:
+            return {'ok': False, 'configured': False, 'error': str(exc)}
+    lock = os.open(str(ADMIN_ROOT / '.asr-tgif-bans.lock'), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = read_ban_sync_state()
+        records: dict[str, dict] = state['rules']
+        desired = desired_tgif_bans(acl.author, now)
+        # Callsigns with no DMR ID are looked up again only every recheck.
+        no_id = {rule: int(at) for rule, at in (state.get('noDmrId') or {}).items()
+                 if rule in desired and now - int(at) < ACL_RECHECK_SECONDS}
+        unchanged = (set(desired) - set(no_id) == set(records)
+                     and all(int(records[rule].get('expiresAt') or 0) == expires for rule, expires in desired.items() if rule not in no_id)
+                     and not any(0 < int(rec.get('tgifExpiresAt') or 0) <= now for rec in records.values()))
+        if unchanged and not force and now - int(state.get('verifiedAt') or 0) < ACL_RECHECK_SECONDS:
+            return {'ok': True, 'configured': True, 'changed': False, 'cached': True, 'verified': True,
+                    'talkgroup': acl.talkgroup, 'rules': sorted(records)}
+        result = {'added': [], 'removed': [], 'noDmrId': [], 'errors': []}
+        entries = {int(row['entryid']): row for row in acl.entries()}
+
+        def ours(row: dict) -> bool:
+            return (str(row.get('label') or '').startswith(ACL_LABEL_PREFIX)
+                    and str(row.get('author') or '').strip().upper() == acl.author)
+
+        # Drop entries for rules that were unbanned, expired or re-banned with
+        # a different length, then any ASR entry this state does not track.
+        keep: set[int] = set()
+        handled: set[int] = set()
+        for rule in list(records):
+            record = records[rule]
+            entry_id = int(record.get('entryId') or 0)
+            row = entries.get(entry_id)
+            if rule in desired and int(record.get('expiresAt') or 0) == desired[rule] and row is not None:
+                tgif_expiry = int(row.get('expiration') or 0)
+                if tgif_expiry < 0 or tgif_expiry > now:
+                    keep.add(entry_id)
+                    continue
+            if row is not None and ours(row):
+                try:
+                    acl.remove(entry_id)
+                except Exception as exc:
+                    result['errors'].append(f'{rule}: {exc}')
+                    keep.add(entry_id)
+                    continue
+                handled.add(entry_id)
+            del records[rule]
+            if rule not in desired:
+                result['removed'].append(rule)
+        for entry_id, row in entries.items():
+            if entry_id not in keep and entry_id not in handled and ours(row):
+                try:
+                    acl.remove(entry_id)
+                except Exception as exc:
+                    result['errors'].append(f'entry {entry_id}: {exc}')
+
+        own_ids: set[str] = set()
+        pending = [rule for rule in sorted(desired) if rule not in records and (force or rule not in no_id)]
+        if pending and acl.author:
+            try:
+                own_ids = set(acl.lookup_ids(acl.author))
+            except Exception:
+                own_ids = set()
+        for rule in pending:
+            try:
+                ids = [value for value in acl.lookup_ids(rule) if value not in own_ids]
+                if not ids:
+                    result['noDmrId'].append(rule)
+                    no_id[rule] = now
+                    continue
+                label = ACL_LABEL_PREFIX + rule
+                before = {int(row['entryid']) for row in acl.entries()}
+                acl.add_ban(ids, acl_duration(desired[rule], now), label)
+                created = [row for row in acl.entries()
+                           if int(row['entryid']) not in before and str(row.get('label') or '') == label]
+                if not created:
+                    raise RuntimeError('TGIF accepted the ban but it is not on the access list')
+                row = max(created, key=lambda item: int(item['entryid']))
+                records[rule] = {'entryId': int(row['entryid']), 'ids': ids, 'expiresAt': desired[rule],
+                                 'tgifExpiresAt': int(row.get('expiration') or -1), 'syncedAt': now}
+                result['added'].append(rule)
+            except Exception as exc:
+                result['errors'].append(f'{rule}: {exc}')
+
+        # Verify against a fresh read of the access list.
+        live = {int(row['entryid']): row for row in acl.entries()}
+        wanted = ACL_FLAG_ENABLED | ACL_FLAG_ACCESS
+        missing = [rule for rule, rec in records.items()
+                   if int(rec['entryId']) not in live
+                   or int(live[int(rec['entryId'])].get('flags') or 0) & wanted != wanted]
+        result['errors'] += [f'{rule}: TGIF entry is missing or disabled' for rule in missing]
+        verified = not result['errors']
+        state['verifiedAt'] = now if verified else 0
+        state['noDmrId'] = no_id
+        atomic_json(ban_sync_state_path(), state)
+        status = {'ok': verified, 'configured': True, 'changed': bool(result['added'] or result['removed']),
+                  'verified': verified, 'talkgroup': acl.talkgroup, 'rules': sorted(records),
+                  'updatedEpoch': now, **result}
+        try:
+            atomic_json(ban_sync_status_path(), status)
+        except OSError:
+            pass
+        return status
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        os.close(lock)
+
+
+class FakeAcl:
+    """In-memory TGIF access list for the self-test."""
+
+    def __init__(self, author: str, userdb: dict[str, list[str]], entries: list[dict] | None = None):
+        self.talkgroup, self.author, self.userdb = '12345', author, userdb
+        self.rows = list(entries or [])
+        self.next_id = 100
+        self.now = 0
+        self.calls: list[str] = []
+
+    def entries(self):
+        return [dict(row) for row in self.rows]
+
+    def add_ban(self, ids, duration, label):
+        self.calls.append(f'add {label} {duration} {",".join(ids)}')
+        self.next_id += 1
+        expiry = -1 if duration < 0 else self.now + duration
+        self.rows.append({'entryid': self.next_id, 'flags': ACL_BAN_FLAGS, 'label': label, 'author': self.author,
+                          'expiration': expiry, 'rules': [{'uuid': int(value)} for value in ids]})
+
+    def remove(self, entry_id):
+        self.calls.append(f'remove {entry_id}')
+        self.rows = [row for row in self.rows if int(row['entryid']) != entry_id]
+
+    def lookup_ids(self, callsign):
+        return list(self.userdb.get(callsign, []))
+
+
+def ban_sync_self_test(root: Path) -> None:
+    global ADMIN_ROOT
+    original = ADMIN_ROOT
+    ADMIN_ROOT = root / 'admin'
+    ADMIN_ROOT.mkdir(parents=True)
+    try:
+        def policy(rules, timed=None):
+            (ADMIN_ROOT / 'global-bans.list').write_text('# Managed\n' + ''.join(r + '\n' for r in rules))
+            (ADMIN_ROOT / 'asr-timed-bans.json').write_text(json.dumps(timed or {}))
+
+        manual = {'entryid': 3, 'flags': 179, 'label': 'VK1JTPermanent Ban', 'author': 'KN4EWT', 'expiration': -1}
+        acl = FakeAcl('KN4EWT', {'KN4EWT': ['3135475'], 'KF8DRJ': ['3100001', '310000101'], 'N0ID': []}, [manual])
+        acl.now = now = 1_000_000
+        assert acl_duration(0, now) == -1 and acl_duration(now + 900, now) == 900
+        assert acl_duration(now + 3601, now) == 43200 and acl_duration(now + 30 * 86400, now) == 2419200
+        # A timed ban is mirrored with every DMR ID; prefix, node and own-callsign rules are not.
+        policy(['KF8DRJ', 'N0ID', 'W1*', '674982', 'KN4EWT'], {'KF8DRJ': {'createdAt': now, 'expiresAt': now + 3600}})
+        first = ban_sync(acl=acl, now=now)
+        assert first['ok'] and first['added'] == ['KF8DRJ'] and first['noDmrId'] == ['N0ID'], first
+        assert acl.calls == ['add ASR Global Ban: KF8DRJ 3600 3100001,310000101'], acl.calls
+        assert ban_sync(acl=acl, now=now + 30).get('cached')
+        # Re-banning permanently replaces the timed entry.
+        policy(['KF8DRJ'])
+        acl.calls.clear()
+        again = ban_sync(acl=acl, now=now + 60)
+        assert again['ok'] and acl.calls == ['remove 101', 'add ASR Global Ban: KF8DRJ -1 3100001,310000101'], acl.calls
+        # An entry deleted on TGIF by hand is put back while the ASR ban stands.
+        acl.rows = [row for row in acl.rows if row['entryid'] != 102]
+        acl.calls.clear()
+        assert ban_sync(acl=acl, now=now + 120, force=True)['ok']
+        assert acl.calls == ['add ASR Global Ban: KF8DRJ -1 3100001,310000101'], acl.calls
+        # Unban removes only ASR's entry; the hand-made TGIF entry is never touched.
+        policy([])
+        acl.calls.clear()
+        gone = ban_sync(acl=acl, now=now + 180)
+        assert gone['ok'] and gone['removed'] == ['KF8DRJ'] and acl.calls == ['remove 103'], acl.calls
+        assert [row['entryid'] for row in acl.rows] == [3]
+        # An ASR entry left behind by lost state is cleaned up; another author's look-alike is not.
+        acl.rows.append({'entryid': 200, 'flags': ACL_BAN_FLAGS, 'label': ACL_LABEL_PREFIX + 'X1ABC', 'author': 'KN4EWT', 'expiration': -1})
+        acl.rows.append({'entryid': 201, 'flags': ACL_BAN_FLAGS, 'label': ACL_LABEL_PREFIX + 'X1ABC', 'author': 'KE7WIL', 'expiration': -1})
+        acl.calls.clear()
+        assert ban_sync(acl=acl, now=now + 240, force=True)['ok'] and acl.calls == ['remove 200'], acl.calls
+        # A timed ban that has ended in ASR is removed even before the expire job runs.
+        policy(['KF8DRJ'], {'KF8DRJ': {'createdAt': now, 'expiresAt': now + 1000}})
+        acl.now = now + 300
+        assert ban_sync(acl=acl, now=now + 300)['added'] == ['KF8DRJ']
+        acl.calls.clear()
+        ended = ban_sync(acl=acl, now=now + 1001)
+        assert ended['removed'] == ['KF8DRJ'] and acl.calls == ['remove 104'], acl.calls
+        # A TGIF failure is reported, never claimed as synced.
+        policy(['KF8DRJ'])
+        acl.lookup_ids = lambda callsign: (_ for _ in ()).throw(RuntimeError('lookup down'))
+        failed = ban_sync(acl=acl, now=now + 1100)
+        assert not failed['ok'] and not failed['verified'] and 'KF8DRJ: lookup down' in failed['errors'], failed
+        assert not ban_sync(acl=acl, now=now + 1110).get('cached'), 'a failed sync must retry'
+    finally:
+        ADMIN_ROOT = original
+    print('TGIF Global Ban sync self-test: ok')
+
+
 def self_test() -> None:
+    with tempfile.TemporaryDirectory(prefix='asr-tgif-ban-sync-test-') as temp:
+        saved_runtime = RUNTIME
+        globals()['RUNTIME'] = Path(temp) / 'runtime'
+        try:
+            ban_sync_self_test(Path(temp))
+        finally:
+            globals()['RUNTIME'] = saved_runtime
     assert valid_user_id('12') == '12'
     assert valid_user_id(NODE_SCOPE) == NODE_SCOPE
     assert valid_callsign('ke7wil') == 'KE7WIL'
@@ -566,6 +916,7 @@ def main() -> int:
     logout = sub.add_parser('logout'); logout.add_argument('user_id')
     collect = sub.add_parser('collect'); collect.add_argument('user_id')
     sub.add_parser('collect-all'); sub.add_parser('self-test')
+    sync = sub.add_parser('ban-sync'); sync.add_argument('user_id'); sync.add_argument('--force', action='store_true')
     args = parser.parse_args()
     if args.command == 'self-test': self_test(); return 0
     if os.geteuid() != 0: parser.error('run as root')
@@ -578,6 +929,9 @@ def main() -> int:
     if args.command == 'logout': print(json.dumps(logout_user(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'collect': print(json.dumps(collect_user(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'collect-all': return collect_all()
+    if args.command == 'ban-sync':
+        result = ban_sync(valid_user_id(args.user_id), force=args.force)
+        print(json.dumps(result, separators=(',', ':'))); return 0 if result.get('ok') else 1
     return 2
 
 

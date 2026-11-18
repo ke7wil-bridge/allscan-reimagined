@@ -287,7 +287,8 @@ export async function fetchGlobalBans(): Promise<GlobalBanList> {
   }
 }
 
-export type GlobalBanMutation = GlobalBanList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
+export type TgifBanSync = { status: 'applied' | 'failed' | 'not-configured' | 'unavailable'; talkgroup?: string; added?: string[]; removed?: string[]; noDmrId?: string[]; errors?: string[]; error?: string }
+export type GlobalBanMutation = GlobalBanList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number; tgif?: TgifBanSync }
 
 export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, duration = 'permanent'): Promise<GlobalBanMutation> {
   const body = new URLSearchParams({ verb, rule, duration })
@@ -296,7 +297,7 @@ export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, durat
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'global-ban-control' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl'] }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl']; tgif?: TgifBanSync }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban update failed.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -309,6 +310,7 @@ export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, durat
     reloadSeconds: Math.max(0, Number(payload.reloadSeconds || 0)),
     removed: Math.max(0, Number(payload.removed || 0)),
     expiresAt: Math.max(0, Number(payload.expiresAt || 0)),
+    tgif: payload.tgif && typeof payload.tgif === 'object' ? payload.tgif : undefined,
   }
 }
 
