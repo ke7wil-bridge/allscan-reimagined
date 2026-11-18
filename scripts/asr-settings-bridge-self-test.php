@@ -29,6 +29,16 @@ function check(bool $condition, string $message): void {
 foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
 	$controllerSource = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/asr-settings/settings-controller.php');
 	check(is_string($controllerSource), "Unable to read $compatVersion Settings controller.");
+	// Issue #194: missing/stale runtime client rosters must not block saves.
+	$localJsonBlockStart = strpos($controllerSource, "if(\$rawClientSource === 'local_json')");
+	$localJsonBlockEnd = strpos($controllerSource, "} elseif(\$rawClientSource === 'http_api')", $localJsonBlockStart);
+	check($localJsonBlockStart !== false && $localJsonBlockEnd !== false, "$compatVersion local JSON validation missing.");
+	$localJsonBlock = substr($controllerSource, $localJsonBlockStart, $localJsonBlockEnd - $localJsonBlockStart);
+	check(str_contains($localJsonBlock, "strpos(\$rawClientUrl, '..')")
+		&& !str_contains($localJsonBlock, 'is_file(')
+		&& !str_contains($localJsonBlock, 'is_readable(')
+		&& !str_contains($localJsonBlock, 'filemtime('),
+		"$compatVersion runtime client-roster availability blocks settings saves or path security check was removed.");
 	$adminCss = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/css/asr-admin.css');
 	check(is_string($adminCss)
 		&& str_contains($adminCss, '.asr-net-bridge-setup-fields fieldset select { padding-right: 2.25rem; }')

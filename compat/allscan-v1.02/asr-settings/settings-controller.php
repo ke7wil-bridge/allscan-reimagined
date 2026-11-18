@@ -651,20 +651,10 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				$error = "Bridge \"$id\" needs an absolute local JSON path without parent-directory traversal.";
 				return [];
 			}
-			if(!is_file($rawClientUrl) || !is_readable($rawClientUrl)) {
-				$error = "Bridge \"$id\" custom JSON source is not a readable regular file.";
-				return [];
-			}
-			$sourcePayload = json_decode((string)file_get_contents($rawClientUrl), true);
-			if(!asrSettingsClientPayloadHasSupportedShape($sourcePayload)) {
-				$error = "Bridge \"$id\" custom JSON source must contain a client list or an object containing client lists.";
-				return [];
-			}
-			$sourceMtime = (int)@filemtime($rawClientUrl);
-			if($sourceMtime <= 0 || time() - $sourceMtime > 300) {
-				$error = "Bridge \"$id\" custom JSON source is stale. Confirm its collector is updating before saving.";
-				return [];
-			}
+			// Runtime client rosters are ephemeral and may not exist in the web
+			// container. Do not block unrelated settings saves on collector health.
+			// The absolute-path and traversal checks above still apply.
+
 		} elseif($rawClientSource === 'http_api') {
 			$parts = parse_url($rawClientUrl);
 			if(!is_array($parts) || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https'], true) || empty($parts['host'])) {
