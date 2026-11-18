@@ -603,8 +603,8 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 /* Keep the node centered while pinning its action menu to the cell's right edge. */
 /* Issue #193: Node Info shortcut; leave row controls and geometry untouched. */
-.allscan-connection-network-map-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
-.allscan-connection-network-map-link:hover, .allscan-connection-network-map-link:focus-visible { text-decoration-style: solid; }
+.allscan-connection-network-map-link { color: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
+.allscan-connection-network-map-link:hover { opacity: .8; }
 .allscan-connection-network-map-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .allscan-connection-node-cell { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; }
 .allscan-connection-mode { min-width: 0; }

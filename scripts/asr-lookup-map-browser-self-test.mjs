@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import vm from 'node:vm'
 
-const lookupSource = fs.readFileSync(new URL(process.env.ASR_LOOKUP_PAGE || '../compat/allscan-v1.02/lookup/index.php', import.meta.url), 'utf8')
+const lookupSource = fs.readFileSync(new URL('../compat/allscan-v1.02/lookup/index.php', import.meta.url), 'utf8')
 const scriptMatch = lookupSource.match(/<script>\s*([\s\S]*?)\s*<\/script>/)
 if (!scriptMatch) throw new Error('Lookup page script was not found')
 const lookupScript = scriptMatch[1].replace(
@@ -86,7 +86,7 @@ const longTimeoutCallbacks = new Map()
 const clearedTimeouts = []
 const openedWindows = []
 let nextTimeoutId = 1
-let mobileViewport = process.env.ASR_LOOKUP_MOBILE === '1'
+let mobileViewport = false
 const documentListeners = new Map()
 const markerGroup = {
   markers: [],
@@ -112,7 +112,6 @@ const document = {
   addEventListener: (name, callback) => documentListeners.set(name, callback),
 }
 const window = {
-  location: { search: process.env.ASR_LOOKUP_SHORTCUT ? '?networkMapNode=' + encodeURIComponent(process.env.ASR_LOOKUP_SHORTCUT) : '' },
   L: {
     map: () => map,
     tileLayer: () => ({ addTo() {} }),
@@ -176,7 +175,6 @@ const context = vm.createContext({
   RegExp,
   Math,
   encodeURIComponent,
-  URLSearchParams,
   isFinite,
 })
 
@@ -201,27 +199,6 @@ const deferredResponse = () => {
 const mapResponse = (payload) => ({ ok: true, json: async () => payload })
 
 await flush()
-if(process.env.ASR_LOOKUP_SHORTCUT) {
-  const requested = process.env.ASR_LOOKUP_SHORTCUT
-  const valid = /^\d{4,10}$/.test(requested) && Number(requested) >= 2000 && !/^3\d{6}$/.test(requested)
-  const selected = valid ? requested : '100000'
-  assert(elements.asrNetworkMapOpen.disabled === false, 'shortcut left network-map button disabled')
-  assert(elements.asrNetworkMapPanel.hidden === !valid, 'shortcut opening state incorrect')
-  if(valid) {
-    assert(elements.asrNetworkMapImage.src.includes('/stats/' + selected + '/networkMap?nh_refresh='), 'shortcut selected wrong node map')
-    assert(elements.asrNetworkMapOpen.attributes.get('aria-expanded') === 'true', 'shortcut expanded state not set')
-    assert(openedWindows.length === 0, 'shortcut opened a popup (blocked on mobile load)')
-    await refresh()
-    assert(elements.asrNetworkMapImage.src.includes('/stats/' + selected + '/networkMap?nh_refresh='), 'refresh reverted shortcut to local node')
-    elements.asrNetworkMapClose.dispatch('click')
-    assert(elements.asrNetworkMapPanel.hidden, 'shortcut map did not close normally')
-  } else {
-    elements.asrNetworkMapOpen.dispatch('click')
-    assert(elements.asrNetworkMapImage.src.includes('/stats/' + selected + '/networkMap?nh_refresh='), 'invalid shortcut did not retain local network map')
-  }
-  console.log('lookup/map shortcut self-test: ok (' + requested + ', mobile=' + mobileViewport + ')')
-  process.exit(0)
-}
 assert(elements.asrNetworkMapOpen.disabled === false, 'network-map button did not enable after the local node loaded')
 elements.asrNetworkMapOpen.dispatch('click')
 assert(elements.asrNetworkMapPanel.hidden === false, 'desktop network map did not open inline')
