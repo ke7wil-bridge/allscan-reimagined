@@ -3921,6 +3921,8 @@ function App({ config }: { config: RuntimeConfig }) {
                           ? row.state
                           : configuredBridgeState || row.state
                       const canUseRowNode = !row.configuredTransport && canPopulateNodeControl(row.node)
+                      const canViewNetworkMap = canUseRowNode && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node)
+                        && !/^3\d{6}$/.test(row.node) && !/echolink/i.test(row.mode)
                       const localStyle = isLocalRow
                         ? localRowStyles[row.state as keyof typeof localRowStyles]
                         : undefined
@@ -3976,7 +3978,14 @@ function App({ config }: { config: RuntimeConfig }) {
                                 </div>
                               </td>
                               <td className="border-r border-[rgba(255,255,255,.14)] px-4 py-[5px]">
-                                {row.info}
+                                {canViewNetworkMap && row.info ? (
+                                  <a
+                                    className="allscan-connection-network-map-link"
+                                    href={`${asrPath('lookup/')}?networkMapNode=${encodeURIComponent(row.node)}`}
+                                    title={`View network bubble chart for AllStar node ${row.node}`}
+                                    aria-label={`View network bubble chart for AllStar node ${row.node}: ${row.info}`}
+                                  >{row.info}</a>
+                                ) : row.info}
                               </td>
                               <td className="border-r border-[rgba(255,255,255,.14)] px-4 py-[5px]">
                                 {row.received}
