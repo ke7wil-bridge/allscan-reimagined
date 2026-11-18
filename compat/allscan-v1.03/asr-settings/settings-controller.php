@@ -827,8 +827,15 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 				}
 				$callsignKey = 'm17-callsign:' . $rawM17Callsign;
 				if(isset($seenControlPaths[$callsignKey])) {
-					$error = "M17 callsign $rawM17Callsign is already used by bridge \"{$seenControlPaths[$callsignKey]}\".";
-					return [];
+					// Existing duplicate callsigns must not block unrelated settings edits.
+					// Reject new duplicates or changes that introduce a collision.
+					$otherId = $seenControlPaths[$callsignKey];
+					$grandfathered = strtoupper((string)($existingById[$id]['m17Callsign'] ?? '')) === $rawM17Callsign
+						&& strtoupper((string)($existingById[$otherId]['m17Callsign'] ?? '')) === $rawM17Callsign;
+					if(!$grandfathered) {
+						$error = "M17 callsign $rawM17Callsign is already used by bridge \"{$otherId}\".";
+						return [];
+					}
 				}
 				$seenControlPaths[$callsignKey] = $id;
 				if($rawCardType === 'standard' && ($rawM17Reflector === '' || $rawM17Host === '' || $rawM17Port === '' || $rawM17Module === '')) {
