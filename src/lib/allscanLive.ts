@@ -2043,6 +2043,8 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   const response = await fetch(`${ASR_API}?action=auth-status`, {
     credentials: 'same-origin',
     cache: 'no-store',
+    // An idle browser or a broken connection must not leave the auth gate stuck.
+    signal: AbortSignal.timeout(10000),
   })
   const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
   if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')
