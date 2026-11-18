@@ -127,10 +127,6 @@ pageInit();
 	var networkMapNode = '';
 	var networkMapUrl = '';
 	var networkMapRefreshTimer = null;
-	// Dashboard shortcut: validate before selecting a map target. Local Lookup is unchanged.
-	var shortcutNode = new URLSearchParams(window.location.search).get('networkMapNode') || '';
-	if(!/^\d{4,10}$/.test(shortcutNode) || Number(shortcutNode) < 2000 || /^3\d{6}$/.test(shortcutNode)) shortcutNode = '';
-	var shortcutOpened = false;
 
 	function escapeHtml(value) {
 		return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) {
@@ -508,9 +504,9 @@ pageInit();
 	mapCard.addEventListener('click', function (event) {
 		if(event.target.closest('[data-asr-map-card-close]')) mapCard.hidden = true;
 	});
-	function showNetworkMap(inlineOnMobile) {
+	networkMapOpen.addEventListener('click', function () {
 		if(!networkMapNode) return;
-		if(!inlineOnMobile && window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+		if(window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
 			window.open(freshNetworkMapUrl(), '_blank', 'noopener');
 			return;
 		}
@@ -519,8 +515,7 @@ pageInit();
 		networkMapOpen.setAttribute('aria-expanded', 'true');
 		refreshNetworkMap();
 		scheduleNetworkMapRefresh();
-	}
-	networkMapOpen.addEventListener('click', function () { showNetworkMap(false); });
+	});
 	networkMapClose.addEventListener('click', function () {
 		networkMapPanel.hidden = true;
 		networkMapOpen.setAttribute('aria-expanded', 'false');
@@ -554,11 +549,7 @@ pageInit();
 				var localUpdated = viewerTime(payload.generatedAt);
 				updated.textContent = localUpdated ? ' · Updated ' + localUpdated : '';
 				render();
-				setNetworkMapNode(shortcutNode || payload.node);
-				if(shortcutNode && !shortcutOpened) {
-					shortcutOpened = true;
-					showNetworkMap(true); // Inline even on phones: avoids popup blockers on load.
-				}
+				setNetworkMapNode(payload.node);
 				loadLiveConnectionRows(payload.node);
 				refreshStationMap();
 			})

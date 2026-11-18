@@ -3988,7 +3988,9 @@ function App({ config }: { config: RuntimeConfig }) {
                                 {canViewNetworkMap && row.info ? (
                                   <a
                                     className="allscan-connection-network-map-link"
-                                    href={`${asrPath('lookup/')}?networkMapNode=${encodeURIComponent(row.node)}`}
+                                    href={`https://stats.allstarlink.org/stats/${encodeURIComponent(row.node)}/networkMap`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     title={`View network bubble chart for AllStar node ${row.node}`}
                                     aria-label={`View network bubble chart for AllStar node ${row.node}: ${row.info}`}
                                   >{row.info}</a>
