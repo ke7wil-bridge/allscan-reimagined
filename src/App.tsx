@@ -1446,38 +1446,47 @@ function App({ config }: { config: RuntimeConfig }) {
   useEffect(() => {
     let cancelled = false
     let retryTimer: number | undefined
-    let requestSequence = 0
+    let inFlight = false
 
     const refreshAuthStatus = async () => {
-      const sequence = ++requestSequence
+      // Polling, focus and wake events share one request. Previously each event
+      // invalidated the preceding response, even when that response succeeded.
+      if (cancelled || inFlight) return
+      inFlight = true
       window.clearTimeout(retryTimer)
       try {
         const next = await fetchAuthStatus()
-        if (!cancelled && sequence === requestSequence) {
+        if (!cancelled) {
           setAuthStatus(next)
           setAuthChecked(true)
-          if (!next.canRead) {
-            window.location.assign(asrPath('user/'))
-          }
+          if (!next.canRead) window.location.assign(asrPath('user/'))
         }
       } catch {
-        if (!cancelled && sequence === requestSequence) {
-          // A network error is not evidence that the dashboard is public.
-          // Revoke the previously verified session locally until rechecked.
+        if (!cancelled) {
+          // Fail closed on uncertain authentication, but recover automatically.
           setAuthStatus(loggedOutAuth)
           setAuthChecked(false)
           retryTimer = window.setTimeout(() => void refreshAuthStatus(), 10000)
         }
+      } finally {
+        inFlight = false
       }
     }
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshAuthStatus()
+    }
     void refreshAuthStatus()
     window.addEventListener('focus', refreshAuthStatus)
+    window.addEventListener('online', refreshAuthStatus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
     const timer = window.setInterval(refreshAuthStatus, 120000)
     return () => {
       cancelled = true
       window.clearTimeout(retryTimer)
       window.removeEventListener('focus', refreshAuthStatus)
+      window.removeEventListener('online', refreshAuthStatus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.clearInterval(timer)
     }
   }, [])
