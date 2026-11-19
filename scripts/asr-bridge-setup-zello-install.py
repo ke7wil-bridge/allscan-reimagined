@@ -95,6 +95,10 @@ def compose_yaml(plan: dict[str, Any]) -> str:
       USRP_HOST: "127.0.0.1"
       USRP_RXPORT: "{plan['ports']['usrp_rx']}"
       USRP_TXPORT: "{plan['ports']['usrp_tx']}"
+      ASR_ZELLO_TO_ASL_GAIN_DB: "{plan['settings'].get('zello_to_asl_gain_db', 0)}"
+      ASR_ASL_TO_ZELLO_GAIN_DB: "{plan['settings'].get('asl_to_zello_gain_db', 0)}"
+      USRP_GAIN_RX_DB: "{plan['settings'].get('asl_to_zello_gain_db', 0)}"
+      USRP_GAIN_TX_DB: "{plan['settings'].get('zello_to_asl_gain_db', 0)}"
       ZELLO_PRIVATE_KEY: "/run/secrets/zello.key"
       ASR_ZELLO_HEALTH: "/run/zello/status.json"
     volumes:
@@ -204,6 +208,107 @@ def prepare_runtime_source(source: Path, destination: Path) -> None:
         if text.count(startup_anchor) != 1:
             raise InstallError("unsupported Zello USRP runtime; relay startup reset cannot be applied safely")
         text = text.replace(startup_anchor, startup_reset, 1)
+    # Correct the PCM amplitude conversion: decibels use 20*log10(amplitude).
+    # The upstream runtime uses 10*log10, which doubles requested gain in dB.
+    old_gain = "return math.pow(10, db / 10)"
+    new_gain = "return math.pow(10, db / 20)"
+    if old_gain in text:
+        text = text.replace(old_gain, new_gain, 1)
+    elif new_gain not in text:
+        raise InstallError("unsupported Zello USRP gain conversion")
+    # Support fractional dB consistently with the setup API and UI.
+    for env_name in ("USRP_GAIN_RX_DB", "USRP_GAIN_TX_DB"):
+        old = f"int(os.environ.get('{env_name}', 0))"
+        new = f"float(os.environ.get('{env_name}', 0))"
+        if old in text:
+            text = text.replace(old, new, 1)
+        elif new not in text:
+            raise InstallError(f"unsupported Zello {env_name} parser")
+    # Measure actual post-gain 16-bit PCM in both directions. The sidecar
+    # shares only four numeric levels and timestamps; no voice is retained.
+    # Keep the relay-state source patch idempotent across image rebuilds.
+    meter_marker = "def _asr_audio_meter_pcm(pcm):"
+    if meter_marker not in text:
+        class_anchor = "class USRPController(asyncio.DatagramProtocol):"
+        if text.count(class_anchor) != 1:
+            raise InstallError("unsupported Zello USRP runtime; audio meter cannot be applied safely")
+        meter_helpers = """import json as _asr_meter_json
+import time as _asr_meter_time
+import tempfile as _asr_meter_tempfile
+
+
+def _asr_audio_meter_pcm(pcm):
+    if not isinstance(pcm, (bytes, bytearray, memoryview)) or not pcm or len(pcm) % 2 or len(pcm) > 640:
+        return 0, 0.0
+    samples = struct.unpack('<' + str(len(pcm) // 2) + 'h', pcm)
+    peak = max(abs(sample) for sample in samples)
+    rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+    return peak, rms
+
+
+"""
+        text = text.replace(class_anchor, meter_helpers + class_anchor, 1)
+        init_anchor = "        self._usrp_gain_rx = db_to_linear(USRP_GAIN_RX_DB)"
+        if text.count(init_anchor) != 1:
+            raise InstallError("unsupported Zello USRP runtime; audio meter initialization unavailable")
+        text = text.replace(init_anchor, """        self._asr_meter = {
+            'inboundAudioPeak': 0, 'inboundAudioRms': 0.0, 'inboundAudioEpoch': 0.0,
+            'outboundAudioPeak': 0, 'outboundAudioRms': 0.0, 'outboundAudioEpoch': 0.0,
+        }
+        self._asr_meter_last_write = 0.0
+""" + init_anchor, 1)
+        method_anchor = "    def connection_made(self, transport):"
+        if text.count(method_anchor) != 1:
+            raise InstallError("unsupported Zello USRP runtime; audio meter method unavailable")
+        text = text.replace(method_anchor, """    def _asr_meter_sample(self, direction, pcm):
+        if direction not in ('inbound', 'outbound'):
+            return
+        if not isinstance(pcm, (bytes, bytearray, memoryview)) or not pcm or len(pcm) % 2 or len(pcm) > 640:
+            return
+        try:
+            peak, rms = _asr_audio_meter_pcm(pcm)
+        except (ValueError, TypeError, OverflowError, struct.error):
+            # Instrumentation is strictly best effort, never a voice-path fault.
+            return
+        now = _asr_meter_time.time()
+        self._asr_meter[direction + 'AudioPeak'] = peak
+        self._asr_meter[direction + 'AudioRms'] = rms
+        self._asr_meter[direction + 'AudioEpoch'] = now
+        if 0.0 <= now - self._asr_meter_last_write < 0.25:
+            return
+        # This directory is a container bind mount, not the public web root.
+        path = '/run/zello/audio-meter.json'
+        tmp = None
+        try:
+            # Unique O_EXCL temporary files avoid following a predictable
+            # symlink in the shared container runtime directory. Permissions
+            # are set before publication so readers never see a private file.
+            fd, tmp = _asr_meter_tempfile.mkstemp(prefix='.audio-meter.', dir='/run/zello')
+            with os.fdopen(fd, 'w') as handle:
+                _asr_meter_json.dump(self._asr_meter, handle)
+                handle.flush()
+                os.fchmod(handle.fileno(), 0o644)
+            os.replace(tmp, path)
+            tmp = None
+            self._asr_meter_last_write = now
+        except (OSError, ValueError, TypeError):
+            # Monitoring must never interrupt audio forwarding. Retry the
+            # next frame after a failed write instead of suppressing updates.
+            pass
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+""" + method_anchor, 1)
+        rx_anchor = "        loop.create_task(self._stream_out.write(frame))"
+        tx_anchor = "        frame = header + pcm"
+        if text.count(rx_anchor) != 1 or text.count(tx_anchor) != 1:
+            raise InstallError("unsupported Zello USRP runtime; PCM measurement points unavailable")
+        text = text.replace(rx_anchor, "        self._asr_meter_sample('outbound', frame)\n".replace('\\n', '\n') + rx_anchor, 1)
+        text = text.replace(tx_anchor, "        self._asr_meter_sample('inbound', pcm)\n".replace('\\n', '\n') + tx_anchor, 1)
     usrp.write_text(text)
     if (marker not in text
             or "call_later(" not in text

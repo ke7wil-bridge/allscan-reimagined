@@ -138,6 +138,9 @@ def analog_ini(plan: dict[str, Any]) -> str:
     mode, settings, ports = plan["bridgeType"], plan["settings"], plan["ports"]
     codec = {"p25": "P25", "nxdn": "NXDN", "ysf": "YSFN"}[mode]
     emulator = mode != "p25"
+    # Preserve the historic unity-gain behavior unless explicitly configured.
+    digital_to_asl = 10 ** (settings.get("digital_to_asl_gain_db", 0.0) / 20)
+    asl_to_digital = 10 ** (settings.get("asl_to_digital_gain_db", 0.0) / 20)
     return f"""[GENERAL]
 logLevel=2
 exportMetadata=true
@@ -163,8 +166,7 @@ address=127.0.0.1
 txPort={ports['usrp_tx']}
 rxPort={ports['usrp_rx']}
 usrpAudio=AUDIO_USE_GAIN
-usrpGain=1.00
-tlvAudio=AUDIO_UNITY
+usrpGain={digital_to_asl:.4f}\ntlvAudio=AUDIO_USE_GAIN\ntlvGain={asl_to_digital:.4f}
 
 [DV3000]
 address=127.0.0.1

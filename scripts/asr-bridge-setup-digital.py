@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import sys
 import zlib
@@ -40,6 +41,8 @@ class DigitalSettings:
     bridge_role: str = "standard"
     reflector_name: str = ""
     nxdn_id: int | None = None
+    digital_to_asl_gain_db: float = 0.0
+    asl_to_digital_gain_db: float = 0.0
 
 
 def load(name: str, filename: str):
@@ -71,6 +74,10 @@ def validate(value: DigitalSettings) -> DigitalSettings:
         raise PlanError("destination is reserved")
     if value.mode == "ysf" and value.destination < 10000:
         raise PlanError("YSF destination must have five digits")
+    for direction, gain in (("Digital-to-ASL", value.digital_to_asl_gain_db),
+                            ("ASL-to-digital", value.asl_to_digital_gain_db)):
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise PlanError(f"{direction} gain must be between -20 and +12 dB")
     nxdn_id = value.nxdn_id
     if value.mode == "nxdn":
         nxdn_id = nxdn_id if nxdn_id is not None else value.destination

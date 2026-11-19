@@ -36,6 +36,7 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     settings = install.planner.DmrSettings(
         "dmr_johnny2", "N1YKT", 3205161, 42450, bridge_node=1001,
         tgif_essid=3, timeslot=2, color_code=1, dmr_to_asl_gain_db=5,
+        asl_to_dmr_gain_db=-4,
         title="TGIF DMR 42450",
     )
     # Collision with an inactive managed DMR bridge must fail before apply.
@@ -60,6 +61,28 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert plan["ports"]["emulator"] == 23170
     assert len(set(plan["ports"].values())) == len(plan["ports"])
     assert abs(plan["gains"]["dmrToAsl"] - 1.7783) < 0.0001
+    assert abs(plan["gains"]["aslToDmr"] - 10 ** (-4 / 20)) < 0.0001
+    for invalid in (True, False, float('nan'), float('inf'), -20.01, 12.01):
+        for key in ('dmr_to_asl_gain_db', 'asl_to_dmr_gain_db'):
+            try:
+                install.planner.validate(install.planner.DmrSettings(**{
+                    **settings.__dict__, key: invalid}))
+                raise AssertionError(f'invalid DMR gain {key}={invalid!r} accepted')
+            except install.planner.PlanError:
+                pass
+    # Validate 25 independent asymmetrical settings against the actual
+    # Analog_Bridge renderer while keeping Johnny2's +5 dB fixture intact.
+    for i in range(25):
+        incoming, outgoing = -20 + i * 1.25, 12 - i * 1.25
+        gain_settings = install.planner.DmrSettings(**{
+            **settings.__dict__, 'dmr_to_asl_gain_db': incoming,
+            'asl_to_dmr_gain_db': outgoing})
+        gain_plan = install.planner.plan(root, gain_settings)
+        gain_ini = install.renderer.analog_ini(gain_plan)
+        assert f'usrpGain={10 ** (incoming / 20):.4f}\n' in gain_ini
+        assert f'tlvGain={10 ** (outgoing / 20):.4f}\n' in gain_ini
+        assert 'usrpAudio=AUDIO_USE_GAIN' in gain_ini
+        assert 'tlvAudio=AUDIO_USE_GAIN' in gain_ini
     rendered = install.renderer.mmdvm_template(plan)
     assert "Address=127.0.0.1" in rendered and "Slot2=1" in rendered
     assert "Port=23164" in rendered and "Local=23165" in rendered
@@ -77,6 +100,7 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     bridge = config["bridges"][0]
     assert bridge["backendMode"] == "managed" and bridge["architecture"] == "direct-dvswitch"
     assert bridge["dmrTimeslot"] == 2 and bridge["dmrToAslGainDb"] == 5.0
+    assert bridge["aslToDmrGainDb"] == -4.0
     assert "test-hotspot-key" not in json.dumps(config)
     installed_proxy = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-dmr-proxy.py"
     assert "URF_ENABLED" in installed_proxy.read_text() and "banned_callsigns" in installed_proxy.read_text()
@@ -84,6 +108,9 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     edit_plan = install.planner.plan(root, changed)
     edited = install.install(root, changed, stage, "replacement-key", expected_digest=edit_plan["digest"])
     assert edited["changedFiles"] > 0
+    updated_config = json.loads((root / install.planner.CONFIG.lstrip("/")).read_text())
+    assert updated_config["bridges"][0]["dmrToAslGainDb"] == 3.0
+    assert updated_config["bridges"][0]["aslToDmrGainDb"] == -4.0
     secret = root / "opt/allscan-reimagined-bridges/dmr_johnny2/secrets/master-password"
     assert secret.read_text() == "replacement-key\n"
     assert secret.stat().st_mode & 0o777 == 0o640

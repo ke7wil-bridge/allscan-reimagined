@@ -22,6 +22,7 @@ const server = await createServer({
 try {
   const {
     bridgeConnectionIdentities,
+    fetchBridgeCards,
     bridgeProtocolCardTitle,
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
@@ -40,6 +41,59 @@ try {
     summarizeConnectionTotal,
     talkerInfoParts,
   } = await server.ssrLoadModule('/src/lib/allscanLive.ts')
+
+  // VU values must originate in backend audio telemetry, never PTT/role.
+  // The same schema applies to every bridge type, including future backends.
+  const priorFetch = globalThis.fetch
+  try {
+    const testBridges = ['dmr', 'p25', 'nxdn', 'ysf', 'm17', 'zello', 'urf'].map((mode) => ({
+      id: `vu_${mode}`, mode, node: '1999', title: mode, detailTitle: 'Clients', cardType: 'standard',
+    }))
+    globalThis.fetch = async () => ({
+      json: async () => ({ bridge: Object.fromEntries(testBridges.map((b) => [b.id, {
+        role: 'source',
+        ...(b.mode === 'ysf' ? {} : { audio_meter: {
+          inboundpeak: 0.8, inboundrms: 0.25, outboundpeak: 1.5, outboundrms: -2,
+        } }),
+      }])) }),
+    })
+    const { cards } = await fetchBridgeCards({ node: '1999', bridges: testBridges })
+    for (const card of cards) {
+      if (card.mode === 'ysf') {
+        assert(card.status === 'Source/TX' && card.audioMeter === null,
+          'PTT activity incorrectly synthesized a VU meter')
+      } else {
+        assert(card.audioMeter?.inboundPeak === 0.8 && card.audioMeter?.inboundRms === 0.25
+          && card.audioMeter?.outboundPeak === 1 && card.audioMeter?.outboundRms === 0,
+        `${card.mode} audio telemetry was not normalized or was suppressed`)
+      }
+    }
+    // Invalid backend values, silence and independently missing directions
+    // cannot produce nonzero bars or affect the other direction.
+    globalThis.fetch = async () => ({ json: async () => ({ bridge: {
+      vu_m17: { role: 'relay', audio_meter: {
+        inboundpeak: Number.NaN, inboundrms: Infinity,
+        outboundpeak: 0.125, outboundrms: 0.0625,
+      } },
+    } }) })
+    const malformed = await fetchBridgeCards({ node: '1999', bridges: [testBridges[4]] })
+    assert(malformed.cards[0].audioMeter?.inboundPeak === 0
+      && malformed.cards[0].audioMeter?.inboundRms === 0
+      && malformed.cards[0].audioMeter?.outboundPeak === 0.125
+      && malformed.cards[0].audioMeter?.outboundRms === 0.0625,
+      'invalid inbound telemetry corrupted the independently valid outbound meter')
+    globalThis.fetch = async () => ({ json: async () => ({ bridge: {
+      vu_m17: { role: 'relay', audio_meter: {
+        inboundpeak: 0, inboundrms: 0, outboundpeak: 0, outboundrms: 0,
+      } },
+    } }) })
+    const silent = await fetchBridgeCards({ node: '1999', bridges: [testBridges[4]] })
+    assert(silent.cards[0].status === 'Relay'
+      && Object.values(silent.cards[0].audioMeter ?? {}).every((value) => value === 0),
+      'PTT activity incorrectly generated audio while backend samples were silent')
+  } finally {
+    globalThis.fetch = priorFetch
+  }
 
   assert(isNodeMessageAuthNotice('Login required.'), 'plain login notice was not recognized')
   assert(isNodeMessageAuthNotice('ERROR: Error: Insufficient user permission to retrieve data.'), 'ASTAPI permission notice was not recognized')
@@ -473,7 +527,7 @@ try {
     'a disconnected DMR Net Bridge can still inherit false Relay state from node 1999',
   )
   assert(
-    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
+    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| card\.transportLinked === true \|\| rows\.some/),
     'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
   )
   assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')

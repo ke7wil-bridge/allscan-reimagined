@@ -232,7 +232,8 @@ def build(destination: Path, runtime_source: Path, digital_sources) -> dict:
                            check=True, capture_output=True, text=True)
         for name in ("YSFProtocol.cpp", "P25Protocol.cpp", "NXDNProtocol.cpp"):
             shutil.copy2(patch_root / name, urfd / "reflector" / name)
-        shutil.copy2(patch_root / "tcd/Controller.cpp", tcd / "Controller.cpp")
+        for name in ("Controller.cpp", "Controller.h", "Configure.cpp", "Configure.h", "AsrPcmMeter.h"):
+            shutil.copy2(patch_root / "tcd" / name, tcd / name)
         shutil.copy2(urfd / "config/urfd.mk", urfd / "reflector/urfd.mk")
         replace_once(urfd / "reflector/urfd.mk", "DHT = true", "DHT = false")
         subprocess.run(["make", "-C", str(urfd / "reflector"), "-j2"], check=True,

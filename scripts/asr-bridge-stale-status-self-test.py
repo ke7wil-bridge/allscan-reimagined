@@ -179,6 +179,45 @@ def test_relay_tx_off_evidence() -> None:
     assert state["role"] == "relay"
 
 
+def test_long_relay_requires_end_evidence() -> None:
+    state = status.initial_activity_state()
+    status.apply_activity_line(state, dmr_tx_on("19:33:00"), "dmr", 1200)
+    assert state["role"] == "relay"
+    # No arbitrary elapsed-time cutoff or failed keyed monitor may hide a
+    # legitimate long TX. Standard DMR/YSF have no independent audio feed.
+    for now in (1230, 1320, 1800):
+        status.reconcile_keyed_source(state, None, now)
+        status.reconcile_keyed_source(state, False, now)
+        assert state["role"] == "relay"
+    status.apply_activity_line(state, dmr_tx_off("19:43:01"), "dmr", 1801)
+    assert state["role"] == "idle"
+
+
+def test_missing_delayed_and_rapid_relay_end_events() -> None:
+    state = status.initial_activity_state()
+    status.apply_activity_line(state, ysf_tx_on("20:00:00"), "ysf", 2000)
+
+    # A missing OFF must remain RELAY indefinitely. An older delayed OFF is
+    # not evidence that this newer transmission ended.
+    status.apply_activity_line(state, ysf_tx_off("19:59:59"), "ysf", 2600)
+    assert state["role"] == "relay"
+
+    # A newer ON supersedes the incomplete event. Its own OFF safely recovers
+    # state, without an interval where an active transmission is shown Idle.
+    status.apply_activity_line(state, ysf_tx_on("20:10:00"), "ysf", 2601)
+    status.apply_activity_line(state, ysf_tx_off("20:00:05"), "ysf", 2602)
+    assert state["role"] == "relay"
+    status.apply_activity_line(state, ysf_tx_off("20:10:03"), "ysf", 2603)
+    assert state["role"] == "idle"
+
+    # Rapid consecutive lifecycle pairs remain independent and chronological.
+    for start, end in (("20:10:04", "20:10:05"), ("20:10:06", "20:10:07")):
+        status.apply_activity_line(state, ysf_tx_on(start), "ysf", 2604)
+        assert state["role"] == "relay"
+        status.apply_activity_line(state, ysf_tx_off(end), "ysf", 2605)
+        assert state["role"] == "idle"
+
+
 def test_astapi_tri_state() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-astapi-") as raw:
         cache_dir = Path(raw)
@@ -489,6 +528,8 @@ def test_wiring_contracts() -> None:
 def main() -> None:
     test_shared_state_machine()
     test_relay_tx_off_evidence()
+    test_long_relay_requires_end_evidence()
+    test_missing_delayed_and_rapid_relay_end_events()
     test_astapi_tri_state()
     test_standard_payload_and_ambiguity()
     test_direct_service_discovery()
