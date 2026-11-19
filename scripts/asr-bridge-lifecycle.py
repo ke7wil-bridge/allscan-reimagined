@@ -194,7 +194,7 @@ def validate_admin_capabilities(payload: Any, bridge_id: str, mode: str) -> None
     )
     if not all(payload.get(field) is True for field in required_true):
         raise LifecycleError("Installed standard bridge does not provide full client administration.")
-    if payload.get("kickContract") != "disconnect-until-reconnect":
+    if payload.get("kickContract") not in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}:
         raise LifecycleError("Installed standard bridge has an incompatible Kick contract.")
     if payload.get("banContract") != "global-timed-v1":
         raise LifecycleError("Installed standard bridge has an incompatible Global Ban contract.")

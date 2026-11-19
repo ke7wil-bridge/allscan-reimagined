@@ -21,7 +21,7 @@ from typing import Any
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUNTIME_ROOT = Path("/run/asr-standalone-admin")
 def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return runtime if runtime.is_dir() else native
+    return native if native.is_dir() else runtime
 
 
 GLOBAL_BAN_ROOT = global_ban_root()
@@ -173,6 +173,8 @@ def supports_policy_reconcile(manifest: dict[str, Any]) -> bool:
     matching applied digest before it exposes the controls.
     """
     return (
+        manifest.get("enforcementEvidence") == "relay-observed-v1"
+        and
         manifest.get("banContract") == "global-timed-v1"
         and all(isinstance(manifest.get(field), bool)
                 for field in ("banClient", "unbanClient", "listBans"))
@@ -193,7 +195,8 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
     required = {
         "kick": (
             manifest.get("kickClient") is True
-            and manifest.get("kickContract") == "disconnect-until-reconnect"
+            and manifest.get("enforcementEvidence") == "relay-observed-v1"
+            and manifest.get("kickContract") in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}
             and manifest.get("kickRequiresCurrentSession") is True
             and manifest.get("kickAllowsImmediateReconnect") is True
         ),
@@ -247,7 +250,8 @@ def kick(bridge_id: str, identity: str, actor: str) -> dict[str, Any]:
     if not IDENTITY_RE.fullmatch(identity):
         raise AdminError("Invalid bridge client identity.")
     result = request(bridge_config(bridge_id), "kick", actor, identity=identity)
-    if result.get("identity") != identity or result.get("enforcement") != "disconnect-until-reconnect":
+    if (result.get("identity") != identity
+            or result.get("enforcement") not in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}):
         raise AdminError("Standalone Kick acknowledgment did not prove the required session behavior.")
     removed = int(result.get("removed") or 0)
     if removed < 1:
@@ -271,6 +275,15 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         config = read_json(CONFIG_PATH)
     except (OSError, AdminError):
         raise AdminError("ASR bridge configuration is unavailable.")
+    if not isinstance(config, dict) or not isinstance(config.get("bridges"), list):
+        raise AdminError("ASR bridge configuration is unavailable.")
+    # Zello has no verified native global Ban adapter; report it explicitly
+    # whenever a Zello card is configured instead of silently omitting it.
+    zello_configured = any(
+        isinstance(item, dict) and item.get("cardType", "standard") == "standard"
+        and str(item.get("mode") or item.get("type") or item.get("id") or "").lower().startswith("zello")
+        for item in config["bridges"]
+    )
     bridge_ids = [
         str(item.get("id"))
         for item in config.get("bridges", [])
@@ -279,36 +292,84 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         and any(str(item.get("mode") or item.get("type") or item.get("id", "")).lower().startswith(mode) for mode in SUPPORTED_MODES)
     ]
     for item in config.get("bridges", []):
-        if not isinstance(item, dict) or not item.get("urfReflector"):
+        if (not isinstance(item, dict) or not item.get("urfReflector")
+                or item.get("cardType", "standard") != "standard"):
             continue
         enabled = item.get("modes", item.get("urfModes", []))
         if isinstance(enabled, list):
             normalized = {str(value).strip().lower() for value in enabled}
-            # Aggregate DMR uses the TGIF roster/control runtime. The native
-            # mode proxy set covers the four UDP reflector protocols.
-            bridge_ids.extend(mode for mode in SUPPORTED_MODES - {"dmr"} if mode in normalized)
+            # Global Ban proof must include every enabled protocol, including
+            # DMR; no mode is implicitly covered by a separate roster.
+            bridge_ids.extend(mode for mode in SUPPORTED_MODES if mode in normalized)
     bridge_ids = list(dict.fromkeys(bridge_ids))
     applied = []
+    failed = []
     for bridge_id in bridge_ids:
         try:
             bridge = bridge_config(bridge_id)
             _, manifest = manifest_for(bridge)
-        except FileNotFoundError:
-            # Standalone protocols only participate when a verified native
-            # adapter is installed. Unsupported bridges remain visible but do
-            # not falsely advertise or block global administration.
-            continue
-        if not supports_policy_reconcile(manifest):
-            continue
-        applied.append(reconcile(bridge_id, actor))
-    return {"ok": True, "verified": True, "action": "reconcile-all",
-            "applied": applied, "skipped": sorted(set(bridge_ids) - {item["bridgeId"] for item in applied}),
+            if not supports_policy_reconcile(manifest):
+                failed.append({"bridgeId": bridge_id, "reason": "Verified policy adapter unavailable"})
+                continue
+            applied.append(reconcile(bridge_id, actor))
+        except (AdminError, OSError, ValueError, KeyError) as exc:
+            failed.append({"bridgeId": bridge_id, "reason": str(exc)})
+    if zello_configured:
+        failed.append({"bridgeId": "zello", "reason": "Verified Zello Global Ban adapter unavailable"})
+    skipped = sorted((set(bridge_ids) - {item["bridgeId"] for item in applied})
+                     | ({"zello"} if zello_configured else set()))
+    # A partial reconciliation is not proof of global Ban enforcement.
+    return {"ok": not skipped, "verified": not skipped, "action": "reconcile-all",
+            "applied": applied, "skipped": skipped, "failed": failed,
             "policyDigest": policy_payload()["digest"]}
+
+
+
+def kick_all(identity: str, actor: str = "system") -> dict[str, Any]:
+    """Attempt native Kick per configured bridge; never imply Zello is covered."""
+    identity = identity.strip().upper()
+    if not IDENTITY_RE.fullmatch(identity):
+        raise AdminError("Invalid bridge client identity.")
+    config = read_json(CONFIG_PATH)
+    if not isinstance(config, dict) or not isinstance(config.get("bridges"), list):
+        raise AdminError("ASR bridge configuration is unavailable.")
+    targets: dict[str, str] = {}
+    for item in config["bridges"]:
+        if not isinstance(item, dict) or item.get("cardType", "standard") != "standard":
+            continue
+        if item.get("urfReflector"):
+            enabled = item.get("modes", item.get("urfModes", []))
+            if isinstance(enabled, list):
+                for mode in enabled:
+                    mode = str(mode).lower()
+                    if mode in SUPPORTED_MODES:
+                        targets[mode] = mode
+        else:
+            bridge_id = str(item.get("id", ""))
+            mode = str(item.get("mode") or item.get("type") or bridge_id).lower()
+            if ID_RE.fullmatch(bridge_id) and any(mode.startswith(m) for m in SUPPORTED_MODES):
+                targets[bridge_id] = next(m for m in SUPPORTED_MODES if mode.startswith(m))
+    applied, failed = [], []
+    for bridge_id, mode in sorted(targets.items()):
+        try:
+            result = kick(bridge_id, identity, actor)
+            if result.get("verified") is not True or result.get("ok") is not True:
+                raise AdminError("Bridge Kick did not return verified enforcement evidence.")
+            removed = int(result.get("removed") or 0)
+            if removed < 1:
+                raise AdminError("Bridge Kick did not confirm an active session was removed.")
+            applied.append({"bridgeId": bridge_id, "mode": mode, "removed": removed})
+        except (AdminError, FileNotFoundError, OSError) as exc:
+            failed.append({"bridgeId": bridge_id, "mode": mode, "reason": str(exc)})
+    # No verified Zello channel-user Kick exists. Global completion is blocked.
+    failed.append({"bridgeId": "zello", "mode": "zello", "reason": "Verified Zello Kick adapter unavailable"})
+    return {"ok": False, "verified": False, "action": "kick-all", "callsign": identity,
+            "applied": applied, "failed": failed, "complete": False}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["kick", "reconcile", "reconcile-all"])
+    parser.add_argument("action", choices=["kick", "kick-all", "reconcile", "reconcile-all"])
     parser.add_argument("bridge_id", nargs="?")
     parser.add_argument("identity", nargs="?")
     parser.add_argument("--actor", default="system")
@@ -319,6 +380,10 @@ def main() -> None:
         if not args.bridge_id or not args.identity:
             raise AdminError("Kick requires BRIDGE_ID and IDENTITY.")
         emit(**kick(args.bridge_id, args.identity, args.actor))
+    elif args.action == "kick-all":
+        if not args.bridge_id or args.identity:
+            raise AdminError("Kick-all requires IDENTITY only.")
+        emit(**kick_all(args.bridge_id, args.actor))
     elif args.action == "reconcile":
         if not args.bridge_id:
             raise AdminError("Reconcile requires BRIDGE_ID.")

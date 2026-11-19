@@ -19,8 +19,8 @@ for start in recent_starts:
 client_starts = [m.start() for m in re.finditer(r"card\.detailRows\.map", app)]
 if not client_starts:
     errors.append("Connected Clients rendering path missing")
-elif not any("'Disconnect' : 'Kick'" in app[start:start + 2600] for start in client_starts):
-    errors.append("Connected Clients lost capability-gated Disconnect/Kick")
+elif not any("'Block media' : 'Kick'" in app[start:start + 2600] for start in client_starts):
+    errors.append("Connected Clients lost capability-gated DMR media block/Kick")
 
 managed_clients = app[app.find('<b>Digital bridge clients</b>'):app.find('Recent Zello Talkers')]
 if ("clientAdmin.includes('kickClient')" not in managed_clients

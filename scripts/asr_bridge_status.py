@@ -214,6 +214,11 @@ def apply_activity_line(
                     "epoch": epoch,
                     "start_epoch": active_epoch,
                     "duration_seconds": duration,
+                    # Only a received-network source line proves the digital
+                    # protocol identity. Local TX state is relay activity, not
+                    # evidence that the current AllStar caller is a DMR/YSF user.
+                    "direction": "incoming",
+                    "source_protocol": mode.upper(),
                 })
                 state["tx_events"] = tx_events[:100]
                 state["recent_users"] = [{"callsign": state["last_source_user"], "last_tx_epoch": epoch}]

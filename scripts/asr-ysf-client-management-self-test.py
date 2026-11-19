@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -46,6 +47,7 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     urf.DMR_ROSTER = str(tmp / "dmr-clients.json")
     urf.DMR_DIRECTORY_ROSTER = str(tmp / "connected-clients.json")
     urf.DMR_CONTROL = str(tmp / "dmr-admin.json")
+    urf.DMR_ENFORCEMENT = str(tmp / "dmr-admin-enforcement.json")
     urf.DMR_RUNTIME_DIR = str(tmp)
     urf.CONFIG = str(tmp / "config.json")
     Path(urf.CONFIG).write_text(json.dumps({"bridges": [], "filteredStations": ["FEEDALIAS"]}), encoding="utf-8")
@@ -56,6 +58,21 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
         "banned_clients": {"3224939": "KE7WIL"},
         "kicked_ids": {},
     }), encoding="utf-8")
+    stop = threading.Event()
+    def relay_evidence():
+        while not stop.is_set():
+            control = json.loads(Path(urf.DMR_CONTROL).read_text())
+            tokens = control.get("kick_tokens", {})
+            proof = {"schema": 1, "contract": "dmr-local-media-v1",
+                     "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "",
+                     "controlToken": control.get("control_token", "")}
+            if tokens:
+                dmrid, token = next(iter(tokens.items()))
+                proof["lastKick"] = {"dmrid": dmrid, "token": token,
+                                     "observedEpoch": int(time.time())}
+            Path(urf.DMR_ENFORCEMENT).write_text(json.dumps(proof), encoding="utf-8")
+            time.sleep(.01)
+    worker = threading.Thread(target=relay_evidence, daemon=True); worker.start()
 
     urf.write_rules(["KE7WIL", "N0CALL*"])
     check(urf.read_rules() == ["KE7WIL", "N0CALL*"], "logical Global Ban List round-trip failed")
@@ -150,8 +167,8 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
           "DMR Kick did not publish active-stream suppression")
     roster = json.loads(Path(urf.DMR_ROSTER).read_text(encoding="utf-8"))
     remaining_ids = {row["dmrid"] for row in roster.get("urf_dmr", [])}
-    check(remaining_ids == {"3101001", "3101002", "3101003"},
-          "DMR Kick changed an unrelated connected client")
+    check(remaining_ids == {"3224939", "3101001", "3101002", "3101003"},
+          "DMR Kick mutated the upstream/collector roster")
 
     before_control = Path(urf.DMR_CONTROL).read_text(encoding="utf-8")
     before_roster = Path(urf.DMR_ROSTER).read_text(encoding="utf-8")
@@ -187,8 +204,8 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
     backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
     check(backend["banned_ids"] == [3101001, 3101003], "targeted DMR Ban did not preserve another ban")
     roster = json.loads(Path(urf.DMR_ROSTER).read_text(encoding="utf-8"))
-    check({row["dmrid"] for row in roster["urf_dmr"]} == {"3101002", "3101003"},
-          "targeted DMR Ban removed an unrelated client")
+    check({row["dmrid"] for row in roster["urf_dmr"]} == {"3101001", "3101002", "3101003"},
+          "targeted DMR Ban mutated the upstream/collector roster")
     urf.sync_dmr_ban("N1AAA", False)
     backend = json.loads(Path(urf.DMR_CONTROL).read_text(encoding="utf-8"))
     check(backend["banned_ids"] == [3101003] and backend["banned_clients"] == {"3101003": "N3CCC"},
@@ -205,6 +222,7 @@ with tempfile.TemporaryDirectory(prefix="asr-ysf-self-test-") as raw_tmp:
               "read-only DMR runtime advertised actions that cannot work")
     finally:
         urf.os.statvfs = original_statvfs
+    stop.set(); worker.join(timeout=1)
 
 check("asr_urf_is_service_identity($callsign, $mode)" in API, "connected-client probe filter missing")
 check("asr_urf_is_service_identity($normalizedCallsign" in API, "event probe filter missing")

@@ -402,8 +402,8 @@ export async function kickUrfClient(callsign: string, protocol: string, clientId
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
-export async function kickStandaloneClient(bridgeId: string, callsign: string): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ bridgeId, callsign })
+export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ bridgeId, callsign, clientId })
   const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
