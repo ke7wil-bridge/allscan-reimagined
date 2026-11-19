@@ -3790,6 +3790,27 @@ function asr_bridge_exact_resources(array $bridge): array {
     ];
 }
 
+/**
+ * Admin-only, read-only endpoint inventory. Fail visibly if it cannot inspect
+ * the host; an unavailable probe must never be reported as "no conflicts".
+ */
+function asr_bridge_endpoint_diagnostics(): array {
+    $script = '/usr/local/libexec/allscan-reimagined/asr-bridge-endpoint-collisions.py';
+    if (!is_file($script) || !is_readable($script)) {
+        return ['ok' => false, 'error' => 'Bridge endpoint inventory is not installed.'];
+    }
+    $lines = [];
+    $status = 1;
+    @exec('python3 -I ' . escapeshellarg($script) . ' 2>/dev/null', $lines, $status);
+    $payload = $status === 0 ? json_decode(implode("\n", $lines), true) : null;
+    if (!is_array($payload) || ($payload['schema'] ?? 0) !== 1
+        || !isset($payload['endpoints'], $payload['conflicts'])
+        || !is_array($payload['endpoints']) || !is_array($payload['conflicts'])) {
+        return ['ok' => false, 'error' => 'Bridge endpoint inventory could not be read. Check file permissions and host diagnostics.'];
+    }
+    return ['ok' => true] + $payload;
+}
+
 function asr_bridge_diagnostics(): array {
     $config = asr_raw_runtime_config();
     $runtime = asr_runtime_config();
@@ -3874,6 +3895,7 @@ function asr_bridge_diagnostics(): array {
         'connectedClientsFile' => $clientFile,
         'asrConnectedClientsFile' => $asrClientFile,
         'bridges' => $rows,
+        'endpointDiagnostics' => asr_bridge_endpoint_diagnostics(),
     ];
 }
 

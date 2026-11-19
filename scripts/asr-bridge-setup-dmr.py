@@ -170,30 +170,12 @@ def plan(root: Path, settings: DmrSettings) -> dict[str, Any]:
         if node in used:
             raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
-    # A CRC-derived port block is deterministic but not collision-free. An
-    # inactive ASR-managed DMR bridge may own ports even when no UDP socket
-    # is listening. Reject overlaps against installation records as well.
-    if not matches:
-        record_dir = rooted(root, STATE)
-        if record_dir.exists() and not record_dir.is_dir():
-            raise PlanError("DMR installation record directory is invalid")
-        if record_dir.is_dir():
-            for other in record_dir.glob("*.json"):
-                if other.is_symlink():
-                    raise PlanError("unsafe DMR installation record symlink")
-                if other.stem == settings.bridge_id:
-                    continue
-                record = json.loads(other.read_text(encoding="utf-8"))
-                if not isinstance(record, dict) or not isinstance(record.get("ports"), dict):
-                    continue
-                try:
-                    owned_ports = {int(port) for port in record["ports"].values()}
-                except (TypeError, ValueError):
-                    raise PlanError("invalid managed bridge port ownership record")
-                if set(ports.values()) & owned_ports:
-                    raise PlanError(f"direct DMR port block conflicts with managed bridge {other.stem}")
-    if not matches and set(ports.values()) & set(facts.listening_udp_ports):
-        raise PlanError("direct DMR port block overlaps an active UDP listener")
+    endpoint_guard = load("asr_bridge_endpoint_guard_asr_bridge_setup_dmr", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(root, config, settings.bridge_id, "dmr",
+                                       ports, role="standard")
+    except ValueError as exc:
+        raise PlanError(str(exc)) from exc
     base = f"{ROOT_BASE}/{settings.bridge_id}"
     services = [f"asr-dmr-vocoder-{settings.bridge_id}.service",
                 f"asr-dmr-mmdvm-{settings.bridge_id}.service",
