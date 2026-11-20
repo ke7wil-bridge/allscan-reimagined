@@ -451,7 +451,7 @@ def apply_activity_line(
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
 
 
-def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
+def apply_m17_activity(state: dict[str, Any], line: str, now: int, bridge_call: str = "") -> None:
     """Track M17 network-origin events separately from outgoing USRP relay."""
     text = line.rstrip("\r\n")
     start = M17_START_RE.fullmatch(text)
@@ -491,7 +491,7 @@ def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
                        and abs(int(u.get("LastHeardTime", 0)) - event_epoch) <= 2
                        and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?",
                                         str(u.get("Source", "")).strip().upper().replace(" ", "-"))]
-            if len(set(matches)) == 1:
+            if len(set(matches)) == 1 and not matches[0].startswith(bridge_call + "-") and matches[0] != bridge_call:
                 identity = re.sub(r"-[0-9]{1,2}$", "", matches[0])
         except (OSError, ValueError, TypeError):
             pass
@@ -510,7 +510,7 @@ M17_CLOSE_JOURNAL_RE = re.compile(
     r"^(\d+\.\d+) .*?mrefd\[\d+\]: Closing stream on module [A-Z]\s*$", re.I)
 
 
-def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
+def apply_m17_journal(state: dict[str, Any], line: str, now: int, bridge_call: str = "") -> None:
     """Use authoritative reflector stream open/close for live source identity."""
     opened = M17_OPEN_JOURNAL_RE.fullmatch(line)
     closed = M17_CLOSE_JOURNAL_RE.fullmatch(line)
@@ -525,6 +525,8 @@ def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
     if opened:
         caller = opened.group(2).strip().upper().replace(" ", "-")
         caller = re.sub(r"-[0-9]{1,2}$", "", caller)
+        if bridge_call and (caller == bridge_call or caller.startswith(bridge_call + "-")):
+            return  # Reflector bridge loopback is not a remote M17 station.
         if not re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?", caller):
             return
         state.update({"observed": True, "role": "source", "current_user": caller,
@@ -1114,11 +1116,11 @@ def standard_live_payload(
     for tagged in m17_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
-            apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now)
+            apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call)
     for tagged in m17_journal_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
-            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now)
+            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids and str(bridge.get("mode", "")).lower() != "m17":
@@ -1132,6 +1134,20 @@ def standard_live_payload(
                 previous.get("client_events") if isinstance(previous.get("client_events"), list) else []
             )
         state = states.setdefault(bridge_id, initial_activity_state())
+        if str(bridge.get("mode", "")).lower() == "m17" and local_call:
+            def is_bridge_identity(value: object) -> bool:
+                identity = str(value or "").upper().replace(" ", "-")
+                return identity == local_call or identity.startswith(local_call + "-")
+            for key in ("last_user", "last_source_user", "current_user"):
+                if is_bridge_identity(state.get(key)):
+                    state[key] = ""
+            state["tx_events"] = [event for event in state.get("tx_events", [])
+                                  if isinstance(event, dict) and not is_bridge_identity(event.get("callsign"))]
+            state["recent_users"] = [row for row in state.get("recent_users", [])
+                                     if isinstance(row, dict) and not is_bridge_identity(row.get("callsign"))]
+            if state.get("role") == "source" and not state.get("current_user"):
+                state["role"] = "idle"
+                state["active_start_epoch"] = 0
         if client_snapshots is not None and bridge_id in client_snapshots:
             reconcile_client_snapshot(state, client_snapshots[bridge_id], now)
         active_start = int(state.get("active_start_epoch", 0) or 0)
