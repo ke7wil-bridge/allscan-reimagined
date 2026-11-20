@@ -78,6 +78,7 @@ NXDN_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received network end of transmi
 NXDN_RF_HEADER_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received RF header from\s+.+?\s+to TG\s+\d+\b.*$", re.I)
 NXDN_RF_END_RE = re.compile(LINE_PREFIX + r"NXDN,\s+received RF end of transmission\b.*$", re.I)
 M17_START_RE = re.compile(LINE_PREFIX + r"USRP voice received as first frame\s*$", re.I)
+M17_INBOUND_END_RE = re.compile(LINE_PREFIX + r"M17 received end of voice transmission,\s*([0-9.]+) seconds\s*$", re.I)
 M17_END_RE = re.compile(LINE_PREFIX + r"USRP received end of voice transmission,\s*([0-9.]+) seconds\s*$", re.I)
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
 ACTIVE_STATE_MAX_AGE_SECONDS = 300
@@ -241,6 +242,17 @@ def apply_activity_line(
     if source is not None:
         caller_group = 4 if mode == "dmr" else 3
         caller = clean_caller(source.group(caller_group), 20 if mode == "ysf" else 120)
+        if mode == "nxdn" and caller.isdecimal():
+            # Resolve NXDN radio IDs before publishing the shared ASR identity.
+            try:
+                import csv
+                with open("/etc/netoholics/nxdn/NXDN.csv", newline="", encoding="utf-8-sig") as ids:
+                    caller = next((row["CALLSIGN"].strip().upper() for row in csv.DictReader(ids)
+                                   if row.get("RADIO_ID", "").strip() == caller
+                                   and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}", row.get("CALLSIGN", "").strip().upper())), caller)
+            except (OSError, ValueError, KeyError):
+                pass
+
         local_relay = mode == "ysf" and caller.upper() in local_identities
         state.update({
             "observed": True,
@@ -325,26 +337,91 @@ def apply_activity_line(
 
 
 def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
-    """Track USRP audio without inventing a digital callsign or link state."""
+    """Track M17 network-origin events separately from outgoing USRP relay."""
     text = line.rstrip("\r\n")
-    start, end = M17_START_RE.fullmatch(text), M17_END_RE.fullmatch(text)
-    match = start or end
+    start = M17_START_RE.fullmatch(text)
+    end = M17_END_RE.fullmatch(text)
+    inbound_end = M17_INBOUND_END_RE.fullmatch(text)
+    match = start or end or inbound_end
     if not match:
         return
-    epoch = match_epoch(match, now)
-    if epoch < int(state.get("last_event_epoch", 0) or 0):
+    event_epoch = match_epoch(match, now)
+    if event_epoch < int(state.get("last_event_epoch", 0) or 0):
         return
     if start:
-        state.update({"observed": True, "role": "relay", "active_start_epoch": epoch,
-                      "activity_epoch": epoch, "last_event_epoch": epoch})
+        if state.get("role") == "source":
+            return
+        state.update({"observed": True, "role": "relay", "active_start_epoch": event_epoch,
+                      "activity_epoch": event_epoch, "last_event_epoch": event_epoch})
     elif end:
+        if state.get("role") == "source":
+            return
         started = int(state.get("active_start_epoch", 0) or 0)
-        if started and epoch >= started:
-            record_transmission(
-                state, "", started, epoch, now, float(end.group(3)),
-                "outgoing", "m17",
-            )
-        state.update({"observed": True, "role": "idle", "active_start_epoch": 0,
+        if started and event_epoch >= started:
+            record_transmission(state, "", started, event_epoch, now,
+                                float(end.group(3)), "outgoing", "m17")
+        state.update({"observed": True, "role": "idle", "current_user": "",
+                      "active_start_epoch": 0, "activity_epoch": event_epoch,
+                      "last_event_epoch": event_epoch})
+    else:
+        # Reflector Users.LastHeardTime is end-of-stream evidence. Match only
+        # a unique, recent stream; never infer identity from connected clients.
+        duration = float(inbound_end.group(3))
+        identity = ""
+        try:
+            reflector = json.loads(Path("/var/log/m17/mrefd.json").read_text())
+            users = reflector.get("Users", []) if isinstance(reflector, dict) else []
+            matches = [str(u.get("Source", "")).strip().upper().replace(" ", "-")
+                       for u in users if isinstance(u, dict)
+                       and abs(int(u.get("LastHeardTime", 0)) - event_epoch) <= 2
+                       and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?",
+                                        str(u.get("Source", "")).strip().upper().replace(" ", "-"))]
+            if len(set(matches)) == 1:
+                identity = re.sub(r"-[0-9]{1,2}$", "", matches[0])
+        except (OSError, ValueError, TypeError):
+            pass
+        if identity:
+            started = max(0, event_epoch - max(1, int(duration)))
+            record_transmission(state, identity, started, event_epoch, now,
+                                duration, "incoming", "m17")
+        state.update({"observed": True, "role": "idle", "current_user": "",
+                      "active_start_epoch": 0, "activity_epoch": event_epoch,
+                      "last_event_epoch": event_epoch})
+
+
+M17_OPEN_JOURNAL_RE = re.compile(
+    r"^(\d+\.\d+) .*?mrefd\[\d+\]: Opening stream on module [A-Z] from client .+? with id 0x[0-9a-f]+ by user (.+)$", re.I)
+M17_CLOSE_JOURNAL_RE = re.compile(
+    r"^(\d+\.\d+) .*?mrefd\[\d+\]: Closing stream on module [A-Z]\s*$", re.I)
+
+
+def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
+    """Use authoritative reflector stream open/close for live source identity."""
+    opened = M17_OPEN_JOURNAL_RE.fullmatch(line)
+    closed = M17_CLOSE_JOURNAL_RE.fullmatch(line)
+    if not (opened or closed):
+        return
+    match = opened or closed
+    epoch = int(float(match.group(1)))
+    if now - epoch > 20 or epoch > now + 2:
+        return
+    if epoch < int(state.get("last_event_epoch", 0) or 0):
+        return
+    if opened:
+        caller = opened.group(2).strip().upper().replace(" ", "-")
+        caller = re.sub(r"-[0-9]{1,2}$", "", caller)
+        if not re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?", caller):
+            return
+        state.update({"observed": True, "role": "source", "current_user": caller,
+                      "active_start_epoch": epoch, "activity_epoch": epoch,
+                      "last_event_epoch": epoch, "source_observed_at": float(now)})
+    elif state.get("role") == "source":
+        caller = str(state.get("current_user") or "")
+        started = int(state.get("active_start_epoch") or 0)
+        if caller and started and epoch >= started:
+            record_transmission(state, caller, started, epoch, now,
+                                float(epoch - started), "incoming", "m17")
+        state.update({"role": "idle", "current_user": "", "active_start_epoch": 0,
                       "activity_epoch": epoch, "last_event_epoch": epoch})
 
 
@@ -795,6 +872,16 @@ def confirmed_m17_state(bridge: dict[str, Any], now: int, runtime_dir: Path = Pa
 def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str] | None = None, service_issues: list[str] | None = None) -> dict[str, Any]:
     role = str(state.get("role", "idle"))
     caller = clean_caller(str(state.get("current_user", "")), 120) if role == "source" else ""
+    if str(bridge.get("mode", "")).lower() == "m17":
+        caller = re.sub(r"-[0-9]{1,2}$", "", caller)
+        for key in ("last_user", "last_source_user"):
+            state[key] = re.sub(r"-[0-9]{1,2}$", "", str(state.get(key) or ""))
+        for row in state.get("tx_events", []):
+            if isinstance(row, dict) and row.get("callsign"):
+                row["callsign"] = re.sub(r"-[0-9]{1,2}$", "", str(row["callsign"]))
+        for row in state.get("recent_users", []):
+            if isinstance(row, dict) and row.get("callsign"):
+                row["callsign"] = re.sub(r"-[0-9]{1,2}$", "", str(row["callsign"]))
     online = state.get("online")
     linked = state.get("linked")
     units = units or []
@@ -841,6 +928,7 @@ def standard_live_payload(
     tagged_lines: list[str] | None = None,
     external_lines: list[str] | None = None,
     m17_lines: list[str] | None = None,
+    m17_journal_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -907,6 +995,10 @@ def standard_live_payload(
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
             apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now)
+    for tagged in m17_journal_lines or []:
+        bridge_id, sep, message = tagged.partition("\t")
+        if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
+            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids and str(bridge.get("mode", "")).lower() != "m17":
@@ -953,14 +1045,15 @@ def standard_live_payload(
         # formerly connected bridge remains online.
         state["online"] = connected.get(node) if isinstance(connected.get(node), bool) else None
         keyed = keys.get(node) if node_counts[node] == 1 else None
-        if keyed is True and state.get("role") == "idle":
+        if keyed is True and state.get("role") == "idle" and str(bridge.get("mode", "")).lower() != "m17":
             # A fresh, explicit keyed sample is proof of transport TX;
             # do not invent a caller or a network-side RELAY event.
             state.update({"role": "source", "current_user": "",
                           "active_start_epoch": now, "activity_epoch": now,
                           "source_observed_at": now, "observed": True})
         if bridge_id in unambiguous_ids or node_counts[node] == 1:
-            reconcile_keyed_source(state, keyed, now)
+            if str(bridge.get("mode", "")).lower() != "m17":
+                reconcile_keyed_source(state, keyed, now)
         cached = health_cache.get(bridge_id) if isinstance(health_cache.get(bridge_id), dict) else {}
         if now - int(cached.get("epoch", 0) or 0) >= SERVICE_CHECK_INTERVAL:
             units, issues = bridge_service_health(config, bridge_id)
@@ -1096,6 +1189,8 @@ def watch_standard_status(
     managed_follower = MmdvmFollower(log_dir)
     external_followers: dict[str, MmdvmFollower] = {}
     m17_offsets: dict[str, tuple[int, int]] = {}
+    m17_journal_seen: set[str] = set()
+    m17_journal_poll = 0
     states = restore_standard_states(status_path)
     while True:
         # Settings intentionally maintains config.json as root:<web-group>
@@ -1149,6 +1244,23 @@ def watch_standard_status(
                         m17_offsets[str(path)] = (st.st_ino, handle.tell())
                 except OSError:
                     continue
+        m17_journal_lines: list[str] = []
+        if any(str(b.get("mode", "")).lower() == "m17" for b in configured.values()) and now >= m17_journal_poll:
+            m17_journal_poll = now + 1
+            try:
+                result = subprocess.run(
+                    ["journalctl", "-u", "m17-reflector.service", "--since", f"@{now-15}",
+                     "-o", "short-unix", "--no-pager", "-q"],
+                    capture_output=True, text=True, timeout=1.5, check=False)
+                if result.returncode == 0:
+                    rows = result.stdout.splitlines()[-120:]
+                    for row in rows:
+                        if row not in m17_journal_seen and (M17_OPEN_JOURNAL_RE.fullmatch(row) or M17_CLOSE_JOURNAL_RE.fullmatch(row)):
+                            m17_journal_lines.extend(str(b["id"]) + "\t" + row for b in configured.values()
+                                                     if str(b.get("mode", "")).lower() == "m17")
+                    m17_journal_seen = set(rows)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         atomic_json(status_path, standard_live_payload(
             config,
             states,
@@ -1156,6 +1268,7 @@ def watch_standard_status(
             now,
             external_lines=external_lines,
             m17_lines=m17_lines,
+            m17_journal_lines=m17_journal_lines,
             tagged_lines=managed_follower.read_lines(
                 allowed_stems=frozenset(
                     f"MMDVM_Bridge_{bridge['id']}"
