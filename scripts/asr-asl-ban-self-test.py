@@ -78,21 +78,31 @@ def run():
             "IAX2/web-2!allstar-public!s!1!Up!Rpt!641890!0!!",
             "ECHOLINK/el0-3!radio-secure!641890!1!Up!Rpt!641890!3000456!N0LOCAL-L!",
             "IAX2/local-4!radio-secure!1001!1!Up!Rpt!1001!641890!Local!",
+            "IAX2/geo-5!geo-admission!s!9!Up!Rpt!641890!67098!!!",
         ]
         state = {"version": 1, "bans": [
             {"kind": "node", "value": "123456", "createdAt": now, "expiresAt": now + 3600, "reason": "", "actor": "test"},
             {"kind": "echolink-call", "value": "N0LOCAL", "createdAt": now, "expiresAt": now + 3600, "reason": "", "actor": "test"},
         ], "ownedAst": [], "ownedEcho": []}
         result = ban.reconcile(state, fake, "641890")
-        assert fake.ast == {"765432", "123456", "67098", "N0GLOBAL"}
+        assert fake.ast == {"765432", "123456", "67098"}
         assert fake.echo == {"N0MANUAL", "N0GLOBAL", "N0GLOBAL-L", "N0LOCAL"}
         assert ban.read_state()["ownedEcho"] == ["N0GLOBAL-L", "N0LOCAL"]
         assert "765432" in result["externalAst"]
         assert "N0MANUAL" in result["externalEcho"]
-        assert result["removed"] == 3
+        assert result["removed"] == 4
         assert len(fake.channels) == 1 and "local-4" in fake.channels[0]
         assert "N0GLOBAL" in result["externalEcho"]  # pre-existing manual rule
         assert "N0SERVICE" in result["unmappedGlobalRules"]
+        assert "N0GLOBAL" not in fake.ast, "callsign was falsely written as an AllStar node deny key"
+
+        # A syntactically valid global callsign with no ASTDB node mapping is
+        # partial enforcement, never a verified AllStar ban.
+        ban.GLOBAL.write_text("N0MISSING\n")
+        missing = ban.reconcile(state, fake, "641890")
+        assert "N0MISSING" in missing["unmappedGlobalRules"]
+        assert "N0MISSING" in missing["unmappedAllStarCallsigns"]
+        assert "N0MISSING" not in fake.ast
 
         # Expiry removes only ASR owned restrictions; manual entries remain.
         for item in state["bans"]:
@@ -131,20 +141,52 @@ def run():
         else:
             raise AssertionError("Configured service callsign was accepted")
         # A busy EchoLink module leaves the update pending; a later list retries it.
-        state["bans"] = [{"kind": "echolink-call", "value": "N0RETRY", "createdAt": now,
-                          "expiresAt": now + 3600, "reason": "", "actor": "test"}]
+        state["bans"] = [
+            {"kind": "echolink-call", "value": "N0RETRY", "createdAt": now,
+             "expiresAt": now + 3600, "reason": "", "actor": "test"},
+            {"kind": "node", "value": "222222", "createdAt": now,
+             "expiresAt": now + 3600, "reason": "", "actor": "test"},
+        ]
         fake.channels = ["ECHOLINK/other-1!radio-secure!641890!1!Up!Rpt!641890!0!N0OTHER!"]
-        try:
-            ban.reconcile(state, fake, "641890")
-        except RuntimeError as exc:
-            assert "active EchoLink session" in str(exc)
-        else:
-            raise AssertionError("EchoLink module restarted while a user was active")
+        pending = ban.reconcile(state, fake, "641890")
+        assert "active EchoLink session" in pending["pending"]["echolink"]
+        assert "222222" in fake.ast, "EchoLink reload failure discarded an applied AllStar node ban"
         assert "N0RETRY" in fake.echo
         fake.channels = []
         ban.reconcile(state, fake, "641890")
         assert "N0RETRY" in ban.read_state()["appliedEcho"]
         assert ("refresh", "chan_echolink.so") in fake.calls
+
+        # A node without chan_echolink (Phoenix) must still enforce AllStar
+        # node bans; Asterisk rejects every EchoLink CLI command there.
+        class NoEchoAMI(FakeAMI):
+            def command(self, value):
+                if value == "module show like chan_echolink.so":
+                    self.calls.append(("command", value))
+                    return "Module Description Use Count Status Support Level\n0 modules loaded"
+                if value.startswith("echolink "):
+                    raise RuntimeError("Asterisk rejected the requested operation.")
+                return super().command(value)
+
+            def action(self, name, **fields):
+                if name in ("GetConfig", "UpdateConfig", "ModuleLoad", "ModuleCheck"):
+                    raise AssertionError(f"EchoLink {name} used on a node without EchoLink")
+                return super().action(name, **fields)
+
+        ban.save_state({"version": 1, "bans": [], "ownedAst": [], "ownedEcho": [], "audit": []})
+        state = ban.read_state()
+        state["bans"] = [{"kind": "node", "value": "67098", "createdAt": now,
+                          "expiresAt": now + 900, "reason": "", "actor": "test"}]
+        noecho = NoEchoAMI()
+        noecho.channels = ["IAX2/doug-1!radio-secure!641890!1!Up!Rpt!641890!67098!Doug!"]
+        result = ban.reconcile(state, noecho, "641890")
+        assert "67098" in noecho.ast, "AllStar node ban not applied without EchoLink"
+        assert result["removed"] == 1 and not noecho.channels, "banned node was not disconnected"
+        assert result["echolinkAvailable"] is False and result["pending"] == {}
+        state = ban.read_state()
+        state["bans"].append({"kind": "echolink-call", "value": "N0ECHO", "createdAt": now,
+                              "expiresAt": now + 900, "reason": "", "actor": "test"})
+        assert "not loaded" in ban.reconcile(state, noecho, "641890")["pending"]["echolink"]
     print("ASL native ban policy self-test: ok")
 
 

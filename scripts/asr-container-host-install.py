@@ -32,9 +32,11 @@ HOST_FILES = (
     "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
     "asr-bridge-setup-m17.py", "asr-bridge-setup-helper.py",
-    "asr-bridge-runtime-sources.py", "asr-bridge-urf-native-runtime.py", "asr-bridge-setup-digital.py",
+    "asr-bridge-runtime-sources.py", "asr-bridge-setup-digital.py",
     "asr-bridge-setup-digital-render.py", "asr-bridge-setup-digital-install.py",
-    "asr-bridge-setup-urf.py", "asr-bridge-setup-urf-install.py",
+    "asr-bridge-endpoint-collisions.py", "asr-bridge-lifecycle.py",
+    "asr-bridge-setup-dmr.py", "asr-bridge-setup-dmr-render.py", "asr-bridge-setup-dmr-install.py",
+    "asr-dmr-standalone-admin-adapter.py",
 )
 CONTROL_FILES = (
     "asr-managed-dmr-net-control.py", "asr-ysf-bridge-control.py",
@@ -180,42 +182,6 @@ def ensure_private_root_directories(paths: tuple[Path, ...]) -> None:
         path.mkdir(parents=True, exist_ok=True)
         os.chown(path, 0, 0)
         os.chmod(path, 0o700)
-
-
-def managed_urf_images_required(profile) -> bool:
-    config_path = profile.asr_config / "config.json"
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("ASR configuration could not be read for managed image repair") from exc
-    return any(
-        isinstance(bridge, dict)
-        and bridge.get("cardType") == "dmr_net"
-        and bridge.get("backendMode", "managed") != "display_only"
-        for bridge in config.get("bridges", [])
-    )
-
-
-def repair_managed_urf_images(profile) -> bool:
-    """Restore missing local URF images on hosts that actually use DMR Net Bridge."""
-    if not managed_urf_images_required(profile):
-        return False
-    source = DEST / "asr-bridge-setup-urf-install.py"
-    spec = importlib.util.spec_from_file_location("asr_urf_image_repair", source)
-    if not spec or not spec.loader:
-        raise RuntimeError("managed URF image repair module is unavailable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    previous_profile = os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")
-    os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = str(PROFILE)
-    try:
-        spec.loader.exec_module(module)
-        return bool(module.ensure_managed_images())
-    finally:
-        if previous_profile is None:
-            os.environ.pop("ASR_CONTAINER_PROVISIONING_PROFILE", None)
-        else:
-            os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = previous_profile
 
 
 def mqtt_secrets_metadata_is_safe(file_info, parent_info, profile) -> bool:
@@ -366,50 +332,6 @@ def normalize_managed_ysf_net_startup(profile) -> None:
             atomic_bytes(path, updated.encode("utf-8"), 0o644)
 
 
-def managed_dmr_live_mounts(content: str, runtime_root: Path) -> tuple[str, bool]:
-    """Expose the managed URF event/PTT files at the path used by its binary."""
-    data_mount = f"      - {runtime_root}/data:/data\n"
-    live_mount = f"      - {runtime_root}/data:/run/urf-wil\n"
-    if content.count(data_mount) != 1:
-        raise RuntimeError("managed DMR compose data mount is invalid")
-    if content.count(live_mount) > 1:
-        raise RuntimeError("managed DMR compose live-state mount is invalid")
-    if live_mount in content:
-        return content, False
-    return content.replace(data_mount, data_mount + live_mount), True
-
-
-def normalize_managed_dmr_live_state_mounts(profile) -> None:
-    """Migrate existing managed DMR compose files without rebuilding settings."""
-    try:
-        config = json.loads((profile.asr_config / "config.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("ASR configuration could not be read for managed DMR migration") from exc
-    for bridge in config.get("bridges", []):
-        if (not isinstance(bridge, dict) or bridge.get("cardType") != "dmr_net"
-                or bridge.get("backendMode", "managed") == "display_only"):
-            continue
-        bridge_id = str(bridge.get("id", ""))
-        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
-            raise RuntimeError("managed DMR bridge ID is invalid")
-        runtime_root = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id
-        path = runtime_root / "compose.yml"
-        info = path.lstat()
-        parent = path.parent.lstat()
-        if (path.is_symlink() or not path.is_file() or info.st_nlink != 1
-                or info.st_uid != 0 or info.st_gid != 0
-                or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size > 1_048_576
-                or path.parent.is_symlink() or not path.parent.is_dir()
-                or parent.st_uid != 0 or parent.st_gid != 0
-                or parent.st_mode & 0o022):
-            raise RuntimeError(f"managed DMR compose file is unsafe: {path}")
-        updated, changed = managed_dmr_live_mounts(
-            path.read_text(encoding="utf-8"), runtime_root
-        )
-        if changed:
-            atomic_bytes(path, updated.encode("utf-8"), 0o644)
-
-
 def managed_m17_external_bind(config: dict) -> bool:
     """Allow managed M17 signaling to reach non-loopback reflectors."""
     changed = False
@@ -455,7 +377,6 @@ def install(profile) -> None:
         raise RuntimeError("container host backend installation requires root")
     normalize_mqtt_secrets(profile)
     normalize_managed_ysf_net_startup(profile)
-    normalize_managed_dmr_live_state_mounts(profile)
     normalize_managed_m17_bind_address(profile)
     source_spec = importlib.util.spec_from_file_location(
         "asr_container_runtime_sources", HERE / "asr-bridge-runtime-sources.py"
@@ -545,39 +466,16 @@ def install(profile) -> None:
         if not source.is_file() or source.is_symlink() or target.is_symlink():
             raise RuntimeError(f"unsafe or missing support module: {name}")
         atomic_bytes(target, source.read_bytes(), 0o644)
-    runtime_source = HERE.parent / "runtime" / "urf"
-    runtime_target = Path("/usr/local/share/allscan-reimagined/runtime/urf")
-    if not runtime_source.is_dir() or runtime_source.is_symlink():
-        raise RuntimeError("managed URF runtime source is unavailable")
-    temporary_runtime = runtime_target.with_name("urf.new")
-    if temporary_runtime.exists():
-        if temporary_runtime.is_symlink() or not temporary_runtime.is_dir():
-            raise RuntimeError("managed URF temporary runtime is unsafe")
-        shutil.rmtree(temporary_runtime)
-    temporary_runtime.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(runtime_source, temporary_runtime)
-    previous_runtime = runtime_target.with_name("urf.previous")
-    if previous_runtime.exists():
-        if previous_runtime.is_symlink() or not previous_runtime.is_dir() or previous_runtime.stat().st_uid != 0:
-            raise RuntimeError("managed URF previous runtime is unsafe")
-        shutil.rmtree(previous_runtime)
-    if runtime_target.exists():
-        if runtime_target.is_symlink() or not runtime_target.is_dir() or runtime_target.stat().st_uid != 0:
-            raise RuntimeError("managed URF runtime target is unsafe")
-        os.replace(runtime_target, previous_runtime)
-    try:
-        os.replace(temporary_runtime, runtime_target)
-        repair_managed_urf_images(profile)
-    except Exception:
-        if previous_runtime.exists():
-            if runtime_target.exists():
-                if runtime_target.is_symlink() or not runtime_target.is_dir() or runtime_target.stat().st_uid != 0:
-                    raise RuntimeError("managed URF runtime rollback target is unsafe")
-                shutil.rmtree(runtime_target)
-            os.replace(previous_runtime, runtime_target)
-        raise
-    if previous_runtime.exists():
-        shutil.rmtree(previous_runtime)
+    # Direct DVSwitch/TGIF DMR runtime sources, at the paths the DMR installer
+    # resolves next to itself.
+    for source, target in ((HERE.parent / "runtime" / "dmr" / "asr-tgif-dmr-proxy.py",
+                            DEST / "asr-tgif-dmr-proxy.py"),
+                           (HERE / "bridge-relays" / "asr-tgif-standalone-relay.py",
+                            DEST / "bridge-relays" / "asr-tgif-standalone-relay.py")):
+        if not source.is_file() or source.is_symlink() or target.is_symlink():
+            raise RuntimeError(f"unsafe or missing DMR runtime source: {source.name}")
+        target.parent.mkdir(mode=0o755, exist_ok=True)
+        atomic_bytes(target, source.read_bytes(), 0o755)
     bin_dir = DEST / "container-host-bin"
     bin_dir.mkdir(mode=0o755, exist_ok=True)
     for name, source in (("systemctl", "asr-container-systemctl.py"),

@@ -11,6 +11,7 @@ import inspect
 import json
 import os
 from pathlib import Path, PurePosixPath
+import posixpath
 import re
 import secrets
 import shutil
@@ -118,6 +119,31 @@ def safe_member_name(name: str) -> PurePosixPath:
     return path
 
 
+def allowed_webroot_symlink(
+    archive_kind: str,
+    member_path: PurePosixPath,
+    normalized: str,
+    linkname: str,
+    expected_root: str,
+) -> bool:
+    """Accept contained links plus exact, established external integrations."""
+    if archive_kind not in {"webroot", "legacy-webroot", "stock"}:
+        return False
+    external_links = {
+        ("webroot", "asr/favorites.ini"): "/etc/allscan/favorites.ini",
+        ("webroot", "asr/asrplus"): "/var/www/html/asrplus",
+        ("legacy-webroot", "allscan/favorites.ini"): "/etc/allscan/favorites.ini",
+        ("stock", "allscan/astdb.txt"): "/var/lib/asterisk/astdb.txt",
+    }
+    if external_links.get((archive_kind, normalized)) == linkname:
+        return True
+    if not linkname or PurePosixPath(linkname).is_absolute():
+        return False
+    resolved = PurePosixPath(posixpath.normpath(str(member_path.parent / linkname)))
+    parts = tuple(part for part in resolved.parts if part != ".")
+    return bool(parts) and parts[0] == expected_root and ".." not in parts
+
+
 def validate_archive(path: Path, archive_kind: str) -> None:
     if not path.is_file() or path.stat().st_size == 0:
         raise RollbackError(f"Missing or empty {archive_kind} archive")
@@ -158,15 +184,13 @@ def validate_archive(path: Path, archive_kind: str) -> None:
                 if member.islnk():
                     raise RollbackError(f"Hard link in {archive_kind} archive")
                 if member.issym():
-                    allowed = (
-                        normalized == f"{expected_root}/favorites.ini"
-                        and member.linkname == "/etc/allscan/favorites.ini"
-                    ) or (
-                        archive_kind == "stock"
-                        and normalized == "allscan/astdb.txt"
-                        and member.linkname == "/var/lib/asterisk/astdb.txt"
-                    )
-                    if not allowed:
+                    if not allowed_webroot_symlink(
+                        archive_kind,
+                        member_path,
+                        normalized,
+                        member.linkname,
+                        expected_root,
+                    ):
                         raise RollbackError(f"Unexpected link in {archive_kind} archive")
                     link_names.add(normalized)
             for link_name in link_names:
@@ -642,6 +666,30 @@ def extract_archive(archive_path: Path, destination: Path, kind: str) -> None:
         if "filter" in inspect.signature(archive.extractall).parameters:
             options["filter"] = "fully_trusted"
         archive.extractall(destination, **options)
+
+
+def restore_webroot_symlinks(archive_path: Path, destination: Path) -> list[str]:
+    """Restore validated user/integration links without replacing release files."""
+    validate_archive(archive_path, "webroot")
+    destination_root = destination.resolve(strict=True)
+    restored: list[str] = []
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            if not member.issym():
+                continue
+            member_path = safe_member_name(member.name)
+            parts = tuple(part for part in member_path.parts if part != ".")
+            if len(parts) < 2 or parts[0] != "asr":
+                continue
+            target = destination.joinpath(*parts[1:])
+            if target.exists() or target.is_symlink() or not target.parent.is_dir():
+                continue
+            parent = target.parent.resolve(strict=True)
+            if parent != destination_root and destination_root not in parent.parents:
+                continue
+            target.symlink_to(member.linkname)
+            restored.append(str(PurePosixPath(*parts[1:])))
+    return restored
 
 
 def run_checked(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -1231,6 +1279,9 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                     stable_protected_config_helper
                 )
                 run_checked(["bash", str(stable_reapply)], env=environment)
+                restore_webroot_symlinks(
+                    backup_dir / webroot_filename, active_web
+                )
             else:
                 environment = rollback_reapply_environment()
                 run_checked(
@@ -1606,7 +1657,7 @@ def self_test() -> None:
         )
         linked_release = root / "linked-release.tar.gz"
         with tarfile.open(linked_release, "w:gz") as archive:
-            link = tarfile.TarInfo("web/link")
+            link = tarfile.TarInfo("asr/link")
             link.type = tarfile.SYMTYPE
             link.linkname = "index.html"
             archive.addfile(link)
@@ -1672,6 +1723,64 @@ def self_test() -> None:
             archive.addfile(favorite)
         validate_archive(favorites_webroot, "webroot")
 
+        safe_links_webroot = root / "safe-links-webroot.tar.gz"
+        with tarfile.open(safe_links_webroot, "w:gz") as archive:
+            directory = tarfile.TarInfo("asr")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            for name, target in (
+                ("asr/current-theme", "themes/operator"),
+                ("asr/broken-theme", "themes/not-installed"),
+                ("asr/asrplus", "/var/www/html/asrplus"),
+            ):
+                link = tarfile.TarInfo(name)
+                link.type = tarfile.SYMTYPE
+                link.linkname = target
+                archive.addfile(link)
+        validate_archive(safe_links_webroot, "webroot")
+        safe_links_extract = root / "safe-links-extract"
+        extract_archive(safe_links_webroot, safe_links_extract, "webroot")
+        assert (safe_links_extract / "asr/current-theme").is_symlink()
+        assert (
+            os.readlink(safe_links_extract / "asr/current-theme")
+            == "themes/operator"
+        )
+        assert (safe_links_extract / "asr/broken-theme").is_symlink()
+        assert not (safe_links_extract / "asr/broken-theme").exists()
+        assert (
+            os.readlink(safe_links_extract / "asr/asrplus")
+            == "/var/www/html/asrplus"
+        )
+
+        restored_webroot = root / "restored-webroot"
+        restored_webroot.mkdir()
+        (restored_webroot / "current-theme").write_text(
+            "release-owned\n", encoding="utf-8"
+        )
+        restored = restore_webroot_symlinks(safe_links_webroot, restored_webroot)
+        assert restored == ["broken-theme", "asrplus"]
+        assert (restored_webroot / "current-theme").read_text(encoding="utf-8") == (
+            "release-owned\n"
+        )
+        assert (restored_webroot / "broken-theme").is_symlink()
+        assert os.readlink(restored_webroot / "asrplus") == "/var/www/html/asrplus"
+
+        escaping_link_webroot = root / "escaping-link-webroot.tar.gz"
+        with tarfile.open(escaping_link_webroot, "w:gz") as archive:
+            directory = tarfile.TarInfo("asr")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            link = tarfile.TarInfo("asr/escape")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../etc/passwd"
+            archive.addfile(link)
+        expect_rollback_error(
+            lambda: validate_archive(escaping_link_webroot, "webroot"),
+            "webroot symbolic-link traversal was accepted",
+        )
+
         safety_source_root = root / "safety-source"
         safety_source = safety_source_root / "asr"
         safety_source.mkdir(parents=True)
@@ -1679,6 +1788,7 @@ def self_test() -> None:
         (safety_source / "favorites.ini").symlink_to(
             "/etc/allscan/favorites.ini"
         )
+        (safety_source / "asrplus").symlink_to("/var/www/html/asrplus")
         for name in (
             "astdb.txt",
             "astdb.txt.before-local-labels",
@@ -1714,6 +1824,7 @@ def self_test() -> None:
                 for member in archive.getmembers()
             }
         assert "asr/favorites.ini" in generated_names
+        assert "asr/asrplus" in generated_names
         assert not any(
             name == "asr/astdb.txt" or name.startswith("asr/astdb.txt.")
             for name in generated_names
@@ -1865,6 +1976,11 @@ def main() -> int:
     finalize_parser.add_argument("version")
     detect_parser = subparsers.add_parser("detect-version", help=argparse.SUPPRESS)
     detect_parser.add_argument("api_file")
+    restore_links_parser = subparsers.add_parser(
+        "restore-webroot-links", help=argparse.SUPPRESS
+    )
+    restore_links_parser.add_argument("archive")
+    restore_links_parser.add_argument("destination")
     subparsers.add_parser("self-test", help="Run non-mutating internal tests")
     args = parser.parse_args()
 
@@ -1897,6 +2013,14 @@ def main() -> int:
             return 0
         if args.command == "detect-version":
             print(detect_version(Path(args.api_file)))
+            return 0
+        if args.command == "restore-webroot-links":
+            if os.geteuid() != 0:
+                raise RollbackError("Webroot link restoration must run as root")
+            restored = restore_webroot_symlinks(
+                Path(args.archive), Path(args.destination)
+            )
+            print(json.dumps({"ok": True, "restored": restored}))
             return 0
         if args.command == "rollback":
             result = rollback(

@@ -54,7 +54,22 @@ install_helper asr-p25-bridge-control.py allscan-reimagined-p25-bridge-control
 install_helper asr-nxdn-bridge-control.py allscan-reimagined-nxdn-bridge-control
 install_helper asr-m17-bridge-control.py allscan-reimagined-m17-bridge-control
 install_helper asr-m17-usrp-connector.py allscan-reimagined-m17-usrp-connector
-install_helper asr-urf-admin.py allscan-reimagined-urf-admin
+install_helper asr-global-ban.py allscan-reimagined-global-ban
+rm -f /usr/local/sbin/allscan-reimagined-urf-admin
+# Global Ban policy on the persistent ASR state volume. Bans saved by older
+# releases under the retired URF name migrate once.
+GLOBAL_BAN_DIR=/var/lib/allscan-reimagined/admin
+install -d -o root -g root -m 755 "$GLOBAL_BAN_DIR"
+for legacy in /run/urf-wil-config/urfd.blacklist "$GLOBAL_BAN_DIR/urfd.blacklist"; do
+  if [ -f "$legacy" ] && [ ! -L "$legacy" ] && [ ! -e "$GLOBAL_BAN_DIR/global-bans.list" ]; then
+    cp -p "$legacy" "$GLOBAL_BAN_DIR/global-bans.list"
+  fi
+done
+[ -e "$GLOBAL_BAN_DIR/global-bans.list" ] || printf '%s\n' '# Managed by AllScan Reimagined Global Ban' > "$GLOBAL_BAN_DIR/global-bans.list"
+[ -e "$GLOBAL_BAN_DIR/asr-timed-bans.json" ] || printf '%s\n' '{}' > "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+[ -e "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl" ] || : > "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+chmod 644 "$GLOBAL_BAN_DIR/global-bans.list" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+chmod 640 "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
 install_helper asr-asl-ban.py allscan-reimagined-asl-ban
 install_helper asr-standalone-admin.py allscan-reimagined-standalone-admin
 install_helper asr-tgif-user-session.py allscan-reimagined-tgif-user-session
@@ -161,21 +176,10 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban list
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban sync
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban unban *
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin list
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin capabilities
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9./*-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9./*-]* [A-Za-z0-9]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9./*-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9./-]* [A-Za-z0-9]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin list --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9./*-]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9./-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9./-]* DMRMMDVM --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9./*-]* [A-Za-z0-9]* --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin dmr-list
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin dmr-ban [A-Z0-9./-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin dmr-unban [A-Z0-9./-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban list --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban kick [A-Z0-9_./-]* ZELLO --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*

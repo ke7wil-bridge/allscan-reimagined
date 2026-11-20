@@ -98,7 +98,7 @@ const temporary = await mkdtemp(join(tmpdir(), 'asr-browser-install-'))
 try {
   const fixture = join(temporary, 'fixture.html')
   await writeFile(fixture, html, { mode: 0o600 })
-  const run = spawnSync('/usr/bin/google-chrome', [
+  const run = spawnSync(process.env.ASR_CHROME_BIN || '/usr/bin/google-chrome', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-network',
     '--virtual-time-budget=2000', '--dump-dom', `file://${fixture}`,
   ], { encoding: 'utf8', timeout: 45000 })

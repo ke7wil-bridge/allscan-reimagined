@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import grp
 import hashlib
 import importlib.util
 import json
@@ -28,8 +29,7 @@ DIGITAL_SOURCE_PATH = HERE / "asr-bridge-runtime-sources.py"
 DYNAMIC_DMR_PLAN_PATH = HERE / "asr-bridge-setup-dmr.py"
 DYNAMIC_DMR_INSTALL_PATH = HERE / "asr-bridge-setup-dmr-install.py"
 DIGITAL_STAGE_ROOT = Path("/var/cache/allscan-reimagined/bridge-runtime")
-URF_PLAN_PATH = HERE / "asr-bridge-setup-urf.py"
-URF_INSTALL_PATH = HERE / "asr-bridge-setup-urf-install.py"
+DMR_RUNTIME_BASE = "/opt/allscan-reimagined-bridges"
 ZELLO_PLAN_PATH = HERE / "asr-bridge-setup-zello.py"
 ZELLO_INSTALL_PATH = HERE / "asr-bridge-setup-zello-install.py"
 def provisioning_config_path(logical: str) -> Path:
@@ -198,6 +198,7 @@ def m17_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "reflector", "host", "port", "module",
         "title", "mainNode", "bridgeNode", "bridgeRole", "planDigest",
+        "digitalToAslGainDb", "aslToDigitalGainDb",
     }
     if set(payload) - allowed:
         raise HelperError("M17 request contains unsupported fields")
@@ -212,6 +213,8 @@ def m17_settings(module, payload: dict[str, Any]):
         title=str(payload.get("title") or "M17 Bridge"),
         main_node=int(payload["mainNode"]) if payload.get("mainNode") else None,
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
+        digital_to_asl_gain_db=float(payload.get("digitalToAslGainDb") or 0),
+        asl_to_digital_gain_db=float(payload.get("aslToDigitalGainDb") or 0),
     )
 
 
@@ -251,6 +254,7 @@ def digital_settings(module, mode: str, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "callsign", "digitalId", "destination", "host", "port",
         "title", "bridgeNode", "bridgeRole", "planDigest", "name", "identity",
+        "digitalToAslGainDb", "aslToDigitalGainDb",
     }
     if set(payload) - allowed:
         raise HelperError(f"{mode.upper()} request contains unsupported fields")
@@ -268,6 +272,8 @@ def digital_settings(module, mode: str, payload: dict[str, Any]):
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
         bridge_role=str(payload.get("bridgeRole") or "standard"),
         reflector_name=str(payload.get("name") or ""),
+        digital_to_asl_gain_db=float(payload.get("digitalToAslGainDb") or 0),
+        asl_to_digital_gain_db=float(payload.get("aslToDigitalGainDb") or 0),
     )
 
 
@@ -397,125 +403,12 @@ def digital_command(payload: dict[str, Any], mode: str, apply: bool) -> dict[str
     return result
 
 
-def dmr_settings(module, payload: dict[str, Any]):
-    allowed = {
-        "bridgeId", "callsign", "digitalId", "destination", "title", "reflector", "bridgePath",
-        "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network", "networkUsername", "authMode",
-        "hotspotEssid", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
-        "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
-        "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
-        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled", "host", "port",
-        "timeslot", "colorCode", "dmrToAslGainDb", "aslToDmrGainDb",
-        "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
-    }
-    if set(payload) - allowed:
-        raise HelperError("DMR request contains unsupported fields")
-    required = {"bridgeId", "callsign", "digitalId", "destination"}
-    if not required.issubset(payload):
-        raise HelperError("DMR request is incomplete")
-    if str(payload.get("network", "tgif")).lower() != "tgif":
-        raise HelperError("The selected DMR network does not have an installer yet")
-    if payload.get("authMode", "legacy") not in ("legacy", "secured"):
-        raise HelperError("Unsupported TGIF DMR connection method")
-    callsign = str(payload["callsign"]).strip().upper()
-    reflector = str(payload.get("reflector") or "").strip().upper()
-    if not reflector:
-        reflector = "URF" + re.sub(r"[^A-Z0-9]", "", callsign)[-3:]
-        if len(reflector) < 5:
-            reflector = "URFASR"
-    raw_legacy_nodes = payload.get("legacyBridgeNodes", "")
-    if isinstance(raw_legacy_nodes, str):
-        legacy_nodes = tuple(int(item.strip()) for item in raw_legacy_nodes.split(",") if item.strip())
-    elif isinstance(raw_legacy_nodes, list):
-        legacy_nodes = tuple(int(item) for item in raw_legacy_nodes)
-    else:
-        raise HelperError("legacyBridgeNodes must be a comma-separated node list")
-
-    def flag(name: str, default: bool = True) -> bool:
-        if name not in payload or payload[name] == "":
-            return default
-        value = payload[name]
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str) and value.strip().lower() in {"true", "1", "yes", "on"}:
-            return True
-        if isinstance(value, str) and value.strip().lower() in {"false", "0", "no", "off"}:
-            return False
-        raise HelperError(f"{name} must be true or false")
-
-    return module.UrfSettings(
-        bridge_id=str(payload["bridgeId"]), callsign=callsign,
-        dmr_id=int(payload["digitalId"]), tgif_tg=int(payload["destination"]),
-        reflector=reflector, title=str(payload.get("title") or "DMR Bridge"),
-        bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
-        bridge_role=str(payload.get("bridgeRole") or "standard"),
-        tgif_essid=int(payload["hotspotEssid"]) if payload.get("hotspotEssid") else None,
-        dmr_public_port=int(payload["dmrPublicPort"]) if payload.get("dmrPublicPort") else None,
-        m17_public_port=int(payload["m17PublicPort"]) if payload.get("m17PublicPort") else None,
-        p25_public_port=int(payload["p25PublicPort"]) if payload.get("p25PublicPort") else None,
-        nxdn_public_port=int(payload["nxdnPublicPort"]) if payload.get("nxdnPublicPort") else None,
-        ysf_public_port=int(payload["ysfPublicPort"]) if payload.get("ysfPublicPort") else None,
-        urf_public_port=int(payload["urfPublicPort"]) if payload.get("urfPublicPort") else None,
-        nxdn_reflector_id=int(payload["nxdnReflectorId"]) if payload.get("nxdnReflectorId") else None,
-        p25_reflector_id=int(payload["p25ReflectorId"]) if payload.get("p25ReflectorId") else None,
-        ysf_registration_id=int(payload["ysfRegistrationId"]) if payload.get("ysfRegistrationId") else None,
-        node_template=str(payload["nodeTemplate"]) if payload.get("nodeTemplate") else None,
-        dstar_enabled=flag("dstarEnabled"), dmrplus_enabled=flag("dmrplusEnabled"),
-        dmr_enabled=flag("dmrEnabled"), m17_enabled=flag("m17Enabled"),
-        p25_enabled=flag("p25Enabled"), nxdn_enabled=flag("nxdnEnabled"),
-        ysf_enabled=flag("ysfEnabled"), urf_enabled=flag("urfEnabled"),
-        legacy_bridge_nodes=legacy_nodes,
-    )
-
-
 def dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
-    if str(payload.get("bridgePath") or "standard") == "standard":
-        return direct_dmr_command(payload, apply)
-    planner = load_module("asr_setup_dmr_plan", URF_PLAN_PATH)
-    settings = dmr_settings(planner, payload)
-    if not apply:
-        result = planner.plan(Path("/"), settings)
-    else:
-        require_root()
-        expected = str(payload.get("planDigest", ""))
-        if not re.fullmatch(r"[a-f0-9]{64}", expected):
-            raise HelperError("DMR installation requires a current preview digest")
-        current_plan = planner.plan(Path("/"), settings)
-        if current_plan["digest"] != expected:
-            raise HelperError("preview is stale; preview again")
-        auth_mode = payload.get("authMode", "secured" if payload.get("tgifPassword") else "legacy")
-        if settings.bridge_role == "net" and auth_mode != "secured":
-            raise HelperError("DMR Net Bridge requires a secured TGIF connection")
-        if auth_mode == "legacy":
-            if payload.get("tgifPassword"):
-                raise HelperError("A website password must not be submitted for TGIF legacy connection")
-            password = "passw0rd"
-        else:
-            password = str(payload.get("tgifPassword") or "")
-            if not password:
-                raise HelperError("TGIF secured connection requires a hotspot key")
-        installer = load_module("asr_setup_dmr_install", URF_INSTALL_PATH)
-        packages_before = installed_packages() if current_plan.get("backend") == "native" else set()
-        try:
-            result = installer.install(
-                Path("/"), settings, password,
-                static_token=str(payload.get("tgifStaticToken") or ""),
-                expected_digest=expected, manage_services=True,
-            )
-        except Exception as original:
-            if current_plan.get("backend") == "native":
-                try:
-                    rollback_packages(packages_before)
-                except Exception as rollback:
-                    raise HelperError(
-                        f"installation failed ({original}); package rollback failed ({rollback})"
-                    ) from rollback
-            raise
-    append_audit({
-        "action": "dmr-install" if apply else "dmr-plan",
-        "bridgeId": settings.bridge_id, "result": "ok",
-    })
-    return result
+    # URF reflector bridges were retired in Beta 8.5.1 (#177). Every DMR
+    # bridge is provisioned on the direct DVSwitch/TGIF runtime.
+    if str(payload.get("bridgePath") or "standard") != "standard":
+        raise HelperError("URF reflector bridges are no longer supported; use a Standard or Net DMR bridge")
+    return direct_dmr_command(payload, apply)
 
 
 def direct_dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
@@ -524,23 +417,29 @@ def direct_dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         "bridgeNode", "bridgeRole", "planDigest", "tgifPassword", "network",
         "hotspotEssid", "host", "port", "timeslot", "colorCode",
         "dmrToAslGainDb", "aslToDmrGainDb", "authMode", "networkUsername",
-        # Older supported Settings controllers submit their known URF-only
-        # fields even while the Standard/direct path is selected. They are
-        # accepted as inert compatibility fields and never reach the planner.
-        "reflector", "tgifStaticToken", "dmrPublicPort", "m17PublicPort",
-        "p25PublicPort", "nxdnPublicPort", "ysfPublicPort", "urfPublicPort",
-        "nxdnReflectorId", "p25ReflectorId", "ysfRegistrationId", "nodeTemplate",
-        "dstarEnabled", "dmrplusEnabled", "dmrEnabled", "m17Enabled",
-        "p25Enabled", "nxdnEnabled", "ysfEnabled", "urfEnabled", "legacyBridgeNodes",
+        "tgifStaticToken",
     }
     if set(payload) - allowed:
         raise HelperError("direct DMR request contains unsupported fields")
     if not {"bridgeId", "callsign", "digitalId", "destination"}.issubset(payload):
         raise HelperError("direct DMR request is incomplete")
-    if str(payload.get("bridgeRole") or "standard") != "standard":
-        raise HelperError("direct DMR is a Standard Bridge; use Net Bridge for selectable destinations")
     planner = load_module("asr_setup_direct_dmr_plan", DYNAMIC_DMR_PLAN_PATH)
-    settings = planner.DmrSettings(
+    settings = direct_dmr_settings(planner, payload)
+    net = settings.bridge_role == "net"
+    if not apply:
+        result = planner.plan(Path("/"), settings)
+    else:
+        result = direct_dmr_apply(planner, settings, payload, net)
+    append_audit({"action": "direct-dmr-install" if apply else "direct-dmr-plan",
+                  "bridgeId": settings.bridge_id, "result": "ok"})
+    return result
+
+
+def direct_dmr_settings(planner, payload: dict[str, Any]):
+    role = str(payload.get("bridgeRole") or "standard")
+    if role not in {"standard", "net"}:
+        raise HelperError("DMR bridge role must be standard or net")
+    return planner.DmrSettings(
         bridge_id=str(payload["bridgeId"]), callsign=str(payload["callsign"]),
         dmr_id=int(payload["digitalId"]), talkgroup=int(payload["destination"]),
         network=str(payload.get("network") or "tgif"),
@@ -553,53 +452,63 @@ def direct_dmr_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
         color_code=int(payload.get("colorCode") if payload.get("colorCode") not in (None, "") else 1),
         dmr_to_asl_gain_db=float(payload.get("dmrToAslGainDb") or 0),
         asl_to_dmr_gain_db=float(payload.get("aslToDmrGainDb") or 0),
+        bridge_role=role,
     )
-    if not apply:
-        result = planner.plan(Path("/"), settings)
-    else:
-        require_root()
-        expected = str(payload.get("planDigest") or "")
-        if not re.fullmatch(r"[a-f0-9]{64}", expected):
-            raise HelperError("direct DMR installation requires a current preview digest")
-        current = planner.plan(Path("/"), settings)
-        if current["digest"] != expected:
-            raise HelperError("preview is stale; preview again")
-        password = str(payload.get("tgifPassword") or "")
-        if not password:
-            config = json.loads(Path(planner.CONFIG).read_text(encoding="utf-8"))
-            matches = [item for item in config.get("bridges", []) if isinstance(item, dict)
-                       and item.get("id") == settings.bridge_id]
-            expected_network_id = planner.network_id(settings.dmr_id, settings.tgif_essid)
-            if (len(matches) != 1 or matches[0].get("architecture") != "direct-dvswitch"
-                    or str(matches[0].get("dmrNetworkId")) != str(expected_network_id)):
-                raise HelperError("a TGIF hotspot security key is required for a new or changed DMR identity")
-            credential = Path(str(matches[0].get("credentialRef") or ""))
-            root = Path(current["resources"]["root"])
-            try:
-                credential.relative_to(root / "secrets")
-            except ValueError as error:
-                raise HelperError("the managed DMR credential reference is invalid") from error
-            if (not credential.is_file() or credential.is_symlink()
-                    or credential.stat().st_uid != 0 or credential.stat().st_nlink != 1):
-                raise HelperError("the managed DMR credential is unavailable; enter a replacement hotspot key")
-            password = credential.read_text(encoding="utf-8").rstrip("\n")
-            if not password:
-                raise HelperError("the managed DMR credential is empty; enter a replacement hotspot key")
-        source = load_module("asr_setup_direct_dmr_source", DIGITAL_SOURCE_PATH)
-        packages_before = installed_packages()
+
+
+def existing_managed_secret(current: dict[str, Any], logical: str, label: str) -> str:
+    path = Path(logical)
+    try:
+        path.relative_to(Path(current["resources"]["root"]) / "secrets")
+    except ValueError as error:
+        raise HelperError(f"the managed DMR {label} reference is invalid") from error
+    if not path.is_file() or path.is_symlink() or path.stat().st_uid != 0 or path.stat().st_nlink != 1:
+        raise HelperError(f"the managed DMR {label} is unavailable; enter a replacement")
+    value = path.read_text(encoding="utf-8").rstrip("\n")
+    if not value:
+        raise HelperError(f"the managed DMR {label} is empty; enter a replacement")
+    return value
+
+
+def direct_dmr_apply(planner, settings, payload: dict[str, Any], net: bool) -> dict[str, Any]:
+    require_root()
+    expected = str(payload.get("planDigest") or "")
+    if not re.fullmatch(r"[a-f0-9]{64}", expected):
+        raise HelperError("direct DMR installation requires a current preview digest")
+    current = planner.plan(Path("/"), settings)
+    if current["digest"] != expected:
+        raise HelperError("preview is stale; preview again")
+    password = str(payload.get("tgifPassword") or "")
+    if not password:
+        config = json.loads(Path(planner.CONFIG).read_text(encoding="utf-8"))
+        matches = [item for item in config.get("bridges", []) if isinstance(item, dict)
+                   and item.get("id") == settings.bridge_id]
+        expected_network_id = planner.network_id(settings.dmr_id, settings.tgif_essid)
+        if (len(matches) != 1 or matches[0].get("architecture") != "direct-dvswitch"
+                or str(matches[0].get("dmrNetworkId")) != str(expected_network_id)):
+            raise HelperError("a TGIF hotspot security key is required for a new or changed DMR identity")
+        password = existing_managed_secret(current, str(matches[0].get("credentialRef") or ""),
+                                           "hotspot key")
+    static_token = str(payload.get("tgifStaticToken") or "").strip()
+    if net and not static_token:
+        token_path = current["resources"]["staticToken"]
+        if not Path(token_path).is_file():
+            raise HelperError("the DMR Net Bridge requires a TGIF Static TG API token")
+        static_token = existing_managed_secret(current, token_path, "TGIF Static TG API token")
+    source = load_module("asr_setup_direct_dmr_source", DIGITAL_SOURCE_PATH)
+    packages_before = installed_packages()
+    try:
+        stage = prepare_digital_stage(source, "dmr")
+        installer = load_module("asr_setup_direct_dmr_install", DYNAMIC_DMR_INSTALL_PATH)
+        result = installer.install(Path("/"), settings, stage, password,
+                                   expected_digest=expected, manage_services=True,
+                                   static_token=static_token)
+    except Exception as original:
         try:
-            stage = prepare_digital_stage(source, "dmr")
-            installer = load_module("asr_setup_direct_dmr_install", DYNAMIC_DMR_INSTALL_PATH)
-            result = installer.install(Path("/"), settings, stage, password,
-                                       expected_digest=expected, manage_services=True)
-        except Exception as original:
-            try:
-                rollback_packages(packages_before)
-            except Exception as rollback:
-                raise HelperError(f"installation failed ({original}); package rollback failed ({rollback})") from rollback
-            raise
-    append_audit({"action": "direct-dmr-install" if apply else "direct-dmr-plan",
-                  "bridgeId": settings.bridge_id, "result": "ok"})
+            rollback_packages(packages_before)
+        except Exception as rollback:
+            raise HelperError(f"installation failed ({original}); package rollback failed ({rollback})") from rollback
+        raise
     return result
 
 
@@ -608,6 +517,7 @@ def zello_settings(module, payload: dict[str, Any]):
     allowed = {
         "bridgeId", "username", "channel", "issuer", "wsEndpoint", "title",
         "bridgeNode", "planDigest", "password", "privateKey",
+        "zelloToAslGainDb", "aslToZelloGainDb",
     }
     if set(payload) - allowed:
         raise HelperError("Zello request contains unsupported fields")
@@ -620,6 +530,8 @@ def zello_settings(module, payload: dict[str, Any]):
         ws_endpoint=str(payload["wsEndpoint"]),
         title=str(payload.get("title") or "Zello Bridge"),
         bridge_node=int(payload["bridgeNode"]) if payload.get("bridgeNode") else None,
+        zello_to_asl_gain_db=float(payload.get("zelloToAslGainDb") or 0),
+        asl_to_zello_gain_db=float(payload.get("aslToZelloGainDb") or 0),
     )
 
 
@@ -706,7 +618,7 @@ def net_bridge_mode_payloads(payload: dict[str, Any]) -> dict[str, dict[str, Any
     result = {mode: candidates[mode] for mode in selected_modes}
     # Constructor validation is part of the narrow allowlist boundary.
     if "dmr" in result:
-        dmr_settings(load_module("asr_net_dmr_validate", URF_PLAN_PATH), result["dmr"])
+        direct_dmr_settings(load_module("asr_net_dmr_validate", DYNAMIC_DMR_PLAN_PATH), result["dmr"])
     planner = load_module("asr_net_digital_validate", DIGITAL_PLAN_PATH)
     for mode in ("ysf", "p25", "nxdn"):
         if mode in result:
@@ -725,8 +637,8 @@ def net_bridge_plan(payload: dict[str, Any]) -> dict[str, Any]:
         sanitized["modes"]["dmr"].pop("tgifStaticToken", None)
     host_plans = {}
     if "dmr" in per_mode:
-        host_plans["dmr"] = load_module("asr_net_dmr_plan", URF_PLAN_PATH).plan(
-            Path("/"), dmr_settings(load_module("asr_net_dmr_settings", URF_PLAN_PATH), per_mode["dmr"]))
+        dmr_planner = load_module("asr_net_dmr_plan", DYNAMIC_DMR_PLAN_PATH)
+        host_plans["dmr"] = dmr_planner.plan(Path("/"), direct_dmr_settings(dmr_planner, per_mode["dmr"]))
     if "m17" in per_mode:
         host_plans["m17"] = load_m17().plan(Path("/"), m17_settings(load_m17(), per_mode["m17"]))
     digital = load_module("asr_net_digital_plan", DIGITAL_PLAN_PATH)
@@ -768,9 +680,9 @@ def net_bridge_command(payload: dict[str, Any], apply: bool) -> dict[str, Any]:
     for mode in per_mode:
         request = per_mode[mode]
         if mode == "dmr":
-            module = load_module("asr_net_dmr_apply_plan", URF_PLAN_PATH)
-            request["planDigest"] = module.plan(Path("/"), dmr_settings(module, request))["digest"]
-            results[mode] = dmr_command(request, True)
+            module = load_module("asr_net_dmr_apply_plan", DYNAMIC_DMR_PLAN_PATH)
+            request["planDigest"] = module.plan(Path("/"), direct_dmr_settings(module, request))["digest"]
+            results[mode] = direct_dmr_command(request, True)
         elif mode == "m17":
             module = load_m17()
             request["planDigest"] = module.plan(Path("/"), m17_settings(module, request))["digest"]
@@ -817,29 +729,30 @@ def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
                    if isinstance(item, dict) and item.get("id") == bridge_id), None)
     if not bridge or bridge.get("cardType") != "dmr_net" or not bridge.get("managedNetControl"):
         raise HelperError("The installed DMR Net Bridge was not found")
-    expected_root = Path("/opt/allscan-reimagined-bridges/urf") / bridge_id / "secrets"
+    expected_root = Path(DMR_RUNTIME_BASE) / bridge_id / "secrets"
     expected_token = expected_root / "tgif-static-token"
-    # DMR Net Bridges installed before Static TG maintenance was added do not
-    # have tgifStaticTokenPath in config.json.  The runtime controller already
-    # derives this fixed path for those records; use the same safe default here.
-    # A non-empty path must still match exactly so config cannot redirect a
-    # root-owned credential write.
+    # A non-empty configured path must match exactly so config cannot
+    # redirect a root-owned credential write.
     token_logical = Path(str(bridge.get("tgifStaticTokenPath") or expected_token))
     if token and (not token_logical.is_absolute() or token_logical.parent != expected_root or token_logical.name != "tgif-static-token"):
         raise HelperError("The DMR Net Bridge token path is not trusted")
     secrets_to_write = []
     if password:
-        secrets_to_write.append((expected_root / "tgif-password", password))
+        # The direct runtime reads the hotspot key from master-password as
+        # the asr-bridge service group, exactly as the installer writes it.
+        secrets_to_write.append((expected_root / "master-password", password + "\n", 0o640))
     if token:
-        secrets_to_write.append((token_logical, token))
-    for logical, value in secrets_to_write:
+        secrets_to_write.append((token_logical, token, 0o600))
+    for logical, value, mode in secrets_to_write:
         path = provisioning_config_path(str(logical))
         secure_parent(path.parent, 0o700)
         if path.is_symlink():
             raise HelperError("The DMR Net Bridge credential path is unsafe")
         fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
         try:
-            os.fchmod(fd, 0o600)
+            os.fchmod(fd, mode)
+            if mode & 0o040:
+                os.fchown(fd, 0, grp.getgrnam("asr-bridge").gr_gid)
             os.write(fd, value.encode("ascii"))
             os.fsync(fd)
             os.close(fd)
@@ -858,8 +771,9 @@ def dmr_security_update(payload: dict[str, Any]) -> dict[str, Any]:
             except FileNotFoundError:
                 pass
     if password:
+        # try-restart leaves an inactive (unselected) Net backend stopped.
         restarted = subprocess.run(
-            ["/usr/bin/systemctl", "restart", f"allscan-reimagined-urf-tgif-{bridge_id}.service"],
+            ["/usr/bin/systemctl", "try-restart", f"asr-dmr-mmdvm-{bridge_id}.service"],
             capture_output=True, text=True,
         )
         if restarted.returncode:
@@ -891,22 +805,18 @@ def net_bridge_reset(payload: dict[str, Any],
 
 
 def dmr_diagnose(payload: dict[str, Any], runner=subprocess.run,
-                 runtime_base: Path = Path("/opt/allscan-reimagined-bridges/urf"),
+                 runtime_base: Path = Path(DMR_RUNTIME_BASE),
                  state_root: Path = STATE_ROOT) -> dict[str, Any]:
-    """Collect bounded, read-only URF runtime evidence without returning secrets."""
+    """Collect bounded, read-only direct DMR runtime evidence without returning secrets."""
     if set(payload) != {"bridgeId"}:
-        raise HelperError("URF diagnostics require only a bridge ID")
+        raise HelperError("DMR diagnostics require only a bridge ID")
     bridge_id = str(payload.get("bridgeId") or "")
     if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", bridge_id):
-        raise HelperError("URF diagnostic bridge ID is invalid")
+        raise HelperError("DMR diagnostic bridge ID is invalid")
     runtime = runtime_base / bridge_id
     record = state_root / f"{bridge_id}.json"
-    services = [
-        f"allscan-reimagined-urfd-{bridge_id}.service",
-        f"allscan-reimagined-tcd-{bridge_id}.service",
-        f"allscan-reimagined-tgif-{bridge_id}.service",
-        f"allscan-reimagined-urf-tgif-{bridge_id}.service",
-    ]
+    services = [f"asr-dmr-{part}-{bridge_id}.service"
+                for part in ("vocoder", "mmdvm", "analog", "admin")]
     service_states: list[dict[str, Any]] = []
     for service in services:
         shown = runner([
@@ -926,7 +836,7 @@ def dmr_diagnose(payload: dict[str, Any], runner=subprocess.run,
                 if values.get("ExecMainStatus", "0").isdigit() else None,
         })
     authentication_failure = False
-    tgif_units = [item["service"] for item in service_states if "tgif" in item["service"]]
+    tgif_units = [item["service"] for item in service_states if "-mmdvm-" in item["service"]]
     for service in tgif_units:
         journal = runner([
             "/usr/bin/journalctl", "--no-pager", "--quiet", "-n", "40",

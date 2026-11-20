@@ -73,6 +73,95 @@
   var activeBridge = null
   var bridgeSnapshot = ''
   var bridgeOrigin = null
+
+  var meterTimer = 0
+  var meterVersion = 0
+  var meterRms = [0, 0]
+  // Standard VU uses 300-ms ballistics. This is a measured PCM RMS approximation,
+  // not a certified VU instrument. 0 VU is aligned here to -18 dBFS.
+  function meterDb(level) { return level > 0 ? 20 * Math.log10(level) : -Infinity }
+  function meterText(level) { var db = meterDb(level); return isFinite(db) ? db.toFixed(1) + ' dBFS' : '−∞ dBFS' }
+  function meterWidth(db) { return isFinite(db) ? Math.min(100, Math.max(0, (db + 48) * 100 / 51)) : 0 }
+  function stopMeters() {
+    meterVersion++
+    clearTimeout(meterTimer)
+    meterTimer = 0
+    meterRms = [0, 0]
+  }
+  function installMeters(body) {
+    var fields = [body.querySelector('[name="bridgeGainInDb[]"]'), body.querySelector('[name="bridgeGainOutDb[]"]')]
+    if (!fields[0] || !fields[1]) return null
+    fields.forEach(function(field, index) {
+      if (field.parentNode.querySelector('[data-bridge-vu]')) return
+      var wrap = document.createElement('div')
+      wrap.className = 'asr-settings-vu'
+      wrap.dataset.bridgeVu = String(index)
+      var title = index === 0 ? 'Bridge → AllStar' : 'AllStar → Bridge'
+      wrap.innerHTML = '<div class="asr-settings-vu-label"><strong>Live audio · ' + title + '</strong><span data-vu-value>No data</span></div>' +
+        '<div class="asr-settings-vu-track" role="meter" aria-label="' + title + ' audio VU level" aria-valuemin="-30" aria-valuemax="3" aria-valuenow="-30"><span data-vu-rms></span><i data-vu-peak></i></div>' +
+        '<small data-vu-state>Waiting for measured PCM…</small>'
+      field.parentNode.appendChild(wrap)
+    })
+    return fields.map(function(field){return field.parentNode.querySelector('[data-bridge-vu]')})
+  }
+  function startMeters(row) {
+    stopMeters()
+    var body = row._asrEditorBody || row.querySelector('.asr-bridge-panel-body')
+    if (!body) return
+    var displays = installMeters(body)
+    var bridgeInput = body.querySelector('[name="bridgeId[]"]')
+    if (!displays || !bridgeInput || !bridgeInput.value) return
+    var id = bridgeInput.value
+    var token = meterVersion
+    var last = performance.now()
+    var values = [['inboundrms','inboundpeak'],['outboundrms','outboundpeak']]
+    function tick() {
+      if (token !== meterVersion || activeBridge !== row) return
+      request('bridge-audio-meters').then(function(data) {
+        if (token !== meterVersion || activeBridge !== row) return
+        var meter = data.meters && data.meters[id]
+        var now = performance.now()
+        var elapsed = Math.max(0, Math.min(1000, now - last))
+        last = now
+        displays.forEach(function(display, direction) {
+          if (!meter) {
+            meterRms[direction] = 0
+            display.querySelector('[data-vu-rms]').style.width = '0%'
+            display.querySelector('[data-vu-peak]').style.left = '0%'
+            display.querySelector('[data-vu-value]').textContent = 'No data'
+            display.querySelector('[role="meter"]').setAttribute('aria-valuenow', '-30')
+            display.querySelector('[data-vu-state]').textContent = 'PCM telemetry unavailable'
+            return
+          }
+          var rawRms = meter[values[direction][0]]
+          var rawPeak = meter[values[direction][1]]
+          var rms = typeof rawRms === 'number' && isFinite(rawRms) ? Math.min(1, Math.max(0, rawRms)) : 0
+          var peak = typeof rawPeak === 'number' && isFinite(rawPeak) ? Math.min(1, Math.max(0, rawPeak)) : 0
+          var alpha = 1 - Math.exp(-elapsed * Math.log(100) / 300)
+          meterRms[direction] += alpha * (rms - meterRms[direction])
+          var vu = meterDb(meterRms[direction]) + 18
+          display.querySelector('[data-vu-rms]').style.width = meterWidth(vu - 18) + '%'
+          display.querySelector('[data-vu-peak]').style.left = Math.min(99.5, meterWidth(meterDb(peak))) + '%'
+          display.querySelector('[data-vu-value]').textContent = (isFinite(vu) ? vu.toFixed(1) : '−∞') + ' VU · peak ' + meterText(peak)
+          display.querySelector('[role="meter"]').setAttribute('aria-valuenow', Math.max(-30, Math.min(3, isFinite(vu) ? vu : -30)).toFixed(1))
+          display.querySelector('[data-vu-state]').textContent = rms || peak ? 'Measured PCM · live' : 'Silence / no fresh signal'
+        })
+      }).catch(function() {
+        if (token !== meterVersion || activeBridge !== row) return
+        meterRms = [0, 0]
+        displays.forEach(function(display){
+          display.querySelector('[data-vu-rms]').style.width = '0%'
+          display.querySelector('[data-vu-peak]').style.left = '0%'
+          display.querySelector('[data-vu-value]').textContent = 'No data'
+          display.querySelector('[role="meter"]').setAttribute('aria-valuenow', '-30')
+          display.querySelector('[data-vu-state]').textContent = 'Telemetry request failed'
+        })
+      }).then(function() {
+        if (token === meterVersion && activeBridge === row) meterTimer = setTimeout(tick, 500)
+      })
+    }
+    tick()
+  }
   if (!shell || !nav) return
 
   function escapeText(value) {
@@ -128,7 +217,7 @@
     var name=row.querySelector('.asr-bridge-panel-name');document.getElementById('asrBridgeEditorTitle').textContent=name?name.textContent:'Configure Bridge'
     var footer=bridgeEditor.querySelector('footer');var old=footer.querySelector('[data-modal-delete]');if(old)old.remove();var source=row.querySelector('.asr-bridge-delete')
     if(source){var del=document.createElement('button');del.type='button';del.dataset.modalDelete='1';del.className='asr-destructive-action';del.textContent=row.dataset.ownershipState==='owned'?'Remove Bridge and Managed Resources':'Remove Bridge from ASR';del.disabled=source.disabled;del.addEventListener('click',function(){source.click();if(!row.isConnected)form.requestSubmit()});footer.insertBefore(del,footer.firstChild)}
-    var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=false;document.body.classList.add('asr-modal-open');var first=body.querySelector('select,input,button');if(first)first.focus()
+    var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=false;document.body.classList.add('asr-modal-open');startMeters(row);var first=body.querySelector('select,input,button');if(first)first.focus()
   }
   function openTgifLoginFromLink() {
     var params = new URLSearchParams(window.location.search)
@@ -149,12 +238,27 @@
     var query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash)
   }
-  function closeBridgeEditor(cancel){if(!activeBridge)return;var row=activeBridge;var body=bridgeHost.querySelector('.asr-bridge-panel-body');if(cancel)restoreState(row,bridgeSnapshot);if(body&&bridgeOrigin.parentNode)bridgeOrigin.parentNode.insertBefore(body,bridgeOrigin);if(bridgeOrigin.parentNode)bridgeOrigin.remove();row.classList.add('is-collapsed');var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=true;activeBridge=null;bridgeOrigin=null;document.body.classList.remove('asr-modal-open')}
-  function enhanceUrf(){var panel=document.querySelector('[data-urf-panel]:not([hidden])');var table=document.querySelector('.asr-bridge-settings-table');if(!panel||!table||panel.closest('.asr-bridge-settings-row'))return;var row=document.createElement('div');row.className='asr-bridge-settings-row asr-urf-settings-row is-collapsed';var node=(panel.querySelector('[name="urfNode"]')||{}).value||'not set';var display=panel.querySelector('[name="urfDisplayName"]');var displayName=display&&display.value.trim()?display.value.trim():'URF Reflector';row.innerHTML='<div class="asr-bridge-panel-header"><button type="button" class="asr-bridge-toggle"><span class="asr-settings-toggle-icon">&gt;</span><span class="asr-bridge-toggle-copy"><strong class="asr-bridge-panel-name">'+escapeText(displayName)+'</strong><span class="asr-bridge-panel-summary">Node '+escapeText(node)+' · Select to configure this reflector.</span></span><span class="asr-bridge-capability-note">Shared reflector</span></button></div><div class="asr-bridge-panel-body"></div>';row.querySelector('.asr-bridge-panel-body').appendChild(panel);if(display)display.addEventListener('input',function(){var name=row.querySelector('.asr-bridge-panel-name');if(name)name.textContent=display.value.trim()||'URF Reflector'});table.insertBefore(row,table.firstChild);enhanceBridgeRow(row)}
+  function closeBridgeEditor(cancel){if(!activeBridge)return;stopMeters();var row=activeBridge;var body=bridgeHost.querySelector('.asr-bridge-panel-body');if(cancel&&body)restoreState(body,bridgeSnapshot);if(body&&bridgeOrigin.parentNode)bridgeOrigin.parentNode.insertBefore(body,bridgeOrigin);if(bridgeOrigin.parentNode)bridgeOrigin.remove();row.classList.add('is-collapsed');var icon=row.querySelector('.asr-bridge-toggle .asr-settings-toggle-icon');if(icon)icon.textContent='>';bridgeEditor.hidden=true;activeBridge=null;bridgeOrigin=null;document.body.classList.remove('asr-modal-open')}
 
   function openModal(modal){if(!modal)return;modal.hidden=false;document.body.classList.add('asr-modal-open');var close=modal.querySelector('.asr-modal-close');if(close)close.focus()}
   function closeModal(modal){if(!modal)return;modal.hidden=true;document.body.classList.remove('asr-modal-open');if(modal.id==='asrAdminDialog'){clearInterval(performanceTimer);performanceTimer=0}}
-  function renderDiagnostics(data){var target=document.getElementById('asr-bridge-diagnostics');if(!target)return;var rows=Array.isArray(data.bridges)?data.bridges:[];target.innerHTML=rows.map(function(bridge){var state=bridge.linked||'unknown';var label=state==='connected'?'Connected':state==='disconnected'?'Disconnected':'Cannot confirm';var ready=bridge.readiness||{};var warnings=Array.isArray(bridge.warnings)?bridge.warnings:[];var missing=Array.isArray(ready.missing)?ready.missing:[];return '<article class="asr-diagnostics-summary is-'+escapeText(state)+'"><header><div><strong>'+escapeText(bridge.title)+'</strong><span>AllStar node '+escapeText(bridge.node||'not set')+'</span></div><span class="asr-status-badge">'+label+'</span></header><div class="asr-diagnostics-at-glance"><span><small>What ASR can verify</small><b>'+escapeText(ready.summary||'ASR could not determine the bridge state. Check its service and AllStar link.')+'</b></span><span><small>Client or talker records</small><b>'+Number(bridge.clientCount||0)+'</b></span></div>'+(warnings.length?'<p class="asr-diagnostics-warning">'+escapeText(warnings[0])+'</p>':'')+'<details class="asr-progressive-details"><summary><span class="asr-disclosure-chevron">&gt;</span> Technical details</summary><dl><dt>Link-state source</dt><dd>'+escapeText(data.linkStateSource||'unavailable')+'</dd><dt>Client/talker source</dt><dd>'+escapeText(bridge.clientSource||'automatic')+'</dd><dt>Management mode</dt><dd>'+escapeText(bridge.backendMode||'managed')+'</dd></dl>'+(missing.length?'<ul>'+missing.map(function(item){return '<li>'+escapeText(item)+'</li>'}).join('')+'</ul>':'')+'</details></article>'}).join('')||'<p>No configured bridges were found.</p>'}
+  function renderDiagnostics(data){var target=document.getElementById('asr-bridge-diagnostics');if(!target)return;var rows=Array.isArray(data.bridges)?data.bridges:[];
+    var endpoint=data.endpointDiagnostics||{};
+    var points=Array.isArray(endpoint.endpoints)?endpoint.endpoints:[];
+    var problems=Array.isArray(endpoint.conflicts)?endpoint.conflicts:[];
+    var coverage=endpoint.coverage||{};
+    var endpointSummary='<article class="asr-diagnostics-summary"><header><div><strong>Bridge port and audio endpoint inventory</strong><span>Read-only · ASR, Asterisk and available sockets</span></div></header>';
+    if(!endpoint.ok){
+      endpointSummary+='<p class="asr-diagnostics-warning">'+escapeText(endpoint.error||'Endpoint inventory is unavailable; safety cannot be confirmed.')+'</p>';
+    }else{
+      endpointSummary+='<p class="'+(problems.length?'asr-diagnostics-warning':'')+'">'+(problems.length?escapeText(problems.length+' conflicting bridge receiver mapping(s) detected. Check owners and endpoints below.'):escapeText('No configured receiver conflicts found in the available inventory; this is not a complete live-audio certification.'))+'</p>';
+      if(problems.length)endpointSummary+='<ul>'+problems.map(function(item){var left=item.left||{},right=item.right||{};return '<li>'+escapeText((item.protocol||'UDP').toUpperCase()+' '+(item.namespace||'host')+':'+(item.port||'?')+' — '+(left.owner||'?')+' ('+(left.label||'?')+') versus '+(right.owner||'?')+' ('+(right.label||'?')+'). '+(item.action||''))+'</li>'}).join('')+'</ul>';
+      endpointSummary+='<details class="asr-progressive-details"><summary><span class="asr-disclosure-chevron">&gt;</span> Configured endpoint mappings ('+points.length+')</summary><ul>'+
+        points.map(function(item){return '<li>'+escapeText((item.owner||'?')+' / '+(item.label||'?')+' — '+(item.protocol||'?').toUpperCase()+' '+(item.namespace||'host')+' '+(item.address||'?')+':'+(item.port||'?'))+'</li>'}).join('')+
+        '</ul><p>'+escapeText('Inspection coverage: Asterisk '+(coverage.asteriskChannels?'available':'unavailable')+'; active sockets '+(coverage.activeSockets?'available':'unavailable')+'; Docker and legacy service files may need separate inspection.')+'</p></details>';
+    }
+    endpointSummary+='</article>';
+    target.innerHTML=endpointSummary+rows.map(function(bridge){var state=bridge.linked||'unknown';var label=state==='connected'?'Connected':state==='disconnected'?'Disconnected':'Cannot confirm';var ready=bridge.readiness||{};var warnings=Array.isArray(bridge.warnings)?bridge.warnings:[];var missing=Array.isArray(ready.missing)?ready.missing:[];return '<article class="asr-diagnostics-summary is-'+escapeText(state)+'"><header><div><strong>'+escapeText(bridge.title)+'</strong><span>AllStar node '+escapeText(bridge.node||'not set')+'</span></div><span class="asr-status-badge">'+label+'</span></header><div class="asr-diagnostics-at-glance"><span><small>What ASR can verify</small><b>'+escapeText(ready.summary||'ASR could not determine the bridge state. Check its service and AllStar link.')+'</b></span><span><small>Client or talker records</small><b>'+Number(bridge.clientCount||0)+'</b></span></div>'+(warnings.length?'<p class="asr-diagnostics-warning">'+escapeText(warnings[0])+'</p>':'')+'<details class="asr-progressive-details"><summary><span class="asr-disclosure-chevron">&gt;</span> Technical details</summary><dl><dt>Link-state source</dt><dd>'+escapeText(data.linkStateSource||'unavailable')+'</dd><dt>Client/talker source</dt><dd>'+escapeText(bridge.clientSource||'automatic')+'</dd><dt>Management mode</dt><dd>'+escapeText(bridge.backendMode||'managed')+'</dd></dl>'+(missing.length?'<ul>'+missing.map(function(item){return '<li>'+escapeText(item)+'</li>'}).join('')+'</ul>':'')+'</details></article>'}).join('')||'<p>No configured bridges were found.</p>'}
   function loadDiagnostics(){var target=document.getElementById('asr-bridge-diagnostics');if(!target)return;fetch(base+'/asr-api.php?action=bridge-diagnostics',{credentials:'same-origin',cache:'no-store'}).then(function(response){return response.json().then(function(data){if(!response.ok)throw new Error(data.error||'Diagnostics unavailable.');return data})}).then(renderDiagnostics).catch(function(error){target.innerHTML='<p class="asr-bridge-diagnostics-error">'+escapeText(error.message)+'</p>'})}
 
   function field(label,name,value,type){return '<label><span>'+label+'</span><input name="'+name+'" type="'+(type||'text')+'" value="'+escapeText(value||'')+'"></label>'}
@@ -167,12 +271,11 @@
   function openAdmin(kind){var dialog=document.getElementById('asrAdminDialog');var body=dialog.querySelector('[data-admin-modal-body]');document.getElementById('asrAdminDialogTitle').textContent=kind==='users'?'Users':kind==='config'?'Advanced Configuration':'Performance Stats';body.innerHTML='<p>Loading…</p>';openModal(dialog);if(kind==='users')request('settings-users').then(renderUsers).catch(function(error){body.innerHTML='<p class="asr-settings-warning">'+escapeText(error.message)+'</p>'});if(kind==='config')request('settings-config').then(renderConfig).catch(function(error){body.innerHTML='<p class="asr-settings-warning">'+escapeText(error.message)+'</p>'});if(kind==='performance'){body.innerHTML='<p data-performance-updated>Loading current node information…</p><div class="asr-performance-grid" data-performance-grid></div>';loadPerformance();performanceTimer=setInterval(loadPerformance,4000)}}
   function saveLanguage(){var category=shell.dataset.settingsCategory;var labels={appearance:'Save Appearance Settings',bridges:'Save All Bridge Changes',lookup:'Save Lookup & Map Settings',access:'Save Access Settings'};if(labels[category])form.querySelectorAll('input[type="submit"][name="Submit"]').forEach(function(button){button.value=labels[category]})}
   function loadReleaseStatus(){var target=document.querySelector('[data-release-status]');if(!target)return;fetch(base+'/asr-api.php?action=release-status',{credentials:'same-origin',cache:'no-store'}).then(function(response){return response.json().then(function(data){if(!response.ok)throw new Error();return data})}).then(function(data){target.textContent=data.updateAvailable?'Update available':data.checked?'Up to date':'Unable to check'}).catch(function(){target.textContent='Unable to check'})}
-  function dirtyState(){if(!form)return;var dirty=false;form.addEventListener('input',function(event){if(event.target.name&&!/^(urfAdminAction|ysfImportBridgeId)$/.test(event.target.name))dirty=true});form.addEventListener('change',function(){dirty=true});form.addEventListener('submit',function(){dirty=false});window.addEventListener('beforeunload',function(event){if(dirty){event.preventDefault();event.returnValue=''}})}
+  function dirtyState(){if(!form)return;var dirty=false;form.addEventListener('input',function(event){if(event.target.name&&!/^(ysfImportBridgeId)$/.test(event.target.name))dirty=true});form.addEventListener('change',function(){dirty=true});form.addEventListener('submit',function(){dirty=false});window.addEventListener('beforeunload',function(event){if(dirty){event.preventDefault();event.returnValue=''}})}
 
-  compactNavigation();flattenSections();enhanceUrf();document.querySelectorAll('.asr-bridge-settings-row').forEach(enhanceBridgeRow)
+  compactNavigation();flattenSections();document.querySelectorAll('.asr-bridge-settings-row').forEach(enhanceBridgeRow)
   var table=document.querySelector('.asr-bridge-settings-table');if(table&&window.MutationObserver)new MutationObserver(function(){table.querySelectorAll('.asr-bridge-settings-row').forEach(enhanceBridgeRow)}).observe(table,{childList:true})
   var addBridge=document.querySelector('.asr-add-bridge-button');if(addBridge)addBridge.addEventListener('click',function(){setTimeout(function(){var rows=table&&table.querySelectorAll('.asr-bridge-settings-row');if(rows&&rows.length)openBridgeEditor(rows[rows.length-1])},0)})
-  var addUrf=document.querySelector('.asr-add-urf-button');if(addUrf)addUrf.addEventListener('click',function(){setTimeout(function(){enhanceUrf();var row=document.querySelector('.asr-urf-settings-row');if(row)openBridgeEditor(row)},0)})
   document.querySelectorAll('[data-open-modal]').forEach(function(button){button.addEventListener('click',function(){openModal(document.getElementById(button.dataset.openModal))})})
   document.querySelectorAll('[data-open-admin-modal]').forEach(function(button){button.addEventListener('click',function(){openAdmin(button.dataset.openAdminModal)})})
   document.querySelectorAll('.asr-settings-modal .asr-modal-close').forEach(function(button){button.addEventListener('click',function(){var modal=button.closest('.asr-settings-modal');if(modal===bridgeEditor)closeBridgeEditor(true);else closeModal(modal)})})

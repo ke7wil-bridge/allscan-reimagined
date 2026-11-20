@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -183,14 +184,27 @@ def established_nodes(output: str) -> set[str]:
     return established
 
 
-def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asterisk) -> dict:
+def wait_for_link(main_node: str, node: str, runner: Callable[[Iterable[str]], str],
+                  sleeper: Callable[[float], None], attempts: int = 6) -> bool:
+    for attempt in range(attempts):
+        if node in established_nodes(runner(["rpt", "lstats", main_node])):
+            return True
+        if attempt + 1 < attempts:
+            sleeper(0.25)
+    return False
+
+
+def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asterisk,
+                 sleeper: Callable[[float], None] = time.sleep) -> dict:
     fallback = plan.get("fallback", [])
     if not fallback:
-        return {"checked": 0, "reconnected": [], "unavailable": []}
+        return {"checked": 0, "reconnected": [], "reverseFallback": [], "failed": [], "unavailable": []}
     main_node = str(plan["mainNode"])
     local_nodes = listed_local_nodes(runner(["rpt", "localnodes"]))
     established = established_nodes(runner(["rpt", "lstats", main_node]))
     reconnected: list[str] = []
+    reverse_fallback: list[str] = []
+    failed: list[str] = []
     unavailable: list[str] = []
     for target in fallback:
         node = str(target["node"])
@@ -200,10 +214,23 @@ def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asteri
         if node in established:
             continue
         runner(["rpt", "fun", main_node, f"*3{node}"])
-        reconnected.append(node)
+        if wait_for_link(main_node, node, runner, sleeper):
+            reconnected.append(node)
+            continue
+        # Some local app_rpt doorway nodes accept the main-node command but do
+        # not originate its IAX call. The equivalent doorway-side command is a
+        # valid permanent link and must be verified before reporting success.
+        runner(["rpt", "fun", node, f"*3{main_node}"])
+        if wait_for_link(main_node, node, runner, sleeper):
+            reconnected.append(node)
+            reverse_fallback.append(node)
+        else:
+            failed.append(node)
     return {
         "checked": len(fallback),
         "reconnected": reconnected,
+        "reverseFallback": reverse_fallback,
+        "failed": failed,
         "unavailable": unavailable,
     }
 
@@ -276,25 +303,37 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
 
     calls: list[tuple[str, ...]] = []
 
+    connected = {"1201"}
+
     def runner(arguments: Iterable[str]) -> str:
         command = tuple(arguments)
         calls.append(command)
         if command == ("rpt", "localnodes"):
             return "Local nodes: 1201 1202 1203 1205 600000\n"
         if command == ("rpt", "lstats", "600000"):
-            return "NODE PEER STATE\n1201 127.0.0.1 ESTABLISHED\n"
-        if command in {("rpt", "fun", "600000", "*31202"), ("rpt", "fun", "600000", "*31205")}:
+            rows = "".join(f"{node} 127.0.0.1 ESTABLISHED\n" for node in sorted(connected))
+            return "NODE PEER STATE\n" + rows
+        if command == ("rpt", "fun", "600000", "*31202"):
+            connected.add("1202")
+            return ""
+        if command == ("rpt", "fun", "600000", "*31205"):
+            return ""
+        if command == ("rpt", "fun", "1205", "*3600000"):
+            connected.add("1205")
             return ""
         raise AssertionError(command)
 
-    result = recover_once(plan, runner)
-    assert result == {"checked": 2, "reconnected": ["1202", "1205"], "unavailable": []}
+    result = recover_once(plan, runner, lambda _: None)
+    assert result == {"checked": 2, "reconnected": ["1202", "1205"],
+                      "reverseFallback": ["1205"], "failed": [], "unavailable": []}
     assert ("rpt", "fun", "600000", "*31202") in calls
     assert ("rpt", "fun", "600000", "*31205") in calls
+    assert ("rpt", "fun", "1205", "*3600000") in calls
 
     unavailable_plan = {**plan, "fallback": [{"id": "p25", "node": "1299"}]}
-    result = recover_once(unavailable_plan, runner)
-    assert result == {"checked": 1, "reconnected": [], "unavailable": ["1299"]}
+    result = recover_once(unavailable_plan, runner, lambda _: None)
+    assert result == {"checked": 1, "reconnected": [], "reverseFallback": [],
+                      "failed": [], "unavailable": ["1299"]}
 
     direct = native_permanent_nodes(
         "[600001]\nstartup_macro = ilink,13,1301 *3 1302\n",
@@ -344,9 +383,13 @@ def main() -> int:
         result = recover_once(plan)
         if result["reconnected"]:
             print("Restored configured fixed bridge link(s): " + ", ".join(result["reconnected"]))
+        if result["reverseFallback"]:
+            print("Used doorway-side recovery for bridge link(s): " + ", ".join(result["reverseFallback"]))
+        for node in result["failed"]:
+            print(f"Configured fixed bridge node {node} did not establish after both recovery directions.", file=sys.stderr)
         for node in result["unavailable"]:
             print(f"Configured fixed bridge node {node} is not available locally; not reconnecting.", file=sys.stderr)
-        return 0
+        return 1 if result["failed"] else 0
     except RecoveryError as exc:
         print(f"Fixed-bridge recovery failed: {exc}", file=sys.stderr)
         return 1

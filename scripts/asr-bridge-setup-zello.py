@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import sys
 import urllib.parse
@@ -32,6 +33,8 @@ class ZelloSettings:
     ws_endpoint: str = "wss://zello.io/ws"
     title: str = "Zello Bridge"
     bridge_node: int | None = None
+    zello_to_asl_gain_db: float = 0.0
+    asl_to_zello_gain_db: float = 0.0
 
 def load(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
@@ -78,7 +81,13 @@ def validate(value: ZelloSettings) -> ZelloSettings:
         raise PlanError("Zello WebSocket endpoint must be a wss:// URL")
     if value.bridge_node is not None and not 1001 <= value.bridge_node <= 1999:
         raise PlanError("private bridge node must be in 1001-1999")
-    return ZelloSettings(bridge_id, username, channel, issuer, endpoint, title, value.bridge_node)
+    for label, gain in (("Zello-to-ASL gain", value.zello_to_asl_gain_db),
+                        ("ASL-to-Zello gain", value.asl_to_zello_gain_db)):
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise PlanError(f"{label} must be between -20 and +12 dB")
+    return ZelloSettings(bridge_id, username, channel, issuer, endpoint, title,
+                         value.bridge_node, float(value.zello_to_asl_gain_db),
+                         float(value.asl_to_zello_gain_db))
 
 def stock_web_dir(root: Path) -> str:
     for logical in ("/var/www/html/allscan", "/srv/http/allscan"):
@@ -139,8 +148,11 @@ def plan(root: Path, settings: ZelloSettings) -> dict[str, Any]:
         if node in used:
             raise PlanError("requested private node is already in use")
     ports = port_block(settings.bridge_id)
-    if not matches and set(ports.values()).intersection(facts.listening_udp_ports):
-        raise PlanError("a required Zello USRP port is already in use")
+    endpoint_guard = load("asr_bridge_endpoint_guard_zello", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(root, config, settings.bridge_id, "zello", ports)
+    except ValueError as exc:
+        raise PlanError(str(exc)) from exc
     resources = {
         "root": ROOT,
         "compose": f"{ROOT}/compose.yml",
@@ -178,9 +190,10 @@ def integration_files(root: Path, plan: dict[str, Any]) -> dict[str, tuple[bytes
         "clientUrl": "", "clientUsername": "", "cardType": "standard",
         "backendMode": "managed", "bridgePermission": "self_owned",
         "fixedBridgeRecovery": False, "allowTune": False,
-        "urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL",
         "instance": settings["bridge_id"], "setupPorts": ports,
         "zelloChannel": settings["channel"], "liveAudioVerified": False,
+        "zelloToAslGainDb": settings["zello_to_asl_gain_db"],
+        "aslToZelloGainDb": settings["asl_to_zello_gain_db"],
     }
     bridges = config.setdefault("bridges", [])
     matches = [i for i, item in enumerate(bridges)

@@ -176,6 +176,7 @@ def assert_installer_order(installer: Path) -> None:
     assert 'install -o root -g root -m 755 "$RELEASE_DIR/scripts/asr-rollback.py" /usr/local/sbin/allscan-reimagined-rollback' in text
     assert "allscan-reimagined-rollback@.service" in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test' in text
+    assert text.count("restore-webroot-links") == 2
     assert 'python3 "$RELEASE_DIR/scripts/asr-p25-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-nxdn-bridge-control.py" self-test' in text
     assert 'python3 "$RELEASE_DIR/scripts/asr-m17-bridge-control.py" --self-test' in text
@@ -202,7 +203,7 @@ def assert_installer_order(installer: Path) -> None:
     assert "scripts/asr_bridge_status.py:/usr/local/sbin/allscan-reimagined-standard-bridge-status" in text
     assert "/usr/local/sbin/asr_bridge_status.py" in text
     standard_active_check = text.index(
-        'validate_command "configured Standard DMR/YSF status service is active"'
+        'validate_command "configured Standard Bridge status service is active"'
     )
     dmr_net_active_check = text.index(
         'validate_command "configured DMR Net live service is active"'
@@ -216,7 +217,7 @@ def assert_installer_order(installer: Path) -> None:
     assert standard_active_condition >= 0
     standard_active_block = text[standard_active_condition:standard_active_check]
     assert 'item.get("cardType", "standard") == "standard"' in standard_active_block
-    assert '.startswith(("dmr", "ysf"))' in standard_active_block
+    assert '.startswith(("dmr", "ysf", "p25", "nxdn", "m17"))' in standard_active_block
     assert "allscan-reimagined-bridge-lifecycle" in text
     assert "remove_asr_managed_wiring" in text
     assert "allscan-reimagined-friendly-names.conf" in text
@@ -686,6 +687,8 @@ def exercise_installer_webroot_backup_exclusions(
     webroot.mkdir(parents=True)
     (webroot / "index.html").write_text("existing webroot\n", encoding="utf-8")
     (webroot / "favorites.ini").symlink_to("/etc/allscan/favorites.ini")
+    if webroot_name == "asr":
+        (webroot / "asrplus").symlink_to("/var/www/html/asrplus")
     (webroot / "astdb.txt").symlink_to("/var/lib/asterisk/astdb.txt")
     (webroot / "astdb.txt.before-local-labels").symlink_to(
         "/var/lib/asterisk/astdb.txt"
@@ -720,6 +723,9 @@ def exercise_installer_webroot_backup_exclusions(
         members[f"{webroot_name}/favorites.ini"].linkname
         == "/etc/allscan/favorites.ini"
     )
+    if webroot_name == "asr":
+        assert members["asr/asrplus"].issym()
+        assert members["asr/asrplus"].linkname == "/var/www/html/asrplus"
     assert not any(
         name.startswith(f"{webroot_name}/astdb.txt") for name in members
     )

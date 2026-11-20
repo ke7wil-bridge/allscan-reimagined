@@ -9,6 +9,9 @@ python3 scripts/asr-container-provisioning-self-test.py
 python3 scripts/asr-bridge-setup-digital-self-test.py
 python3 scripts/asr-bridge-setup-m17-self-test.py
 python3 scripts/asr-bridge-stale-status-self-test.py
+python3 scripts/asr-standard-bridge-five-protocol-self-test.py
+python3 scripts/asr-tgif-urf-dmr-recovery-self-test.py
+python3 scripts/asr-dmr-enforcement-readiness.py
 python3 scripts/asr-bridge-control.py --self-test
 python3 scripts/asr-ysf-bridge-control.py --self-test
 python3 scripts/asr-p25-bridge-control.py self-test

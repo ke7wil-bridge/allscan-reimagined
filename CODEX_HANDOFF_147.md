@@ -1,0 +1,25 @@
+# ASR Issue #147 — Kick/Ban/Unban contract and enforcement audit
+
+## Assignment
+Investigate and fix inconsistent client Kick, Ban and Unban in ASR Beta 8.4.3. Work ONLY in this isolated worktree on branch `fix/issue-147-kick-ban-audit`. Preserve all other dirty trees. Build code fixes and tests locally; do NOT push, merge, publish, deploy, restart services, edit live policies, or perform live kick/ban tests without Josh's explicit approval. Do not touch Doug's ASR installer test.
+
+## Observed on Netoholics production (READ-ONLY inspection already performed)
+Host `root@44.30.157.21`, `nth-serv-p01`. Node 674982, TGIF TG 67498. Doug callsign KF8DRJ, DMR ID 3228850. Audit `/var/lib/allscan-reimagined/admin/asr-admin-audit.jsonl` contains repeated successful `kick` events (removed=1), a 15-minute ban of KF8DRJ by KE7WIL at epoch 1794069948, and other ban events. `/var/lib/allscan-reimagined/admin/urfd.blacklist` currently contains KF8DRJ. `/run/netoholics-native-dmr/dmr-admin.json` contained `banned_callsigns: [KF8DRJ]` AND `banned_ids: [3228850]` during inspection; DMR relay enforcement reads ONLY `banned_ids` and `kicked_ids`. Do not assume bans were ineffective solely from callsign path: numeric ID WAS present, so inspect the ID mapping and live path carefully.
+
+Direct DMR adapter installed at `/usr/local/libexec/allscan-reimagined/asr-dmr-standalone-admin-adapter.py`; source `scripts/asr-dmr-standalone-admin-adapter.py`. `kick()` uses `current_rows()` from `/run/allscan-reimagined/tgif-users/snapshots/node.json` (node-wide TGIF authenticated roster, `clients` array). It writes `kicked_ids` and then tries to remove entries from `urf_dmr`, even though current roster uses `clients`. `removed=1` counts matched snapshot rows, not observed session disconnect. The node-wide roster can show a TGIF subscriber even if ASR relay drops their packets, so distinguish upstream connection from local bridge media enforcement.
+
+Relay currently deployed `/root/netoholics-native-bridge-migration/dmr/tgif-standalone-relay.py` (outside this repository; do NOT edit live file). `admin_allowed()` checks DMRD source ID against `banned_ids`; `kicked_ids` blocks media while refreshing its timestamp for every received packet, then expires after 10 seconds of silence. It does not forcibly disconnect the remote TGIF subscriber or upstream connection. `relay()` filters upstream packets before forwarding locally. Investigate whether this relay is managed by ASR and how to safely deliver an authoritative fix in repo rather than editing one-off production scripts.
+
+All native adapter manifests under `/run/asr-standalone-admin/{dmr,ysf,p25,nxdn,m17}/capabilities.json` report Kick/Ban support with global timed-ban policy digest, but capability declaration alone does not prove real enforcement. API `server/asr-api.php` `asr_runtime_client_admin`, `asr_bridge_admin_capabilities`, `asr_dmr_admin_runtime_available` may advertise controls based on weak evidence. `scripts/asr-standalone-admin.py` verifies adapter acknowledgement but not actual media disconnection. Examine URF and standalone modes, and UI behavior, not only DMR. Do not claim an upstream TGIF disconnect if the system can only block local media.
+
+## Required contract
+Kick: target the actual active client/session, immediately stop forwarding its media on the controlled bridge, report VERIFIED only after observing enforcement, and allow a subsequent new session to reconnect (or clearly document limitations). Ban: enforce across the intended local bridge(s) by stable identity (DMR ID/callsign mapping as appropriate), stop current media, prevent subsequent media until expiry or unban, persist/reconcile correctly across restarts, and accurately report coverage. Unban: remove restriction and reconcile all applicable runtime adapters. Clearly distinguish TGIF upstream subscriber roster from ASR-controlled bridge connection; don't fake removal by mutating collector snapshots. Disable or label unsupported controls rather than claiming success. Avoid unintended cross-bridge bans and race conditions. Review ban-self protections: whether self-ban should be allowed is a product choice; do not silently implement arbitrary restriction.
+
+## Deliverables
+1. Root-cause matrix per DMR direct/URF, YSF, P25, NXDN, M17, Zello: supported, enforcement location, identity source, failure modes, UI/API truthfulness.
+2. Implement smallest safe repo-contained fixes, robust tests covering repeated Kick, reconnection, Ban, Unban, policy digest sync, callsign-ID resolution, stale roster, and unsupported protocols.
+3. Run focused regression suite and build-release gate if practical. Provide test results, changed files, remaining limitations, and exact proposed acceptance plan for Doug on Netoholics.
+4. Do not push or deploy. Leave changes in isolated branch for review.
+
+## Operational safety
+Never issue actual Kick/Ban/Unban to production; never alter live policy, service, or bridge. Read-only inspection only if essential. Don't modify primary repository `/home/josh/repos/allscan-reimagined` (dirty). No production restarts, deploys, merges, releases, or pushes.

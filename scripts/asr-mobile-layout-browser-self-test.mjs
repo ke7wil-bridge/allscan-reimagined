@@ -28,20 +28,59 @@ try {
   ws.addEventListener('message', ({data}) => { const x=JSON.parse(data); if (!x.id) return; const p=pending.get(x.id); if (!p) return; pending.delete(x.id); x.error ? p.reject(new Error(x.error.message)) : p.resolve(x.result) })
   await send('Page.enable')
   await send('Runtime.enable')
-  for (const [name,width,height] of [['portrait',390,844],['landscape',844,390],['narrow',360,740],['desktop',1440,900]]) {
+  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['desktop',1440,900]]) {
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<1000})
     await send('Page.navigate',{url:'http://127.0.0.1:4188/asr/'})
     let loaded=false
     for (let i=0;i<100;i++) { await delay(100); try { if (await evaluate("document.readyState === 'complete' && document.body.innerText.includes('Connection Status')")) { loaded=true; break } } catch {} }
     assert(loaded, name + ': dashboard failed to load')
+    await evaluate(`(() => {
+      const button=[...document.querySelectorAll('button')].find(e=>e.textContent.includes('Connected Clients'));
+      if (button && !document.querySelector('.allscan-bridge-detail-box')) button.click();
+    })()`)
+    await delay(50)
     const result=await evaluate(`(() => {
       const viewport=document.documentElement.clientWidth;
       const visible=[...document.querySelectorAll('button')].filter(e=>{const r=e.getBoundingClientRect();const s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none'});
-      return {viewport,scrollWidth:document.documentElement.scrollWidth,buttons:visible.length,clipped:visible.filter(e=>{const r=e.getBoundingClientRect();return r.left < -2 || r.right > viewport+2}).slice(0,8).map(e=>e.textContent.trim().slice(0,60))};
+      const clientLists=[...document.querySelectorAll('.allscan-bridge-detail-box')].map(e=>getComputedStyle(e).overflowY);
+      return {viewport,scrollWidth:document.documentElement.scrollWidth,buttons:visible.length,clientLists,clipped:visible.filter(e=>{const r=e.getBoundingClientRect();return r.left < -2 || r.right > viewport+2}).slice(0,8).map(e=>e.textContent.trim().slice(0,60))};
     })()`)
     assert(result.buttons>0,name+': no visible controls')
     assert(result.scrollWidth<=result.viewport+2,name+': horizontal page overflow '+JSON.stringify(result))
     assert(result.clipped.length===0,name+': clipped controls '+JSON.stringify(result.clipped))
+    assert(result.clientLists.every(value=>value!=='auto'&&value!=='scroll'),name+': bridge client list gained an internal scrollbar '+JSON.stringify(result.clientLists))
+
+    assert(await evaluate("(() => { const button=document.querySelector('.allscan-menu-button'); button?.click(); return Boolean(button) })()"),name+': menu button missing')
+    await delay(100)
+    const menu = await evaluate(`(() => {
+      const button=document.querySelector('.allscan-menu-button');
+      const panel=document.querySelector('.allscan-menu-panel');
+      if(!button||!panel) return {ok:false,reason:'missing'};
+      const rect=panel.getBoundingClientRect();
+      const visible=panel.getClientRects().length>0&&getComputedStyle(panel).visibility!=='hidden';
+      const items=[...panel.querySelectorAll('a,button')].filter(item=>item.getClientRects().length>0).length;
+      return {ok:visible&&items>0&&rect.left>=-2&&rect.right<=innerWidth+2&&rect.top>=-2&&rect.bottom<=innerHeight+2,rect:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom},items};
+    })()`)
+    assert(menu.ok,name+': menu missing, empty, or clipped '+JSON.stringify(menu))
+
+    if(name==='desktop') {
+      const bridgeLayout=await evaluate(`(() => {
+        const grid=document.querySelector('.allscan-bridge-grid');
+        if(!grid) return {ok:false,reason:'missing grid'};
+        const existing=[...grid.querySelectorAll(':scope > .allscan-bridge-card')];
+        if(!existing.length) return {ok:false,reason:'missing cards'};
+        while(grid.querySelectorAll(':scope > .allscan-bridge-card').length<6) grid.append(existing[0].cloneNode(true));
+        const cards=[...grid.querySelectorAll(':scope > .allscan-bridge-card')].slice(0,6);
+        const rects=cards.map(card=>card.getBoundingClientRect());
+        const widths=rects.map(rect=>rect.width);
+        const tops=rects.map(rect=>rect.top);
+        // At most five cards per row (#134): five share the first row and the
+        // sixth wraps to a second row at the same width.
+        const firstRow=tops.slice(0,5);
+        return {ok:cards.length===6&&Math.max(...widths)-Math.min(...widths)<=1&&Math.max(...firstRow)-Math.min(...firstRow)<=1&&tops[5]>tops[0]+1,count:cards.length,widths,tops};
+      })()`)
+      assert(bridgeLayout.ok,'desktop: bridge cards are not five uniform cards per row '+JSON.stringify(bridgeLayout))
+    }
     console.log(name+': PASS '+result.viewport+'px, '+result.buttons+' visible controls')
   }
 } finally {

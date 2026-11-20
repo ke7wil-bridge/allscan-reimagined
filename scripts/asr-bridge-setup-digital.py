@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import sys
 import zlib
@@ -40,6 +41,8 @@ class DigitalSettings:
     bridge_role: str = "standard"
     reflector_name: str = ""
     nxdn_id: int | None = None
+    digital_to_asl_gain_db: float = 0.0
+    asl_to_digital_gain_db: float = 0.0
 
 
 def load(name: str, filename: str):
@@ -71,6 +74,10 @@ def validate(value: DigitalSettings) -> DigitalSettings:
         raise PlanError("destination is reserved")
     if value.mode == "ysf" and value.destination < 10000:
         raise PlanError("YSF destination must have five digits")
+    for direction, gain in (("Digital-to-ASL", value.digital_to_asl_gain_db),
+                            ("ASL-to-digital", value.asl_to_digital_gain_db)):
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise PlanError(f"{direction} gain must be between -20 and +12 dB")
     nxdn_id = value.nxdn_id
     if value.mode == "nxdn":
         nxdn_id = nxdn_id if nxdn_id is not None else value.destination
@@ -185,27 +192,12 @@ def plan(root: Path, settings: DigitalSettings) -> dict[str, Any]:
     ports = port_block(settings.bridge_id)
     if settings.bridge_role == "net":
         ports["usrp_rx"], ports["usrp_tx"] = core.unified_net_usrp_ports()
-    for bridge in config["bridges"]:
-        if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
-            continue
-        occupied = bridge.get("setupPorts", {})
-        candidate_ports = set(ports.values())
-        occupied_ports = ({p for p in occupied.values() if isinstance(p, int)}
-                          if isinstance(occupied, dict) else set())
-        if (settings.bridge_role == "net"
-                and bridge.get("cardType") in {"dmr_net", "ysf_net", "p25_net", "nxdn_net", "m17_net"}):
-            candidate_ports -= set(core.unified_net_usrp_ports())
-            occupied_ports -= set(core.unified_net_usrp_ports())
-        if candidate_ports & occupied_ports:
-            raise PlanError("instance port block overlaps another ASR bridge")
-    listening_candidates = set(ports.values())
-    if settings.bridge_role == "net" and shared_net_node:
-        listening_candidates -= set(core.unified_net_usrp_ports())
-    if not matches and listening_candidates & set(facts.listening_udp_ports):
-        raise PlanError("instance port block overlaps an active UDP listener")
-    if (not matches and settings.mode in {"p25", "nxdn"}
-            and ports["mqtt"] in facts.listening_tcp_ports):
-        raise PlanError("private MQTT port overlaps an active TCP listener")
+    endpoint_guard = load("asr_bridge_endpoint_guard_asr_bridge_setup_digital", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(root, config, settings.bridge_id, settings.mode,
+                                       ports, role=settings.bridge_role)
+    except ValueError as exc:
+        raise PlanError(str(exc)) from exc
     gateway = MODES[settings.mode]
     instance = settings.bridge_id
     resources = {

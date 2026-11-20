@@ -2,6 +2,7 @@
 """Pure plan tests; installs and audio still require disposable ASL3 testing."""
 import importlib.util
 import json
+import math
 import sys
 import tempfile
 from dataclasses import replace
@@ -54,6 +55,31 @@ with tempfile.TemporaryDirectory() as directory:
         assert result == module.plan(root, settings)
         assert len(set(result["services"])) == len(result["services"])
         assert {path: (root / path.lstrip("/")).read_bytes() for path in original} == original
+        for invalid in (float("nan"), float("inf"), -20.01, 12.01, True):
+            fail(lambda invalid=invalid: module.plan(root, replace(settings, digital_to_asl_gain_db=invalid)), "gain")
+            fail(lambda invalid=invalid: module.plan(root, replace(settings, asl_to_digital_gain_db=invalid)), "gain")
+        assert module.plan(root, replace(settings, digital_to_asl_gain_db=5))["settings"]["digital_to_asl_gain_db"] == 5
+        assert module.plan(root, replace(settings, asl_to_digital_gain_db=-3))["settings"]["asl_to_digital_gain_db"] == -3
+        # 25 independently asymmetric gain pairs per protocol. Verify the
+        # actual Analog_Bridge configuration, not merely plan persistence.
+        render_spec = importlib.util.spec_from_file_location(
+            f'digital_render_matrix_{mode}', HERE / 'asr-bridge-setup-digital-render.py')
+        assert render_spec and render_spec.loader
+        render = importlib.util.module_from_spec(render_spec)
+        sys.modules[render_spec.name] = render
+        render_spec.loader.exec_module(render)
+        for i in range(25):
+            incoming, outgoing = -20 + i * 1.25, 12 - i * 1.25
+            gain_plan = module.plan(root, replace(settings,
+                digital_to_asl_gain_db=incoming, asl_to_digital_gain_db=outgoing))
+            ini = render.analog_ini(gain_plan)
+            expected_in = 10 ** (incoming / 20)
+            expected_out = 10 ** (outgoing / 20)
+            assert f'usrpGain={expected_in:.4f}\n' in ini, (mode, incoming)
+            assert f'tlvGain={expected_out:.4f}\n' in ini, (mode, outgoing)
+            assert 'usrpAudio=AUDIO_USE_GAIN' in ini
+            assert 'tlvAudio=AUDIO_USE_GAIN' in ini
+            assert math.isfinite(expected_in) and math.isfinite(expected_out)
         fail(lambda: module.plan(root, replace(settings, destination=20)), "reserved")
         fail(lambda: module.plan(root, replace(settings, reflector_host="bad\nname")), "host")
         if mode == "ysf":
@@ -77,21 +103,18 @@ with tempfile.TemporaryDirectory() as directory:
     }]}) + "\n")
     fail(lambda: module.plan(root, p25), "port block")
     config.write_text(json.dumps({"node": "641890", "bridges": []}) + "\n")
-    original_load = module.load
-    def busy_tcp_load(name, filename):
-        loaded = original_load(name, filename)
-        if filename == "asr-bridge-setup-core.py":
-            original_detect = loaded.ASL3Adapter.detect
-            def detect_with_busy_tcp(adapter):
-                facts = original_detect(adapter)
-                return replace(facts, listening_tcp_ports=(module.port_block("p25_test")["mqtt"],))
-            loaded.ASL3Adapter.detect = detect_with_busy_tcp
-        return loaded
-    module.load = busy_tcp_load
-    try:
-        fail(lambda: module.plan(root, p25), "MQTT port")
-    finally:
-        module.load = original_load
+    # Port-only HostFacts cannot prove the transport/bind-address overlap.
+    # The shared endpoint guard tests exact TCP/UDP and address semantics.
+    guard = module.load("asr_digital_guard_self_test", "asr-bridge-endpoint-collisions.py")
+    same_number = module.port_block("p25_test")["mqtt"]
+    assert not guard.collisions([
+        guard.Endpoint("tcp", "listener", "tcp", "127.0.0.1", same_number),
+        guard.Endpoint("udp", "listener", "udp", "127.0.0.1", same_number),
+    ])
+    assert guard.collisions([
+        guard.Endpoint("tcp", "listener", "tcp", "127.0.0.1", same_number),
+        guard.Endpoint("tcp2", "listener", "tcp", "0.0.0.0", same_number),
+    ])
     gateway = root / module.plan(root, p25)["resources"]["gateway"].lstrip("/")
     gateway.parent.mkdir(parents=True)
     gateway.write_text("unmanaged\n")

@@ -35,7 +35,7 @@ pageInit();
 
 	<section id="getting-started" class="asr-instructions-section">
 		<h2>Getting Started</h2>
-		<p>Beta 8.4.3 keeps the original AllScan and AllScan Reimagined side by side:</p>
+		<p>Beta 8.6 keeps the original AllScan and AllScan Reimagined side by side:</p>
 		<div class="asr-instructions-compare">
 			<article>
 				<h3>Original AllScan</h3>
@@ -145,7 +145,7 @@ pageInit();
 
 	<section id="standard-bridges" class="asr-instructions-section">
 		<h2>Standard Digital Bridges</h2>
-		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, Zello, and the shared URF reflector can be represented when their backend is installed and provides the required evidence.</p>
+		<p>Standard cards are for fixed/home or externally managed bridge paths. DMR, YSF, P25, NXDN, M17, and Zello can be represented when their backend is installed and provides the required evidence.</p>
 		<h3>Change a Standard TGIF DMR talkgroup</h3>
 		<p>Changing the fixed talkgroup on an ASR-managed Standard DMR bridge is a normal reconfiguration. You do not need to delete the bridge or edit Linux files.</p>
 		<ol class="asr-instructions-steps">
@@ -157,7 +157,6 @@ pageInit();
 		</ol>
 		<p class="asr-instructions-callout"><strong>Important:</strong> The <strong>Session Talkgroup</strong> under TGIF website sign-in changes only the talkgroup whose connected-station roster is displayed. It does not change where bridge audio is sent. Use the guided Standard DMR procedure above to change the actual bridge talkgroup.</p>
 		<ul class="asr-instructions-list">
-			<li><strong>URF:</strong> one shared reflector transport can expose separate DMR, YSF, P25, NXDN, and M17 mode cards. Configure only the modes actually used.</li>
 			<li><strong>DMR/TGIF:</strong> TGIF website session authentication and the DMR network connection are separate. Secured DMR uses the configured hotspot key; legacy operation can use the DMR identity without a personal key.</li>
 			<li><strong>YSF:</strong> tunable YSF paths can import a YSF Plain Text host list. The list is a snapshot; re-import it when a newly registered reflector is missing. A rejected upload never erases the previous valid list.</li>
 			<li><strong>P25/NXDN/M17:</strong> use isolated resources and valid destinations. M17 requires its reflector/module and a qualified Codec2/USRP audio path.</li>

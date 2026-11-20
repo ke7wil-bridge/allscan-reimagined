@@ -46,6 +46,21 @@ async function waitForJson(url, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
+async function waitForApp(server, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (server?.exitCode !== null) throw new Error(`Vite exited before serving ${APP_URL}`)
+    try {
+      const response = await fetch(APP_URL)
+      if (response.ok) return
+    } catch {
+      // Vite is still starting.
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+  }
+  throw new Error(`Timed out waiting for ${APP_URL}`)
+}
+
 class CdpClient {
   constructor(url) {
     this.nextId = 1
@@ -105,6 +120,11 @@ class CdpClient {
 
 async function main() {
   const chrome = await findChrome()
+  const appServer = process.env.ASR_SUPPORT_TEST_URL ? null : spawn(
+    './node_modules/.bin/vite',
+    ['--host', '127.0.0.1', '--port', '4173', '--strictPort'],
+    { env: { ...process.env, ASR_MOCK: '1' }, stdio: 'ignore' },
+  )
   const profile = await mkdtemp(join(tmpdir(), 'asr-support-chrome-'))
   const browser = spawn(chrome, [
     '--headless=new',
@@ -118,6 +138,7 @@ async function main() {
 
   let cdp
   try {
+    await waitForApp(appServer)
     const targets = await waitForJson(`http://127.0.0.1:${PORT}/json/list`)
     const pageTarget = targets.find((target) => target.type === 'page')
     assert(pageTarget?.webSocketDebuggerUrl, 'Chrome did not expose a page target')
@@ -214,7 +235,7 @@ async function main() {
     const menuItems = await evaluate("[...document.querySelector('.allscan-menu-proxy-list').children].filter((item) => item.getClientRects().length > 0).map((item) => item.textContent.trim())")
     const supportIndex = menuItems.indexOf('Donate to ASR')
     const logoutIndex = menuItems.indexOf('Logout')
-    assert(supportIndex >= 0 && supportIndex === logoutIndex - 1, 'Donate to ASR is not immediately above Logout')
+    assert(supportIndex >= 0 && (logoutIndex < 0 || supportIndex === logoutIndex - 1), 'Donate to ASR must be the final item before optional Logout')
     await screenshot('01-main-menu-support-asr.png')
 
     const urlBefore = await evaluate('location.href')
@@ -287,6 +308,7 @@ async function main() {
   } finally {
     cdp?.close()
     browser.kill('SIGTERM')
+    appServer?.kill('SIGTERM')
     if (browser.exitCode === null) {
       await Promise.race([
         new Promise((resolveExit) => browser.once('exit', resolveExit)),

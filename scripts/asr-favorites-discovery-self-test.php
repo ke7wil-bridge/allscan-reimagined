@@ -79,6 +79,34 @@ try {
 		'An unknown path did not fall back to the primary Favorites file.'
 	);
 
+	foreach(['favorites-missing.ini', '../../favorites-USA-East.ini'] as $requested) {
+		$rejected = false;
+		try {
+			asrFavoritesFile($requested, $etcDir, $webDir, $webDir . '/favorites.ini', true);
+		} catch(RuntimeException $error) {
+			$rejected = str_contains($error->getMessage(), 'no substitute list');
+		}
+		asrFavoritesDiscoveryAssert($rejected, 'An explicit unavailable selection silently used a different list.');
+	}
+
+	// An unreadable canonical file still owns its name. A readable web copy must
+	// never hide the operator's actual file or make permissions look like data loss.
+	chmod($etcDir . '/favorites-USA-East.ini', 0000);
+	clearstatcache();
+	asrFavoritesDiscoveryAssert(
+		asrFavoritesFile('favorites-USA-East.ini', $etcDir, $webDir, $webDir . '/favorites.ini', true)
+			=== $etcDir . '/favorites-USA-East.ini',
+		'Unreadable canonical Favorites was silently replaced by a readable duplicate.'
+	);
+	chmod($etcDir . '/favorites-USA-East.ini', 0600);
+
+	$sharedHelper = file_get_contents(dirname(__DIR__) . '/compat/allscan-v1.02/include/asrFavorites.php');
+	foreach(['1.03', '1.04', '1.05'] as $version)
+		asrFavoritesDiscoveryAssert(
+			file_get_contents(dirname(__DIR__) . '/compat/allscan-v' . $version . '/include/asrFavorites.php') === $sharedHelper,
+			'Favorites source selection drifted between supported AllScan versions.'
+		);
+
 	echo "ASR Favorites discovery self-test: ok\n";
 } finally {
 	asrFavoritesDiscoveryRemoveTree($root);

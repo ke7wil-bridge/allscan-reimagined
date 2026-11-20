@@ -20,12 +20,8 @@ from typing import Any
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUNTIME_ROOT = Path("/run/asr-standalone-admin")
-def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return runtime if runtime.is_dir() else native
-
-
-GLOBAL_BAN_ROOT = global_ban_root()
-BLACKLIST = GLOBAL_BAN_ROOT / "urfd.blacklist"
+GLOBAL_BAN_ROOT = Path(os.environ.get("ASR_GLOBAL_BAN_ROOT", "/var/lib/allscan-reimagined/admin"))
+BLACKLIST = GLOBAL_BAN_ROOT / "global-bans.list"
 TIMED_BANS = GLOBAL_BAN_ROOT / "asr-timed-bans.json"
 AUDIT_LOG = GLOBAL_BAN_ROOT / "asr-admin-audit.jsonl"
 ID_RE = re.compile(r"[a-z][a-z0-9_-]{1,31}")
@@ -89,26 +85,9 @@ def bridge_config(bridge_id: str) -> dict[str, Any]:
             continue
         mode = str(bridge.get("mode") or bridge.get("type") or bridge_id).lower()
         mode = next((item for item in SUPPORTED_MODES if mode.startswith(item)), "")
-        if not mode or bridge.get("urfReflector") or bridge.get("cardType", "standard") != "standard":
+        if not mode or bridge.get("cardType", "standard") != "standard":
             raise AdminError("Bridge is not an administrable standalone digital card.")
         return {**bridge, "_mode": mode}
-    # Native URF reflectors expose one verified administration proxy per mode,
-    # while the dashboard stores them as one aggregate URF bridge. Treat a
-    # mode name as a virtual bridge ID only when that aggregate enables it.
-    if bridge_id in SUPPORTED_MODES:
-        for bridge in payload["bridges"]:
-            if not isinstance(bridge, dict) or not bridge.get("urfReflector"):
-                continue
-            enabled = bridge.get("modes", bridge.get("urfModes", []))
-            if not isinstance(enabled, list) or bridge_id not in {
-                str(value).strip().lower() for value in enabled
-            }:
-                continue
-            if bridge.get("cardType", "standard") != "standard":
-                continue
-            return {"id": bridge_id, "mode": bridge_id, "_mode": bridge_id,
-                    "urfReflector": True,
-                    "aggregateId": str(bridge.get("id") or "urf")}
     raise AdminError("Configured standalone bridge was not found.")
 
 
@@ -188,14 +167,25 @@ def append_audit(action: str, actor: str, **details: Any) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+def kick_terms_valid(manifest: dict[str, Any]) -> bool:
+    """Instant-reconnect contracts, or a bounded reconnect hold (disconnect-hold-v1)."""
+    contract = manifest.get("kickContract")
+    if contract in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}:
+        return manifest.get("kickAllowsImmediateReconnect") is True
+    hold = manifest.get("kickHoldSeconds")
+    return (contract == "disconnect-hold-v1" and manifest.get("kickAllowsImmediateReconnect") is False
+            and isinstance(hold, int) and not isinstance(hold, bool) and 30 <= hold <= 3600)
+
+
 def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> dict[str, Any]:
     directory, manifest = manifest_for(bridge)
     required = {
         "kick": (
             manifest.get("kickClient") is True
-            and manifest.get("kickContract") == "disconnect-until-reconnect"
+            and kick_terms_valid(manifest)
+            and (manifest.get("kickContract") != "local-media-block-until-reconnect"
+                 or manifest.get("enforcementEvidence") == "relay-observed-v1")
             and manifest.get("kickRequiresCurrentSession") is True
-            and manifest.get("kickAllowsImmediateReconnect") is True
         ),
         "reconcile": (
             supports_policy_reconcile(manifest)
@@ -242,19 +232,40 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
             result_path.unlink()
 
 
-def kick(bridge_id: str, identity: str, actor: str) -> dict[str, Any]:
+def refresh_connected_clients() -> None:
+    """Ask the connected-client collector for a fresh pass now.
+
+    The card's list is otherwise refreshed only every ~20 s, so a kicked or
+    banned station stayed on the card for up to 20 s after it was removed.
+    """
+    import subprocess
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(["systemctl", "start", "--no-block", "allscan-reimagined-bridge-clients.service"],
+                       capture_output=True, timeout=5, check=False)
+
+
+def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict[str, Any]:
     identity = identity.strip().upper()
     if not IDENTITY_RE.fullmatch(identity):
         raise AdminError("Invalid bridge client identity.")
-    result = request(bridge_config(bridge_id), "kick", actor, identity=identity)
-    if result.get("identity") != identity or result.get("enforcement") != "disconnect-until-reconnect":
-        raise AdminError("Standalone Kick acknowledgment did not prove the required session behavior.")
+    bridge = bridge_config(bridge_id)
+    # DMR client IDs are 7-digit radio IDs or 9-digit hotspot IDs (radio ID + ESSID).
+    if bridge["_mode"] == "dmr" and (not re.fullmatch(r"[0-9]{1,9}", client_id) or int(client_id) < 1):
+        raise AdminError("A current DMR client ID is required.")
+    result = request(bridge, "kick", actor, identity=identity, clientId=client_id)
+    expected_contract = str(manifest_for(bridge)[1].get("kickContract") or "")
+    if (result.get("identity") != identity or result.get("enforcement") != expected_contract
+            or (bridge["_mode"] == "dmr" and result.get("clientId") != client_id)):
+        raise AdminError("Standalone Kick acknowledgment did not match the attested enforcement contract.")
     removed = int(result.get("removed") or 0)
     if removed < 1:
         raise AdminError("Client was no longer connected or could not be kicked.")
-    append_audit("kick", actor, bridgeId=bridge_id, callsign=identity, removed=removed)
+    append_audit("kick", actor, bridgeId=bridge_id, callsign=identity,
+                 clientId=client_id, removed=removed)
+    refresh_connected_clients()
     return {"ok": True, "verified": True, "action": "kick", "bridgeId": bridge_id,
-            "callsign": identity, "removed": removed, "enforcement": result["enforcement"]}
+            "callsign": identity, "clientId": client_id, "removed": removed,
+            "enforcement": result["enforcement"]}
 
 
 def reconcile(bridge_id: str, actor: str = "system") -> dict[str, Any]:
@@ -275,18 +286,9 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         str(item.get("id"))
         for item in config.get("bridges", [])
         if isinstance(item, dict) and ID_RE.fullmatch(str(item.get("id", "")))
-        and not item.get("urfReflector") and item.get("cardType", "standard") == "standard"
+        and item.get("cardType", "standard") == "standard"
         and any(str(item.get("mode") or item.get("type") or item.get("id", "")).lower().startswith(mode) for mode in SUPPORTED_MODES)
     ]
-    for item in config.get("bridges", []):
-        if not isinstance(item, dict) or not item.get("urfReflector"):
-            continue
-        enabled = item.get("modes", item.get("urfModes", []))
-        if isinstance(enabled, list):
-            normalized = {str(value).strip().lower() for value in enabled}
-            # Aggregate DMR uses the TGIF roster/control runtime. The native
-            # mode proxy set covers the four UDP reflector protocols.
-            bridge_ids.extend(mode for mode in SUPPORTED_MODES - {"dmr"} if mode in normalized)
     bridge_ids = list(dict.fromkeys(bridge_ids))
     applied = []
     for bridge_id in bridge_ids:
@@ -301,8 +303,11 @@ def reconcile_all(actor: str = "system") -> dict[str, Any]:
         if not supports_policy_reconcile(manifest):
             continue
         applied.append(reconcile(bridge_id, actor))
-    return {"ok": True, "verified": True, "action": "reconcile-all",
-            "applied": applied, "skipped": sorted(set(bridge_ids) - {item["bridgeId"] for item in applied}),
+    skipped = sorted(set(bridge_ids) - {item["bridgeId"] for item in applied})
+    # A missing or incapable adapter is not proof of global enforcement.
+    # The caller must not advertise successful reconciliation of all bridges.
+    return {"ok": True, "verified": not skipped, "action": "reconcile-all",
+            "applied": applied, "skipped": skipped,
             "policyDigest": policy_payload()["digest"]}
 
 
@@ -312,13 +317,14 @@ def main() -> None:
     parser.add_argument("bridge_id", nargs="?")
     parser.add_argument("identity", nargs="?")
     parser.add_argument("--actor", default="system")
+    parser.add_argument("--client-id", default="")
     args = parser.parse_args()
     if not ACTOR_RE.fullmatch(args.actor):
         raise AdminError("Invalid administrator identity.")
     if args.action == "kick":
         if not args.bridge_id or not args.identity:
             raise AdminError("Kick requires BRIDGE_ID and IDENTITY.")
-        emit(**kick(args.bridge_id, args.identity, args.actor))
+        emit(**kick(args.bridge_id, args.identity, args.actor, args.client_id))
     elif args.action == "reconcile":
         if not args.bridge_id:
             raise AdminError("Reconcile requires BRIDGE_ID.")

@@ -279,9 +279,11 @@ def validate_exclusive(args, selected: str) -> None:
 
 def verify_protocol_receipt(args, mode: str, since_epoch: int) -> None:
     if mode == "dmr":
-        output = run_combined(["docker", "logs", "--since", str(since_epoch),
-                               f"asr-urf-reflector-{MODES[mode]['id']}"])
-        required = ("Opening stream on module A", "by user KE7WIL", "Closing stream of module A")
+        # Direct DVSwitch/TGIF runtime: MMDVM_Bridge reports TGIF network
+        # voice on its journal (DisplayLevel=1).
+        output = run_combined(["journalctl", "--no-pager", "-o", "cat", "--since", f"@{since_epoch}",
+                               "-u", f"asr-dmr-mmdvm-{MODES[mode]['id']}.service"])
+        required = ("received network voice header", "received network end of voice transmission")
     else:
         if args.skip_remote_evidence:
             return

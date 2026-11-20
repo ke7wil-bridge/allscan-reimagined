@@ -18,8 +18,8 @@ export type BridgeAdminCapabilities = {
   clientAdmin: Array<'listClients' | 'kickClient' | 'banClient' | 'unbanClient' | 'listBans'>
   activity: Array<'currentTalker' | 'lastTalker' | 'recentActivity'>
   lifecycle: Array<'health' | 'readiness' | 'runtimeAvailability'>
-  managementScope: 'bridge' | 'urf-reflector' | 'asr-global' | 'allstar'
-  clientAuthority: 'none' | 'urfd-blacklist' | 'asr-global-ban' | 'allstar-channel'
+  managementScope: 'bridge' | 'asr-global' | 'allstar'
+  clientAuthority: 'none' | 'asr-global-ban' | 'allstar-channel'
   authoritativeClientId: string
   banScopeLabel: string
 }
@@ -34,9 +34,6 @@ export type RuntimeBridgeConfig = {
   cardType?: BridgeCardType
   fixedBridgeRecovery?: boolean
   manualDisconnect?: boolean
-  urfReflector?: boolean
-  urfGroupId?: string
-  urfName?: string
   linkAlias?: string
   m17Module?: string
   backendMode?: 'display_only' | 'managed'
@@ -66,41 +63,8 @@ export type RuntimeConfig = {
 
 const NET_BRIDGE_MODES = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'] as const
 
-export function isUrfReflectorBridge(bridge?: RuntimeBridgeConfig): boolean {
-  if (!bridge || bridge.cardType !== 'standard') return false
-  return bridge.urfReflector === true || Boolean(String(bridge.urfGroupId || '').trim())
-}
-
-export function urfReflectorDisplayName(bridges: RuntimeBridgeConfig[]): string {
-  const names = Array.from(new Set(bridges
-    .filter(isUrfReflectorBridge)
-    .map((bridge) => {
-      const explicitName = String(bridge.urfName || '').trim()
-      const friendlyName = String(bridge.friendlyName || '').trim()
-      // The operator-facing name is intentionally independent of URFD's
-      // protocol identity. Keep urfName as a fallback for older installs.
-      const sourceName = friendlyName || explicitName
-      // Beta 8.2 shipped these installation-specific defaults on other nodes.
-      // Never present them as the operator's reflector identity.
-      if (/^URFWIL(?:\s+(?:Multi-Mode Bridge|Reflector|Bridge))?$/i.test(sourceName)) return /^URF[A-Z0-9]{2,8}$/i.test(explicitName) ? explicitName : ''
-      return sourceName
-        .replace(/\s+Multi-Mode Bridge$/i, '')
-        .replace(/\s+Multi\s+Mode\s+Bridge$/i, '')
-        .replace(/\s+Bridge$/i, '')
-        .trim()
-    })
-    .filter(Boolean)))
-  return names.length === 1 ? `${names[0]} Bridge` : names.length > 1 ? 'URF Reflectors' : 'URF Bridge'
-}
-
-// A shared URF transport does not determine each protocol card's identity.
-// Use the configured protocol, not a stale generic/DMR title from migration.
 export function bridgeProtocolCardTitle(bridge: RuntimeBridgeConfig): string {
-  if (!isUrfReflectorBridge(bridge)) return bridge.title
-  const mode = normalizedBridgeMode(bridge.mode, bridge.id)
-  return ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].includes(mode)
-    ? `${mode.toUpperCase()} Bridge`
-    : bridge.title
+  return bridge.title
 }
 
 export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<string> {
@@ -109,7 +73,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.4.3'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.6'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -242,7 +206,9 @@ export type BridgeCardView = {
   lastTxEpoch: number
   activeStartEpoch: number
   recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
+  relayEventEpochs: number[]
   recentRows: BridgeDetailItem[]
+  audioMeter: { inboundPeak: number; inboundRms: number; outboundPeak: number; outboundRms: number } | null
 }
 
 /**
@@ -273,9 +239,7 @@ export function orderedVisibleBridgeCards(
     isNetMode(card)
       && normalizedBridgeMode(card.mode, card.id) === selectedMode,
   )
-  const hiddenStandardIds = new Set(bridges
-    .filter((bridge) => isUrfReflectorBridge(bridge))
-    .map((bridge) => bridge.id))
+  const hiddenStandardIds = new Set<string>()
   const ordered: BridgeCardView[] = []
   const included = new Set<string>()
 
@@ -290,7 +254,6 @@ export function orderedVisibleBridgeCards(
       }
       return
     }
-    if (isUrfReflectorBridge(bridge)) return
     const card = cardsById.get(bridge.id)
     if (card && card.cardType === 'standard' && !included.has(card.id)) {
       ordered.push(card)
@@ -308,30 +271,13 @@ export function orderedVisibleBridgeCards(
   return ordered
 }
 
-export type UrfClient = { callsign: string; mode: string; module: string; connected: string; lastHeard: string }
-export type UrfEvent = { event: 'connect' | 'disconnect' | 'kick' | 'ban' | 'tx_start' | 'tx_stop'; mode: string; callsign: string; client?: string; module: string; epoch: number }
-export type UrfStatus = {
-  ok: boolean; online: boolean; stale: boolean; ageSeconds?: number; version?: string
-  clients: UrfClient[]; recent: Array<{ callsign: string; viaNode: string; module: string; viaPeer: string; lastHeard: string }>
-  events: UrfEvent[]; currentTalker?: UrfEvent | null
-  modes: Record<string, { clients: number; active: boolean }>; updatedEpoch?: number; eventUpdatedEpoch?: number; error?: string
-}
+export type GlobalBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
+export type GlobalBanAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
+export type GlobalBanList = { rules: string[]; bans: GlobalBan[]; audit: GlobalBanAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
 
-export async function fetchUrfStatus(signal?: AbortSignal): Promise<UrfStatus> {
-  const response = await fetch(`${ASR_API}?action=urf-status`, { credentials: 'same-origin', cache: 'no-store', signal })
-  const payload = (await response.json()) as UrfStatus
-  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'URF status could not be loaded.')
-  return payload
-}
-
-export type UrfBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
-export type UrfAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
-export type UrfAccessList = { rules: string[]; bans: UrfBan[]; audit: UrfAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
-
-export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
-  const suffix = mode ? `&mode=${encodeURIComponent(mode)}` : ''
-  const response = await fetch(`${ASR_API}?action=urf-access-list${suffix}`, { credentials: 'same-origin', cache: 'no-store' })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; asl?: UrfAccessList['asl'] }
+export async function fetchGlobalBans(): Promise<GlobalBanList> {
+  const response = await fetch(`${ASR_API}?action=global-ban-list`, { credentials: 'same-origin', cache: 'no-store' })
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; asl?: GlobalBanList['asl'] }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban list could not be loaded.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -342,16 +288,17 @@ export async function fetchUrfBlacklist(mode = ''): Promise<UrfAccessList> {
   }
 }
 
-export type UrfBlacklistMutation = UrfAccessList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number }
+export type TgifBanSync = { status: 'applied' | 'failed' | 'not-configured' | 'unavailable'; talkgroup?: string; added?: string[]; removed?: string[]; noDmrId?: string[]; errors?: string[]; error?: string }
+export type GlobalBanMutation = GlobalBanList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number; tgif?: TgifBanSync }
 
-export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, duration = 'permanent', mode = '', clientId = ''): Promise<UrfBlacklistMutation> {
-  const body = new URLSearchParams({ verb, rule, duration, mode, clientId })
-  const response = await fetch(`${ASR_API}?action=urf-access-control`, {
+export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, duration = 'permanent'): Promise<GlobalBanMutation> {
+  const body = new URLSearchParams({ verb, rule, duration })
+  const response = await fetch(`${ASR_API}?action=global-ban-control`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-access-control' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'global-ban-control' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: UrfBan[]; audit?: UrfAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: UrfAccessList['asl'] }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl']; tgif?: TgifBanSync }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban update failed.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -364,12 +311,13 @@ export async function updateUrfBlacklist(verb: 'ban' | 'unban', rule: string, du
     reloadSeconds: Math.max(0, Number(payload.reloadSeconds || 0)),
     removed: Math.max(0, Number(payload.removed || 0)),
     expiresAt: Math.max(0, Number(payload.expiresAt || 0)),
+    tgif: payload.tgif && typeof payload.tgif === 'object' ? payload.tgif : undefined,
   }
 }
 
 export type AslBanKind = 'node' | 'allstar-call' | 'echolink-call'
 export type AslBan = { kind: AslBanKind; value: string; createdAt: number; expiresAt: number; reason: string; actor: string }
-export type AslBanList = { bans: AslBan[]; audit?: Array<{ action: string; kind: string; value: string; at: number; actor?: string }>; applied: { allstar: string[]; echolink: string[]; externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] }; localNode: string }
+export type AslBanList = { bans: AslBan[]; audit?: Array<{ action: string; kind: string; value: string; at: number; actor?: string }>; applied: { allstar: string[]; echolink: string[]; externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[]; pending?: { echolink?: string } }; localNode: string }
 
 export async function fetchAslBans(): Promise<AslBanList> {
   const response = await fetch(`${ASR_API}?action=asl-ban-list`, { credentials: 'same-origin', cache: 'no-store' })
@@ -390,20 +338,20 @@ export async function changeAslBan(verb: 'ban' | 'unban', kind: AslBanKind, valu
   return payload
 }
 
-export async function kickUrfClient(callsign: string, protocol: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ callsign, protocol, clientId })
-  const response = await fetch(`${ASR_API}?action=urf-client-kick`, {
+export async function kickZelloClient(callsign: string): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ callsign })
+  const response = await fetch(`${ASR_API}?action=zello-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'urf-client-kick' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'zello-client-kick' },
     body: body.toString(),
   })
   const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
-  if (!response.ok || !payload.ok) throw new Error(payload.error || 'URF client kick failed.')
+  if (!response.ok || !payload.ok) throw new Error(payload.error || 'Zello Kick failed.')
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
-export async function kickStandaloneClient(bridgeId: string, callsign: string): Promise<{ verified: boolean; removed: number }> {
-  const body = new URLSearchParams({ bridgeId, callsign })
+export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+  const body = new URLSearchParams({ bridgeId, callsign, clientId })
   const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
@@ -411,7 +359,9 @@ export async function kickStandaloneClient(bridgeId: string, callsign: string): 
   })
   const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Standalone bridge client Kick failed.')
-  return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  if (!result.verified || result.removed < 1) throw new Error('DMR Kick was not verified by the active media relay.')
+  return result
 }
 
 export type BridgeDestination = {
@@ -609,6 +559,7 @@ type BridgeEntry = {
   tx_events?: Array<Record<string, unknown>>
   client_events?: Array<Record<string, unknown>>
   online?: boolean | null
+  audio_meter?: { inboundpeak?: number; inboundrms?: number; outboundpeak?: number; outboundrms?: number } | null
   linked?: boolean | null
   reflector?: string
   module?: string
@@ -627,6 +578,16 @@ export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number 
     ...(Array.isArray(entry.tx_events) ? entry.tx_events.map((event) => Number(event.epoch || event.event_epoch || event.start_epoch || 0)) : []),
     ...(Array.isArray(entry.client_events) ? entry.client_events.map((event) => Number(event.epoch || event.event_epoch || 0)) : []),
   )
+}
+
+export function bridgeDashboardStatusLabel(
+  card: Pick<BridgeCardView, 'cardType' | 'status' | 'runtimeOnline'>,
+): 'IDLE' | 'TX ACTIVE' | 'RELAY' {
+  // Beta 8.2 used the status pill for voice activity, not network health.
+  // Transport and protocol connectivity remain separate card evidence.
+  if (card.status === 'Source/TX') return 'TX ACTIVE'
+  if (card.status === 'Relay') return 'RELAY'
+  return 'IDLE'
 }
 
 type ConnectedClientsResponse = {
@@ -1516,9 +1477,6 @@ export function netBridgeTalkerDestinationLabel(
 }
 
 function bridgeTalkerNodeLabel(card: BridgeCardView) {
-  if (card.mode === 'urf') {
-    return String(card.reflector || card.title || card.node || 'URF Reflector').trim()
-  }
   if (card.node === '1999' || card.cardType !== 'standard') return 'Net Bridge'
   return String(card.node || card.title || 'Digital Bridge').trim()
 }
@@ -1691,27 +1649,34 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
 }
 
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
-  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record, index) => {
+  // Recent Activity is a history of transmissions *originating* on the
+  // digital bridge. AllStar-to-digital relays are not digital talkers.
+  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
+    .filter((record) => String(record.direction || '').toLowerCase() === 'incoming')
+    .map((record, index) => {
     const epoch = Number(record.epoch || 0)
     const started = Number(record.start_epoch || epoch)
     const duration = Number(record.duration_seconds || 0)
     const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
     const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
-    return { key: `${mode}-tx-${bridgeClientName(record)}-${epoch}-${index}`, label: bridgeClientName(record), meta: ['TRANSMITTED', time, durationLabel].filter(Boolean).join(' · '), epoch }
-  })
-  const events = (Array.isArray(entry?.client_events) ? entry.client_events : []).map((record, index) => {
-    const epoch = Number(record.epoch || 0)
-    const event = String(record.event || '').toLowerCase()
-    const time = epoch > 0 ? new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
-    return { key: `${mode}-client-${bridgeClientName(record)}-${event}-${epoch}-${index}`, label: bridgeClientName(record), meta: [event === 'connect' ? 'CONNECTED' : event === 'disconnect' ? 'DISCONNECTED' : event.toUpperCase(), time].filter(Boolean).join(' · '), epoch }
+    const identity = bridgeClientName(record)
+    const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
+    const direction = String(record.direction || '').toLowerCase()
+    const activityLabel = direction === 'incoming' ? 'RECEIVED' : direction === 'outgoing' ? 'RELAYED' : 'TRANSMITTED'
+    return { key: `${mode}-tx-${label}-${epoch}-${index}`, label, meta: [activityLabel, time, durationLabel].filter(Boolean).join(' · '), epoch }
   })
   const now = Date.now() / 1000
-  const rows = [...talkers, ...events]
+  const rows = talkers
     .filter((row) => row.epoch > 0 && now - row.epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)
     .sort((a, b) => b.epoch - a.epoch)
     .slice(0, 100)
   if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
   return rows.map((row) => ({ key: row.key, label: row.label, meta: row.meta }))
+}
+
+export function safeAudioMeterLevel(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(1, value))
 }
 
 export async function fetchBridgeCards(
@@ -1729,6 +1694,7 @@ export async function fetchBridgeCards(
   const bridge = normalizeBridgeRoles(payload.bridge || {})
   const clients = payload.clients || {}
   const clientCounts = payload.clientCounts || {}
+  const clientMeta = payload.clientMeta || {}
   const controls = payload.controls || {}
 
   const cards = config.bridges.map((bridgeConfig): BridgeCardView => {
@@ -1740,6 +1706,10 @@ export async function fetchBridgeCards(
     const zelloTalkers = bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []
     const detailRows = bridgeConfig.id === 'zello' ? zelloTalkers : cachedDetailRows
     const detailAvailable = true
+    const detailKind = String(clientMeta[bridgeConfig.id]?.kind || '')
+    const detailTitle = bridgeConfig.id === 'zello' || detailKind === 'recent'
+      ? 'Recent Talkers'
+      : detailKind === 'current' ? 'Connected Clients' : bridgeConfig.detailTitle
     const status = mapBridgeStatus(entry)
     const mode = normalizedBridgeMode(bridgeConfig.mode, bridgeConfig.id)
     const control = controls[bridgeConfig.id] || {}
@@ -1770,7 +1740,7 @@ export async function fetchBridgeCards(
       controlLinked: control.linked === true,
       digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
-      detailTitle: bridgeConfig.detailTitle,
+      detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,
         !detailAvailable ? 'Unavailable' : 'None',
@@ -1781,13 +1751,17 @@ export async function fetchBridgeCards(
       connectedClientCount: Number.isFinite(Number(clientCounts[bridgeConfig.id]))
         ? Math.max(0, Math.floor(Number(clientCounts[bridgeConfig.id])))
         : 0,
-      runtimeOnline: null,
+      runtimeOnline: typeof entry?.online === 'boolean' ? entry.online : null,
       reflector: String(entry?.reflector || '').trim(),
       module: String(entry?.module || '').trim(),
       linkProtocol: String(entry?.link_protocol || '').trim(),
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
+        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .map((record) => Math.max(0, Number(record.epoch) || 0))
+        .filter((epoch) => epoch > 0),
       recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
@@ -1795,6 +1769,12 @@ export async function fetchBridgeCards(
         duration: Math.max(0, Number(record.duration_seconds) || 0),
       })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
       recentRows: formatBridgeRecentRows(entry, mode),
+      audioMeter: entry?.audio_meter ? {
+        inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),
+        inboundRms: safeAudioMeterLevel(entry.audio_meter.inboundrms),
+        outboundPeak: safeAudioMeterLevel(entry.audio_meter.outboundpeak),
+        outboundRms: safeAudioMeterLevel(entry.audio_meter.outboundrms),
+      } : null,
     }
   })
 
@@ -1891,13 +1871,6 @@ export async function fetchFastNextModeActivity(signal?: AbortSignal): Promise<R
     }
   }
   return cards
-}
-
-export async function fetchDmrFastSource(signal?: AbortSignal): Promise<{ active: boolean; callsign: string }> {
-  const response = await fetch(`${ASR_API}?action=dmr-fast-source`, { credentials: 'same-origin', cache: 'no-store', signal })
-  if (!response.ok) throw new Error('DMR fast source unavailable')
-  const payload = await response.json() as { active?: boolean; callsign?: string }
-  return { active: payload.active === true, callsign: String(payload.callsign || '') }
 }
 
 export async function fetchZelloFastRelay(signal?: AbortSignal): Promise<{ active: boolean; updatedEpochMs: number }> {

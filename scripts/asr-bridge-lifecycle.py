@@ -190,12 +190,19 @@ def validate_admin_capabilities(payload: Any, bridge_id: str, mode: str) -> None
         raise LifecycleError("Bridge administration capability manifest targets the wrong bridge.")
     required_true = (
         "healthy", "listClients", "kickClient", "kickRequiresCurrentSession",
-        "kickAllowsImmediateReconnect", "banClient", "unbanClient", "listBans",
+        "banClient", "unbanClient", "listBans",
     )
     if not all(payload.get(field) is True for field in required_true):
         raise LifecycleError("Installed standard bridge does not provide full client administration.")
-    if payload.get("kickContract") != "disconnect-until-reconnect":
+    contract, hold = payload.get("kickContract"), payload.get("kickHoldSeconds")
+    instant = (contract in {"disconnect-until-reconnect", "local-media-block-until-reconnect"}
+               and payload.get("kickAllowsImmediateReconnect") is True)
+    held = (contract == "disconnect-hold-v1" and payload.get("kickAllowsImmediateReconnect") is False
+            and isinstance(hold, int) and not isinstance(hold, bool) and 30 <= hold <= 3600)
+    if not (instant or held):
         raise LifecycleError("Installed standard bridge has an incompatible Kick contract.")
+    if payload.get("kickContract") == "local-media-block-until-reconnect" and payload.get("enforcementEvidence") != "relay-observed-v1":
+        raise LifecycleError("Installed standard bridge has no verified local media enforcement evidence.")
     if payload.get("banContract") != "global-timed-v1":
         raise LifecycleError("Installed standard bridge has an incompatible Global Ban contract.")
     if not isinstance(payload.get("heartbeatEpoch"), int) or payload["heartbeatEpoch"] <= 0:

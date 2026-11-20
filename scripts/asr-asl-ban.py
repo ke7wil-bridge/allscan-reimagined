@@ -11,17 +11,13 @@ import tempfile
 import time
 from pathlib import Path
 
-def global_ban_root(runtime=Path("/run/urf-wil-config"), native=Path("/var/lib/allscan-reimagined/admin")) -> Path:
-    return runtime if runtime.is_dir() else native
-
-
-GLOBAL_BAN_ROOT = global_ban_root()
+GLOBAL_BAN_ROOT = Path(os.environ.get("ASR_GLOBAL_BAN_ROOT", "/var/lib/allscan-reimagined/admin"))
 STATE = GLOBAL_BAN_ROOT / "asr-asl-bans.json"
 LOCK = GLOBAL_BAN_ROOT / ".asr-asl-bans.lock"
-GLOBAL = GLOBAL_BAN_ROOT / "urfd.blacklist"
+GLOBAL = GLOBAL_BAN_ROOT / "global-bans.list"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
-ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"))
+ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"), Path("/var/www/html/supermon/astdb.txt"))
 DURATIONS = {"15m": 900, "1h": 3600, "1w": 604800, "30d": 2592000, "permanent": 0}
 NODE = re.compile(r"^[0-9]{3,10}$")
 CALL = re.compile(r"^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[LR])?$")
@@ -126,6 +122,7 @@ def global_calls():
 def allstar_nodes_for_calls(calls):
     wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
     nodes = set()
+    mapped = set()
     for path in ASTDB_FILES:
         try:
             lines = path.read_text(errors="replace").splitlines()
@@ -138,9 +135,15 @@ def allstar_nodes_for_calls(calls):
             call = re.sub(r"-(?:L|R)$", "", parts[1].strip().upper())
             if call in wanted:
                 nodes.add(parts[0])
-        if nodes:
-            break
-    return nodes
+                mapped.add(call)
+    return nodes, wanted - mapped
+
+
+def echolink_available(ami):
+    """True only when chan_echolink is loaded; nodes without EchoLink must
+    still enforce AllStar bans (Phoenix rejected `echolink dbdump`)."""
+    modules = ami.command("module show like chan_echolink.so")
+    return bool(re.search(r"(?m)^chan_echolink\.so\s+.*\bRunning\b", modules))
 
 
 def echolink_calls_for_calls(ami, calls):
@@ -281,7 +284,7 @@ def update_echo_config(ami, target, has_deny):
         raise RuntimeError("Asterisk rejected EchoLink deny configuration.")
 
 
-def disconnect_active(ami, desired_ast, desired_echo, local):
+def disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls=()):
     output = ami.command("core show channels concise")
     removed = 0
     for line in output.splitlines():
@@ -293,7 +296,11 @@ def disconnect_active(ami, desired_ast, desired_echo, local):
             continue
         is_iax = channel.upper().startswith("IAX2/")
         is_echo = channel.upper().startswith("ECHOLINK/")
-        match = (is_iax and context == "radio-secure" and cid_number.upper() in desired_ast)
+        # ASL3's geographic admission path uses geo-admission for authenticated
+        # inbound IAX links; older nodes use radio-secure. Both expose the
+        # remote node number in the concise CallerID field.
+        match = (is_iax and context in {"radio-secure", "geo-admission"}
+                 and cid_number.upper() in desired_ast)
         if is_iax and context == "allstar-public":
             # Asterisk's concise listing often has an empty caller name for a
             # web transceiver even though the authenticated channel has one.
@@ -301,7 +308,7 @@ def disconnect_active(ami, desired_ast, desired_echo, local):
             caller = re.search(r"(?m)^\s*CALLSIGN=([A-Za-z0-9-]+)\s*$", detail)
             node = re.search(r"(?m)^\s*NODENUM=([0-9]+)\s*$", detail)
             match = match or bool(caller and node and node.group(1) == local
-                                  and caller.group(1).upper() in desired_ast)
+                                  and caller.group(1).upper() in desired_ast_calls)
         match = match or (is_echo and cid_name.upper().removesuffix("-L").removesuffix("-R") in desired_echo)
         if not match:
             continue
@@ -331,9 +338,13 @@ def reconcile(data, ami, local):
     global_rules, unsupported = global_calls()
     desired_ast_calls.update(global_rules)
     desired_echo_calls.update(global_rules)
-    desired_ast.update(desired_ast_calls)
-    desired_ast.update(allstar_nodes_for_calls(desired_ast_calls))
-    desired_echo = echolink_calls_for_calls(ami, desired_echo_calls)
+    mapped_ast_nodes, unmapped_ast_calls = allstar_nodes_for_calls(desired_ast_calls)
+    desired_ast.update(mapped_ast_nodes)
+    # Asterisk's rpt denylist is keyed by AllStar node number. Writing a
+    # callsign there is not enforcement and must never count as verification.
+    unsupported = sorted(set(unsupported) | (set(global_rules) & unmapped_ast_calls))
+    has_echolink = echolink_available(ami)
+    desired_echo = echolink_calls_for_calls(ami, desired_echo_calls) if has_echolink else set()
     previous_ast = set(data.get("ownedAst", []))
     previous_echo = set(data.get("ownedEcho", []))
     existing = ast_entries(ami, local)
@@ -349,7 +360,17 @@ def reconcile(data, ami, local):
         raise RuntimeError("AllStar native deny entries did not verify.")
     data["ownedAst"] = sorted(owned_ast)
     save_state(data)
-    removed = disconnect_active(ami, desired_ast, desired_echo, local)
+    removed = disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls)
+    if not has_echolink:
+        data["bans"] = active
+        save_state(data)
+        explicit_echo = sorted(row["value"] for row in active if row["kind"] == "echolink-call")
+        pending = {"echolink": "EchoLink is not loaded on this node; EchoLink bans cannot be enforced."} if explicit_echo else {}
+        return {"removed": removed, "allstar": sorted(desired_ast), "echolink": [],
+                "unmappedGlobalRules": unsupported,
+                "unmappedAllStarCallsigns": sorted(unmapped_ast_calls),
+                "externalAst": sorted(ast_entries(ami, local) - owned_ast),
+                "externalEcho": [], "echolinkAvailable": False, "pending": pending}
     # Record intended ownership before the remote write so a reload failure can
     # be retried without mistaking our own directive for an external manual ban.
     existing_echo, _ = echo_denies(ami)
@@ -358,15 +379,24 @@ def reconcile(data, ami, local):
     save_state(data)
     applied_echo = data.get("appliedEcho")
     refresh_needed = isinstance(applied_echo, list) and applied_echo != sorted((existing_echo - previous_echo) | desired_echo)
-    apply_echo(ami, desired_echo, previous_echo, force_restart=refresh_needed)
-    data["appliedEcho"] = sorted(echo_denies(ami)[0])
+    pending = {}
+    try:
+        apply_echo(ami, desired_echo, previous_echo, force_restart=refresh_needed)
+        data["appliedEcho"] = sorted(echo_denies(ami)[0])
+    except Exception as exc:
+        # AllStar denylist changes above are independently verified and must
+        # remain usable when EchoLink cannot safely reload during a session.
+        # Preserve the pending EchoLink error for callers and retry on list/sync.
+        pending["echolink"] = str(exc)[:240]
     data["ownedEcho"] = sorted(owned_echo)
     data["bans"] = active
     save_state(data)
     return {"removed": removed, "allstar": sorted(desired_ast), "echolink": sorted(desired_echo),
             "unmappedGlobalRules": unsupported,
+            "unmappedAllStarCallsigns": sorted(unmapped_ast_calls),
             "externalAst": sorted(ast_entries(ami, local) - owned_ast),
-            "externalEcho": sorted(echo_denies(ami)[0] - owned_echo)}
+            "externalEcho": sorted(echo_denies(ami)[0] - owned_echo),
+            "pending": pending}
 
 
 def main():
@@ -415,6 +445,8 @@ def main():
                 applied = reconcile(data, ami, local)
             finally:
                 ami.close()
+            if args.kind == "echolink-call" and applied.get("pending", {}).get("echolink"):
+                raise RuntimeError(applied["pending"]["echolink"])
         except Exception as exc:
             if args.action in ("ban", "unban"):
                 raise RuntimeError(f"Ban record saved; native enforcement pending: {exc}") from exc
