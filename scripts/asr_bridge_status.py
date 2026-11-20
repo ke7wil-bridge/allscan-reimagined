@@ -134,6 +134,7 @@ def initial_activity_state() -> dict[str, Any]:
         "linked_clients": [],
         "client_snapshot": None,
         "client_events": [],
+        "client_snapshot_version": 0,
     }
 
 def reconcile_client_snapshot(state: dict[str, Any], clients: list[str] | None, now: int) -> None:
@@ -143,8 +144,25 @@ def reconcile_client_snapshot(state: dict[str, Any], clients: list[str] | None, 
     current = sorted({clean_caller(client, 120).upper() for client in clients if clean_caller(client, 120)})
     previous = state.get("client_snapshot")
     state["client_snapshot"] = current
+    baseline_version = int(state.get("client_snapshot_version", 0) or 0)
+    if baseline_version < 1:
+        # On first observation (including upgrade from the old collector),
+        # report currently connected stations as present at observation time.
+        # This is explicitly a baseline observation, not a claimed historical
+        # connect timestamp. It lets already-connected operators appear in UI.
+        events = [row for row in state.get("client_events", []) if isinstance(row, dict)
+                  and 0 < int(row.get("epoch", 0) or 0) <= now
+                  and now - int(row.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS]
+        known = {str(row.get("callsign", "")).upper() for row in events}
+        events.extend({"callsign": name, "event": "connect", "epoch": now,
+                       "source": "baseline_observation"}
+                      for name in current if name not in known)
+        events.sort(key=lambda row: int(row.get("epoch", 0) or 0), reverse=True)
+        state["client_events"] = events[:100]
+        state["client_snapshot_version"] = 1
+        return
     if not isinstance(previous, list):
-        return  # Establish baseline without inventing historical connections.
+        return
     old = set(previous)
     new = set(current)
     events = [row for row in state.get("client_events", []) if isinstance(row, dict)
@@ -1032,6 +1050,7 @@ def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str]
         "recent_users": list(state.get("recent_users", [])),
         "tx_events": list(state.get("tx_events", [])),
         "client_events": list(state.get("client_events", [])),
+        "client_snapshot_version": int(state.get("client_snapshot_version", 0) or 0),
         # Internal restart baseline. The public API sanitizer intentionally
         # omits this field while the root-owned collector can restore it.
         "client_snapshot": list(state.get("client_snapshot", []))
@@ -1299,6 +1318,7 @@ def restore_standard_states(path: Path, now: int | None = None) -> dict[str, dic
                 and 0 < epoch(row.get("epoch", 0)) <= current + 300
                 and current - epoch(row.get("epoch", 0)) <= BRIDGE_RECENT_MAX_AGE_SECONDS
             ][:100],
+            "client_snapshot_version": epoch(entry.get("client_snapshot_version", 0)),
             "client_snapshot": sorted({
                 clean_caller(row, 120).upper() for row in client_snapshot or []
                 if isinstance(row, str) and clean_caller(row, 120)
