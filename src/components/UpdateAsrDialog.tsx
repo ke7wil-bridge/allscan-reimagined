@@ -131,6 +131,13 @@ export default function UpdateAsrDialog({
             <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
             <p>{ASR_WHATS_NEW.summary}</p>
             <ul>{ASR_WHATS_NEW.items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+            <aside className="asr-contributors-callout" aria-label="Contribute to ASR">
+              <h4>🚀 Developers &amp; Vibe Coders Wanted!</h4>
+              <p>We're looking for additional developers and AI-assisted coders to help accelerate AllScan Reimagined (ASR). Whether you're an experienced developer or a vibe coder using Codex or Claude Code, we'd welcome your help!</p>
+              <p>We're especially interested in PHP, JavaScript, Python, Linux, digital bridges, dashboards, and testing.</p>
+              <p><strong>Interested in contributing?</strong> <a href="https://github.com/ke7wil-bridge/allscan-reimagined" target="_blank" rel="noopener noreferrer">Visit our GitHub project</a> and get involved!</p>
+              <p>Together, we can make ASR better, faster, and more reliable.</p>
+            </aside>
             <p>If you’re using AllScan Reimagined, Josh (KE7WIL) would appreciate a quick email letting him know you’re running it. <a href="mailto:ke7wil@gmail.com">ke7wil@gmail.com</a>.</p>
           </section>
         ) : <>
