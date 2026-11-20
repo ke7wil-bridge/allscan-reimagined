@@ -68,21 +68,22 @@ pageInit();
 </section>
 
 <style>
- .asr-network-dialog { position:fixed;inset:0;margin:auto;transform:none;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:#17252f;color:#f0f7fb; }
+ .asr-network-dialog { position:fixed;inset:0;margin:auto;transform:none;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:var(--surface,var(--card-bg,#17252f));color:var(--text-primary,var(--text-color,inherit)); }
 .asr-network-dialog:not([open]) {display:none}
 .asr-network-dialog::backdrop {background:#000b}
-.asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid #6c92a6;border-radius:8px;background:#203745;color:#f3f9ff;box-shadow:0 8px 26px #0008;font-size:13px}
+.asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid #6c92a6;border-radius:8px;background:var(--surface-alt,var(--card-bg,#203745));color:var(--text-primary,var(--text-color,inherit));text-align:left!important;box-shadow:0 8px 26px #0008;font-size:13px}
 .asr-network-node-info[hidden] {display:none!important}
-.asr-network-node-info strong {font-size:16px}
+.asr-network-node-info strong {font-size:16px;display:inline-block;text-align:left}
 .asr-network-node-info button {float:right;background:transparent;color:inherit;border:1px solid #7794a3;border-radius:4px;cursor:pointer}
+.asr-network-node-info div,.asr-network-node-info div div {text-align:left!important;}
 .asr-network-node-info div div {padding-top:5px;overflow-wrap:anywhere}
-.asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:#172833;}
-.asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:#243c4b;}
+.asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:var(--surface,var(--card-bg,#172833));}
+.asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:var(--surface-alt,var(--card-bg,#243c4b));}
 .asr-network-dialog>.asr-map-body {position:relative;display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden;padding:0;}
 
 .asr-network-dialog .asr-network-map-frame {flex:1 1 auto;width:100%;min-height:0;height:auto;}
-.asr-network-map-help {position:absolute;z-index:8;left:50%;bottom:8px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 38px);padding:3px 8px;border:1px solid #a5c6d7;border-radius:7px;background:#f0f5f8;color:#183448;box-shadow:0 2px 12px #0008;text-align:center;font-size:13px;font-weight:500;line-height:1.2;pointer-events:none;}
-.asr-network-map-help b {font-weight:800;color:#0a557f;}
+.asr-network-map-help {position:absolute;z-index:8;left:50%;bottom:8px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 38px);padding:3px 8px;border:1px solid #a5c6d7;border-radius:7px;background:var(--surface-alt,var(--card-bg,#f0f5f8));color:var(--text-primary,var(--text-color,#183448));box-shadow:0 2px 12px #0008;text-align:center;font-size:13px;font-weight:500;line-height:1.2;pointer-events:none;}
+.asr-network-map-help b {font-weight:800;color:var(--accent-color,var(--primary-color,#0a557f));}
 .asr-network-dialog #asrNetworkGraph:not([hidden]) {position:relative;z-index:3;display:block;min-width:0;min-height:0;max-width:none;max-height:none;flex:none;opacity:1;visibility:visible;}
 .asr-network-dialog #asrNetworkGraph circle,.asr-network-dialog #asrNetworkGraph line,.asr-network-dialog #asrNetworkGraph text {opacity:1;visibility:visible;}
 .asr-network-dialog .asr-network-node-info {top:65px;}
@@ -93,7 +94,7 @@ pageInit();
 #asrNetworkGraph [data-node] text { text-decoration:none!important; paint-order:normal; }
 #asrNetworkGraph [data-node]:focus circle { stroke-width:4; }
 .asr-network-controls { display:flex; align-items:center; gap:7px; }
-.asr-network-controls .asr-map-button,.asr-network-controls .asr-map-close {padding:7px 12px;border:1px solid #718f9e;border-radius:5px;background:#345366;color:#fff;font-weight:750;cursor:pointer;}
+.asr-network-controls .asr-map-button,.asr-network-controls .asr-map-close {padding:7px 12px;border:1px solid #718f9e;border-radius:5px;background:var(--surface-alt,var(--card-bg,#345366));color:var(--text-primary,var(--text-color,#fff));font-weight:750;cursor:pointer;}
 .asr-network-dialog #asrNetworkGraphStatus,.asr-network-dialog #asrNetworkMapFallback {display:none!important;}
 .asr-network-map-frame img {
 	position:relative;
@@ -164,14 +165,19 @@ pageInit();
 	var networkGraphTouchDistance = 0;
 	var networkGraphTouchZoom = 1;
 	var networkGraphColors = function () {
-        return {root:'#e1ad45',bridge:'#87929b',hub:'#3bc48a',node:'#4ab9e6',edge:'#809ca9',foreground:'#edf5f8',background:'#172833'};
+        var host=document.querySelector('.asr-lookup-page')||document.body;
+        var style=getComputedStyle(host),root=getComputedStyle(document.documentElement),body=getComputedStyle(document.body);
+        function token(name){return style.getPropertyValue(name).trim()||body.getPropertyValue(name).trim()||root.getPropertyValue(name).trim();}
+        function rgb(value){var m=String(value).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);return m?[+m[1],+m[2],+m[3]]:null;}
+        function luminance(value){var channels=rgb(value);return channels?channels.reduce(function(a,b){return a+b;},0)/765:null;}
+        var background=token('--surface')||token('--card-bg')||style.backgroundColor||body.backgroundColor;
+        if(!rgb(background)||background==='rgba(0, 0, 0, 0)')background=body.backgroundColor;
+        var lum=luminance(background);
+        if(lum===null){background='#172833';lum=.15;}
+        var light=lum>.52;
+        var foreground=token('--text-primary')||token('--text-color')||style.color||body.color||(light?'#183448':'#edf5f8');
+        return {root:light?'#d79524':'#e1ad45',bridge:light?'#76818a':'#87929b',hub:light?'#13845b':'#3bc48a',node:light?'#147ba8':'#4ab9e6',edge:light?'#708895':'#809ca9',foreground:foreground,background:background};
 	};
-    var networkGraphKinds = new Map();
-    var networkGraphLabels = new Map();
-    var networkGraphCanvasWidth = 1000;
-    var networkGraphCanvasHeight = 700;
-    var networkGraphAutoFit = true;
-    var networkGraphLayoutSignature = '';
 
 	function renderNetworkGraph() {
 		var colors = networkGraphColors();

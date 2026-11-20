@@ -29,7 +29,7 @@ for (const token of ['pointerdown','pointermove','pointerup','pointercancel','to
 }
 assert.ok(source.includes('text-decoration:none!important'), 'Station numbers must not be underlined')
 assert.ok(source.includes('layoutSignature!==networkGraphLayoutSignature') && source.includes('networkGraphPositions.clear();'), 'Topology updates must relayout nodes to prevent overlapping labels')
-assert.ok(js.includes("return {root:'#e1ad45',bridge:'#87929b',hub:'#3bc48a',node:'#4ab9e6'"), 'ASRPlus Netoholics palette not matched')
+assert.ok(js.includes("var light=lum>.52"), 'Graph must adapt to active theme luminance')
 assert.ok(js.includes(String.raw`/^\\d{3,7}$/`) === false, 'Double-escaped node regex would discard all topology links')
 assert.ok(js.includes(String.raw`/^\d{3,7}$/`), 'Valid numeric node matcher missing')
 assert.ok(js.includes("credentials:'same-origin'"), 'Authenticated topology fetch missing')
@@ -67,5 +67,8 @@ console.log('ASR #207 bubble integration checks: ok')
 
 assert.ok(source.includes('n===networkGraphRoot?45:33'), 'Root node label must clear larger yellow bubble');
 
-assert.ok(source.includes('.asr-network-node-info strong {font-size:16px}'), 'Station detail heading must match ASRPlus');
+assert.ok(source.includes('.asr-network-node-info strong {font-size:16px;display:inline-block;text-align:left}'), 'Station detail heading must match ASRPlus');
 assert.ok(source.includes('networkGraphChildren.get(id)||[]'), 'Station details must fall back to live graph connections');
+
+assert.ok(source.includes('text-align:left!important'), 'Station info must be left justified');
+assert.ok(source.includes('var(--surface,var(--card-bg'), 'Network module must inherit ASR theme surfaces');
