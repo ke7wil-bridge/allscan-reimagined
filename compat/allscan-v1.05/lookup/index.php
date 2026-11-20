@@ -474,16 +474,20 @@ pageInit();
 	}
 
 	function setNetworkMapNode(node,seeds) {
-		var nextNode = String(node || '').trim();
-        var nextSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==nextNode;}):networkGraphSeeds;
-        var seedKey=function(items){return items.map(function(x){return [x.node,x.kind,x.label].join('|');}).sort().join(';');};
-        var seedsChanged=seedKey(nextSeeds)!==seedKey(networkGraphSeeds);
-		if(!networkMapBaseUrl(nextNode)) return;
-		if((networkMapNode !== nextNode||seedsChanged)&&networkMapPanel.open)loadNetworkGraph(nextNode,nextSeeds);
-        networkGraphSeeds=nextSeeds;
-		networkMapNode = nextNode;
-		networkMapOpen.disabled = false;
-	}
+        var nextNode=String(node||'').trim();
+        if(!networkMapBaseUrl(nextNode))return;
+        var changed=networkMapNode!==nextNode;
+        networkMapNode=nextNode;
+        networkMapOpen.disabled=false;
+        // The 15-second lookup refresh is not a topology change. Never restart the
+        // interactive graph or overwrite its live Asterisk seeds on each poll.
+        if(changed){
+            networkGraphSeeds=Array.isArray(seeds)?seeds:[];
+            if(networkMapPanel.open)loadNetworkGraph(nextNode,networkGraphSeeds);
+        }else if(!networkGraphSeeds.length&&!networkMapPanel.open&&Array.isArray(seeds)){
+            networkGraphSeeds=seeds;
+        }
+    }
 
 	function extractCallsign(value) {
 		var text = String(value || '');
@@ -836,10 +840,34 @@ pageInit();
 	function setNetworkGraphLocalLinks(root,seeds) {
         if(String(root)!==String(networkMapNode))return;
         var next=Array.isArray(seeds)?seeds:[];
-        var signature=function(items){return items.map(function(x){return [x.node,x.kind,x.label].join('|');}).sort().join(';');};
-        if(signature(next)===signature(networkGraphSeeds))return;
+        var oldIds=new Set(networkGraphSeeds.map(function(x){return String(x.node);}));
+        var nextIds=new Set(next.map(function(x){return String(x.node);}));
+        var topologyChanged=oldIds.size!==nextIds.size||Array.from(oldIds).some(function(id){return !nextIds.has(id);});
         networkGraphSeeds=next;
-        if(networkMapPanel.open)loadNetworkGraph(String(root),networkGraphSeeds);
+        if(!networkMapPanel.open)return;
+        // Keep the SVG, zoom, selection and discovery session alive. Only redraw
+        // when actual links change, not when status labels or poll timestamps change.
+        if(!topologyChanged)return;
+        oldIds.forEach(function(id){
+            if(nextIds.has(id))return;
+            var key=[String(root),id].sort().join(':');
+            networkGraphEdges.delete(key);
+            var a=networkGraphChildren.get(String(root)),b=networkGraphChildren.get(id);
+            if(a)a.delete(id);
+            if(b)b.delete(String(root));
+        });
+        next.forEach(function(seed){
+            var id=String(seed.node),key=[String(root),id].sort().join(':');
+            networkGraphEdges.add(key);
+            networkGraphNodes.add(id);
+            networkGraphKinds.set(id,seed.kind||'node');
+            networkGraphLabels.set(id,seed.label||id);
+            if(!networkGraphChildren.has(String(root)))networkGraphChildren.set(String(root),new Set());
+            if(!networkGraphChildren.has(id))networkGraphChildren.set(id,new Set());
+            networkGraphChildren.get(String(root)).add(id);
+            networkGraphChildren.get(id).add(String(root));
+        });
+        renderNetworkGraph();
     }
 
 	function loadLiveConnectionRows(node) {
