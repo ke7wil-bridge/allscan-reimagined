@@ -224,15 +224,49 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
         key=lambda row: int(row.get("startedEpoch") or row.get("eventEpoch") or 0), reverse=True)
     # A completed earlier transmission must never suppress a newly keyed
     # transmission merely because their start times are 1-3 seconds apart.
-    suppressed_relays = [row for row in relay_current
-        if any(str(row.get("node")) == str(ended.get("node"))
-               and same_active_transmission(row, ended)
-               and int(ended.get("eventEpoch") or 0) >= int(row.get("startedEpoch") or 0)
-               for ended in completed)]
+    suppressed_relays = []
+    ambiguous_relays = []
+    # Suppress a downstream relay only when its observed upstream hub is
+    # already known to have completed this same transmission. Propagate that
+    # evidence along the observed relay chain (Phoenix -> Kentucky -> Georgia)
+    # rather than matching unrelated stations solely by nearby timestamps.
+    # If multiple completed upstream events fit the same relay window, retain
+    # the activity as ambiguous instead of guessing which one ended.
+    upstream_completed = list(completed)
+    while True:
+        newly_suppressed = []
+        for row in relay_current:
+            if row in suppressed_relays:
+                continue
+            matches = [ended for ended in upstream_completed
+                if str(row.get("node", "")) == str(ended.get("hubNode") or "")
+                and same_active_transmission(row, ended)
+                and int(ended.get("eventEpoch") or 0) >= int(row.get("startedEpoch") or 0)]
+            if len(matches) == 1:
+                newly_suppressed.append(row)
+            elif len(matches) > 1:
+                ambiguous_relays.append(row)
+        if not newly_suppressed:
+            break
+        suppressed_relays.extend(newly_suppressed)
+        upstream_completed.extend(newly_suppressed)
     unmatched_relays = [row for row in relay_current if row not in suppressed_relays]
-    # A relay without a currently matched origin is still a known relay.
-    # Do not manufacture an "Unidentified Station" global talker while source
-    # hub event timestamps are briefly out of sync.
+    # A relay may arrive before the source hub's verified station event.
+    # Keep the UI visibly ACTIVE for a short, bounded identity-resolution
+    # window, but never invent a callsign or station node for that interval.
+    pending_until = 0
+    if current is None and unmatched_relays:
+        first_relay = unmatched_relays[0]
+        relay_started = int(first_relay.get("startedEpoch") or first_relay.get("eventEpoch") or now)
+        pending_until = (relay_started + 2) * 1000
+        if pending_until > now * 1000:
+            current = {"node": "", "callsign": "", "description": "Origin not yet verified",
+                "location": "", "source": "AllStar", "duration": first_relay.get("duration", "—"),
+                "eventEpoch": first_relay.get("eventEpoch", now), "startedEpoch": relay_started,
+                "current": True, "hubId": first_relay.get("hubId", ""),
+                "hubName": first_relay.get("hubName", ""), "hubNode": first_relay.get("hubNode", ""),
+                "heardOn": first_relay.get("heardOn", ""),
+                "identityPendingUntilEpochMs": pending_until}
     for hub in hubs:
         hub["txState"] = "idle"
         hub["txLabel"] = "Idle"
@@ -261,7 +295,8 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
                 matches = [candidate]
         # Relay watchers report the neighboring hub's node, not the actual
         # remote caller. Use the verified originating talker while it is live.
-        if not matches and current and str(active.get("node", "")) in hub_nodes:
+        if (not matches and current and not current.get("identityPendingUntilEpochMs")
+                and str(active.get("node", "")) in hub_nodes):
             if same_active_transmission(active, current):
                 matches = [current]
         # Live inter-hub relay streams may begin well after the originating
@@ -301,11 +336,27 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
         else:
             relay_node = str(active.get("node", ""))
             relay_hub = next((item for item in hubs if str(item.get("node", "")) == relay_node), None)
-            if relay_hub and not active.get("originatedLocally"):
-                hub["txState"] = "relay"
-                # Without verified origin, show a neutral relay indicator
-                # rather than misrepresenting the immediate hop as source.
-                hub["txLabel"] = "RELAY · Origin pending"
+            relay_is_ambiguous = any(
+                row.get("hubId") == hub.get("id")
+                and str(row.get("node", "")) == str(active.get("node", ""))
+                and same_active_transmission(row, active)
+                for row in ambiguous_relays)
+            if relay_is_ambiguous or len(matches) > 1:
+                # Concurrent origins overlap this relay's timing window. We
+                # know activity exists, but cannot safely attribute its source.
+                hub["txState"] = "unknown"
+                hub["txLabel"] = "RELAY · Origin ambiguous"
+                hub["currentTalker"] = hub["txLabel"]
+            elif relay_hub and not active.get("originatedLocally"):
+                if pending_until > now * 1000:
+                    hub["txState"] = "pending"
+                    hub["txLabel"] = "ACTIVE · Origin not yet verified"
+                    hub["identityPendingUntilEpochMs"] = pending_until
+                else:
+                    hub["txState"] = "relay"
+                    # Without verified origin, show a neutral relay indicator
+                    # rather than misrepresenting the immediate hop as source.
+                    hub["txLabel"] = "RELAY · Origin pending"
                 hub["relayUpstream"] = {"hubId": relay_hub.get("id"), "hubNode": relay_node,
                                         "hubName": relay_hub.get("name")}
                 hub["currentTalker"] = hub["txLabel"]
@@ -316,8 +367,9 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
     # Use a single coherent event for the current card, hub pill and row.
     # A hub may have an event ahead of its neighbors by 1-3 seconds.
     if current:
+        pending_current = int(current.get("identityPendingUntilEpochMs") or 0) > now * 1000
         origin_hub = next((hub for hub in hubs if hub.get("id") == current.get("hubId")), None)
-        if not origin_hub or origin_hub.get("txState") != "origin":
+        if not pending_current and (not origin_hub or origin_hub.get("txState") != "origin"):
             current = None
     for hub in hubs:
         if hub.get("txState") == "idle":

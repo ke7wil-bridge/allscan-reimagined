@@ -72,7 +72,7 @@ phoenix_case = [
 result = aggregate(phoenix_case)
 assert result[0]["node"] == "53430" and result[0]["hubId"] == "phoenix"
 assert [item["txState"] for item in phoenix_case] == ["relay", "origin", "relay"]
-assert phoenix_case[0]["txLabel"] == "RELAY · CALL30 / 53430"
+assert phoenix_case[0]["txLabel"] == "RELAY · Phoenix (641894)"
 assert phoenix_case[1]["txLabel"] == "TX · CALL30 / 53430"
 
 # 6: a hub may be shown only with explicit local-origin evidence.
@@ -190,7 +190,7 @@ with tempfile.TemporaryDirectory() as directory:
         "nodes": [], "current_talker": {"node": "54340", "keyed_started_epoch": 95}}}))
     built = status.build_hub({"id": "phoenix", "name": "Phoenix", "node": "641894",
         "stateKey": "phoenix", "statusFile": str(status_path), "staleAfterSeconds": 180},
-        {"phoenix_ready": True, "phoenix_age_seconds": 0}, {}, 120)
+        {"phoenix_ready": True, "phoenix_age_seconds": 0}, {}, {}, 120)
     assert built["stale"] is False and not any(row["current"] for row in built["talkers"])
 
 # Kentucky reads its existing event-driven watcher file directly, overriding a
@@ -206,12 +206,12 @@ with tempfile.TemporaryDirectory() as directory:
         "node_states": {"641894": {"keyed": "yes"}}, "history": []}))
     definition = {"id": "kentucky", "name": "Kentucky", "node": "674982", "stateKey": "kentucky",
         "statusFile": str(public_path), "talkerStatusFile": str(live_path)}
-    built = status.build_hub(definition, {"kentucky_ready": True}, {}, 120)
+    built = status.build_hub(definition, {"kentucky_ready": True}, {}, {}, 120)
     assert built["talkers"][0]["node"] == "641894" and built["connections"][0]["keyed"] is True
     assert built["connections"][0]["connected"] == "00:29:19"
     live_path.write_text(json.dumps({"healthy": True, "updated_epoch": 121, "fresh_for_seconds": 15,
         "current_talker": {}, "node_states": {"641894": {"keyed": "no"}}, "history": []}))
-    cleared = status.build_hub(definition, {"kentucky_ready": True}, {}, 121)
+    cleared = status.build_hub(definition, {"kentucky_ready": True}, {}, {}, 121)
     assert not any(row["current"] for row in cleared["talkers"])
 
 # Freshness boundary: remote telemetry may retain historical events but must
@@ -226,8 +226,8 @@ with tempfile.TemporaryDirectory() as directory:
     definition = {"id": "phoenix", "name": "Phoenix", "node": "641894",
                   "stateKey": "phoenix", "statusFile": str(remote),
                   "talkerStaleAfterSeconds": 15, "staleAfterSeconds": 180}
-    fresh = status.build_hub(definition, {"phoenix_ready": True}, {}, 115)
-    expired = status.build_hub(definition, {"phoenix_ready": True}, {}, 116)
+    fresh = status.build_hub(definition, {"phoenix_ready": True}, {}, {}, 115)
+    expired = status.build_hub(definition, {"phoenix_ready": True}, {}, {}, 116)
     assert any(row["current"] for row in fresh["talkers"])
     assert not any(row["current"] for row in expired["talkers"])
     assert any(not row["current"] for row in expired["talkers"])
@@ -256,9 +256,11 @@ with tempfile.TemporaryDirectory() as directory:
     assert fresh["connections"][0]["node"] == "674982"  # first data row is no longer skipped
     assert fresh["connections"][1]["keyed"] is True
 
-# 11: relay-only activity is explicitly unknown, never attributed to the relay.
-result = aggregate([hub("kentucky", "674982", [talker("641894", 700)]), hub("phoenix", "641894", [])])
-assert result[0]["callsign"] == "Unidentified Station" and not result[0]["node"]
+# 11: relay-only activity is explicitly RELAY, never attributed to the relay node.
+relay_only = [hub("kentucky", "674982", [talker("641894", 700)]), hub("phoenix", "641894", [])]
+result = aggregate(relay_only)
+assert result == [] and relay_only[0]["txState"] == "relay"
+assert relay_only[0]["txLabel"] == "RELAY · Origin pending"
 
 # Relay-first ordering gets a bounded identity-resolution window instead of a
 # visible false unknown. Origin-first and the resolved follow-up stay immediate.
@@ -266,8 +268,14 @@ event_start = 1_700_000_100
 relay_first = [hub("kentucky", "674982", [talker("641894", event_start)]),
     hub("phoenix", "641894", []), hub("georgia", "674980", [])]
 result = aggregate(relay_first)
-assert result[0]["callsign"] == "Unidentified Station"
-assert relay_first[0]["txState"] == "pending" and result[0]["identityPendingUntilEpochMs"] > event_start * 1000
+assert result[0]["callsign"] == "" and result[0]["identityPendingUntilEpochMs"] > event_start * 1000
+assert relay_first[0]["txState"] == "pending"
+assert relay_first[0]["txLabel"] == "ACTIVE · Origin not yet verified"
+expired_relay_first = [hub("kentucky", "674982", [talker("641894", event_start)]),
+    hub("phoenix", "641894", []), hub("georgia", "674980", [])]
+expired_result = status.aggregate_talkers(expired_relay_first, event_start + 3)
+assert expired_result == [] and expired_relay_first[0]["txState"] == "relay"
+assert expired_relay_first[0]["txLabel"] == "RELAY · Origin pending"
 resolved = [hub("kentucky", "674982", [talker("641894", event_start)]),
     hub("phoenix", "641894", [talker("53430", event_start)]), hub("georgia", "674980", [])]
 assert aggregate(resolved)[0]["node"] == "53430" and resolved[1]["txState"] == "origin"
@@ -286,6 +294,16 @@ result = aggregate(lagged)
 assert result[0]["node"] == "53430" and result[0]["current"] is False
 assert [item["txState"] for item in lagged] == ["idle", "idle", "idle"]
 assert not any(row.get("current") for row in result)
+
+# A relay must not be cleared when multiple completed origins from the same
+# upstream hub fit its timing window; attribution is ambiguous, not idle.
+ambiguous_completed = [
+    hub("phoenix", "641894", [talker("11111", 725, 730, False), talker("22222", 727, 731, False)]),
+    hub("kentucky", "674982", [talker("641894", 728)]),
+]
+aggregate(ambiguous_completed)
+assert ambiguous_completed[1]["txState"] == "unknown"
+assert ambiguous_completed[1]["txLabel"] == "RELAY · Origin ambiguous"
 
 # Two direct stations keying close together must never inherit one another's
 # identities, even if only one origin is currently verified.
@@ -312,7 +330,7 @@ for arrival in (("phoenix", "kentucky", "georgia"),
     assert rows_by_id["phoenix"]["txState"] == "origin"
     assert rows_by_id["kentucky"]["txState"] == "relay"
     assert rows_by_id["georgia"]["txState"] == "relay"
-    assert "53430" in rows_by_id["georgia"]["txLabel"]
+    assert rows_by_id["georgia"]["txLabel"] == "RELAY · Phoenix (641894)"
 
 # When two origins overlap, a relay timestamp compatible with both is
 # ambiguous; never guess a station's identity.
