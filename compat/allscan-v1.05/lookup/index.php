@@ -71,9 +71,11 @@ pageInit();
  .asr-network-dialog { position:fixed;inset:0;margin:auto;transform:none;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:#17252f;color:#f0f7fb; }
 .asr-network-dialog:not([open]) {display:none}
 .asr-network-dialog::backdrop {background:#000b}
-.asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid var(--border-color,#648092);border-radius:8px;background:var(--surface,var(--card-bg,#203745));color:inherit;box-shadow:0 8px 26px #0008;font-size:13px}
+.asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid #6c92a6;border-radius:8px;background:#203745;color:#f3f9ff;box-shadow:0 8px 26px #0008;font-size:13px}
 .asr-network-node-info[hidden] {display:none!important}
-.asr-network-node-info button {float:right}
+.asr-network-node-info strong {font-size:16px}
+.asr-network-node-info button {float:right;background:transparent;color:inherit;border:1px solid #7794a3;border-radius:4px;cursor:pointer}
+.asr-network-node-info div div {padding-top:5px;overflow-wrap:anywhere}
 .asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:#172833;}
 .asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:#243c4b;}
 .asr-network-dialog>.asr-map-body {position:relative;display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden;padding:0;}
@@ -240,8 +242,9 @@ pageInit();
         fetch('node-info.php?node='+encodeURIComponent(id),{credentials:'same-origin'}).then(function(r){if(!r.ok)throw Error('Unavailable');return r.json();}).then(function(data){
             if(request!==networkInfoRequest)return;
             details.replaceChildren();
-            if(data.callsign)title.textContent=data.callsign+' · '+id;
-            [['Callsign',data.callsign],['Description',data.description||data.name],['Location',data.location],['Connections',(data.links||[]).join(', ')||'Not currently available']].forEach(function(field){
+            var displayName=[data.callsign,data.name,data.description].find(function(value){return value&&String(value)!==id;})||(networkGraphLabels.get(id)!==id?networkGraphLabels.get(id):'');
+            if(displayName)title.textContent=displayName+' · '+id;
+            [['Callsign',data.callsign],['Description',data.description||data.name],['Location',data.location],['Connections',(data.links&&data.links.length?data.links:Array.from(networkGraphChildren.get(id)||[])).join(', ')||'Not currently available']].forEach(function(field){
                 if(!field[1])return;var row=document.createElement('div'),label=document.createElement('b');label.textContent=field[0]+': ';row.appendChild(label);row.appendChild(document.createTextNode(String(field[1])));details.appendChild(row);
             });
         }).catch(function(){if(request===networkInfoRequest)details.textContent='Unable to load node details right now.';});

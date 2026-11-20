@@ -66,3 +66,6 @@ for (const file of [page,backend,details]) execFileSync('php',['-l',file])
 console.log('ASR #207 bubble integration checks: ok')
 
 assert.ok(source.includes('n===networkGraphRoot?45:33'), 'Root node label must clear larger yellow bubble');
+
+assert.ok(source.includes('.asr-network-node-info strong {font-size:16px}'), 'Station detail heading must match ASRPlus');
+assert.ok(source.includes('networkGraphChildren.get(id)||[]'), 'Station details must fall back to live graph connections');
