@@ -608,6 +608,7 @@ function App({ config }: { config: RuntimeConfig }) {
       lastTxEpoch: 0,
       activeStartEpoch: 0,
       recentTalkers: [],
+      relayEventEpochs: [],
       recentRows: [],
       audioMeter: null,
     })),
@@ -924,11 +925,20 @@ function App({ config }: { config: RuntimeConfig }) {
   const talkerCards = useMemo(() => {
     const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
     const cutoff = Math.floor(clock.getTime() / 1000) - TALKER_HISTORY_MAX_AGE_SECONDS
-    const activeCandidate = currentTalker || bridgeTalkers.currentTalker
+    // ASTAPI reports the AllStar/EchoLink side of a digital bridge relay as
+    // a talker too. When its event timestamp matches an outgoing digital
+    // bridge TX edge, it is transport echo, not the originating digital user.
+    const relayEpochs = bridgeState.cards.flatMap((card) => card.relayEventEpochs || [])
+    const isRelayEcho = (entry: TalkerFeedEntry | null) => Boolean(entry
+      && String(entry.source || '').toUpperCase() === 'ALLSTAR'
+      && relayEpochs.some((epoch) => Math.abs(epoch - entry.eventEpoch) <= 3))
+    const rawActiveCandidate = currentTalker || bridgeTalkers.currentTalker
+    const activeCandidate = isRelayEcho(rawActiveCandidate) ? null : rawActiveCandidate
     const active = activeCandidate && Math.max(activeCandidate.eventEpoch, activeCandidate.startedEpoch) >= cutoff
       ? activeCandidate
       : null
     const history = [...recentTalkers, ...bridgeTalkers.recentTalkers]
+      .filter((entry) => !isRelayEcho(entry))
       .filter((entry) => entry.eventEpoch >= cutoff)
       .filter((entry) => (!active || entry.node !== active.node || entry.eventEpoch !== active.eventEpoch))
       .sort((left, right) => right.eventEpoch - left.eventEpoch)

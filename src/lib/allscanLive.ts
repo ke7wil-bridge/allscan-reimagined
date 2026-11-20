@@ -206,6 +206,7 @@ export type BridgeCardView = {
   lastTxEpoch: number
   activeStartEpoch: number
   recentTalkers: Array<{ callsign: string; startEpoch: number; eventEpoch: number; duration: number }>
+  relayEventEpochs: number[]
   recentRows: BridgeDetailItem[]
   audioMeter: { inboundPeak: number; inboundRms: number; outboundPeak: number; outboundRms: number } | null
 }
@@ -1757,6 +1758,10 @@ export async function fetchBridgeCards(
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
+        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .map((record) => Math.max(0, Number(record.epoch) || 0))
+        .filter((epoch) => epoch > 0),
       recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
