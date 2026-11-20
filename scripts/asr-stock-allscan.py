@@ -168,17 +168,17 @@ def self_test() -> None:
         manifest_path = root / "stock.json"
         manifest = {
             "schema": 1,
-            "version": "v1.05",
+            "version": "v1.06",
             "commit": "a" * 40,
             "url": f"https://codeload.github.com/davidgsd/AllScan/tar.gz/{'a' * 40}",
             "sha256": "b" * 64,
         }
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        assert load_manifest(manifest_path)["version"] == "v1.05"
+        assert load_manifest(manifest_path)["version"] == "v1.06"
         archive_path = root / "stock.tar.gz"
         root_name = f"AllScan-{manifest['commit']}"
         with tarfile.open(archive_path, "w:gz") as archive:
-            payload = b'<?php\n$AllScanVersion = "v1.05";\n'
+            payload = b'<?php\n$AllScanVersion = "v1.06";\n'
             info = tarfile.TarInfo(f"{root_name}/include/common.php")
             info.size = len(payload)
             archive.addfile(info, io.BytesIO(payload))

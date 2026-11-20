@@ -309,6 +309,16 @@ def assert_installer_order(installer: Path) -> None:
     assert '[ -x "$STOCK_UPDATE_HELPER" ]' not in text
     assert 'python3 "$STOCK_UPDATE_HELPER" manifest-version "$STOCK_MANIFEST"' in text
     assert 'python3 "$STOCK_UPDATE_HELPER" prepare' in text
+    assert 'scripts/asr-allscan-v106-migrate.py" migrate' in text
+    assert '--database /etc/allscan/allscan.db --from-version "$current_version"' in text
+    assert text.index('finalize-backup "$BACKUP_DIR" "$PRE_UPDATE_ASR_VERSION"') < text.index(
+        'scripts/asr-allscan-v106-migrate.py" migrate'
+    ) < text.index('mv "$STOCK_STAGE_PARENT/allscan" "$STOCK_ALLSCAN_DIR"')
+    assert "backup_scheduler_state" in text
+    assert "reconcile_scheduler_crontab disable" in text
+    for scheduler_file in ("schedule.json", "schedule.activity", "schedule.heartbeat", "schedule.log"):
+        assert scheduler_file in text
+    assert 'crontab -u "$WEB_USER"' in text
     assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
     assert 'mv "$STOCK_PREVIOUS_DIR" "$STOCK_ALLSCAN_DIR"' in rollback_block
     assert text.index('STOCK_PREVIOUS_ARMED=1') < text.index(
@@ -569,7 +579,7 @@ def assert_lifecycle_reapply_contract(reapply: Path, integrity: Path) -> None:
     assert '"root:$WEB_GROUP:2750"' in integrity_text
     assert "allscan-reimagined-reapply-delayed.timer" in integrity_text
     project_root = reapply.parents[1]
-    for backend_version in ("v1.02", "v1.03", "v1.04", "v1.05"):
+    for backend_version in ("v1.02", "v1.03", "v1.04", "v1.05", "v1.06"):
         settings = (
             project_root
             / "compat"

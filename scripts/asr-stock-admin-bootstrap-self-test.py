@@ -7,7 +7,7 @@ import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
 helper = root / 'scripts/asr-stock-admin-bootstrap.php'
-model = root / 'compat/allscan-v1.05/include/UserModel.php'
+model = root / 'compat/allscan-v1.06/include/UserModel.php'
 with tempfile.TemporaryDirectory(prefix='asr-admin-qa-') as tmp:
     base = pathlib.Path(tmp)
     stock = base / 'allscan'

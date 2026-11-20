@@ -58,6 +58,20 @@ def static_checks() -> None:
         if common.replace(f'$AllScanVersion = "{version}";', '$AllScanVersion = "v1.03";', 1) \
                 != (v103 / "include/common.php").read_text():
             raise RuntimeError(f"AllScan {version} common.php differs beyond the qualified backend version")
+    v106 = ROOT / "compat/allscan-v1.06"
+    v106_files = {path.relative_to(v106) for path in v106.rglob("*") if path.is_file()}
+    if v103_files != v106_files:
+        raise RuntimeError("AllScan v1.06 compatibility layer file set diverges from v1.03")
+    for relative in v103_files - {
+        Path("include/common.php"), Path("include/CfgModel.php"), Path("astapi/server.php")
+    }:
+        require_equal(v103 / relative, v106 / relative)
+    v106_cfg = (v106 / "include/CfgModel.php").read_text()
+    v106_server = (v106 / "astapi/server.php").read_text()
+    if "define('schedulerEnabled', 14);" not in v106_cfg or "define('showcmdbuttons', 15);" not in v106_cfg:
+        raise RuntimeError("AllScan v1.06 config IDs are not isolated")
+    if "checkScheduleActivity();" not in v106_server or "scheduleUtils.php" not in v106_server:
+        raise RuntimeError("AllScan v1.06 native scheduler SSE is not integrated")
     for relative in CRITICAL_COMPAT:
         for version in ("v1.03", "v1.04", "v1.05"):
             require_equal(ROOT / "compat/allscan-v1.02" / relative,
@@ -77,7 +91,7 @@ def static_checks() -> None:
             raise RuntimeError(f"layered recreation can delete persistent runtime state: {runtime_name}")
     if 'compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"' not in reapply:
         raise RuntimeError("native reapply does not select an exact detected compatibility version")
-    for version in ("v1.02", "v1.03", "v1.04", "v1.05"):
+    for version in ("v1.02", "v1.03", "v1.04", "v1.05", "v1.06"):
         source = ROOT / f"compat/allscan-{version}/astapi/server.php"
         text = source.read_text()
         if "asrSanitizeTalkerFeed($payload['current']" not in text:

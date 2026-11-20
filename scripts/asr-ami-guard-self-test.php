@@ -116,7 +116,7 @@ foreach($unavailable['641890']['remote_nodes'] as $row) {
 	asrAmiGuardTest(!isset($row['keyed_started_epoch']), 'Unavailable AMI state retained a stale key start time.');
 }
 
-foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05'] as $compatVersion) {
+foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05', 'v1.06'] as $compatVersion) {
 	$server = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/server.php");
 	$guard = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/asrAmiGuard.php");
 	asrAmiGuardTest(str_contains($server, 'writeSharedStatus($cachePath, $payload[\'current\']'), "$compatVersion does not publish AMI unavailability to the shared cache.");

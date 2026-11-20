@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-const source = await readFile(join(root, 'compat/allscan-v1.05/asr-settings/settings-controller.php'), 'utf8')
+const source = await readFile(join(root, 'compat/allscan-v1.06/asr-settings/settings-controller.php'), 'utf8')
 const match = source.match(/<script>\s*(\(function \(\) \{[\s\S]*?\}\)\(\);)\s*<\/script>/)
 if (!match) throw new Error('Settings browser controller was not found.')
 const controller = match[1]
