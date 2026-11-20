@@ -48,48 +48,51 @@ pageInit();
 		</section>
 		<dialog id="asrNetworkMapPanel" class="asr-map-panel asr-network-dialog" aria-label="AllStarLink bubble network map">
 			<div class="asr-map-head">
-				<strong>AllStarLink Network Map</strong>
+				<strong id="asrNetworkMapTitle">AllStarLink Network Map</strong>
 				<span class="asr-network-controls"><button id="asrNetworkZoomOut" type="button" class="asr-map-button" aria-label="Zoom out">−</button><button id="asrNetworkZoomIn" type="button" class="asr-map-button" aria-label="Zoom in">+</button><button id="asrNetworkFit" type="button" class="asr-map-button">Fill</button><button id="asrNetworkMapClose" type="button" class="asr-map-close">Close</button></span>
 			</div>
 			<div class="asr-map-body">
-				<p class="asr-map-note"><b>Click</b> for details · <b>Double-click</b> to expand/collapse · <b>Drag</b> to move stations</p>
+
 				<aside id="asrNetworkNodeInfo" class="asr-network-node-info" hidden aria-live="polite"></aside>
 				<div id="asrNetworkMapFrame" class="asr-map-frame asr-network-map-frame">
+					<div class="asr-network-map-help"><b>Click</b> for details · <b>Double-click</b> to expand/collapse · <b>Drag</b> to move stations</div>
 					<span id="asrNetworkMapLoading" class="asr-map-loading">Loading Map</span>
 					<svg id="asrNetworkGraph" role="group" aria-label="Interactive AllStarLink network graph" hidden></svg>
 					<img id="asrNetworkMapImage" alt="" loading="eager" decoding="async">
 				</div>
 				<p id="asrNetworkGraphStatus" class="asr-map-note" aria-live="polite">Interactive topology loads from AllStarLink.</p>
-				<p class="asr-map-note">
-					<button id="asrNetworkMapFallback" type="button" class="asr-map-button">Open Full Map</button>
-				</p>
+				<p class="asr-map-note"><button id="asrNetworkMapFallback" type="button" class="asr-map-button">Open Full Map</button></p>
 			</div>
 		</dialog>
 	</div>
 </section>
 
 <style>
- .asr-network-dialog { position:relative;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:var(--surface,var(--card-bg,#172833));color:var(--text-primary,var(--text-color,#eaf2ff)); }
+ .asr-network-dialog { position:fixed;inset:0;margin:auto;transform:none;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:#17252f;color:#f0f7fb; }
 .asr-network-dialog:not([open]) {display:none}
 .asr-network-dialog::backdrop {background:#000b}
 .asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid var(--border-color,#648092);border-radius:8px;background:var(--surface,var(--card-bg,#203745));color:inherit;box-shadow:0 8px 26px #0008;font-size:13px}
 .asr-network-node-info[hidden] {display:none!important}
 .asr-network-node-info button {float:right}
-.asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:var(--surface,var(--card-bg,#172833));}
-.asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:var(--surface-alt,var(--card-bg,#243c4b));}
+.asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:#172833;}
+.asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:#243c4b;}
 .asr-network-dialog>.asr-map-body {position:relative;display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden;padding:0;}
-.asr-network-dialog .asr-map-body>.asr-map-note:first-child {flex:0 0 auto;margin:6px 12px;}
+
 .asr-network-dialog .asr-network-map-frame {flex:1 1 auto;width:100%;min-height:0;height:auto;}
+.asr-network-map-help {position:absolute;z-index:8;left:50%;bottom:8px;transform:translateX(-50%);width:max-content;max-width:calc(100% - 38px);padding:3px 8px;border:1px solid #a5c6d7;border-radius:7px;background:#f0f5f8;color:#183448;box-shadow:0 2px 12px #0008;text-align:center;font-size:13px;font-weight:500;line-height:1.2;pointer-events:none;}
+.asr-network-map-help b {font-weight:800;color:#0a557f;}
 .asr-network-dialog #asrNetworkGraph:not([hidden]) {position:relative;z-index:3;display:block;min-width:0;min-height:0;max-width:none;max-height:none;flex:none;opacity:1;visibility:visible;}
 .asr-network-dialog #asrNetworkGraph circle,.asr-network-dialog #asrNetworkGraph line,.asr-network-dialog #asrNetworkGraph text {opacity:1;visibility:visible;}
-.asr-network-dialog .asr-network-node-info {top:48px;}
+.asr-network-dialog .asr-network-node-info {top:65px;}
 
-#asrNetworkGraph { display:block; width:100%; height:100%; overflow:auto; background:var(--surface, var(--card-bg, #172833)); touch-action:pan-x pan-y; }
+#asrNetworkGraph { display:block; width:100%; height:100%; overflow:visible; background:#172833; touch-action:pan-x pan-y; }
 #asrNetworkGraph[hidden], #asrNetworkMapImage[hidden] { display:none !important; }
 #asrNetworkGraph [data-node] { cursor:pointer; outline:none; }
 #asrNetworkGraph [data-node]:hover text, #asrNetworkGraph [data-node]:focus text { text-decoration:underline; }
 #asrNetworkGraph [data-node]:focus circle { stroke-width:4; }
-.asr-network-controls { display:flex; align-items:center; gap:.35rem; }
+.asr-network-controls { display:flex; align-items:center; gap:7px; }
+.asr-network-controls .asr-map-button,.asr-network-controls .asr-map-close {padding:7px 12px;border:1px solid #718f9e;border-radius:5px;background:#345366;color:#fff;font-weight:750;cursor:pointer;}
+.asr-network-dialog #asrNetworkGraphStatus,.asr-network-dialog #asrNetworkMapFallback {display:none!important;}
 .asr-network-map-frame img {
 	position:relative;
 	z-index:1;
@@ -105,11 +108,12 @@ pageInit();
 	opacity:.72;
 }
 
-@media (max-width:760px) {
-	.asr-network-map-frame {
-		height:260px;
-		min-height:180px;
-	}
+@media (max-width:650px) {
+  .asr-network-dialog {width:98vw;max-width:98vw;height:90dvh;max-height:90dvh;}
+  .asr-network-dialog>.asr-map-head {padding:7px;font-size:12px;}
+  .asr-network-controls {gap:5px;}
+  .asr-network-controls button {padding:6px 8px;}
+  .asr-network-map-help {font-size:12px;white-space:normal;}
 }
 </style>
 
@@ -130,6 +134,7 @@ pageInit();
 	var mapSummary = document.getElementById('asrStationMapSummary');
 	var mapUnmapped = document.getElementById('asrStationMapUnmapped');
 	var networkMapOpen = document.getElementById('asrNetworkMapOpen');
+    var networkMapTitle = document.getElementById('asrNetworkMapTitle');
 	var networkMapClose = document.getElementById('asrNetworkMapClose');
 	var networkMapPanel = document.getElementById('asrNetworkMapPanel');
 	var networkMapFrame = document.getElementById('asrNetworkMapFrame');
@@ -157,17 +162,13 @@ pageInit();
 	var networkGraphTouchDistance = 0;
 	var networkGraphTouchZoom = 1;
 	var networkGraphColors = function () {
-        var rootStyle=getComputedStyle(document.documentElement),bodyStyle=getComputedStyle(document.body);
-        var panel=document.querySelector('.asr-lookup-list-panel')||document.querySelector('.asr-lookup-page')||document.body;
-        var panelStyle=getComputedStyle(panel),buttonStyle=getComputedStyle(networkMapOpen);
-        var css=function(key,fallback){return rootStyle.getPropertyValue(key).trim()||bodyStyle.getPropertyValue(key).trim()||fallback;};
-        var background=css('--surface',css('--card-bg',panelStyle.backgroundColor||'#172833'));
-        var foreground=css('--text-primary',css('--text-color',bodyStyle.color||'#eaf2ff'));
-        var edge=css('--border-color',panelStyle.borderTopColor||'#8298ac');
-        var node=css('--accent-color',css('--primary-color',buttonStyle.backgroundColor||'#4ab9e6'));
-        var root=css('--accent',css('--warning-color','#ffc45a'));
-        return {background:background,foreground:foreground,edge:edge,node:node,root:root};
+        return {root:'#e1ad45',bridge:'#87929b',hub:'#3bc48a',node:'#4ab9e6',edge:'#809ca9',foreground:'#edf5f8',background:'#172833'};
 	};
+    var networkGraphKinds = new Map();
+    var networkGraphLabels = new Map();
+    var networkGraphCanvasWidth = 1000;
+    var networkGraphCanvasHeight = 700;
+
 	function renderNetworkGraph() {
 		var colors = networkGraphColors();
 		var nodes = Array.from(networkGraphNodes);
@@ -196,17 +197,22 @@ pageInit();
 		var ns='http://www.w3.org/2000/svg';
 		function el(tag,attributes,parent) { var node=document.createElementNS(ns,tag); Object.keys(attributes).forEach(function(k){node.setAttribute(k,attributes[k]);}); (parent||networkGraph).appendChild(node); return node; }
 		networkGraph.replaceChildren();
-		networkGraph.setAttribute('viewBox','0 0 '+(width/networkGraphZoom)+' '+(height/networkGraphZoom));
+		networkGraphCanvasWidth=width;networkGraphCanvasHeight=height;
+        networkGraph.setAttribute('viewBox','0 0 '+width+' '+height);
+        networkGraph.style.width=Math.round(width*networkGraphZoom)+'px';networkGraph.style.height=Math.round(height*networkGraphZoom)+'px';
 		networkGraph.style.background=colors.background;
 
 		networkGraphEdges.forEach(function(key) {
 			var pair=key.split(':'); if(!depth.has(pair[0])||!depth.has(pair[1])||(networkGraphCollapsed.has(pair[0])||networkGraphCollapsed.has(pair[1]))) return;
 			var a=networkGraphPositions.get(pair[0]),b=networkGraphPositions.get(pair[1]);
-			el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:colors.edge,'stroke-width':'2'});
+			el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:colors.edge,'stroke-opacity':'.6','stroke-width':'1.6'});
 		});
 		visible.forEach(function(n) {
 			var xy=networkGraphPositions.get(n),g=el('g',{'data-node':n,tabindex:'0',role:'button','aria-label':'Node '+n+'. Enter opens AllStarLink details; C collapses connections'});
-			el('circle',{cx:xy[0],cy:xy[1],r:n===networkGraphRoot?26:16,fill:n===networkGraphRoot?colors.root:colors.node,stroke:colors.background,'stroke-width':'2'},g);
+			var kind=networkGraphKinds.get(n)|| (n===networkGraphRoot?'root':'node');
+            var fill=kind==='root'?colors.root:kind==='bridge'?colors.bridge:kind==='hub'?colors.hub:colors.node;
+            el('circle',{cx:xy[0],cy:xy[1],r:n===networkGraphRoot?26:16,fill:fill,stroke:colors.background,'stroke-width':'2'},g);
+            var title=el('title',{},g);title.textContent=n+' · '+(networkGraphLabels.get(n)||n)+' (click for details, double-click to toggle children)';
 			var label=el('text',{x:xy[0],y:xy[1]+33,'text-anchor':'middle',fill:colors.foreground,'font-size':'13','font-weight':'700'},g);label.textContent=n;
 		});
 		if(!networkGraphUnavailable)networkGraphStatus.textContent=visible.length+' stations · '+networkGraphEdges.size+' connections. Select a node to open its AllStarLink details; press C to collapse.';
@@ -229,8 +235,8 @@ pageInit();
     }
 	function loadNetworkGraph(root,seeds) {
 		var request=++networkGraphRequest;
-		networkGraphRoot=root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();
-		networkGraphZoom=1;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.map(String).filter(function(n){return /^\d{4,7}$/.test(n)&&n!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
+		networkGraphRoot=root;networkMapTitle.textContent='AllStarLink Network Map · '+root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();networkGraphKinds.clear();networkGraphLabels.clear();networkGraphKinds.set(root,'root');networkGraphLabels.set(root,root);
+		networkGraphZoom=1;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
 		networkMapLoading.hidden=true;renderNetworkGraph();
         var pending=[root],visited=new Set(),unchanged=0,temporaryFailures=new Map();
         var cacheKey='asr-standard-network-'+root;
@@ -238,8 +244,12 @@ pageInit();
             var key=[node,linked].sort().join(':');networkGraphEdges.delete(key);
             [node,linked].forEach(function(id){var other=id===node?linked:node;var set=networkGraphChildren.get(id);if(set){set.delete(other);if(!set.size)networkGraphChildren.delete(id);}});
         }
-        function addEdge(node,linked){
+        function addEdge(node,linked,meta){
             if(!/^\d{3,7}$/.test(linked)||linked===node)return false;
+            if(linked===networkGraphRoot)networkGraphKinds.set(linked,'root');
+            else if(meta&&meta.kind){var priorKind=networkGraphKinds.get(linked);if(!priorKind||priorKind==='node'||meta.kind==='bridge'||meta.kind==='hub')networkGraphKinds.set(linked,meta.kind);}
+            else if(!networkGraphKinds.has(linked))networkGraphKinds.set(linked,/^100[1-6]$/.test(linked)?'bridge':'node');
+            if(meta&&meta.label&&!networkGraphLabels.has(linked))networkGraphLabels.set(linked,meta.label);else if(!networkGraphLabels.has(linked))networkGraphLabels.set(linked,linked);
             var edge=[node,linked].sort().join(':');networkGraphEdges.add(edge);
             for(var pair of [[node,linked],[linked,node]]){
                 if(!networkGraphChildren.has(pair[0]))networkGraphChildren.set(pair[0],new Set());
@@ -255,8 +265,8 @@ pageInit();
                 renderNetworkGraph();
             }
         }catch(_){}
-        Array.from(networkGraphChildren.get(root)||[]).forEach(function(old){if(!networkGraphSeeds.includes(old))removeEdge(root,old);});
-        networkGraphSeeds.forEach(function(seed){addEdge(root,seed);});
+        Array.from(networkGraphChildren.get(root)||[]).forEach(function(old){if(!networkGraphSeeds.some(function(seed){return String(seed.node)===old;}))removeEdge(root,old);});
+        networkGraphSeeds.forEach(function(seed){addEdge(root,String(seed.node),seed);});
         function save(){try{localStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),edges:Array.from(networkGraphEdges,function(key){return key.split(':');})}));}catch(_){}}
         async function discover(){
             while(request===networkGraphRequest&&networkMapPanel.open&&pending.length){
@@ -283,9 +293,9 @@ pageInit();
                     }
                     reported=true;
                     var currentLinks=new Set((result.data.links||[]).map(String).filter(function(id){return /^\d{3,7}$/.test(id)&&id!==result.node;}));
-                    if(result.node===networkGraphRoot)networkGraphSeeds.forEach(function(seed){currentLinks.add(seed);});
+                    if(result.node===networkGraphRoot)networkGraphSeeds.forEach(function(seed){currentLinks.add(String(seed.node));});
                     Array.from(networkGraphChildren.get(result.node)||[]).forEach(function(old){if(!currentLinks.has(old))removeEdge(result.node,old);});
-                    currentLinks.forEach(function(linked){if(addEdge(result.node,linked))discovered=true;});
+                    currentLinks.forEach(function(linked){if(addEdge(result.node,linked,{kind:/^100[1-6]$/.test(linked)?'bridge':'node',label:linked}))discovered=true;});
                     // Persist successful refreshes too, including removals, not only newly found nodes.
                     save();
                 });
@@ -300,9 +310,9 @@ pageInit();
         void discover().catch(function(){if(request===networkGraphRequest)networkGraphStatus.textContent='Network discovery paused. Reopen to retry.';});
 
 	}
-	document.getElementById('asrNetworkZoomIn').addEventListener('click',function(){networkGraphZoom=Math.min(4,networkGraphZoom*1.25);renderNetworkGraph();});
+	document.getElementById('asrNetworkZoomIn').addEventListener('click',function(){networkGraphZoom=Math.min(5,networkGraphZoom*1.25);renderNetworkGraph();});
 	document.getElementById('asrNetworkZoomOut').addEventListener('click',function(){networkGraphZoom=Math.max(.5,networkGraphZoom/1.25);renderNetworkGraph();});
-	document.getElementById('asrNetworkFit').addEventListener('click',function(){networkGraphZoom=1;renderNetworkGraph();});
+	document.getElementById('asrNetworkFit').addEventListener('click',function(){networkGraphZoom=1;renderNetworkGraph();networkMapFrame.scrollTo(0,0);});
 	function graphSvgPoint(event) {
 		var point=networkGraph.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
 		var matrix=networkGraph.getScreenCTM();
@@ -448,8 +458,9 @@ pageInit();
 
 	function setNetworkMapNode(node,seeds) {
 		var nextNode = String(node || '').trim();
-        var nextSeeds=Array.isArray(seeds)?seeds.map(String).filter(function(n){return /^\d{4,7}$/.test(n)&&n!==nextNode;}):networkGraphSeeds;
-        var seedsChanged=nextSeeds.slice().sort().join(',')!==networkGraphSeeds.slice().sort().join(',');
+        var nextSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==nextNode;}):networkGraphSeeds;
+        var seedKey=function(items){return items.map(function(x){return [x.node,x.kind,x.label].join('|');}).sort().join(';');};
+        var seedsChanged=seedKey(nextSeeds)!==seedKey(networkGraphSeeds);
 		if(!networkMapBaseUrl(nextNode)) return;
 		if((networkMapNode !== nextNode||seedsChanged)&&networkMapPanel.open)loadNetworkGraph(nextNode,nextSeeds);
         networkGraphSeeds=nextSeeds;
@@ -792,7 +803,7 @@ pageInit();
 				var localUpdated = viewerTime(payload.generatedAt);
 				updated.textContent = localUpdated ? ' · Updated ' + localUpdated : '';
 				render();
-				setNetworkMapNode(payload.node,(payload.items||[]).filter(function(item){return item&&item.source==='Connection Status'&&item.node;}).map(function(item){return String(item.node);}));
+				setNetworkMapNode(payload.node,(payload.items||[]).filter(function(item){return item&&item.source==='Connection Status'&&item.node;}).map(function(item){return {node:String(item.node),label:String(item.label||item.node),kind:'node'};}));
 				loadLiveConnectionRows(payload.node);
 				refreshStationMap();
 			})
@@ -804,6 +815,15 @@ pageInit();
 				lookupLoading = false;
 			});
 	}
+
+	function setNetworkGraphLocalLinks(root,seeds) {
+        if(String(root)!==String(networkMapNode))return;
+        var next=Array.isArray(seeds)?seeds:[];
+        var signature=function(items){return items.map(function(x){return [x.node,x.kind,x.label].join('|');}).sort().join(';');};
+        if(signature(next)===signature(networkGraphSeeds))return;
+        networkGraphSeeds=next;
+        if(networkMapPanel.open)loadNetworkGraph(String(root),networkGraphSeeds);
+    }
 
 	function loadLiveConnectionRows(node) {
 		if(!node || typeof EventSource === 'undefined') return;
@@ -826,6 +846,14 @@ pageInit();
 			var rows = payload && payload[node] && Array.isArray(payload[node].remote_nodes)
 				? payload[node].remote_nodes
 				: [];
+            var localSeeds=rows.map(function(row){
+                var id=String(row&&row.node||'').trim();
+                var label=String(row&&row.info||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+                if(!/^\d{3,7}$/.test(id)||id==='1'||label==='NO CONNECTION'||/echolink/i.test(label))return null;
+                var kind=bridgeNodes[id]||/^100[1-6]$/.test(id)||/\bbridge\b|broadcastify/i.test(label)?'bridge':(/Netoholics.*Hub|Hub.*Netoholics/i.test(label)?'hub':'node');
+                return {node:id,label:label||id,kind:kind};
+            }).filter(Boolean);
+            setNetworkGraphLocalLinks(node,localSeeds);
 			rows.forEach(function (row) {
 				var rowNode = String(row && row.node || '').trim();
 				if(!rowNode || rowNode === '1' || bridgeNodes[rowNode] || isPrivateNode(rowNode)) return;
