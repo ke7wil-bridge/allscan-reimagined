@@ -2383,6 +2383,7 @@ if($modernSettings && $modernSettingsSection === 'scheduling') {
                         elseif($asrOperation === 'add') $asrEntries[] = $asrEntry;
                         else {
                             $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
+                            if(!preg_match('/^[a-f0-9]{8}$/D', $asrId)) $asrScheduleError = 'Invalid schedule ID.';
                             $asrFound = false;
                             foreach($asrEntries as $i => $old) {
                                 if(!is_array($old) || !hash_equals((string)($old['id'] ?? ''), $asrId)) continue;
@@ -2402,6 +2403,11 @@ if($modernSettings && $modernSettingsSection === 'scheduling') {
                 $asrFound = false;
                 foreach($asrEntries as $i => $entry) {
                     if(!is_array($entry) || !hash_equals((string)($entry['id'] ?? ''), $asrId)) continue;
+                    if($asrOperation === 'toggle' && empty($entry['enabled']) && (($entry['node'] ?? '') === '0' || !empty($entry['autodisc']))) {
+                        $asrScheduleError = 'Unsafe upstream schedule cannot be enabled in ASR.';
+                        $asrFound = true;
+                        break;
+                    }
                     $asrFound = true;
                     if($asrOperation === 'delete') unset($asrEntries[$i]);
                     else $asrEntries[$i]['enabled'] = empty($entry['enabled']);
