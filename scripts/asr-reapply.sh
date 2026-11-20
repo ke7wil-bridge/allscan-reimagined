@@ -337,13 +337,22 @@ rm -f /usr/local/sbin/allscan-reimagined-urf-admin
 # Kick/Ban). Instances run only where /etc/allscan-reimagined/native-udp-admin
 # holds their environment; reinstalling updates running instances in place.
 if [ -f "$MASTER_DIR/scripts/asr-native-udp-admin.py" ] && [ ! -e /.dockerenv ]; then
+  # Restart running proxies only when the proxy or its unit actually changed.
+  # A restart briefly relinks every YSF/P25/NXDN/M17 client and drops active
+  # Kick holds, and full reapplies run whenever the web tree is repaired (#134).
+  native_admin_changed=0
+  cmp -s "$MASTER_DIR/scripts/asr-native-udp-admin.py" /usr/local/sbin/allscan-reimagined-native-udp-admin || native_admin_changed=1
+  cmp -s "$MASTER_DIR/ops/native-udp-admin/allscan-reimagined-native-admin@.service" \
+    /etc/systemd/system/allscan-reimagined-native-admin@.service || native_admin_changed=1
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-native-udp-admin.py" /usr/local/sbin/allscan-reimagined-native-udp-admin
   install -o root -g root -m 644 "$MASTER_DIR/ops/native-udp-admin/allscan-reimagined-native-admin@.service" \
     /etc/systemd/system/allscan-reimagined-native-admin@.service
-  systemctl daemon-reload
-  for unit in $(systemctl list-units --plain --no-legend --state=active 'allscan-reimagined-native-admin@*.service' | awk '{print $1}'); do
-    systemctl try-restart "$unit" || true
-  done
+  if [ "$native_admin_changed" -eq 1 ]; then
+    systemctl daemon-reload
+    for unit in $(systemctl list-units --plain --no-legend --state=active 'allscan-reimagined-native-admin@*.service' | awk '{print $1}'); do
+      systemctl try-restart "$unit" || true
+    done
+  fi
 fi
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
 [ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \

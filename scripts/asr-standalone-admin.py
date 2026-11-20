@@ -232,6 +232,18 @@ def request(bridge: dict[str, Any], action: str, actor: str, **payload: Any) -> 
             result_path.unlink()
 
 
+def refresh_connected_clients() -> None:
+    """Ask the connected-client collector for a fresh pass now.
+
+    The card's list is otherwise refreshed only every ~20 s, so a kicked or
+    banned station stayed on the card for up to 20 s after it was removed.
+    """
+    import subprocess
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(["systemctl", "start", "--no-block", "allscan-reimagined-bridge-clients.service"],
+                       capture_output=True, timeout=5, check=False)
+
+
 def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict[str, Any]:
     identity = identity.strip().upper()
     if not IDENTITY_RE.fullmatch(identity):
@@ -250,6 +262,7 @@ def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict
         raise AdminError("Client was no longer connected or could not be kicked.")
     append_audit("kick", actor, bridgeId=bridge_id, callsign=identity,
                  clientId=client_id, removed=removed)
+    refresh_connected_clients()
     return {"ok": True, "verified": True, "action": "kick", "bridgeId": bridge_id,
             "callsign": identity, "clientId": client_id, "removed": removed,
             "enforcement": result["enforcement"]}

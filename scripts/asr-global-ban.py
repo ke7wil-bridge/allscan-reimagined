@@ -155,6 +155,15 @@ def reconcile_asl_bans():
     return {"status": status, **payload}
 
 
+def refresh_connected_clients():
+    """Refresh the bridge cards' connected lists now instead of in ~20 s."""
+    try:
+        subprocess.run(["systemctl", "start", "--no-block", "allscan-reimagined-bridge-clients.service"],
+                       capture_output=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def reconcile_tgif_bans(force=False):
     """Mirror callsign bans onto the signed-in TGIF talkgroup's access list.
 
@@ -496,6 +505,7 @@ def main():
     standalone = reconcile_standalone_bans(args.actor)
     asl = reconcile_asl_bans()
     verified = global_enforcement_verified(asl, standalone)
+    refresh_connected_clients()
     tgif = reconcile_tgif_bans(force=True)
     common = dict(ok=True, asl=asl, tgif=tgif, action=args.action, rule=rule, rules=expected,
                   bans=ban_payload(expected, timed, now), audit=None, standalone=standalone,
