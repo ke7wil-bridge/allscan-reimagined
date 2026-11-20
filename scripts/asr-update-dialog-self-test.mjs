@@ -70,7 +70,7 @@ check(
 check(
   source.includes("initialView = 'update'")
     && source.includes('>What’s New</button>')
-    && source.includes('ASR_WHATS_NEW.items.map'),
+    && source.includes('ASR_WHATS_NEW.categories.map'),
   'Update ASR does not contain a reusable What’s New option.',
 )
 check(
@@ -83,13 +83,13 @@ check(
 check(
   whatsNewSource.includes(`version: '${version}'`)
     && whatsNewSource.includes(`v${version}.md?raw`)
-    && whatsNewSource.includes('parseReleaseChanges(releaseNotes)')
+    && whatsNewSource.includes('parseReleaseCategories(releaseNotes)')
     && !whatsNewSource.includes('items: ['),
   'What’s New must use every documented change from the installed release, not a highlights list.',
 )
 check(
   source.includes('tabIndex={0}')
-    && source.includes('ASR_WHATS_NEW.items.length')
+    && source.includes('ASR_WHATS_NEW.categories.reduce')
     && source.includes('asr-update-dialog--whats-new'),
   'Release notes need a keyboard-scrollable region that announces the complete list.',
 )

@@ -6,9 +6,9 @@ header('X-Accel-Buffering: no');
 date_default_timezone_set('America/New_York');
 
 require_once(__DIR__ . '/../include/apiInit.php');
+require_once(__DIR__ . '/../include/scheduleUtils.php');
 require_once(__DIR__ . '/AMI.php');
 require_once(__DIR__ . '/nodeInfo.php');
-require_once(__DIR__ . '/../include/scheduleUtils.php');
 require_once(__DIR__ . '/asrEchoLink.php');
 require_once(__DIR__ . '/asrAmiGuard.php');
 require_once(__DIR__ . '/asrTalkerIdentity.php');
@@ -102,19 +102,15 @@ if(_count($msg))
 	$s .= BR . implode(BR, $msg);
 statMsg($s);
 
-// Scheduled connect/disconnect activity. Only report events after this page loaded.
-$schedPos = file_exists(SCHED_ACTIVITY) ? filesize(SCHED_ACTIVITY) : 0;
-
 // Main loop - build $data array and output as a json object
 $current = [];
 $saved = [];
 $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
-$urfTalkerEvents = asrUrfTalkerEvents();
 $bridgeTalkerEvidence = asrBridgeTalkerEvidence();
 $enrichedTalkerHistory = asrEnrichAllStarTalkers($asrTalkerHistory, $astdb);
-$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, [], '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -171,8 +167,7 @@ while(!empty($fp[$node])) {
 		$current[$node]['remote_nodes'], $node, $info, $astdb
 	);
 	if($nextCurrentTalker !== null) {
-		$urfTalkerEvents = asrUrfTalkerEvents();
-		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
 	// History is transmission-event history, not unique-station history.
 	// If the same node keys three separate times, keep all three events.
@@ -454,7 +449,7 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		$cacheChanged = $updated !== '' && $updated !== $lastUpdate;
 		$guardOpened = $lastGuarded === false && $guarded;
 		if($cacheChanged || ($guardOpened && $updated !== '')) {
-			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents(), '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $guarded);
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {

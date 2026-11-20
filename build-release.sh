@@ -59,9 +59,9 @@ COMPAT_MANIFEST=$(
     while IFS= read -r compat_file; do
       printf 'allscan-%s/%s\n' "$compat_version" "$compat_file"
     done <<< "$COMPAT_FILES"
-    if [ "$compat_version" = "v1.05" ]; then
-      printf 'allscan-v1.05/lookup/network-graph.php\n'
-      printf 'allscan-v1.05/lookup/node-info.php\n'
+    if [ "$compat_version" = "v1.05" ] || [ "$compat_version" = "v1.06" ]; then
+      printf 'allscan-%s/lookup/network-graph.php\n' "$compat_version"
+      printf 'allscan-%s/lookup/node-info.php\n' "$compat_version"
     fi
   done | LC_ALL=C sort
 )

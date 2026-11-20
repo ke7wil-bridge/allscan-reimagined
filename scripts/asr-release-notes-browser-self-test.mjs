@@ -4,14 +4,14 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
-import { parseReleaseChanges } from '../src/lib/releaseNotes.js'
+import { parseReleaseCategories } from '../src/lib/releaseNotes.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const version = JSON.parse(read('../package.json')).version
-const actualChanges = parseReleaseChanges(read(`../release-notes/v${version}.md`)).length
+const actualChanges = parseReleaseCategories(read(`../release-notes/v${version}.md`)).reduce((n, c) => n + c.items.length, 0)
 const vitePort = 49159
 const cdpPort = 49160
 const profile = await mkdtemp(join(tmpdir(), 'asr-release-notes-'))
@@ -85,12 +85,12 @@ try {
     const result = await evalJs(`(() => {
       const dialog = document.querySelector('.asr-update-dialog--whats-new');
       const scroller = dialog.querySelector('.asr-whats-new');
-      const list = scroller.querySelector('ul');
+      const list = scroller.querySelector('.asr-whats-new-category:last-of-type ul');
       const close = dialog.querySelector('.asr-update-head button');
       const footer = dialog.querySelector('footer');
-      const original = list.children.length;
+      const original = scroller.querySelectorAll('.asr-whats-new-category li').length;
       list.innerHTML = Array.from({length:43}, (_, i) => '<li>Released change ' + (i + 1) + ' with a short explanation.</li>').join('');
-      scroller.scrollTop = scroller.scrollHeight;
+      list.lastElementChild.scrollIntoView({block: 'end'});
       const bounds = dialog.getBoundingClientRect();
       const area = scroller.getBoundingClientRect();
       const last = list.lastElementChild.getBoundingClientRect();
