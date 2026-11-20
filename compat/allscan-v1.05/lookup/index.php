@@ -165,19 +165,14 @@ pageInit();
 	var networkGraphTouchDistance = 0;
 	var networkGraphTouchZoom = 1;
 	var networkGraphColors = function () {
-        var host=document.querySelector('.asr-lookup-page')||document.body;
-        var style=getComputedStyle(host),root=getComputedStyle(document.documentElement),body=getComputedStyle(document.body);
-        function token(name){return style.getPropertyValue(name).trim()||body.getPropertyValue(name).trim()||root.getPropertyValue(name).trim();}
-        function rgb(value){var m=String(value).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);return m?[+m[1],+m[2],+m[3]]:null;}
-        function luminance(value){var channels=rgb(value);return channels?channels.reduce(function(a,b){return a+b;},0)/765:null;}
-        var background=token('--surface')||token('--card-bg')||style.backgroundColor||body.backgroundColor;
-        if(!rgb(background)||background==='rgba(0, 0, 0, 0)')background=body.backgroundColor;
-        var lum=luminance(background);
-        if(lum===null){background='#172833';lum=.15;}
-        var light=lum>.52;
-        var foreground=token('--text-primary')||token('--text-color')||style.color||body.color||(light?'#183448':'#edf5f8');
-        return {root:light?'#d79524':'#e1ad45',bridge:light?'#76818a':'#87929b',hub:light?'#13845b':'#3bc48a',node:light?'#147ba8':'#4ab9e6',edge:light?'#708895':'#809ca9',foreground:foreground,background:background};
+        return {root:'#e1ad45',bridge:'#87929b',hub:'#3bc48a',node:'#4ab9e6',edge:'#809ca9',foreground:'#edf5f8',background:'#172833'};
 	};
+    var networkGraphKinds = new Map();
+    var networkGraphLabels = new Map();
+    var networkGraphCanvasWidth = 1000;
+    var networkGraphCanvasHeight = 700;
+    var networkGraphAutoFit = true;
+    var networkGraphLayoutSignature = '';
 
 	function renderNetworkGraph() {
 		var colors = networkGraphColors();
