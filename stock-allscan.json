@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "version": "v1.05",
-  "commit": "db1800c53515f9fddd079d1ec6968e686136d82b",
-  "url": "https://codeload.github.com/davidgsd/AllScan/tar.gz/db1800c53515f9fddd079d1ec6968e686136d82b",
-  "sha256": "b1be8888463e1fe9a68acf72488d210c16a8ec78a340624f2fcee6157da15df7"
+  "version": "v1.06",
+  "commit": "bbfd2a444f05091ea6e66907fca0d804780c65f6",
+  "url": "https://codeload.github.com/davidgsd/AllScan/tar.gz/bbfd2a444f05091ea6e66907fca0d804780c65f6",
+  "sha256": "a06cb8e197f8b461482cdf6aec60740e1bcaf68345f57ca3694b51ba7176cc5b"
 }

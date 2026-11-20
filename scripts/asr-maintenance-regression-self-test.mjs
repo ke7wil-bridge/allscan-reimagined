@@ -15,6 +15,7 @@ const serverApi = read('server/asr-api.php')
 const installer = read('install.sh')
 const dockerfile = read('Dockerfile.layered')
 const build = read('build-release.sh')
+const stockManifest = JSON.parse(read('stock-allscan.json'))
 
 check(api === serverApi, 'Native and packaged ASR API sources differ.')
 check(
@@ -23,6 +24,12 @@ check(
     && app.includes('Math.max(activeCandidate.eventEpoch, activeCandidate.startedEpoch) >= cutoff')
     && app.includes('[clock, currentTalker, recentTalkers, bridgeState.cards, enrichBridgeTalker]'),
   'Talker cards are not capped and re-evaluated at the 24-hour boundary.',
+)
+check(
+  stockManifest.version === 'v1.06'
+    && stockManifest.commit === 'bbfd2a444f05091ea6e66907fca0d804780c65f6'
+    && stockManifest.sha256 === 'a06cb8e197f8b461482cdf6aec60740e1bcaf68345f57ca3694b51ba7176cc5b',
+  'Pinned stock AllScan v1.06 provenance changed.',
 )
 check(
   app.includes('className="allscan-action-button allscan-custom-commands-button"'),
@@ -47,7 +54,7 @@ check(
     && api.includes("'phpSecurityWarning' => $phpSecurityWarning"),
   'ASR API does not fail closed with JSON or report critical node storage pressure.',
 )
-for (const version of ['v1.02', 'v1.03', 'v1.04', 'v1.05']) {
+for (const version of ['v1.02', 'v1.03', 'v1.04', 'v1.05', 'v1.06']) {
   const database = read(`compat/allscan-${version}/include/dbUtils.php`)
   check(
     database.includes("defined('ASR_JSON_API')")
@@ -56,9 +63,9 @@ for (const version of ['v1.02', 'v1.03', 'v1.04', 'v1.05']) {
   )
 }
 check(
-  read('compat/allscan-v1.05/include/common.php').includes('$AllScanVersion = "v1.05";')
-    && build.includes('COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05"'),
-  'AllScan v1.05 compatibility is not included in the release manifest.',
+  read('compat/allscan-v1.06/include/common.php').includes('$AllScanVersion = "v1.06";')
+    && build.includes('COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05 v1.06"'),
+  'AllScan v1.06 compatibility is not included in the release manifest.',
 )
 check(
   dockerfile.includes('FROM php:8.3.36-apache')

@@ -11,6 +11,7 @@ import inspect
 import json
 import os
 from pathlib import Path, PurePosixPath
+import pwd
 import re
 import secrets
 import shutil
@@ -39,6 +40,12 @@ RUNTIME_FILES = (
 )
 RUNTIME_DIRS = ("img", "asr-user-content")
 STABLE_WEB_FILES = ("asr-settings/rollback-status.php",)
+SCHEDULER_FILES = (
+    "schedule.json",
+    "schedule.activity",
+    "schedule.heartbeat",
+    "schedule.log",
+)
 REQUIRED_RELEASE_FILES = (
     "web/index.html",
     "server/asr-api.php",
@@ -595,6 +602,7 @@ def create_safety_backup(web_root: Path) -> Path:
             ["-czf", str(stock_archive), "-C", str(web_root), "allscan"],
             stock_archive,
         )
+        capture_shared_state(backup_dir)
         version = detect_version(master / "server/asr-api.php")
         manifest = write_manifest(backup_dir, version)
         if manifest["rollback_eligible"] is not True:
@@ -603,6 +611,138 @@ def create_safety_backup(web_root: Path) -> Path:
     except Exception:
         shutil.rmtree(backup_dir, ignore_errors=True)
         raise
+
+
+def web_account() -> str | None:
+    for name in ("www-data", "apache", "http"):
+        try:
+            pwd.getpwnam(name)
+        except KeyError:
+            continue
+        return name
+    return None
+
+
+def capture_shared_state(
+    backup_dir: Path,
+    *,
+    etc_dir: Path = Path("/etc/allscan"),
+    account: str | None = None,
+) -> None:
+    scheduler_dir = backup_dir / "runtime/allscan-scheduler"
+    scheduler_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for name in SCHEDULER_FILES:
+        source = etc_dir / name
+        if source.is_file() and not source.is_symlink():
+            shutil.copy2(source, scheduler_dir / name)
+        elif not source.exists():
+            (scheduler_dir / f"{name}.absent").touch(mode=0o600)
+        else:
+            raise RollbackError(f"Unsafe AllScan scheduler state: {source}")
+    database = etc_dir / "allscan.db"
+    if database.is_file() and not database.is_symlink():
+        shutil.copy2(database, backup_dir / "allscan.db")
+    elif not database.exists():
+        (backup_dir / "allscan.db.absent").touch(mode=0o600)
+    else:
+        raise RollbackError("Unsafe shared AllScan database")
+
+    account = web_account() if account is None else account
+    if not account or shutil.which("crontab") is None:
+        (scheduler_dir / "web.crontab.unavailable").touch(mode=0o600)
+    else:
+        result = subprocess.run(
+            ["crontab", "-u", account, "-l"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            (scheduler_dir / "web.crontab").write_text(
+                result.stdout, encoding="utf-8"
+            )
+        elif result.returncode == 1 and not result.stdout.strip():
+            (scheduler_dir / "web.crontab.absent").touch(mode=0o600)
+        else:
+            raise RollbackError("Unable to capture the web account crontab")
+    for path in scheduler_dir.iterdir():
+        os.chmod(path, 0o600)
+
+
+def restore_shared_state(
+    backup_dir: Path,
+    *,
+    etc_dir: Path = Path("/etc/allscan"),
+    account: str | None = None,
+    restore_crontab: bool = True,
+) -> None:
+    scheduler_dir = backup_dir / "runtime/allscan-scheduler"
+    etc_dir.mkdir(mode=0o775, parents=True, exist_ok=True)
+    resolved_account = web_account() if account is None else account
+
+    def restore_file(source: Path, destination: Path) -> None:
+        temporary = destination.with_name(f".{destination.name}.rollback-{os.getpid()}")
+        try:
+            shutil.copy2(source, temporary, follow_symlinks=False)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    database = backup_dir / "allscan.db"
+    if database.is_file() and not database.is_symlink():
+        restore_file(database, etc_dir / "allscan.db")
+        if resolved_account:
+            identity = pwd.getpwnam(resolved_account)
+            os.chown(etc_dir / "allscan.db", identity.pw_uid, identity.pw_gid)
+            os.chmod(etc_dir / "allscan.db", 0o660)
+    elif database.exists() or database.is_symlink():
+        raise RollbackError("Unsafe shared AllScan database backup")
+    elif (backup_dir / "allscan.db.absent").is_file() and not (
+        backup_dir / "allscan.db.absent"
+    ).is_symlink():
+        (etc_dir / "allscan.db").unlink(missing_ok=True)
+
+    if scheduler_dir.is_dir() and not scheduler_dir.is_symlink():
+        for name in SCHEDULER_FILES:
+            source = scheduler_dir / name
+            if source.is_file() and not source.is_symlink():
+                restore_file(source, etc_dir / name)
+            elif source.exists() or source.is_symlink():
+                raise RollbackError(f"Unsafe AllScan scheduler backup: {source}")
+            elif (scheduler_dir / f"{name}.absent").is_file() and not (
+                scheduler_dir / f"{name}.absent"
+            ).is_symlink():
+                (etc_dir / name).unlink(missing_ok=True)
+            else:
+                raise RollbackError(f"Incomplete AllScan scheduler backup: {name}")
+
+        if restore_crontab:
+            account = resolved_account
+            if account and shutil.which("crontab") is not None:
+                crontab = scheduler_dir / "web.crontab"
+                if crontab.is_file() and not crontab.is_symlink():
+                    result = subprocess.run(
+                        ["crontab", "-u", account, "-"],
+                        input=crontab.read_text(encoding="utf-8"),
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        raise RollbackError("Unable to restore the web account crontab")
+                elif (scheduler_dir / "web.crontab.absent").is_file() and not (
+                    scheduler_dir / "web.crontab.absent"
+                ).is_symlink():
+                    result = subprocess.run(
+                        ["crontab", "-u", account, "-r"],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    if result.returncode not in (0, 1):
+                        raise RollbackError("Unable to remove the web account crontab")
+                elif crontab.exists() or crontab.is_symlink():
+                    raise RollbackError("Unsafe web account crontab backup")
 
 
 def copy_preserved_runtime(active: Path, staged: Path) -> None:
@@ -1226,6 +1366,8 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             web_swapped = True
             shutil.rmtree(web_stage_parent, ignore_errors=True)
 
+            restore_shared_state(backup_dir)
+
             if schema in {2, 3}:
                 environment = rollback_reapply_environment(
                     stable_protected_config_helper
@@ -1298,6 +1440,10 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                 os.replace(link_temp, CURRENT_LINK)
             if release_installed:
                 shutil.rmtree(release_target, ignore_errors=True)
+            try:
+                restore_shared_state(safety_backup)
+            except (RollbackError, OSError):
+                pass
             if stable_reapply.is_file():
                 environment = rollback_reapply_environment(
                     stable_protected_config_helper
@@ -1353,6 +1499,26 @@ def self_test() -> None:
 
     with tempfile.TemporaryDirectory(prefix="asr-rollback-self-test-") as temporary:
         root = Path(temporary)
+        shared = root / "shared"
+        shared.mkdir()
+        (shared / "allscan.db").write_bytes(b"original database")
+        (shared / "schedule.json").write_text('[{"node":"1234"}]\n', encoding="utf-8")
+        (shared / "schedule.activity").write_text("original activity\n", encoding="utf-8")
+        shared_backup = root / "shared-backup"
+        shared_backup.mkdir()
+        capture_shared_state(shared_backup, etc_dir=shared, account="")
+        (shared / "allscan.db").write_bytes(b"changed database")
+        (shared / "schedule.json").write_text("[]\n", encoding="utf-8")
+        (shared / "schedule.activity").unlink()
+        (shared / "schedule.heartbeat").write_text("unexpected\n", encoding="utf-8")
+        restore_shared_state(
+            shared_backup, etc_dir=shared, account="", restore_crontab=False
+        )
+        assert (shared / "allscan.db").read_bytes() == b"original database"
+        assert (shared / "schedule.json").read_text(encoding="utf-8") == '[{"node":"1234"}]\n'
+        assert (shared / "schedule.activity").read_text(encoding="utf-8") == "original activity\n"
+        assert not (shared / "schedule.heartbeat").exists()
+        assert not (shared / "schedule.log").exists()
         stable_helper = root / "stable-protected-config-helper.py"
         rollback_environment = rollback_reapply_environment(stable_helper)
         assert rollback_environment["ASR_ROLLBACK_MODE"] == "1"
