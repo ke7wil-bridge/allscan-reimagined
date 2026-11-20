@@ -2384,15 +2384,34 @@ if($modernSettings && $modernSettingsSection === 'scheduling') {
             $asrScheduleError = 'Invalid scheduling security token.';
         } else {
             $asrEntries = schedLoad();
+            // A scheduling edit must never silently rewrite an upstream schedule
+            // containing destructive actions, even when the request only toggles it.
             $asrOperation = (string)$_POST['asrScheduleOperation'];
-            if($asrOperation === 'add') {
-                if(count($asrEntries) >= SCHED_MAX_ENTRIES) $asrScheduleError = 'Maximum schedules reached.';
+            if($asrOperation === 'add' || $asrOperation === 'edit') {
+                if($asrOperation === 'add' && count($asrEntries) >= SCHED_MAX_ENTRIES) $asrScheduleError = 'Maximum schedules reached.';
                 else {
                     $asrInput = [];
                     foreach(['action', 'node', 'time', 'days', 'perm', 'autodisc'] as $field)
                         $asrInput[$field] = is_string($_POST[$field] ?? null) ? trim($_POST[$field]) : '';
                     $asrEntry = schedValidate($asrInput, $asrScheduleError);
-                    if($asrEntry !== false) $asrEntries[] = $asrEntry;
+                    if($asrEntry !== false) {
+                        // ASR deliberately disallows upstream's disconnect-all shortcuts.
+                        if($asrEntry['node'] === '0' || !empty($asrEntry['autodisc'])) $asrScheduleError = 'Disconnect-all and disconnect-first are unsafe and unavailable in ASR.';
+                        elseif($asrOperation === 'add') $asrEntries[] = $asrEntry;
+                        else {
+                            $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
+                            $asrFound = false;
+                            foreach($asrEntries as $i => $old) {
+                                if(!is_array($old) || !hash_equals((string)($old['id'] ?? ''), $asrId)) continue;
+                                $asrEntry['id'] = $asrId;
+                                $asrEntry['enabled'] = !empty($old['enabled']);
+                                $asrEntries[$i] = $asrEntry;
+                                $asrFound = true;
+                                break;
+                            }
+                            if(!$asrFound) $asrScheduleError = 'Schedule not found.';
+                        }
+                    }
                 }
             } elseif($asrOperation === 'toggle' || $asrOperation === 'delete') {
                 $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
@@ -2888,7 +2907,7 @@ $asrScheduleHeartbeat = is_file(SCHED_HEARTBEAT) && time() - filemtime(SCHED_HEA
 <label>Time <input name="time" type="time" required></label>
 <label>Days (0=Sun through 6=Sat, blank=daily) <input name="days" placeholder="0,1,2,3,4,5,6"></label>
 <label><input type="checkbox" name="perm" value="true"> Permanent link</label>
-<label><input type="checkbox" name="autodisc" value="true"> Disconnect existing links first</label>
+<!-- Disconnect-first is intentionally prohibited: upstream disconnects every active link. -->
 <button type="submit">Add Schedule</button>
 </form>
 <table><thead><tr><th>Action</th><th>Node</th><th>Time</th><th>Days</th><th>Enabled</th><th>Manage</th></tr></thead><tbody>
@@ -2896,6 +2915,15 @@ $asrScheduleHeartbeat = is_file(SCHED_HEARTBEAT) && time() - filemtime(SCHED_HEA
 <tr><td><?php echo asrSettingsH($entry['action'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['node'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['time'] ?? ''); ?></td><td><?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?></td><td><?php echo !empty($entry['enabled']) ? 'Yes' : 'No'; ?></td><td>
 <form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($_SESSION['asrScheduleCsrf']); ?>"><input type="hidden" name="id" value="<?php echo asrSettingsH($entry['id'] ?? ''); ?>"><button name="asrScheduleOperation" value="toggle" type="submit"><?php echo !empty($entry['enabled']) ? 'Disable' : 'Enable'; ?></button><button name="asrScheduleOperation" value="delete" type="submit" onclick="return confirm('Delete this schedule?')">Delete</button></form>
 </td></tr>
+<tr><td colspan="6"><details><summary>Edit this schedule</summary>
+<form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($_SESSION['asrScheduleCsrf']); ?>"><input type="hidden" name="id" value="<?php echo asrSettingsH($entry['id'] ?? ''); ?>">
+<label>Action <select name="action"><?php foreach(['connect','monitor','localmonitor','disconnect'] as $choice): ?><option value="<?php echo $choice; ?>"<?php echo ($entry['action'] ?? '') === $choice ? ' selected' : ''; ?>><?php echo $choice; ?></option><?php endforeach; ?></select></label>
+<label>Node <input name="node" pattern="[0-9]{1,7}" required value="<?php echo asrSettingsH($entry['node'] ?? ''); ?>"></label>
+<label>Time <input name="time" type="time" required value="<?php echo asrSettingsH($entry['time'] ?? ''); ?>"></label>
+<label>Days <input name="days" value="<?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?>"></label>
+<label><input type="checkbox" name="perm" value="true"<?php echo !empty($entry['perm']) ? ' checked' : ''; ?>> Permanent</label>
+<button name="asrScheduleOperation" value="edit" type="submit">Save Schedule</button></form>
+</details></td></tr>
 <?php endforeach; ?>
 </tbody></table>
 </section>
