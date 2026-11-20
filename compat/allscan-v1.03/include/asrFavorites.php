@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Return every usable favorites*.ini file from the shared AllScan directory
+ * Return every known favorites*.ini file from the shared AllScan directory
  * the ASR web directory, and the sibling stock AllScan web directory.
  * Shared files win when locations contain the same basename.
  *
@@ -28,7 +28,6 @@ function asrFavoritesFiles(string $etcDir, string $webDir): array {
 			if(
 				!preg_match('/^favorites[^\/]*\.ini$/i', $name)
 				|| !is_file($path)
-				|| !is_readable($path)
 				|| ($resolvedFile = realpath($path)) === false
 				|| !array_key_exists(dirname($resolvedFile), $trustedRoots)
 				|| array_key_exists($name, $byName)
@@ -53,7 +52,8 @@ function asrFavoritesFile(
 	string $requested,
 	string $etcDir,
 	string $webDir,
-	string $fallback
+	string $fallback,
+	bool $requireRequested = false
 ): string {
 	$files = asrFavoritesFiles($etcDir, $webDir);
 	$byName = [];
@@ -68,5 +68,7 @@ function asrFavoritesFile(
 	if($requested === $name && $name !== '' && isset($byName[$name]))
 		return $byName[$name];
 
+	if($requireRequested)
+		throw new RuntimeException('Selected Favorites file is missing or inaccessible; no substitute list was selected. Use Find Favorites files and backups to inspect or recover it.');
 	return $default;
 }

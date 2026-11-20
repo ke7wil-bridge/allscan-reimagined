@@ -7,6 +7,7 @@ import { ASR_WHATS_NEW } from './config/whatsNew'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
+import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { connectionCallsign, identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
@@ -3015,7 +3016,7 @@ function App({ config }: { config: RuntimeConfig }) {
         {favoriteInventory ? <div className="allscan-favorites-source-view">
           <p><strong>Favorites file inventory (read-only)</strong> — originals and backups are never overwritten by this scan.</p>
           <button type="button" onClick={() => setFavoriteInventory(null)}>Close inventory</button>
-          {favoriteInventory.length ? <ul>{favoriteInventory.map((item) => <li key={item.path}>{item.path} — {item.exists ? item.readable ? `${item.bytes ?? '?'} bytes` : 'unreadable' : 'missing target'}{item.symlink ? ' (link)' : ''}{authStatus.isAdmin && !item.symlink && item.readable && (item.path.includes('.bak') || item.path.includes('before')) && (!selectedFavoriteFile || favoriteFileInfo.path?.startsWith('/etc/allscan/')) ? <button type="button" disabled={busy} onClick={() => void restoreFavoritesBackup(item.path)}>Preview restore</button> : null}</li>)}</ul> : <p>No matching files found in known locations. Check external backups before creating a replacement.</p>}
+          {favoriteInventory.length ? <ul>{favoriteInventory.map((item) => <li key={item.path}>{item.path} — {item.exists ? item.readable ? `${item.bytes ?? '?'} bytes` : 'unreadable' : 'missing target'}{item.symlink ? ' (link)' : ''}{authStatus.isAdmin && canPreviewFavoriteBackup(item) && (!selectedFavoriteFile || favoriteFileInfo.path?.startsWith('/etc/allscan/')) ? <button type="button" disabled={busy} onClick={() => void restoreFavoritesBackup(item.path)}>Preview restore</button> : null}</li>)}</ul> : <p>No matching files found in known locations. Check external backups before creating a replacement.</p>}
         </div> : null}
         {favoriteFileView ? <div className="allscan-favorites-source-view">
           <p><strong>{favoriteFileView.name}</strong> — {favoriteFileView.path}</p>

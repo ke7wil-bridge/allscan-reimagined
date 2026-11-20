@@ -40,8 +40,8 @@ const ASR_TGIF_NODE_SCOPE = 'node';
 const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-standard-bridge-repair';
 const ASR_URF_ADMIN_HELPER = '/usr/local/sbin/allscan-reimagined-urf-admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.4.3';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.4.3';
+const ASR_VERSION = '1.0.0-beta.8.5';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.5';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -3171,12 +3171,17 @@ function asr_favorites_files(): array {
 
 function asr_safe_favorites_file(string $requested = ''): string {
     $dir = asr_allscan_dir();
-    return asrFavoritesFile(
-        $requested,
-        dirname(ASR_ETC_FAVORITES),
-        $dir,
-        ASR_DEFAULT_FAVORITES
-    );
+    try {
+        return asrFavoritesFile(
+            $requested,
+            dirname(ASR_ETC_FAVORITES),
+            $dir,
+            ASR_DEFAULT_FAVORITES,
+            true
+        );
+    } catch (RuntimeException $error) {
+        asr_error($error->getMessage(), 404);
+    }
 }
 
 function asr_ini_values(string $contents, string $key): array {

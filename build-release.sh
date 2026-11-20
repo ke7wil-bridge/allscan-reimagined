@@ -135,6 +135,11 @@ python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
 python3 "$ROOT/scripts/asr-node-diagnostics.py" --self-test
 python3 "$ROOT/scripts/asr-asterisk-queue-self-test.py"
+python3 "$ROOT/scripts/asr-alert-state-self-test.py"
+python3 "$ROOT/scripts/asr-broadcastify-health-self-test.py"
+python3 "$ROOT/scripts/asr-echolink-module-health-self-test.py"
+python3 "$ROOT/scripts/asr-version-drift-self-test.py"
+python3 "$ROOT/scripts/asr-config-export-self-test.py"
 python3 "$ROOT/scripts/asr-apache-listeners.py" self-test
 python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
@@ -163,6 +168,7 @@ bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
+node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
@@ -222,6 +228,15 @@ install -m 755 scripts/asr-configure.sh "$STAGE/payload/scripts/asr-configure.sh
 install -m 755 scripts/asr-stock-admin-bootstrap.php "$STAGE/payload/scripts/asr-stock-admin-bootstrap.php"
 install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-node-diagnostics.py "$STAGE/payload/scripts/asr-node-diagnostics.py"
+for diagnostic_script in \
+  asr-alert-state.py asr-alert-state-self-test.py \
+  asr-broadcastify-health.py asr-broadcastify-health-self-test.py \
+  asr-echolink-module-health.py asr-echolink-module-health-self-test.py \
+  asr-post-reboot-health.py asr-post-reboot-health-self-test.py \
+  asr-version-drift.py asr-version-drift-self-test.py \
+  asr-config-export.py asr-config-export-self-test.py; do
+  install -m 755 "scripts/$diagnostic_script" "$STAGE/payload/scripts/$diagnostic_script"
+done
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 install -m 755 scripts/asr-protected-config-metadata.py "$STAGE/payload/scripts/asr-protected-config-metadata.py"
 install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"
@@ -374,6 +389,12 @@ python3 "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$STAGE/payload/scripts/asr-install-preflight-self-test.py"
 python3 "$STAGE/payload/scripts/asr-install-diagnostics-self-test.py"
+python3 "$STAGE/payload/scripts/asr-alert-state-self-test.py"
+python3 "$STAGE/payload/scripts/asr-broadcastify-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-echolink-module-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-post-reboot-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-version-drift-self-test.py"
+python3 "$STAGE/payload/scripts/asr-config-export-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +

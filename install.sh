@@ -397,6 +397,11 @@ rollback_on_error() {
         echo "WARNING: The previous ASR persistence wiring could not be fully reapplied." >&2
         printf '%s\n' "$prior_reapply_output" >&2
       fi
+      if [ -f "$BACKUP_DIR/asr-webroot.tar.gz" ] \
+        && ! python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" restore-webroot-links \
+          "$BACKUP_DIR/asr-webroot.tar.gz" "$ASR_WEB_DIR" >/dev/null; then
+        echo "WARNING: Preserved webroot links could not be fully restored." >&2
+      fi
     fi
     for helper_spec in \
       "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
@@ -1050,6 +1055,10 @@ if [ "$BROWSER_UPDATE" -eq 1 ]; then
 fi
 ASR_INSTALL_LOCK_HELD=1 STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" \
   "$RELEASE_DIR/scripts/asr-reapply.sh"
+if [ -f "$BACKUP_DIR/asr-webroot.tar.gz" ]; then
+  python3 "$RELEASE_DIR/scripts/asr-rollback.py" restore-webroot-links \
+    "$BACKUP_DIR/asr-webroot.tar.gz" "$ASR_WEB_DIR" >/dev/null
+fi
 
 echo
 echo "LOGIN AND PUBLIC MONITORING"
