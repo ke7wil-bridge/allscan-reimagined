@@ -10,7 +10,7 @@ root = Path(__file__).resolve().parents[1]
 installer = (root / 'install.sh').read_text()
 reapply = (root / 'scripts/asr-reapply.sh').read_text()
 configure = (root / 'scripts/asr-configure.sh').read_text()
-controller = (root / 'compat/allscan-v1.05/asr-settings/settings-controller.php').read_text()
+controller = (root / 'compat/allscan-v1.06/asr-settings/settings-controller.php').read_text()
 
 assert installer.index('WEB_GROUP="www-data"') < installer.index('CHANGES_STARTED=1'), 'web group must be initialized before rollback is armed'
 assert installer.index('WEB_GROUP="www-data"') < installer.index('CHANGES_STARTED=1'), 'rollback must not be armed before web group is resolved'

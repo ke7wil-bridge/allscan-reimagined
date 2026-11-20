@@ -21,7 +21,7 @@ grep -Fqx "$TERMINAL_UPDATE_COMMAND" "$RELEASE_NOTES" || {
   exit 1
 }
 
-COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05"
+COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05 v1.06"
 COMPAT_FILES=$(cat <<'EOF'
 LICENSE
 asr-instructions/index.php
@@ -59,9 +59,9 @@ COMPAT_MANIFEST=$(
     while IFS= read -r compat_file; do
       printf 'allscan-%s/%s\n' "$compat_version" "$compat_file"
     done <<< "$COMPAT_FILES"
-    if [ "$compat_version" = "v1.05" ]; then
-      printf 'allscan-v1.05/lookup/network-graph.php\n'
-      printf 'allscan-v1.05/lookup/node-info.php\n'
+    if [ "$compat_version" = "v1.05" ] || [ "$compat_version" = "v1.06" ]; then
+      printf 'allscan-%s/lookup/network-graph.php\n' "$compat_version"
+      printf 'allscan-%s/lookup/node-info.php\n' "$compat_version"
     fi
   done | LC_ALL=C sort
 )
@@ -80,7 +80,8 @@ for file in asr-api.php src/lib/allscanLive.ts \
   compat/allscan-v1.02/include/common.php \
   compat/allscan-v1.03/include/common.php \
   compat/allscan-v1.04/include/common.php \
-  compat/allscan-v1.05/include/common.php; do
+  compat/allscan-v1.05/include/common.php \
+  compat/allscan-v1.06/include/common.php; do
   if ! grep -Fq "$VERSION_LABEL" "$ROOT/$file"; then
     echo "$file does not contain expected version label: $VERSION_LABEL" >&2
     exit 1
@@ -117,6 +118,7 @@ pnpm lint
 python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
 python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
+python3 "$ROOT/scripts/asr-allscan-v106-migrate.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
@@ -315,6 +317,7 @@ install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favor
 install -m 755 scripts/asr-loopback-validate.py "$STAGE/payload/scripts/asr-loopback-validate.py"
 install -m 755 scripts/asr-loopback-validate-integration-self-test.py "$STAGE/payload/scripts/asr-loopback-validate-integration-self-test.py"
 install -m 755 scripts/asr-stock-allscan.py "$STAGE/payload/scripts/asr-stock-allscan.py"
+install -m 755 scripts/asr-allscan-v106-migrate.py "$STAGE/payload/scripts/asr-allscan-v106-migrate.py"
 install -m 755 scripts/asr-favorites-discovery-self-test.php "$STAGE/payload/scripts/asr-favorites-discovery-self-test.php"
 install -m 755 scripts/asr-installer-prompts-self-test.py "$STAGE/payload/scripts/asr-installer-prompts-self-test.py"
 install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr-instructions-self-test.py"

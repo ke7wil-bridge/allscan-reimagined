@@ -105,7 +105,7 @@ restore_runtime_backup() {
 }
 
 restore_shared_backup() {
-  local restore_stock_shared=1
+  local restore_stock_shared=1 scheduler_tmp
   [ -d "$BACKUP_DIR/runtime" ] || return 0
   if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \
     && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then
@@ -140,6 +140,24 @@ restore_shared_backup() {
     elif [ -f "$BACKUP_DIR/allscan.db.absent" ]; then
       rm -f /etc/allscan/allscan.db
     fi
+    for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log; do
+      if [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ]; then
+        install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan
+        [ ! -L "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ] || continue
+        scheduler_tmp=$(mktemp "/etc/allscan/.${scheduler_file}.rollback.XXXXXX")
+        cp -p "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" "$scheduler_tmp"
+        mv -fT "$scheduler_tmp" "/etc/allscan/$scheduler_file"
+      elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file.absent" ]; then
+        rm -f "/etc/allscan/$scheduler_file"
+      fi
+    done
+    if command -v crontab >/dev/null 2>&1; then
+      if [ -f "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab" ]; then
+        crontab -u "$WEB_USER" "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab"
+      elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab.absent" ]; then
+        crontab -u "$WEB_USER" -r 2>/dev/null || true
+      fi
+    fi
   fi
   # Settings writes config.json atomically as the web-server user. Keep the
   # directory writable by that group when restoring an installation backup.
@@ -154,6 +172,66 @@ restore_shared_backup() {
   systemctl daemon-reload 2>/dev/null || true
 }
 
+backup_scheduler_state() {
+  local scheduler_dir="$BACKUP_DIR/runtime/allscan-scheduler" scheduler_file cron_status
+  install -d -o root -g root -m 700 "$scheduler_dir"
+  for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log; do
+    if [ -L "/etc/allscan/$scheduler_file" ]; then
+      fail "Refusing to back up unsafe AllScan scheduler state: $scheduler_file"
+    elif [ -f "/etc/allscan/$scheduler_file" ]; then
+      cp -p "/etc/allscan/$scheduler_file" "$scheduler_dir/$scheduler_file"
+    else
+      : > "$scheduler_dir/$scheduler_file.absent"
+    fi
+  done
+  if command -v crontab >/dev/null 2>&1; then
+    if crontab -u "$WEB_USER" -l > "$scheduler_dir/web.crontab.tmp" 2>/dev/null; then
+      mv "$scheduler_dir/web.crontab.tmp" "$scheduler_dir/web.crontab"
+    else
+      cron_status=$?
+      if [ "$cron_status" -eq 1 ] && [ ! -s "$scheduler_dir/web.crontab.tmp" ]; then
+        rm -f "$scheduler_dir/web.crontab.tmp"
+        : > "$scheduler_dir/web.crontab.absent"
+      else
+        rm -f "$scheduler_dir/web.crontab.tmp"
+        fail "Unable to back up the web account crontab."
+      fi
+    fi
+  else
+    : > "$scheduler_dir/web.crontab.unavailable"
+  fi
+  chmod -R go-rwx "$scheduler_dir"
+}
+
+reconcile_scheduler_crontab() {
+  local mode="$1" before after cron_status
+  command -v crontab >/dev/null 2>&1 || return 0
+  before=$(mktemp)
+  after=$(mktemp)
+  if crontab -u "$WEB_USER" -l > "$before" 2>/dev/null; then
+    :
+  else
+    cron_status=$?
+    if [ "$cron_status" -eq 1 ] && [ ! -s "$before" ]; then
+      rm -f "$before" "$after"
+      return 0
+    fi
+    rm -f "$before" "$after"
+    fail "Unable to inspect the AllScan scheduler crontab."
+  fi
+  if [ "$mode" = "disable" ]; then
+    awk '!(/runSchedule\.php/ && $0 !~ /^[[:space:]]*#/)' "$before" > "$after"
+  else
+    awk '/runSchedule\.php/ && $0 !~ /^[[:space:]]*#/ { if (seen++) next } { print }' \
+      "$before" > "$after"
+  fi
+  if ! cmp -s "$before" "$after"; then
+    crontab -u "$WEB_USER" "$after" \
+      || { rm -f "$before" "$after"; fail "Unable to reconcile the AllScan scheduler crontab."; }
+  fi
+  rm -f "$before" "$after"
+}
+
 capture_official_shared_baseline() {
   local stage="$BACKUP_DIR/.official-shared-baseline.new.$$"
   rm -rf "$stage"
@@ -163,9 +241,9 @@ capture_official_shared_baseline() {
   else
     : > "$stage/runtime/etc-favorites.ini.absent"
   fi
-  if [ -f /etc/allscan/allscan.db ]; then
+  if [ "$latest_version" != "v1.06" ] && [ -f /etc/allscan/allscan.db ]; then
     install -m 600 /etc/allscan/allscan.db "$stage/allscan.db"
-  else
+  elif [ "$latest_version" != "v1.06" ]; then
     : > "$stage/allscan.db.absent"
   fi
 
@@ -174,9 +252,10 @@ capture_official_shared_baseline() {
   rm -f "$BACKUP_DIR/manifest.json"
   rm -f \
     "$BACKUP_DIR/runtime/etc-favorites.ini" \
-    "$BACKUP_DIR/runtime/etc-favorites.ini.absent" \
-    "$BACKUP_DIR/allscan.db" \
-    "$BACKUP_DIR/allscan.db.absent"
+    "$BACKUP_DIR/runtime/etc-favorites.ini.absent"
+  if [ "$latest_version" != "v1.06" ]; then
+    rm -f "$BACKUP_DIR/allscan.db" "$BACKUP_DIR/allscan.db.absent"
+  fi
   cp -a "$stage/runtime/." "$BACKUP_DIR/runtime/"
   find "$stage" -mindepth 1 -maxdepth 1 -type f -exec cp -p {} "$BACKUP_DIR/" \;
   rm -rf "$stage"
@@ -675,6 +754,8 @@ WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || fail "A supported web-server group was not found."
+WEB_USER="$WEB_GROUP"
+getent passwd "$WEB_USER" >/dev/null 2>&1 || fail "A supported web-server user was not found."
 
 if systemctl is-enabled --quiet allscan-reimagined-reapply.path 2>/dev/null; then
   REAPPLY_PATH_WAS_ENABLED=1
@@ -790,6 +871,7 @@ if [ -f /etc/allscan/favorites.ini ]; then
 else
   : > "$BACKUP_DIR/runtime/etc-favorites.ini.absent"
 fi
+backup_scheduler_state
 if [ -d "$WEB_ROOT/allscan-old" ]; then
   ALLSCAN_OLD_BACKUP="$BACKUP_DIR/preserved-allscan-old"
   mv "$WEB_ROOT/allscan-old" "$ALLSCAN_OLD_BACKUP"
@@ -893,6 +975,18 @@ python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
 CHANGES_STARTED=1
 if [ "$BROWSER_UPDATE" -eq 1 ]; then
   /usr/local/sbin/allscan-reimagined-updater internal-progress "$ASR_UPDATE_JOB_ID" installing >/dev/null
+fi
+
+if [ "$latest_version" = "v1.06" ] \
+  && [ "$current_version" != "v1.06" ] \
+  && [ -f /etc/allscan/allscan.db ]; then
+  echo "Migrating the ASR command-button setting away from AllScan v1.06 scheduler key 14..."
+  python3 "$PAYLOAD_DIR/scripts/asr-allscan-v106-migrate.py" migrate \
+    --database /etc/allscan/allscan.db --from-version "$current_version" \
+    || fail "The AllScan v1.06 configuration migration could not be completed safely."
+  reconcile_scheduler_crontab disable
+elif [ "$latest_version" = "v1.06" ] && [ "$current_version" = "v1.06" ]; then
+  reconcile_scheduler_crontab deduplicate
 fi
 systemctl stop \
   allscan-reimagined-reapply.path \
@@ -1003,6 +1097,7 @@ chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
 chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-bridge-audio-telemetry.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-allscan-v106-migrate.py"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then

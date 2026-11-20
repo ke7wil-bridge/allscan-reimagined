@@ -127,10 +127,10 @@ export default function UpdateAsrDialog({
           <button type="button" role="tab" aria-selected={view === 'whats-new'} onClick={() => setView('whats-new')}>What’s New</button>
         </div>
         {view === 'whats-new' ? (
-          <section className="asr-whats-new" role="tabpanel" tabIndex={0} aria-label={`All ${ASR_WHATS_NEW.items.length} changes in ${ASR_WHATS_NEW.label}; scroll for the full list`}>
+          <section className="asr-whats-new" role="tabpanel" tabIndex={0} aria-label={`All ${ASR_WHATS_NEW.categories.reduce((total, category) => total + category.items.length, 0)} changes in ${ASR_WHATS_NEW.label}; scroll for the full list`}>
             <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
             <p>{ASR_WHATS_NEW.summary}</p>
-            <ul>{ASR_WHATS_NEW.items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+            {ASR_WHATS_NEW.categories.map((category) => <div key={category.title} className="asr-whats-new-category"><h4>{category.title}</h4><ul>{category.items.map((item, index) => <li key={index}>{item}</li>)}</ul></div>)}
             <aside className="asr-contributors-callout" aria-label="Contribute to ASR">
               <h4>🚀 Developers &amp; Vibe Coders Wanted!</h4>
               <p>We're looking for additional developers and AI-assisted coders to help accelerate AllScan Reimagined (ASR). Whether you're an experienced developer or a vibe coder using Codex or Claude Code, we'd welcome your help!</p>

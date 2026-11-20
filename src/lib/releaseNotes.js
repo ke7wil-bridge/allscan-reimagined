@@ -33,3 +33,24 @@ export function parseReleaseChanges(markdown) {
   }
   return items
 }
+
+/** Group all shipped changes by their release-note section. */
+export function parseReleaseCategories(markdown) {
+  const categories = []
+  let current = null
+  for (const line of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+    const heading = /^##\s+Changes\s*[—–:-]\s*(.+?)\s*$/.exec(line)
+    if (heading) {
+      current = { title: heading[1], items: [] }
+      categories.push(current)
+      continue
+    }
+    if (/^##\s+/.test(line)) { current = null; continue }
+    if (!current) continue
+    const bullet = /^\s*(?:[-*+]|\d+[.)])\s+(.+?)\s*$/.exec(line)
+    if (bullet) current.items.push(bullet[1])
+    else if (/^\s{2,}\S/.test(line) && current.items.length) current.items[current.items.length - 1] += ` ${line.trim()}`
+  }
+  if (!categories.length || categories.some(c => !c.items.length)) throw new Error('Release notes require populated Changes categories.')
+  return categories
+}

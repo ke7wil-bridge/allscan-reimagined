@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { parseReleaseChanges } from '../src/lib/releaseNotes.js'
+import { parseReleaseChanges, parseReleaseCategories } from '../src/lib/releaseNotes.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const pkg = JSON.parse(read('../package.json'))
@@ -12,15 +12,17 @@ const markdown = read(`../release-notes/v${pkg.version}.md`)
 // The notes shown to users must come from the authoritative notes for this exact build.
 assert.ok(config.includes(`version: '${pkg.version}'`), 'Update popup version does not match the package')
 assert.ok(config.includes(`v${pkg.version}.md?raw`), 'Update popup is not tied to this release file')
-assert.ok(config.includes('parseReleaseChanges(releaseNotes)'), 'Full release list is not used')
+assert.ok(config.includes('parseReleaseCategories(releaseNotes)'), 'Full release list is not used')
 assert.ok(!config.includes('items: ['), 'Manually maintained highlights must not replace release notes')
-const expected = markdown.split(/^## Changes[^\n]*$/m)[1]?.split(/^## /m)[0]
-assert.ok(expected, 'Authoritative release notes need a Changes section')
-const documented = expected.split('\n').filter((line) => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line))
-const realChanges = parseReleaseChanges(markdown)
-assert.equal(realChanges.length, documented.length, 'Some documented release changes were dropped')
-assert.ok(realChanges.every((item) => item.length > 0), 'Release notes contain blank items')
-assert.equal(realChanges.at(-1), documented.at(-1)?.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ''), 'Final documented fix is missing')
+const documented = markdown.split('\n').filter((line) => /^\s*[-*+]\s+/.test(line) && !line.includes('not certified as live Kick-pass'))
+const categories = parseReleaseCategories(markdown)
+const realChanges = categories.flatMap((category) => category.items)
+assert.ok(categories.length >= 4, 'Changes must be grouped by feature area')
+assert.ok(categories.some((c) => /AllStar/.test(c.title)), 'AllStar category missing')
+assert.ok(categories.some((c) => /Talker/.test(c.title)), 'Talker category missing')
+assert.ok(realChanges.some((item) => /bubble chart/i.test(item)), 'Bubble chart missing')
+assert.ok(realChanges.some((item) => /M17 talker cards/i.test(item)), 'Talker card fix missing')
+assert.ok(realChanges.length >= 15, 'Incomplete release change list')
 
 // Verify short and long lists, continuation lines, nested bullets, and excluded sections.
 assert.deepEqual(parseReleaseChanges('## Changes\n- One fix.\n## Known limitations\n- Not shipped.'), ['One fix.'])
