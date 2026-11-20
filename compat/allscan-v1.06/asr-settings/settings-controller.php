@@ -2372,6 +2372,52 @@ if($modernSettings && $modernSettingsSection === 'account')
 	asrSettingsRenderAccount($userModel, $user);
 if(!adminUser())
 	asExit('Admin permission required.');
+// Reuse the upstream scheduler's validation and storage contract. All writes
+// require the existing authenticated ASR administrator session and CSRF token.
+$asrScheduleFeedback = '';
+$asrScheduleError = '';
+if($modernSettings && $modernSettingsSection === 'scheduling') {
+    require_once('../include/scheduleUtils.php');
+    schedSetTimezone();
+    if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['asrScheduleOperation'])) {
+        if(empty($_SESSION['asrScheduleCsrf']) || !hash_equals((string)$_SESSION['asrScheduleCsrf'], (string)($_POST['asrScheduleCsrf'] ?? ''))) {
+            $asrScheduleError = 'Invalid scheduling security token.';
+        } else {
+            $asrEntries = schedLoad();
+            $asrOperation = (string)$_POST['asrScheduleOperation'];
+            if($asrOperation === 'add') {
+                if(count($asrEntries) >= SCHED_MAX_ENTRIES) $asrScheduleError = 'Maximum schedules reached.';
+                else {
+                    $asrInput = [];
+                    foreach(['action', 'node', 'time', 'days', 'perm', 'autodisc'] as $field)
+                        $asrInput[$field] = is_string($_POST[$field] ?? null) ? trim($_POST[$field]) : '';
+                    $asrEntry = schedValidate($asrInput, $asrScheduleError);
+                    if($asrEntry !== false) $asrEntries[] = $asrEntry;
+                }
+            } elseif($asrOperation === 'toggle' || $asrOperation === 'delete') {
+                $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
+                if(!preg_match('/^[a-f0-9]{8}$/D', $asrId)) $asrScheduleError = 'Invalid schedule ID.';
+                $asrFound = false;
+                foreach($asrEntries as $i => $entry) {
+                    if(!is_array($entry) || !hash_equals((string)($entry['id'] ?? ''), $asrId)) continue;
+                    $asrFound = true;
+                    if($asrOperation === 'delete') unset($asrEntries[$i]);
+                    else $asrEntries[$i]['enabled'] = empty($entry['enabled']);
+                    break;
+                }
+                if(!$asrFound) $asrScheduleError = 'Schedule not found.';
+            } else $asrScheduleError = 'Unsupported schedule operation.';
+            if($asrScheduleError === '') {
+                if(schedSave(array_values($asrEntries), $asrScheduleError)) {
+                    $asrScheduleFeedback = 'Schedule saved.';
+                    $_SESSION['asrScheduleCsrf'] = bin2hex(random_bytes(24));
+                }
+            }
+        }
+    }
+    if(empty($_SESSION['asrScheduleCsrf'])) $_SESSION['asrScheduleCsrf'] = bin2hex(random_bytes(24));
+}
+
 
 $config = asrSettingsReadConfig();
 $secrets = asrSettingsReadSecrets();
@@ -2827,17 +2873,29 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 <h3>Scheduled Connections</h3>
 <p>AllScan v1.06 provides the native schedule store, AMI execution and minute runner. Existing schedules remain unchanged. This section is administrator-only.</p>
 <?php
-$asrScheduleFile = '/etc/allscan/schedule.json';
-$asrScheduleRows = [];
-if(is_readable($asrScheduleFile)) {
-    $asrScheduleDecoded = json_decode((string)file_get_contents($asrScheduleFile), true);
-    if(is_array($asrScheduleDecoded)) $asrScheduleRows = array_slice($asrScheduleDecoded, 0, 50);
-}
+$asrScheduleRows = schedLoad();
+$asrScheduleEnabled = schedEnabled();
+$asrScheduleHeartbeat = is_file(SCHED_HEARTBEAT) && time() - filemtime(SCHED_HEARTBEAT) < 180;
 ?>
-<p>Stored entries: <strong><?php echo count($asrScheduleRows); ?></strong>. The upstream runner remains disabled until an administrator enables Scheduled Connects in AllScan Cfgs.</p>
-<table><thead><tr><th>Action</th><th>Node</th><th>Time</th><th>Days</th><th>Enabled</th></tr></thead><tbody>
+<?php if($asrScheduleError): ?><p role="alert"><?php echo asrSettingsH($asrScheduleError); ?></p><?php endif; ?>
+<?php if($asrScheduleFeedback): ?><p role="status"><?php echo asrSettingsH($asrScheduleFeedback); ?></p><?php endif; ?>
+<p>Stored entries: <strong><?php echo count($asrScheduleRows); ?></strong>. Scheduler: <strong><?php echo $asrScheduleEnabled ? 'Enabled' : 'Disabled'; ?></strong>. Runner: <strong><?php echo $asrScheduleHeartbeat ? 'Healthy' : 'Not reporting'; ?></strong>. Times use the system timezone (<?php echo asrSettingsH(date_default_timezone_get()); ?>).</p>
+<form method="post" action="?section=scheduling">
+<input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($_SESSION['asrScheduleCsrf']); ?>">
+<input type="hidden" name="asrScheduleOperation" value="add">
+<label>Action <select name="action"><option value="connect">Connect</option><option value="monitor">Monitor</option><option value="localmonitor">Local Monitor</option><option value="disconnect">Disconnect</option></select></label>
+<label>Node <input name="node" required pattern="[0-9]{1,7}" maxlength="7" placeholder="Node number"></label>
+<label>Time <input name="time" type="time" required></label>
+<label>Days (0=Sun through 6=Sat, blank=daily) <input name="days" placeholder="0,1,2,3,4,5,6"></label>
+<label><input type="checkbox" name="perm" value="true"> Permanent link</label>
+<label><input type="checkbox" name="autodisc" value="true"> Disconnect existing links first</label>
+<button type="submit">Add Schedule</button>
+</form>
+<table><thead><tr><th>Action</th><th>Node</th><th>Time</th><th>Days</th><th>Enabled</th><th>Manage</th></tr></thead><tbody>
 <?php foreach($asrScheduleRows as $entry): if(!is_array($entry)) continue; ?>
-<tr><td><?php echo asrSettingsH($entry['action'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['node'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['time'] ?? ''); ?></td><td><?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?></td><td><?php echo !empty($entry['enabled']) ? 'Yes' : 'No'; ?></td></tr>
+<tr><td><?php echo asrSettingsH($entry['action'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['node'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['time'] ?? ''); ?></td><td><?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?></td><td><?php echo !empty($entry['enabled']) ? 'Yes' : 'No'; ?></td><td>
+<form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($_SESSION['asrScheduleCsrf']); ?>"><input type="hidden" name="id" value="<?php echo asrSettingsH($entry['id'] ?? ''); ?>"><button name="asrScheduleOperation" value="toggle" type="submit"><?php echo !empty($entry['enabled']) ? 'Disable' : 'Enable'; ?></button><button name="asrScheduleOperation" value="delete" type="submit" onclick="return confirm('Delete this schedule?')">Delete</button></form>
+</td></tr>
 <?php endforeach; ?>
 </tbody></table>
 </section>
