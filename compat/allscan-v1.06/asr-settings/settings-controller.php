@@ -1067,7 +1067,7 @@ function asrSettingsH($value) {
 }
 
 function asrSettingsModernSection() {
-	$allowed = ['account', 'home', 'appearance', 'bridges', 'lookup', 'access', 'system'];
+	$allowed = ['account', 'home', 'appearance', 'bridges', 'lookup', 'access', 'system', 'scheduling'];
 	$section = strtolower(trim((string)($_GET['section'] ?? 'home')));
 	if($section === 'integrations') $section = 'lookup';
 	return in_array($section, $allowed, true) ? $section : 'home';
@@ -1089,6 +1089,7 @@ function asrSettingsModernNav($activeSection) {
 		'lookup' => ['Lookup & Map', 'QRZ lookup and map settings'],
 		'access' => ['Access & Administration', 'Login policy and administrator tools'],
 		'system' => ['System & Recovery', 'Updates, backups, and rollback'],
+		'scheduling' => ['Scheduling', 'AllStar connections and systemd timers'],
 	];
 	echo '<nav class="asr-settings-nav" aria-label="Settings categories">';
 	echo '<div class="asr-settings-nav-heading"><strong>Settings</strong><span>Choose a task</span></div>';
@@ -3110,7 +3111,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<h2><?php echo asrSettingsH([
 				'home'=>'Settings Home', 'appearance'=>'Appearance & Display', 'bridges'=>'Bridges',
 				'lookup'=>'Lookup & Map', 'access'=>'Access & Administration',
-				'system'=>'System & Recovery'
+				'system'=>'System & Recovery', 'scheduling'=>'Scheduling'
 			][$modernSettingsSection]); ?></h2>
 			<p><?php echo asrSettingsH([
 				'home'=>'Review node configuration and go directly to the task you need.',
@@ -3118,7 +3119,8 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				'bridges'=>'Configure bridge cards without changing active radio behavior until you save.',
 				'lookup'=>'Manage QRZ lookup and map enrichment.',
 				'access'=>'Control dashboard access and open administrator tools.',
-				'system'=>'Check versions, update safely, or recover a previous installation.'
+				'system'=>'Check versions, update safely, or recover a previous installation.',
+				'scheduling'=>'Manage scheduled node connections and inspect systemd timers.'
 			][$modernSettingsSection]); ?></p>
 		</header>
 		<?php if($modernSettingsSection === 'home'): ?>
@@ -3126,6 +3128,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<a class="asr-settings-overview-card" href="?section=bridges"><span>Digital bridges</span><strong><?php echo count($bridgeRows) + (!empty($netBridgeRows) ? 1 : 0) + (!empty($urfConfig['enabled']) ? 1 : 0); ?> configured</strong><small>Cards, permissions, clients, and diagnostics</small></a>
 			<a class="asr-settings-overview-card" href="?section=access"><span>Dashboard access</span><strong><?php echo $requireLogin ? 'Login required' : 'Public viewing'; ?></strong><small>Review access policy and administrator tools</small></a>
 			<a class="asr-settings-overview-card" href="?section=system"><span>Installed version</span><strong><?php echo asrSettingsH($currentAsrVersion); ?></strong><small>Updates, backups, rollback, and recovery</small></a>
+			<a class="asr-settings-overview-card" href="?section=scheduling"><span>Scheduling</span><strong>Connections &amp; Timers</strong><small>Review scheduled links and system timers</small></a>
 			<a class="asr-settings-overview-card" href="?section=appearance"><span>Node display</span><strong><?php echo $lowPowerMode ? 'Low-power mode' : 'Standard mode'; ?></strong><small>Branding, station filters, and display behavior</small></a>
 		</section>
 		<section class="asr-settings-common-tasks">
@@ -3133,6 +3136,31 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<div><a href="?section=bridges">Add or edit a bridge</a><a href="?section=appearance">Change the header</a><a href="?section=lookup">Configure QRZ lookup</a><a href="?section=system">Update or roll back ASR</a></div>
 		</section>
 		<?php endif; ?>
+<?php endif; ?>
+<?php if($modernSettingsSection === 'scheduling'): ?>
+<section class="asr-settings-section" aria-label="Scheduled Connections">
+<h3>Scheduled Connections</h3>
+<p>AllScan v1.06 provides the native schedule store, AMI execution and minute runner. Existing schedules remain unchanged. This section is administrator-only.</p>
+<?php
+$asrScheduleFile = '/etc/allscan/schedule.json';
+$asrScheduleRows = [];
+if(is_readable($asrScheduleFile)) {
+    $asrScheduleDecoded = json_decode((string)file_get_contents($asrScheduleFile), true);
+    if(is_array($asrScheduleDecoded)) $asrScheduleRows = array_slice($asrScheduleDecoded, 0, 50);
+}
+?>
+<p>Stored entries: <strong><?php echo count($asrScheduleRows); ?></strong>. The upstream runner remains disabled until an administrator enables Scheduled Connects in AllScan Cfgs.</p>
+<table><thead><tr><th>Action</th><th>Node</th><th>Time</th><th>Days</th><th>Enabled</th></tr></thead><tbody>
+<?php foreach($asrScheduleRows as $entry): if(!is_array($entry)) continue; ?>
+<tr><td><?php echo asrSettingsH($entry['action'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['node'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['time'] ?? ''); ?></td><td><?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?></td><td><?php echo !empty($entry['enabled']) ? 'Yes' : 'No'; ?></td></tr>
+<?php endforeach; ?>
+</tbody></table>
+</section>
+<section class="asr-settings-section" aria-label="Systemd Timers">
+<h3>Systemd Timers</h3>
+<p>System and user timer management requires separately authorized privileged controls. Discovery and inspection are available in the ASR read-only inventory helper; no timer will be modified by viewing this page.</p>
+<p>The timer inventory is currently a development-only command-line helper; interactive controls are not yet enabled.</p>
+</section>
 <?php endif; ?>
 <div id="asrRollbackProgress" class="asr-rollback-progress" data-state="queued" role="status" aria-live="polite" aria-atomic="true"<?php echo empty($rollbackQueuedJobId) ? ' hidden' : ''; ?>>
 	<strong id="asrRollbackProgressTitle">ROLLBACK IN PROGRESS — DO NOT LEAVE THIS PAGE</strong>
