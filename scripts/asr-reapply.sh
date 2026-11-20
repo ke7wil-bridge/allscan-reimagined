@@ -279,7 +279,9 @@ stage_asr_web() {
     while IFS= read -r -d '' source; do
       relative=${source#"$compat_dir/"}
       install -d -m 755 "$(dirname "$stage/$relative")"
-      install -m 644 "$source" "$stage/$relative"
+      compat_mode=644
+      [ "$relative" = "_tools/runSchedule.php" ] && compat_mode=755
+      install -m "$compat_mode" "$source" "$stage/$relative"
     done < <(find "$compat_dir" -type f -print0)
   else
     echo "No exact ASR compatibility layer exists for AllScan ${backend_version:-unknown}; keeping the current /asr tree." >&2
@@ -358,6 +360,10 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/s
 [ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-zello-session-patch.py" /usr/local/sbin/allscan-reimagined-zello-session-patch
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
+[ -f "$MASTER_DIR/scripts/asr-systemd-timers.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-systemd-timers.py" /usr/local/sbin/allscan-reimagined-systemd-timers
+[ -f "$MASTER_DIR/scripts/asr-timer-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-timer-control.py" /usr/local/sbin/allscan-reimagined-timer-control
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
@@ -1271,6 +1277,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban unban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]* --client-id [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-timer-control *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*

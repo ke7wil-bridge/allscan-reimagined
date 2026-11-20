@@ -316,7 +316,7 @@ def assert_installer_order(installer: Path) -> None:
     ) < text.index('mv "$STOCK_STAGE_PARENT/allscan" "$STOCK_ALLSCAN_DIR"')
     assert "backup_scheduler_state" in text
     assert "reconcile_scheduler_crontab disable" in text
-    for scheduler_file in ("schedule.json", "schedule.activity", "schedule.heartbeat", "schedule.log"):
+    for scheduler_file in ("schedule.json", "schedule.activity", "schedule.heartbeat", "schedule.log", "schedule.pending.json", "schedule.state.json", "schedule.history.jsonl"):
         assert scheduler_file in text
     assert 'crontab -u "$WEB_USER"' in text
     assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
