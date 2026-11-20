@@ -2843,8 +2843,25 @@ if(is_readable($asrScheduleFile)) {
 </section>
 <section class="asr-settings-section" aria-label="Systemd Timers">
 <h3>Systemd Timers</h3>
-<p>System and user timer management requires separately authorized privileged controls. Discovery and inspection are available in the ASR read-only inventory helper; no timer will be modified by viewing this page.</p>
-<p>The timer inventory is currently a development-only command-line helper; interactive controls are not yet enabled.</p>
+<p>System timer inventory is read-only. Existing timers are not modified. User-manager timers require a separate authorized session and are not included in this system inventory.</p>
+<?php
+$asrTimerJson = [];
+$asrTimerError = '';
+$asrTimerOutput = [];
+$asrTimerExit = 1;
+@exec('/usr/bin/systemctl --system --no-pager --no-legend --output=json list-unit-files --type=timer --all 2>/dev/null', $asrTimerOutput, $asrTimerExit);
+if($asrTimerExit === 0) {
+    $asrTimerDecoded = json_decode(implode("\n", $asrTimerOutput), true);
+    if(is_array($asrTimerDecoded)) $asrTimerJson = array_slice($asrTimerDecoded, 0, 500);
+    else $asrTimerError = 'Could not parse system timer inventory.';
+} else $asrTimerError = 'System timer inventory is unavailable for the web-server user.';
+?>
+<?php if($asrTimerError): ?><p role="status"><?php echo asrSettingsH($asrTimerError); ?></p><?php endif; ?>
+<table><thead><tr><th>Timer</th><th>Unit file state</th><th>Preset</th></tr></thead><tbody>
+<?php foreach($asrTimerJson as $timer): if(!is_array($timer)) continue; ?>
+<tr><td><?php echo asrSettingsH($timer['unit_file'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['state'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['preset'] ?? ''); ?></td></tr>
+<?php endforeach; ?>
+</tbody></table>
 </section>
 <?php endif; ?>
 <div id="asrRollbackProgress" class="asr-rollback-progress" data-state="queued" role="status" aria-live="polite" aria-atomic="true"<?php echo empty($rollbackQueuedJobId) ? ' hidden' : ''; ?>>
