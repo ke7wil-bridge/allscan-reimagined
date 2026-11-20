@@ -42,14 +42,10 @@ def main():
     try:
         command = plan(args.action, args.unit, confirm=args.confirm, allow_vendor=args.allow_vendor)
         if args.execute:
-            # No shell, no arbitrary arguments; installed authorization must also
-            # restrict the helper to an allowlisted root-owned executable.
-            if args.allow_vendor:
-                raise ValueError('Vendor operations are preview-only pending review')
-            completed = subprocess.run(command, text=True, capture_output=True, timeout=30, check=False)
-            print(json.dumps({'ok': completed.returncode == 0, 'returncode': completed.returncode,
-                              'output': (completed.stdout + completed.stderr)[-2000:]}))
-            return completed.returncode
+            # Execution is intentionally unavailable until a dedicated, reviewed
+            # authorization policy and root-owned installation exist. A CLI flag
+            # must never become an implicit privilege boundary.
+            raise ValueError('Execution disabled pending privileged integration review')
         print(json.dumps({'ok': True, 'dry_run': True, 'command': command}))
         return 0
     except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
