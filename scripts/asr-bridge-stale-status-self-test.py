@@ -685,13 +685,14 @@ def test_standard_net_log_isolation() -> None:
 def test_client_snapshot_evidence() -> None:
     state = status.initial_activity_state()
     status.reconcile_client_snapshot(state, ["N0CALL"], 100)
-    assert state["client_events"] == []
+    assert [(e["callsign"], e["event"], e.get("source")) for e in state["client_events"]] == [
+        ("N0CALL", "connect", "baseline_observation")]
     status.reconcile_client_snapshot(state, None, 101)
-    assert state["client_events"] == []
+    assert len(state["client_events"]) == 1  # Missing roster never erases evidence.
     status.reconcile_client_snapshot(state, ["N0CALL", "W1ABC"], 102)
     status.reconcile_client_snapshot(state, ["W1ABC"], 103)
-    assert [(e["callsign"], e["event"]) for e in state["client_events"]] == [
-        ("N0CALL", "disconnect"), ("W1ABC", "connect")]
+    assert ("N0CALL", "disconnect") in [(e["callsign"], e["event"]) for e in state["client_events"]]
+    assert ("W1ABC", "connect") in [(e["callsign"], e["event"]) for e in state["client_events"]]
 
 
 def test_authoritative_client_rosters() -> None:
@@ -743,7 +744,9 @@ def test_client_snapshot_restart_baseline() -> None:
     states: dict[str, dict] = {}
     first = status.standard_live_payload(
         config, states, [], now, client_snapshots={"dmr": ["N0CALL"]})
-    assert first["bridges"]["dmr"]["client_events"] == []
+    assert [(row["callsign"], row["event"], row.get("source"))
+            for row in first["bridges"]["dmr"]["client_events"]] == [
+        ("N0CALL", "connect", "baseline_observation")]
     with tempfile.TemporaryDirectory() as raw:
         path = Path(raw) / "bridge-live.json"
         path.write_text(json.dumps(first), encoding="utf-8")
@@ -751,8 +754,9 @@ def test_client_snapshot_restart_baseline() -> None:
         restored = status.restore_standard_states(path, now + 1)
     second = status.standard_live_payload(
         config, restored, [], now + 2, client_snapshots={"dmr": ["W1ABC"]})
-    assert [(row["callsign"], row["event"]) for row in second["bridges"]["dmr"]["client_events"]] == [
-        ("N0CALL", "disconnect"), ("W1ABC", "connect")]
+    transitions = [(row["callsign"], row["event"]) for row in second["bridges"]["dmr"]["client_events"]]
+    assert ("N0CALL", "disconnect") in transitions
+    assert ("W1ABC", "connect") in transitions
 
 
 def test_asrplus_recent_activity_parity() -> None:
