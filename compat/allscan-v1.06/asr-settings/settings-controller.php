@@ -1274,6 +1274,21 @@ function asrSettingsScheduleCsrfToken($user) {
 	return hash_hmac('sha256', 'asr-settings-schedule-v1|' . $userId, $loginSecret);
 }
 
+// The web SAPI's PHP_BINARY is empty (mod_php) or php-fpm, never the CLI the
+// scheduler runner needs; resolve a real CLI binary instead.
+function asrSettingsPhpCliBinary() {
+	$candidates = [];
+	if(PHP_SAPI === 'cli' && PHP_BINARY !== '') $candidates[] = PHP_BINARY;
+	$candidates[] = PHP_BINDIR . '/php' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+	$candidates[] = PHP_BINDIR . '/php';
+	$candidates[] = '/usr/bin/php';
+	foreach($candidates as $candidate) {
+		if(is_string($candidate) && $candidate !== '' && @is_file($candidate) && @is_executable($candidate))
+			return $candidate;
+	}
+	return '';
+}
+
 function asrSettingsSchedulePostValid($token) {
 	$posted = is_string($_POST['asrScheduleCsrf'] ?? null) ? $_POST['asrScheduleCsrf'] : '';
 	return $token !== '' && $posted !== '' && asrSettingsRollbackPostIsSameOrigin(true) && hash_equals($token, $posted);
@@ -2476,7 +2491,14 @@ if($modernSettings && $modernSettingsSection === 'scheduling') {
 				$runner = realpath('../_tools/runSchedule.php');
 				if(!$runner || !is_executable($runner)) $asrScheduleError = 'Native scheduler runner is unavailable.';
 				else {
-					$process = @proc_open([PHP_BINARY, $runner, '--dry-run'], [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes);
+					// Under Apache (mod_php/FPM) PHP_BINARY is empty or not the CLI;
+					// proc_open() then throws a ValueError that @ cannot suppress.
+					$phpCli = asrSettingsPhpCliBinary();
+					$process = false;
+					if($phpCli !== '') {
+						try { $process = @proc_open([$phpCli, $runner, '--dry-run'], [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes); }
+						catch(\Throwable $e) { $process = false; }
+					}
 					if(!is_resource($process)) $asrScheduleError = 'Could not start scheduler dry run.';
 					else {
 						fclose($pipes[0]); $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
