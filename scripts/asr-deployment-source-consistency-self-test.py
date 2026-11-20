@@ -44,9 +44,15 @@ def static_checks() -> None:
     for version in ("v1.04", "v1.05"):
         compat = ROOT / f"compat/allscan-{version}"
         compat_files = {path.relative_to(compat) for path in compat.rglob("*") if path.is_file()}
-        if v103_files != compat_files:
+        # v1.05 carries the authenticated network lookup endpoints and its
+        # matching Lookup page. The shared baseline remains byte-identical.
+        lookup_additions = {Path("lookup/network-graph.php"), Path("lookup/node-info.php")} if version == "v1.05" else set()
+        if v103_files != compat_files - lookup_additions:
             raise RuntimeError(f"AllScan {version} compatibility layer file set diverges from v1.03")
-        for relative in v103_files - {Path("include/common.php")}:
+        allowed_variants = {Path("include/common.php")}
+        if version == "v1.05":
+            allowed_variants.add(Path("lookup/index.php"))
+        for relative in v103_files - allowed_variants:
             require_equal(v103 / relative, compat / relative)
         common = (compat / "include/common.php").read_text()
         if common.replace(f'$AllScanVersion = "{version}";', '$AllScanVersion = "v1.03";', 1) \

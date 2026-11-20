@@ -59,7 +59,11 @@ COMPAT_MANIFEST=$(
     while IFS= read -r compat_file; do
       printf 'allscan-%s/%s\n' "$compat_version" "$compat_file"
     done <<< "$COMPAT_FILES"
-  done
+    if [ "$compat_version" = "v1.05" ]; then
+      printf 'allscan-v1.05/lookup/network-graph.php\n'
+      printf 'allscan-v1.05/lookup/node-info.php\n'
+    fi
+  done | LC_ALL=C sort
 )
 ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
 [ -z "$(find "$ROOT/compat" -type l -print -quit)" ] || {
