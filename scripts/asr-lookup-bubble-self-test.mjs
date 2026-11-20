@@ -64,3 +64,5 @@ const integrity = fs.readFileSync('scripts/asr-integrity-check.sh','utf8')
 for(const endpoint of ['lookup/network-graph.php','lookup/node-info.php']) assert.ok(integrity.includes(endpoint),'Integrity coverage missing: '+endpoint)
 for (const file of [page,backend,details]) execFileSync('php',['-l',file])
 console.log('ASR #207 bubble integration checks: ok')
+
+assert.ok(source.includes('n===networkGraphRoot?45:33'), 'Root node label must clear larger yellow bubble');

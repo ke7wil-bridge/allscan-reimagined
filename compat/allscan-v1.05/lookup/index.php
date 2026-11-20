@@ -223,7 +223,8 @@ pageInit();
             var fill=kind==='root'?colors.root:kind==='bridge'?colors.bridge:kind==='hub'?colors.hub:colors.node;
             el('circle',{cx:xy[0],cy:xy[1],r:n===networkGraphRoot?26:16,fill:fill,stroke:colors.background,'stroke-width':'2'},g);
             var title=el('title',{},g);title.textContent=n+' · '+(networkGraphLabels.get(n)||n)+' (click for details, double-click to toggle children)';
-			var label=el('text',{x:xy[0],y:xy[1]+33,'text-anchor':'middle',fill:colors.foreground,'font-size':'13','font-weight':'700'},g);label.textContent=n;
+			var labelOffset=n===networkGraphRoot?45:33;
+            var label=el('text',{x:xy[0],y:xy[1]+labelOffset,'text-anchor':'middle',fill:colors.foreground,'font-size':'13','font-weight':'700'},g);label.textContent=n;
 		});
         // Swap the complete SVG tree once per update to avoid visible intermediate frames.
         networkGraph.replaceChildren(frame);
