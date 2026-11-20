@@ -422,6 +422,15 @@ try {
     'bridge-only DMR caller was not promoted into the main Talkers feed',
   )
   assert(dmrTalkers.recentTalkers.length === 0, 'active DMR caller was duplicated in Talkers history')
+  // A transport-side AllStar/EchoLink event matching a digital outgoing relay
+  // must not replace the originating digital callsign in dashboard talkers.
+  const relayEpochs = [2_000_000_467]
+  const allstarRelayEcho = { source: 'AllStar', eventEpoch: 2_000_000_467 }
+  const genuineAllstarTalker = { source: 'AllStar', eventEpoch: 2_000_000_480 }
+  const isRelayEcho = (entry) => entry.source.toUpperCase() === 'ALLSTAR'
+    && relayEpochs.some((epoch) => Math.abs(epoch - entry.eventEpoch) <= 3)
+  assert(isRelayEcho(allstarRelayEcho), 'digital relay echo was not recognized')
+  assert(!isRelayEcho(genuineAllstarTalker), 'unrelated genuine AllStar talker was suppressed')
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
     id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',
