@@ -377,7 +377,7 @@ def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
                        and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?",
                                         str(u.get("Source", "")).strip().upper().replace(" ", "-"))]
             if len(set(matches)) == 1:
-                identity = re.sub(r"-[0-9]{1,2}$", "", matches[0])
+                identity = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", matches[0])
         except (OSError, ValueError, TypeError):
             pass
         if identity:
@@ -409,7 +409,7 @@ def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
         return
     if opened:
         caller = opened.group(2).strip().upper().replace(" ", "-")
-        caller = re.sub(r"-[0-9]{1,2}$", "", caller)
+        caller = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", caller)
         if not re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?", caller):
             return
         state.update({"observed": True, "role": "source", "current_user": caller,
@@ -873,15 +873,15 @@ def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str]
     role = str(state.get("role", "idle"))
     caller = clean_caller(str(state.get("current_user", "")), 120) if role == "source" else ""
     if str(bridge.get("mode", "")).lower() == "m17":
-        caller = re.sub(r"-[0-9]{1,2}$", "", caller)
+        caller = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", caller)
         for key in ("last_user", "last_source_user"):
-            state[key] = re.sub(r"-[0-9]{1,2}$", "", str(state.get(key) or ""))
+            state[key] = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", str(state.get(key) or ""))
         for row in state.get("tx_events", []):
             if isinstance(row, dict) and row.get("callsign"):
-                row["callsign"] = re.sub(r"-[0-9]{1,2}$", "", str(row["callsign"]))
+                row["callsign"] = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", str(row["callsign"]))
         for row in state.get("recent_users", []):
             if isinstance(row, dict) and row.get("callsign"):
-                row["callsign"] = re.sub(r"-[0-9]{1,2}$", "", str(row["callsign"]))
+                row["callsign"] = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", str(row["callsign"]))
     online = state.get("online")
     linked = state.get("linked")
     units = units or []

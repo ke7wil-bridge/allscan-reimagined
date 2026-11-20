@@ -17,6 +17,10 @@ scope["apply_m17_journal"](state, close_line, 1795198640)
 assert state["role"] == "idle" and not state["current_user"]
 assert state["last_source_user"] == "KE7WIL"
 assert any(row.get("callsign") == "KE7WIL" and row.get("direction") == "incoming" for row in state["tx_events"])
+module_state = scope["initial_activity_state"]()
+module_line = "1795198635.277340 nth-serv-p01 mrefd[981772]: Opening stream on module A from client KN4EWT N with id 0x7fb0 by user KN4EWT N"
+scope["apply_m17_journal"](module_state, module_line, 1795198636)
+assert module_state["current_user"] == "KN4EWT", module_state
 state2 = scope["initial_activity_state"]()
 scope["apply_m17_journal"](state2, "1795198635.277340 nth-serv-p01 mrefd[981772]: Opening stream on module A from client NOTVALID with id 0x3fec by user NOTVALID", 1795198636)
 assert state2["role"] == "idle"
