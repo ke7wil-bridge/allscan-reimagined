@@ -441,6 +441,10 @@ html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span { backgroun
 .allscan-ban-admin-modal .allscan-ban-admin-clients > span { background:var(--theme-panel-2); }
 
 /* Keep the node centered while pinning its action menu to the cell's right edge. */
+/* Issue #193: Node Info shortcut; leave row controls and geometry untouched. */
+.allscan-connection-network-map-link { color: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
+.allscan-connection-network-map-link:hover { opacity: .8; }
+.allscan-connection-network-map-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .allscan-connection-node-cell { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; }
 .allscan-connection-mode { min-width: 0; }
 .allscan-connection-more { position: absolute; right: -12px; display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; margin: -4px 0; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; font-size: 19px; font-weight: 900; line-height: 1; cursor: pointer; }
