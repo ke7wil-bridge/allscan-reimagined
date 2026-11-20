@@ -169,6 +169,7 @@ pageInit();
     var networkGraphCanvasWidth = 1000;
     var networkGraphCanvasHeight = 700;
     var networkGraphAutoFit = true;
+    var networkGraphLayoutSignature = '';
 
 	function renderNetworkGraph() {
 		var colors = networkGraphColors();
@@ -185,6 +186,13 @@ pageInit();
 		visible.forEach(function(n) { var d=depth.get(n); if(!levels.has(d)) levels.set(d,[]); levels.get(d).push(n); });
 		var maxPerColumn=11,laneWidth=158,rowHeight=66,layerWidths=new Map(),offsets=new Map(),nextX=95;
         levels.forEach(function(ids,level){ids.sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});layerWidths.set(level,Math.max(1,Math.ceil(ids.length/maxPerColumn)));});
+        // Recompute positions when discovered nodes alter column order or depth.
+        // Previously retained coordinates caused multiple station labels to overlap after updates.
+        var layoutSignature=Array.from(levels.entries()).sort(function(a,b){return a[0]-b[0];}).map(function(entry){return entry[0]+':'+entry[1].join(',');}).join('|');
+        if(layoutSignature!==networkGraphLayoutSignature){
+            networkGraphPositions.clear();
+            networkGraphLayoutSignature=layoutSignature;
+        }
         var maxDepth=Math.max(1,...Array.from(levels.keys()));
         for(var level=0;level<=maxDepth;level++){offsets.set(level,nextX);nextX+=(layerWidths.get(level)||1)*laneWidth+95;}
         var width=Math.max(1000,nextX+80),height=Math.max(700,130+maxPerColumn*rowHeight);
@@ -240,7 +248,7 @@ pageInit();
 	function loadNetworkGraph(root,seeds) {
 		var request=++networkGraphRequest;
 		networkGraphRoot=root;networkMapTitle.textContent='AllStarLink Network Map · '+root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();networkGraphKinds.clear();networkGraphLabels.clear();networkGraphKinds.set(root,'root');networkGraphLabels.set(root,root);
-		networkGraphZoom=1;networkGraphAutoFit=true;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
+		networkGraphZoom=1;networkGraphAutoFit=true;networkGraphLayoutSignature='';networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
 		networkMapLoading.hidden=true;renderNetworkGraph();
         var pending=[root],visited=new Set(),unchanged=0,temporaryFailures=new Map();
         var cacheKey='asr-standard-network-'+root;

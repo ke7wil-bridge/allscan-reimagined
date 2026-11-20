@@ -28,6 +28,7 @@ for (const token of ['pointerdown','pointermove','pointerup','pointercancel','to
   assert.ok(js.includes(token), 'Missing interaction/lifecycle: ' + token)
 }
 assert.ok(source.includes('text-decoration:none!important'), 'Station numbers must not be underlined')
+assert.ok(source.includes('layoutSignature!==networkGraphLayoutSignature') && source.includes('networkGraphPositions.clear();'), 'Topology updates must relayout nodes to prevent overlapping labels')
 assert.ok(js.includes("return {root:'#e1ad45',bridge:'#87929b',hub:'#3bc48a',node:'#4ab9e6'"), 'ASRPlus Netoholics palette not matched')
 assert.ok(js.includes(String.raw`/^\\d{3,7}$/`) === false, 'Double-escaped node regex would discard all topology links')
 assert.ok(js.includes(String.raw`/^\d{3,7}$/`), 'Valid numeric node matcher missing')
