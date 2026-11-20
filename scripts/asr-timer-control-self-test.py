@@ -110,6 +110,25 @@ with tempfile.TemporaryDirectory(prefix='asr-timer-control-test.') as directory:
         audit_row = json.loads((root / 'audit-dir' / 'timer-audit.jsonl').read_text())
         assert audit_row['actor'] == 'Test Admin' and audit_row['ok'] is True
 
+# ASR safety timers are protected like critical OS timers.
+for unit in ('allscan-reimagined-reapply.timer', 'allscan-reimagined-global-ban-expire.timer'):
+    assert unit in mod.CRITICAL
+    try:
+        mod.action(argparse.Namespace(unit=unit, action='stop', confirm=f'STOP {unit}'))
+        raise AssertionError(f'stopped protected ASR timer: {unit}')
+    except mod.ControlError as exc:
+        assert 'protected' in str(exc)
+
+# Monotonic timers (OnBootSec/OnUnitActiveSec) have no NextElapseUSecRealtime;
+# the next run comes from list-timers instead of showing blank.
+assert mod.format_usec(0) == '' and mod.format_usec('x') == ''
+assert mod.format_usec(1795194488779953)[:3] in ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+listing = json.dumps([{'unit': 'allscan-reimagined-reapply.timer', 'next': 1795194488779953, 'last': 1795194148214682}])
+with patch.object(mod, 'systemctl', return_value=Mock(returncode=0, stdout=listing, stderr='')):
+    schedule = mod.runtime_schedule()
+assert schedule['allscan-reimagined-reapply.timer']['next'] == mod.format_usec(1795194488779953)
+assert schedule['allscan-reimagined-reapply.timer']['last'] == mod.format_usec(1795194148214682)
+
 source = Path(__file__).with_name('asr-timer-control.py').read_text()
 assert 'shell=True' not in source
 assert 'os.system' not in source
