@@ -35,6 +35,11 @@ for name, text in checks.items():
 # every scheduling POST failed with "Invalid scheduling security token" (#200).
 assert "$_SESSION['asrScheduleCsrf']" not in s, 'scheduling CSRF must not depend on PHP sessions'
 
+# Under Apache PHP_BINARY is '' and proc_open() throws a ValueError (HTTP 500).
+assert '[PHP_BINARY, $runner' not in s, 'dry run must not exec PHP_BINARY from the web SAPI'
+assert 'asrSettingsPhpCliBinary()' in s and "PHP_SAPI === 'cli'" in s
+assert 'catch(\\Throwable $e) { $process = false; }' in s, 'dry-run proc_open must not fatal'
+
 runner = (root / 'compat/allscan-v1.06/_tools/runSchedule.php').read_text()
 assert 'if($disabled && !$dryRun) exit(0);' in runner, 'dry run must preview while the scheduler is disabled'
 assert 'if(!schedEnabled()) exit(0);' not in runner
