@@ -61,11 +61,12 @@ def static_checks() -> None:
     v106 = ROOT / "compat/allscan-v1.06"
     v106_files = {path.relative_to(v106) for path in v106.rglob("*") if path.is_file()}
     lookup_additions = {Path("lookup/network-graph.php"), Path("lookup/node-info.php")}
-    if v103_files != v106_files - lookup_additions:
+    v106_scheduler_files = {Path("include/scheduleUtils.php"), Path("_tools/runSchedule.php")}
+    if v103_files != v106_files - lookup_additions - v106_scheduler_files or not v106_scheduler_files <= v106_files:
         raise RuntimeError("AllScan v1.06 compatibility layer file set diverges from v1.03")
     for relative in v103_files - {
         Path("include/common.php"), Path("include/CfgModel.php"), Path("astapi/server.php"),
-        Path("lookup/index.php")
+        Path("lookup/index.php"), Path("asr-settings/settings-controller.php"),
     }:
         require_equal(ROOT / "compat/allscan-v1.05" / relative, v106 / relative)
     for relative in lookup_additions | {Path("lookup/index.php")} :

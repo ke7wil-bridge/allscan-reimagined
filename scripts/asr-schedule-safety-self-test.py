@@ -12,8 +12,13 @@ checks = {
     'disconnect first prohibited': "!empty($asrEntry['autodisc'])",
     'unsafe legacy toggle prohibited': "empty($entry['enabled']) && (($entry['node'] ?? '') === '0'",
     'schedule editing': "$asrOperation === 'edit'",
-    'timer unit validation': "strpos($asrTimerSelected, '..') !== false",
-    'escaped timer unit': 'escapeshellarg($asrTimerSelected)',
+    'duration input': "'duration'",
+    'scheduler dry run': "'--dry-run'",
+    'favorite selection': 'asrSettingsScheduleFavorites()',
+    'timer csrf': "Invalid timer security token.",
+    'timer helper argv': "@proc_open($command",
+    'timer inventory': "['list','--scope','all'",
+    'timer confirmation': "timerConfirmation",
 }
 for name, text in checks.items():
     assert text in s, f'Missing {name}'

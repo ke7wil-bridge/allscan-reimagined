@@ -46,6 +46,9 @@ SCHEDULER_FILES = (
     "schedule.activity",
     "schedule.heartbeat",
     "schedule.log",
+    "schedule.pending.json",
+    "schedule.state.json",
+    "schedule.history.jsonl",
 )
 REQUIRED_RELEASE_FILES = (
     "web/index.html",
