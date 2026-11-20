@@ -54,10 +54,12 @@ def static_checks() -> None:
             raise RuntimeError(f"AllScan {version} common.php differs beyond the qualified backend version")
     v106 = ROOT / "compat/allscan-v1.06"
     v106_files = {path.relative_to(v106) for path in v106.rglob("*") if path.is_file()}
-    if v103_files != v106_files:
+    v106_scheduler_files = {Path("include/scheduleUtils.php"), Path("_tools/runSchedule.php")}
+    if v103_files != v106_files - v106_scheduler_files or not v106_scheduler_files <= v106_files:
         raise RuntimeError("AllScan v1.06 compatibility layer file set diverges from v1.03")
     for relative in v103_files - {
-        Path("include/common.php"), Path("include/CfgModel.php"), Path("astapi/server.php")
+        Path("include/common.php"), Path("include/CfgModel.php"), Path("astapi/server.php"),
+        Path("asr-settings/settings-controller.php"),
     }:
         require_equal(v103 / relative, v106 / relative)
     v106_cfg = (v106 / "include/CfgModel.php").read_text()
