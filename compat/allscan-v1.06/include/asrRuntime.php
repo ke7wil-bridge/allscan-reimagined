@@ -52,3 +52,4 @@ function asrClientIdentityKeys(array $row): array {
 	}
 	return array_values(array_unique($keys));
 }
+

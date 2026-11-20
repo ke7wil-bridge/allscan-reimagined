@@ -292,3 +292,4 @@ function asrSanitizeTalkerFeed($current, $events, $astdbPath = '/var/lib/asteris
 	}
 	return $current;
 }
+
