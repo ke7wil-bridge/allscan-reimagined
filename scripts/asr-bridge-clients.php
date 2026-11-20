@@ -726,6 +726,29 @@ INI);
 		'Latest proxied YSF snapshot did not preserve current remote clients or subtract one local bridge session.'
 	);
 
+	// A station that links and unlinks between two full lists still shows
+	// while linked, and is gone once the reflector logs its removal.
+	$ysfEvents = [
+		'M: 2026-08-11 20:02:00.000 Currently linked repeaters/gateways:',
+		'M: 2026-08-11 20:02:00.000     KN4EWT    : 127.0.0.1:10001 1/60',
+		'M: 2026-08-11 20:02:00.000     N9BO      : 127.0.0.1:10005 5/60',
+		'M: 2026-08-11 20:02:10.000 Adding KF8DRJ     (127.0.0.1:10728)',
+		'M: 2026-08-11 20:02:15.000 Received data from KF8DRJ     to ALL        at KF8DRJ    ',
+		'M: 2026-08-11 20:02:20.000 Adding W2GLD      (127.0.0.1:10217)',
+		'M: 2026-08-11 20:02:25.000 Removing W2GLD      (127.0.0.1:10217) unlinked',
+	];
+	$ysfRows = asrYsfRowsFromLogLines($ysfEvents, (int) $logNow, $ysfAvailable, true, 'KN4EWT');
+	asrAssertSelfTest(
+		$ysfAvailable && array_column($ysfRows, 'callsign') === ['KF8DRJ', 'N9BO'],
+		'A YSF station linked since the last full list was not shown, or an unlinked one stayed.'
+	);
+	$ysfEvents[] = 'M: 2026-08-11 20:02:40.000 Removing KF8DRJ     (127.0.0.1:10728) unlinked';
+	$ysfRows = asrYsfRowsFromLogLines($ysfEvents, (int) $logNow, $ysfAvailable, true, 'KN4EWT');
+	asrAssertSelfTest(
+		$ysfAvailable && array_column($ysfRows, 'callsign') === ['N9BO'],
+		'A YSF station that unlinked since the last full list was still shown.'
+	);
+
 	echo "bridge-client source, freshness, owned-reflector, sorting, port, and redaction self-test: ok" . PHP_EOL;
 }
 
@@ -1681,7 +1704,19 @@ function asrYsfRowsFromLogLines(
 		if($message === 'No repeaters linked' || $message === 'No repeaters/gateways linked') {
 			$latestEpoch = $epoch;
 			$latestRows = [];
+			continue;
 		}
+		// YSFReflector prints the full list only every two minutes. Apply the
+		// link/unlink events logged since, so a short session (Doug's 31 s
+		// test on Nov 18) is on the card while it is linked (#134).
+		if(preg_match('/^Adding\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/D', $message, $event)) {
+			$callsign = asrSafeClientCallsign($event[1]);
+			if($callsign !== '')
+				$latestRows[trim($event[2])] = $callsign;
+			continue;
+		}
+		if(preg_match('/^Removing\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/', $message, $event))
+			unset($latestRows[trim($event[2])]);
 	}
 	$finishPending();
 	if($latestEpoch <= 0
