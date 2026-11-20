@@ -26,4 +26,16 @@ $disconnect = ['id'=>'ffffffff','action'=>'disconnect','node'=>'123','enabled'=>
 $resolved = schedResolveConflicts([$connect, $disconnect], false);
 must(count($resolved) === 1 && $resolved[0]['action'] === 'disconnect', 'disconnect did not win conflict');
 
+// Favorites: the node comes from the cmd[] line, not the first digit of the
+// label (which turned "N0ECT ... 45479" into node 0).
+$favorites = schedFavoritesFromLines([
+	'label[] = " === SELECT ==="', 'cmd[] = " "',
+	'label[] = "N0ECT HUB/Server, Glenwood Springs, Colorado 45479"', 'cmd[] = "rpt cmd %node% ilink 3 45479"',
+	'label[] = "N1YKT Mid South Multimode"', 'cmd[] = "rpt cmd %node% ilink 3 623122"',
+	'label[] = "Status only"', 'cmd[] = "rpt cmd %node% status 11"',
+	'label[] = "Duplicate"', 'cmd[] = "rpt cmd %node% ilink 13 45479"',
+]);
+must(array_keys($favorites) === [45479, 623122], 'favorite nodes not taken from commands: ' . json_encode(array_keys($favorites)));
+must($favorites[45479] === 'N0ECT HUB/Server, Glenwood Springs, Colorado 45479', 'favorite label lost');
+
 echo "ASR schedule integration self-test: ok\n";
