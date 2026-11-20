@@ -46,30 +46,50 @@ pageInit();
 				<p class="asr-map-style">Map style: Esri Dark Gray Canvas. Fallback location data © OpenStreetMap contributors.</p>
 			</div>
 		</section>
-		<section id="asrNetworkMapPanel" class="asr-map-panel" hidden>
+		<dialog id="asrNetworkMapPanel" class="asr-map-panel asr-network-dialog" aria-label="AllStarLink bubble network map">
 			<div class="asr-map-head">
 				<strong>AllStarLink Network Map</strong>
-				<button id="asrNetworkMapClose" type="button" class="asr-map-close">Close</button>
+				<span class="asr-network-controls"><button id="asrNetworkZoomOut" type="button" class="asr-map-button" aria-label="Zoom out">−</button><button id="asrNetworkZoomIn" type="button" class="asr-map-button" aria-label="Zoom in">+</button><button id="asrNetworkFit" type="button" class="asr-map-button">Fill</button><button id="asrNetworkMapClose" type="button" class="asr-map-close">Close</button></span>
 			</div>
 			<div class="asr-map-body">
+				<p class="asr-map-note"><b>Click</b> for details · <b>Double-click</b> to expand/collapse · <b>Drag</b> to move stations</p>
+				<aside id="asrNetworkNodeInfo" class="asr-network-node-info" hidden aria-live="polite"></aside>
 				<div id="asrNetworkMapFrame" class="asr-map-frame asr-network-map-frame">
 					<span id="asrNetworkMapLoading" class="asr-map-loading">Loading Map</span>
+					<svg id="asrNetworkGraph" role="group" aria-label="Interactive AllStarLink network graph" hidden></svg>
 					<img id="asrNetworkMapImage" alt="" loading="eager" decoding="async">
 				</div>
+				<p id="asrNetworkGraphStatus" class="asr-map-note" aria-live="polite">Interactive topology loads from AllStarLink.</p>
 				<p class="asr-map-note">
 					<button id="asrNetworkMapFallback" type="button" class="asr-map-button">Open Full Map</button>
 				</p>
 			</div>
-		</section>
+		</dialog>
 	</div>
 </section>
 
 <style>
-.asr-network-map-frame {
-	background:#fff;
-	height:clamp(300px, 34vw, 430px);
-}
+ .asr-network-dialog { position:relative;display:flex;flex-direction:column;width:min(1100px,96vw);max-width:96vw;height:min(800px,92dvh);max-height:92dvh;box-sizing:border-box;overflow:hidden;padding:0;border:1px solid var(--border-color,#648092);border-radius:10px;background:var(--surface,var(--card-bg,#172833));color:var(--text-primary,var(--text-color,#eaf2ff)); }
+.asr-network-dialog:not([open]) {display:none}
+.asr-network-dialog::backdrop {background:#000b}
+.asr-network-node-info {position:absolute;z-index:12;top:65px;right:16px;width:min(360px,calc(100% - 32px));max-height:65%;overflow:auto;padding:14px;border:1px solid var(--border-color,#648092);border-radius:8px;background:var(--surface,var(--card-bg,#203745));color:inherit;box-shadow:0 8px 26px #0008;font-size:13px}
+.asr-network-node-info[hidden] {display:none!important}
+.asr-network-node-info button {float:right}
+.asr-network-map-frame {position:relative;flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-x pan-y;background:var(--surface,var(--card-bg,#172833));}
+.asr-network-dialog>.asr-map-head {flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;background:var(--surface-alt,var(--card-bg,#243c4b));}
+.asr-network-dialog>.asr-map-body {position:relative;display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden;padding:0;}
+.asr-network-dialog .asr-map-body>.asr-map-note:first-child {flex:0 0 auto;margin:6px 12px;}
+.asr-network-dialog .asr-network-map-frame {flex:1 1 auto;width:100%;min-height:0;height:auto;}
+.asr-network-dialog #asrNetworkGraph:not([hidden]) {position:relative;z-index:3;display:block;min-width:0;min-height:0;max-width:none;max-height:none;flex:none;opacity:1;visibility:visible;}
+.asr-network-dialog #asrNetworkGraph circle,.asr-network-dialog #asrNetworkGraph line,.asr-network-dialog #asrNetworkGraph text {opacity:1;visibility:visible;}
+.asr-network-dialog .asr-network-node-info {top:48px;}
 
+#asrNetworkGraph { display:block; width:100%; height:100%; overflow:auto; background:var(--surface, var(--card-bg, #172833)); touch-action:pan-x pan-y; }
+#asrNetworkGraph[hidden], #asrNetworkMapImage[hidden] { display:none !important; }
+#asrNetworkGraph [data-node] { cursor:pointer; outline:none; }
+#asrNetworkGraph [data-node]:hover text, #asrNetworkGraph [data-node]:focus text { text-decoration:underline; }
+#asrNetworkGraph [data-node]:focus circle { stroke-width:4; }
+.asr-network-controls { display:flex; align-items:center; gap:.35rem; }
 .asr-network-map-frame img {
 	position:relative;
 	z-index:1;
@@ -116,6 +136,221 @@ pageInit();
 	var networkMapLoading = document.getElementById('asrNetworkMapLoading');
 	var networkMapImage = document.getElementById('asrNetworkMapImage');
 	var networkMapFallback = document.getElementById('asrNetworkMapFallback');
+	var networkGraph = document.getElementById('asrNetworkGraph');
+	var networkNodeInfo = document.getElementById('asrNetworkNodeInfo');
+	var networkInfoRequest = 0;
+	var networkGraphStatus = document.getElementById('asrNetworkGraphStatus');
+	var networkGraphZoom = 1;
+	var networkGraphRequest = 0;
+	var networkGraphEdges = new Set();
+	var networkGraphChildren = new Map();
+	var networkGraphNodes = new Set();
+	var networkGraphCollapsed = new Set();
+	var networkGraphPositions = new Map();
+	var networkGraphRoot = '';
+	var networkGraphDragging = null;
+	var networkGraphLastDrag = 0;
+	var networkGraphClickTimer = null;
+	var networkGraphLastTap = null;
+	var networkGraphUnavailable = false;
+	var networkGraphTouchDistance = 0;
+	var networkGraphTouchZoom = 1;
+	var networkGraphColors = function () {
+        var rootStyle=getComputedStyle(document.documentElement),bodyStyle=getComputedStyle(document.body);
+        var panel=document.querySelector('.asr-lookup-list-panel')||document.querySelector('.asr-lookup-page')||document.body;
+        var panelStyle=getComputedStyle(panel),buttonStyle=getComputedStyle(networkMapOpen);
+        var css=function(key,fallback){return rootStyle.getPropertyValue(key).trim()||bodyStyle.getPropertyValue(key).trim()||fallback;};
+        var background=css('--surface',css('--card-bg',panelStyle.backgroundColor||'#172833'));
+        var foreground=css('--text-primary',css('--text-color',bodyStyle.color||'#eaf2ff'));
+        var edge=css('--border-color',panelStyle.borderTopColor||'#8298ac');
+        var node=css('--accent-color',css('--primary-color',buttonStyle.backgroundColor||'#4ab9e6'));
+        var root=css('--accent',css('--warning-color','#ffc45a'));
+        return {background:background,foreground:foreground,edge:edge,node:node,root:root};
+	};
+	function renderNetworkGraph() {
+		var colors = networkGraphColors();
+		var nodes = Array.from(networkGraphNodes);
+		var depth = new Map([[networkGraphRoot,0]]);
+		var queue = [networkGraphRoot];
+		while(queue.length) {
+			var current = queue.shift();
+			if(networkGraphCollapsed.has(current)) continue;
+			Array.from(networkGraphChildren.get(current)||[]).forEach(function(next){if(!depth.has(next)){depth.set(next,depth.get(current)+1);queue.push(next);}});
+		}
+		var visible = nodes.filter(function (n) { return depth.has(n); });
+		var levels = new Map();
+		visible.forEach(function(n) { var d=depth.get(n); if(!levels.has(d)) levels.set(d,[]); levels.get(d).push(n); });
+		var maxPerColumn=11,laneWidth=158,rowHeight=66,layerWidths=new Map(),offsets=new Map(),nextX=95;
+        levels.forEach(function(ids,level){ids.sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});layerWidths.set(level,Math.max(1,Math.ceil(ids.length/maxPerColumn)));});
+        var maxDepth=Math.max(1,...Array.from(levels.keys()));
+        for(var level=0;level<=maxDepth;level++){offsets.set(level,nextX);nextX+=(layerWidths.get(level)||1)*laneWidth+95;}
+        var width=Math.max(1000,nextX+80),height=Math.max(700,130+maxPerColumn*rowHeight);
+        levels.forEach(function(ids,level){ids.forEach(function(n,i){
+            if(networkGraphPositions.has(n))return;
+            var col=Math.floor(i/maxPerColumn),row=i%maxPerColumn;
+            var inColumn=Math.min(maxPerColumn,ids.length-col*maxPerColumn);
+            networkGraphPositions.set(n,[offsets.get(level)+col*laneWidth,(height-(inColumn-1)*rowHeight)/2+row*rowHeight]);
+        });});
+        networkGraphPositions.forEach(function(pos){width=Math.max(width,pos[0]+95);height=Math.max(height,pos[1]+95);});
+		var ns='http://www.w3.org/2000/svg';
+		function el(tag,attributes,parent) { var node=document.createElementNS(ns,tag); Object.keys(attributes).forEach(function(k){node.setAttribute(k,attributes[k]);}); (parent||networkGraph).appendChild(node); return node; }
+		networkGraph.replaceChildren();
+		networkGraph.setAttribute('viewBox','0 0 '+(width/networkGraphZoom)+' '+(height/networkGraphZoom));
+		networkGraph.style.background=colors.background;
+
+		networkGraphEdges.forEach(function(key) {
+			var pair=key.split(':'); if(!depth.has(pair[0])||!depth.has(pair[1])||(networkGraphCollapsed.has(pair[0])||networkGraphCollapsed.has(pair[1]))) return;
+			var a=networkGraphPositions.get(pair[0]),b=networkGraphPositions.get(pair[1]);
+			el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:colors.edge,'stroke-width':'2'});
+		});
+		visible.forEach(function(n) {
+			var xy=networkGraphPositions.get(n),g=el('g',{'data-node':n,tabindex:'0',role:'button','aria-label':'Node '+n+'. Enter opens AllStarLink details; C collapses connections'});
+			el('circle',{cx:xy[0],cy:xy[1],r:n===networkGraphRoot?26:16,fill:n===networkGraphRoot?colors.root:colors.node,stroke:colors.background,'stroke-width':'2'},g);
+			var label=el('text',{x:xy[0],y:xy[1]+33,'text-anchor':'middle',fill:colors.foreground,'font-size':'13','font-weight':'700'},g);label.textContent=n;
+		});
+		if(!networkGraphUnavailable)networkGraphStatus.textContent=visible.length+' stations · '+networkGraphEdges.size+' connections. Select a node to open its AllStarLink details; press C to collapse.';
+	}
+	function showNetworkNodeInfo(id) {
+        var request=++networkInfoRequest;
+        networkNodeInfo.hidden=false;
+        networkNodeInfo.replaceChildren();
+        var title=document.createElement('strong');title.textContent='Node '+id;networkNodeInfo.appendChild(title);
+        var close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Close node details');close.addEventListener('click',function(){networkNodeInfo.hidden=true;networkInfoRequest++;});networkNodeInfo.appendChild(close);
+        var details=document.createElement('div');details.textContent='Loading AllStarLink details…';networkNodeInfo.appendChild(details);
+        fetch('node-info.php?node='+encodeURIComponent(id),{credentials:'same-origin'}).then(function(r){if(!r.ok)throw Error('Unavailable');return r.json();}).then(function(data){
+            if(request!==networkInfoRequest)return;
+            details.replaceChildren();
+            if(data.callsign)title.textContent=data.callsign+' · '+id;
+            [['Callsign',data.callsign],['Description',data.description||data.name],['Location',data.location],['Connections',(data.links||[]).join(', ')||'Not currently available']].forEach(function(field){
+                if(!field[1])return;var row=document.createElement('div'),label=document.createElement('b');label.textContent=field[0]+': ';row.appendChild(label);row.appendChild(document.createTextNode(String(field[1])));details.appendChild(row);
+            });
+        }).catch(function(){if(request===networkInfoRequest)details.textContent='Unable to load node details right now.';});
+    }
+	function loadNetworkGraph(root) {
+		var request=++networkGraphRequest;
+		networkGraphRoot=root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();
+		networkGraphZoom=1;networkGraphUnavailable=false;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
+		networkMapLoading.hidden=true;renderNetworkGraph();
+        var pending=[root],visited=new Set(),unchanged=0,temporaryFailures=new Map();
+        var cacheKey='asr-standard-network-'+root;
+        function removeEdge(node,linked){
+            var key=[node,linked].sort().join(':');networkGraphEdges.delete(key);
+            [node,linked].forEach(function(id){var other=id===node?linked:node;var set=networkGraphChildren.get(id);if(set){set.delete(other);if(!set.size)networkGraphChildren.delete(id);}});
+        }
+        function addEdge(node,linked){
+            if(!/^\d{3,7}$/.test(linked)||linked===node)return false;
+            var edge=[node,linked].sort().join(':');networkGraphEdges.add(edge);
+            for(var pair of [[node,linked],[linked,node]]){
+                if(!networkGraphChildren.has(pair[0]))networkGraphChildren.set(pair[0],new Set());
+                networkGraphChildren.get(pair[0]).add(pair[1]);
+            }
+            if(networkGraphNodes.has(linked))return false;
+            networkGraphNodes.add(linked);pending.push(linked);return true;
+        }
+        try{
+            var saved=JSON.parse(localStorage.getItem(cacheKey)||'null');
+            if(saved&&Date.now()-saved.saved<86400000&&Array.isArray(saved.edges)){
+                saved.edges.forEach(function(pair){if(Array.isArray(pair)&&pair.length===2&&/^\d{3,7}$/.test(pair[0])&&/^\d{3,7}$/.test(pair[1]))addEdge(pair[0],pair[1]);});
+                renderNetworkGraph();
+            }
+        }catch(_){}
+        function save(){try{localStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),edges:Array.from(networkGraphEdges,function(key){return key.split(':');})}));}catch(_){}}
+        async function discover(){
+            while(request===networkGraphRequest&&networkMapPanel.open&&pending.length){
+                var batch=[];
+                while(pending.length&&batch.length<4){
+                    var node=String(pending.shift());
+                    if(visited.has(node)||!/^\d{4,7}$/.test(node)||/^100[1-6]$/.test(node))continue;
+                    visited.add(node);batch.push(node);
+                }
+                if(!batch.length)break;
+                var results=await Promise.all(batch.map(async function(node){
+                    try{var response=await fetch('network-graph.php?node='+encodeURIComponent(node)+'&refresh='+Date.now(),{credentials:'same-origin',cache:'no-store'});return {node:node,data:response.ok?await response.json():null};}catch(_){return {node:node,data:null};}
+                }));
+                if(request!==networkGraphRequest||!networkMapPanel.open)return;
+                var discovered=false,reported=false,throttled=false;
+                results.forEach(function(result){
+                    if(!result||!result.data||!result.data.reported){
+                        if(result && result.node && (result.data?.status==='rate-limited'||result.data?.status==='busy'||(temporaryFailures.get(result.node)||0)<2)){
+                            if(result.data?.status==='rate-limited')throttled=true;
+                            if(result.data?.status!=='rate-limited'&&result.data?.status!=='busy')temporaryFailures.set(result.node,(temporaryFailures.get(result.node)||0)+1);
+                            pending.push(result.node);visited.delete(result.node);
+                        }
+                        return;
+                    }
+                    reported=true;
+                    var currentLinks=new Set((result.data.links||[]).map(String).filter(function(id){return /^\d{3,7}$/.test(id)&&id!==result.node;}));
+                    Array.from(networkGraphChildren.get(result.node)||[]).forEach(function(old){if(!currentLinks.has(old))removeEdge(result.node,old);});
+                    currentLinks.forEach(function(linked){if(addEdge(result.node,linked))discovered=true;});
+                    // Persist successful refreshes too, including removals, not only newly found nodes.
+                    save();
+                });
+                if(discovered){unchanged=0;}else unchanged++;
+                networkGraphUnavailable=!reported&&!networkGraphEdges.size;
+                renderNetworkGraph();
+                if(networkGraphUnavailable)networkGraphStatus.textContent='No live connection report available. Waiting for updates.';
+                if(pending.length){await new Promise(function(resolve){setTimeout(resolve,throttled||unchanged>=2?61000:1200);});}
+                if(unchanged>=2)unchanged=0;
+            }
+        }
+        void discover().catch(function(){if(request===networkGraphRequest)networkGraphStatus.textContent='Network discovery paused. Reopen to retry.';});
+
+	}
+	document.getElementById('asrNetworkZoomIn').addEventListener('click',function(){networkGraphZoom=Math.min(4,networkGraphZoom*1.25);renderNetworkGraph();});
+	document.getElementById('asrNetworkZoomOut').addEventListener('click',function(){networkGraphZoom=Math.max(.5,networkGraphZoom/1.25);renderNetworkGraph();});
+	document.getElementById('asrNetworkFit').addEventListener('click',function(){networkGraphZoom=1;renderNetworkGraph();});
+	function graphSvgPoint(event) {
+		var point=networkGraph.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
+		var matrix=networkGraph.getScreenCTM();
+		return matrix ? point.matrixTransform(matrix.inverse()) : point;
+	}
+	networkGraph.addEventListener('pointerdown',function(event){
+		var group=event.target.closest('[data-node]');
+		if(!group || event.button!==0)return;
+		var id=group.getAttribute('data-node'),pos=networkGraphPositions.get(id);
+		if(!pos)return;
+		networkGraphDragging={id:id,origin:pos.slice(),start:graphSvgPoint(event),pointer:event.pointerId,moved:false};
+		networkGraph.setPointerCapture(event.pointerId);
+	});
+	networkGraph.addEventListener('pointermove',function(event){
+		var drag=networkGraphDragging;if(!drag || drag.pointer!==event.pointerId)return;
+		var pt=graphSvgPoint(event),dx=pt.x-drag.start.x,dy=pt.y-drag.start.y;
+		if(Math.hypot(dx,dy)>4)drag.moved=true;
+		if(drag.moved){networkGraphPositions.set(drag.id,[Math.max(30,drag.origin[0]+dx),Math.max(30,drag.origin[1]+dy)]);renderNetworkGraph();}
+	});
+	networkGraph.addEventListener('pointerup',function(event){
+		if(networkGraphDragging && networkGraphDragging.pointer===event.pointerId){
+			var id=networkGraphDragging.id,moved=networkGraphDragging.moved;
+            if(moved)networkGraphLastDrag=Date.now();
+			networkGraphDragging=null;
+            if(!moved){
+                var now=performance.now();
+                if(networkGraphLastTap && networkGraphLastTap.id===id && now-networkGraphLastTap.time<360){
+                    clearTimeout(networkGraphClickTimer);networkGraphLastTap=null;
+                    networkGraphCollapsed.has(id)?networkGraphCollapsed.delete(id):networkGraphCollapsed.add(id);renderNetworkGraph();
+                }else{
+                    networkGraphLastTap={id:id,time:now};clearTimeout(networkGraphClickTimer);
+                    networkGraphClickTimer=setTimeout(function(){networkGraphLastTap=null;showNetworkNodeInfo(id);},370);
+                }
+            }
+		}
+	});
+	networkGraph.addEventListener('pointercancel',function(){networkGraphDragging=null;});
+	networkGraph.addEventListener('wheel',function(event){
+		if(!event.ctrlKey && !event.metaKey)return;
+		event.preventDefault();networkGraphZoom=Math.max(.5,Math.min(4,networkGraphZoom*(event.deltaY<0?1.1:.9)));renderNetworkGraph();
+	},{passive:false});
+	function graphTouchDistance(touches){return Math.hypot(touches[0].clientX-touches[1].clientX,touches[0].clientY-touches[1].clientY);}
+	networkGraph.addEventListener('touchstart',function(event){if(event.touches.length===2){networkGraphTouchDistance=graphTouchDistance(event.touches);networkGraphTouchZoom=networkGraphZoom;}},{passive:true});
+	networkGraph.addEventListener('touchmove',function(event){if(event.touches.length===2 && networkGraphTouchDistance){event.preventDefault();networkGraphZoom=Math.max(.5,Math.min(4,networkGraphTouchZoom*graphTouchDistance(event.touches)/networkGraphTouchDistance));renderNetworkGraph();}},{passive:false});
+	networkGraph.addEventListener('touchend',function(event){if(event.touches.length<2)networkGraphTouchDistance=0;},{passive:true});
+	networkGraph.addEventListener('keydown',function(event){var group=event.target.closest('[data-node]');if(!group)return;var id=group.getAttribute('data-node');if(event.key.toLowerCase()==='c'){networkGraphCollapsed.has(id)?networkGraphCollapsed.delete(id):networkGraphCollapsed.add(id);renderNetworkGraph();var replacement=Array.from(networkGraph.querySelectorAll('[data-node]')).find(function(g){return g.getAttribute('data-node')===id;});if(replacement)replacement.focus();event.preventDefault();}else if(event.key==='Enter'||event.key===' '){event.preventDefault();showNetworkNodeInfo(id);}});
+
+
+	networkMapPanel.addEventListener('click',function(event){if(event.target===networkMapPanel)networkMapPanel.close();});
+	networkMapPanel.addEventListener('close',function(){stopNetworkMapRefresh();networkGraphRequest++;networkInfoRequest++;networkNodeInfo.hidden=true;networkMapOpen.setAttribute('aria-expanded','false');});
+	new MutationObserver(function(){if(networkMapPanel.open)renderNetworkGraph();}).observe(document.documentElement,{attributes:true,attributeFilter:['class','data-theme','style']});
+    new MutationObserver(function(){if(networkMapPanel.open)renderNetworkGraph();}).observe(document.body,{attributes:true,attributeFilter:['class','data-theme','style']});
 	var leafletPromise = null;
 	var stationMap = null;
 	var stationMarkers = null;
@@ -185,7 +420,7 @@ pageInit();
 	}
 
 	function refreshNetworkMap() {
-		if(networkMapPanel.hidden) return;
+		if(!networkMapPanel.open) return;
 		var freshUrl = freshNetworkMapUrl();
 		if(!freshUrl) return;
 		networkMapImage.src = freshUrl;
@@ -196,7 +431,7 @@ pageInit();
 	function scheduleNetworkMapRefresh() {
 		if(networkMapRefreshTimer) window.clearTimeout(networkMapRefreshTimer);
 		networkMapRefreshTimer = window.setTimeout(function () {
-			if(networkMapPanel.hidden) return;
+			if(!networkMapPanel.open) return;
 			refreshNetworkMap();
 			scheduleNetworkMapRefresh();
 		}, 300000);
@@ -210,6 +445,7 @@ pageInit();
 	function setNetworkMapNode(node) {
 		var nextNode = String(node || '').trim();
 		if(!networkMapBaseUrl(nextNode)) return;
+		if(networkMapNode !== nextNode && networkMapPanel.open)loadNetworkGraph(nextNode);
 		networkMapNode = nextNode;
 		networkMapOpen.disabled = false;
 	}
@@ -506,26 +742,26 @@ pageInit();
 	});
 	networkMapOpen.addEventListener('click', function () {
 		if(!networkMapNode) return;
-		if(window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
-			window.open(freshNetworkMapUrl(), '_blank', 'noopener');
-			return;
-		}
-		if(!networkMapPanel.hidden) return;
-		networkMapPanel.hidden = false;
+		if(networkMapPanel.open) return;
+		networkMapPanel.showModal();
 		networkMapOpen.setAttribute('aria-expanded', 'true');
+		loadNetworkGraph(networkMapNode);
 		refreshNetworkMap();
 		scheduleNetworkMapRefresh();
 	});
 	networkMapClose.addEventListener('click', function () {
-		networkMapPanel.hidden = true;
+		networkMapPanel.close();
 		networkMapOpen.setAttribute('aria-expanded', 'false');
 		stopNetworkMapRefresh();
+		networkGraphRequest++;
 		networkMapUrl = '';
 	});
 	networkMapImage.addEventListener('load', function () {
+		if(networkGraphUnavailable){networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;}
 		networkMapLoading.hidden = true;
 	});
 	networkMapImage.addEventListener('error', function () {
+		if(!networkGraph.hasAttribute('hidden')) return;
 		networkMapLoading.hidden = false;
 		networkMapLoading.textContent = 'Map unavailable';
 	});

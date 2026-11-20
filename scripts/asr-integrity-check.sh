@@ -208,6 +208,8 @@ if [ "$needs_reapply" -eq 0 ]; then
     asr-settings/rollback-status.php \
     asr-instructions/index.php \
     lookup/index.php \
+    lookup/network-graph.php \
+    lookup/node-info.php \
     echolink-lookup/index.php \
     performance/index.php \
     css/asr-admin.css \
