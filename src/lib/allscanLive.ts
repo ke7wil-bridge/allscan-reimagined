@@ -1636,7 +1636,8 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
 }
 
 const BRIDGE_LAST_TALKER_MAX_AGE = 60 * 60
-const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 12 * 60 * 60
+// Match the collector and API retention contract exactly.
+const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60
 const ZELLO_RECENT_TALKERS_MAX_AGE = BRIDGE_RECENT_ACTIVITY_MAX_AGE
 
 function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
