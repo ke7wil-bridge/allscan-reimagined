@@ -756,6 +756,10 @@ def test_client_snapshot_restart_baseline() -> None:
 
 
 def test_asrplus_recent_activity_parity() -> None:
+    # ASRPlus is distributed separately, not in the ASR release payload.
+    # Validate parity in source checkouts without requiring it in staged archives.
+    if not (PAYLOAD_ROOT / "scripts/asrplus-status.py").is_file() and not (PAYLOAD_ROOT / "ops/asrplus/asrplus.js").is_file():
+        return
     asrplus = load_script("asrplus_status_recent", "asrplus-status.py")
     now = 2_000_000
     rows = asrplus.bridge_recent_activity({
