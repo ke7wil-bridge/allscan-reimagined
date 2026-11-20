@@ -1661,7 +1661,8 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const epoch = Number(record.epoch || 0)
       if (!(epoch > 0 && now - epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)) return
       const identity = cleanIdentity(bridgeClientName(record))
-      if (!identity || identity === '-') return
+      const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
+      if (!label || label === '-') return
       const event = String(record.event || '').toLowerCase()
       const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
       if (!action) return
@@ -1670,7 +1671,7 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       // DMR network registration produces spurious 0.1s voice frames.
       if (kind === 'TX' && (!Number.isFinite(duration) || duration < 1)) return
       const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
-      rows.push({ key: `${mode}-${action}-${identity}-${epoch}-${index}`, label: identity,
+      rows.push({ key: `${mode}-${action}-${label}-${epoch}-${index}`, label,
         meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '), epoch })
     })
   }
