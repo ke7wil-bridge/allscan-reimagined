@@ -240,13 +240,47 @@ function schedCronWrite($lines, &$err) {
 function schedCronEnable(&$err) {
 	$lines = schedCronRead();
 	if($lines === false) { $err = 'Unable to read crontab. Check cron.allow and cron.deny'; return false; }
-	if(schedCronHasEntry($lines) || schedRunnerActive()) return true;
 	$runner = schedRunnerPath();
 	if(!$runner || !is_executable($runner)) { $err = '_tools/runSchedule.php is missing or not executable'; return false; }
-	$lines[] = schedCronLine(); return schedCronWrite($lines, $err);
+	// Keep exactly one runner entry, and make it this tree's runner. An entry
+	// for stock AllScan's runner would skip ASR's durations, history, DST and
+	// conflict handling, and two entries would double-run every minute.
+	$want = schedCronLine();
+	$keep = [];
+	$found = false;
+	foreach($lines as $line) {
+		if(strpos($line, 'runSchedule.php') !== false && substr(ltrim($line), 0, 1) !== '#') {
+			if(!$found && trim($line) === $want) { $keep[] = $line; $found = true; }
+			continue;
+		}
+		$keep[] = $line;
+	}
+	if(!$found) $keep[] = $want;
+	return $keep === $lines ? true : schedCronWrite($keep, $err);
 }
 function schedCronDisable(&$err) {
 	$lines = schedCronRead(); if($lines === false) { $err = 'Unable to read crontab'; return false; }
 	$keep = array_values(array_filter($lines, function($line) { return strpos($line, 'runSchedule.php') === false; }));
 	return count($keep) === count($lines) ? true : schedCronWrite($keep, $err);
+}
+
+// favorites.ini stores pairs: label[] = "Name" then cmd[] = "rpt cmd %node% ilink 3 NODE".
+// The node comes from the command; the label line has no reliable node
+// number (a first-digit match picked the 0 out of "N0ECT"). Entries whose
+// command names no node are skipped. Returns [node => label].
+function schedFavoritesFromLines(array $lines) {
+	$result = [];
+	$label = null;
+	foreach($lines as $line) {
+		$line = trim((string)$line);
+		if(preg_match('/^label\[\]\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $match)) { $label = trim($match[1]); continue; }
+		if(!preg_match('/^cmd\[\]\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $match)) continue;
+		$current = $label;
+		$label = null;
+		if(!preg_match('/\bilink\s+[0-9]+\s+0*([1-9][0-9]{0,6})\b/', $match[1], $node)) continue;
+		if(isset($result[$node[1]])) continue;
+		$text = trim(preg_replace('/[\x00-\x1f\x7f]+/', ' ', (string)$current));
+		$result[$node[1]] = substr($text !== '' ? $text : $node[1], 0, 100);
+	}
+	return $result;
 }

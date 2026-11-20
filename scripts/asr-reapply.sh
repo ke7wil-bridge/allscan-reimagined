@@ -1190,6 +1190,9 @@ visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null
 find "$ALLSCAN_DIR" ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chown root:root "$file" 2>/dev/null || true; done' sh {} +
 find "$ALLSCAN_DIR" -type d -exec chmod 755 {} + || true
 find "$ALLSCAN_DIR" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 644 "$file" 2>/dev/null || true; done' sh {} +
+# The native scheduler runner is executed directly from the web user's
+# crontab and must stay executable after the blanket 644 above (#200).
+[ -f "$ALLSCAN_DIR/_tools/runSchedule.php" ] && chmod 755 "$ALLSCAN_DIR/_tools/runSchedule.php"
 install -d -o root -g "$WEB_GROUP" -m 775 "$ALLSCAN_DIR/asr-user-content"
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'owner="$1"; shift; for file; do [ -e "$file" ] && chown "$owner" "$file" 2>/dev/null || true; done' sh "root:$WEB_GROUP" {} +
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 664 "$file" 2>/dev/null || true; done' sh {} +

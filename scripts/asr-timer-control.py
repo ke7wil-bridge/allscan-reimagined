@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -40,6 +41,10 @@ CRITICAL = {
     "apt-daily.timer", "apt-daily-upgrade.timer", "systemd-tmpfiles-clean.timer",
     "fstrim.timer", "logrotate.timer", "man-db.timer", "fwupd-refresh.timer",
     "systemd-journal-flush.timer", "systemd-journal-rotate.timer",
+    # ASR's own safety timers: stopping these silently freezes self-repair
+    # (reapply/integrity) or leaves timed Global Bans in force indefinitely.
+    "allscan-reimagined-reapply.timer", "allscan-reimagined-reapply-delayed.timer",
+    "allscan-reimagined-global-ban-expire.timer",
 }
 MUTATING_ACTIONS = {"enable", "disable", "start", "stop", "restart", "trigger"}
 
@@ -112,6 +117,37 @@ def as_invoking_user(argv: list[str]) -> list[str]:
     return ["/usr/sbin/runuser", "-u", account, "--", "/usr/bin/env", f"XDG_RUNTIME_DIR=/run/user/{uid}", *argv]
 
 
+def format_usec(value: Any) -> str:
+    """Render a systemd epoch-microsecond timestamp like `systemctl show` does."""
+    try:
+        usec = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if usec <= 0:
+        return ""
+    return time.strftime("%a %Y-%m-%d %H:%M:%S %Z", time.localtime(usec / 1_000_000))
+
+
+def runtime_schedule(*, user: bool = False) -> dict[str, dict[str, str]]:
+    """Next/last elapse for every loaded timer, calendar and monotonic alike.
+
+    `NextElapseUSecRealtime` is empty for OnBootSec/OnUnitActiveSec timers;
+    `systemctl list-timers` merges both clocks into one wall-clock time.
+    """
+    listed = systemctl("list-timers", "--all", "--output=json", user=user, check=False)
+    if listed.returncode != 0:
+        return {}
+    try:
+        rows = json.loads(listed.stdout)
+    except json.JSONDecodeError:
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("unit"):
+            result[str(row["unit"])] = {"next": format_usec(row.get("next")), "last": format_usec(row.get("last"))}
+    return result
+
+
 def timer_rows(*, user: bool = False) -> list[dict[str, Any]]:
     files = systemctl("list-unit-files", "--type=timer", "--all", "--output=json", user=user)
     try:
@@ -132,6 +168,7 @@ def timer_rows(*, user: bool = False) -> list[dict[str, Any]]:
             name = str(row.get("unit", "")) if isinstance(row, dict) else ""
             if name and name not in by_name:
                 by_name[name] = {"unit_file": name, "state": "generated", "preset": "-"}
+    schedule = runtime_schedule(user=user)
     result: list[dict[str, Any]] = []
     properties = "Id,LoadState,ActiveState,SubState,UnitFileState,NextElapseUSecRealtime,LastTriggerUSec,Result,Triggers,Description"
     for row in by_name.values():
@@ -153,8 +190,8 @@ def timer_rows(*, user: bool = False) -> list[dict[str, Any]]:
             "name": name, "scope": "user" if user else "system",
             "unitFileState": row.get("state", "unknown"), "preset": row.get("preset", "unknown"),
             "loadState": props.get("LoadState", "unknown"), "activeState": props.get("ActiveState", "unknown"),
-            "subState": props.get("SubState", "unknown"), "next": props.get("NextElapseUSecRealtime", ""),
-            "previous": props.get("LastTriggerUSec", ""), "result": props.get("Result", ""),
+            "subState": props.get("SubState", "unknown"), "next": props.get("NextElapseUSecRealtime", "") or schedule.get(name, {}).get("next", ""),
+            "previous": props.get("LastTriggerUSec", "") or schedule.get(name, {}).get("last", ""), "result": props.get("Result", ""),
             "service": props.get("Triggers", ""), "description": props.get("Description", ""),
             "serviceState": "/".join(filter(None, [service_props.get("ActiveState", ""), service_props.get("SubState", "")])),
             "serviceResult": service_props.get("Result", ""), "serviceExecStatus": service_props.get("ExecMainStatus", ""),
@@ -200,6 +237,9 @@ def inspect_timer(name: str, *, user: bool = False) -> dict[str, Any]:
         history_argv.extend([unit_option, service_names[0]])
     history_argv.extend(["--no-pager", "--lines=60", "--output=short-iso"])
     history = run(as_invoking_user(history_argv) if user else history_argv, check=False)
+    schedule_next = runtime_schedule(user=user).get(name, {}).get("next", "")
+    if schedule_next and not props.get("NextElapseUSecRealtime"):
+        props["NextElapseUSecRealtime"] = schedule_next
     return {
         "name": name, "scope": "user" if user else "system", "properties": props,
         "serviceProperties": service_properties,

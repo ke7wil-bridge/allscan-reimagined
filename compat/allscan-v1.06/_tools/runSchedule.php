@@ -27,7 +27,11 @@ if(!$lock) {
 	exit(0);
 }
 if(!$dryRun) schedWrite(SCHED_HEARTBEAT, date('c'));
-if(!schedEnabled()) exit(0);
+// A dry run previews the current minute even while the scheduler is
+// disabled (the default), so schedules can be checked before enabling.
+$disabled = !schedEnabled();
+if($disabled && !$dryRun) exit(0);
+$note = $disabled ? ' (scheduler is disabled; this is what would run if it were enabled)' : '';
 
 $pending = schedPendingLoad();
 $expired = [];
@@ -42,10 +46,13 @@ foreach($pending as $item) {
 	else $remaining[] = $item;
 }
 $due = schedResolveConflicts(array_merge($expired, schedClaimDue(schedLoad(), $now, !$dryRun)));
-if(!count($due)) exit(0);
+if(!count($due)) {
+	if($dryRun) echo "$stamp DRY RUN: no schedules are due in this minute$note\n";
+	exit(0);
+}
 
 if($dryRun) {
-	foreach($due as $entry) echo "$stamp DRY RUN: " . schedDescribe($entry) . "\n";
+	foreach($due as $entry) echo "$stamp DRY RUN: " . schedDescribe($entry) . "$note\n";
 	exit(0);
 }
 
