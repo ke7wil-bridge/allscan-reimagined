@@ -3257,10 +3257,28 @@ if($asrTimerExit === 0) {
     else $asrTimerError = 'Could not parse system timer inventory.';
 } else $asrTimerError = 'System timer inventory is unavailable for the web-server user.';
 ?>
+<?php
+$asrTimerSelected = is_string($_GET['timer'] ?? null) ? $_GET['timer'] : '';
+$asrTimerProperties = [];
+if($asrTimerSelected !== '') {
+    if(!preg_match('/^[A-Za-z0-9_.@:-]{1,256}\.timer$/D', $asrTimerSelected) || strpos($asrTimerSelected, '..') !== false) $asrTimerError = 'Invalid timer name.';
+    else {
+        $asrTimerShowOutput = [];
+        $asrTimerShowExit = 1;
+        @exec('/usr/bin/systemctl --system --no-pager show --property=Id,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,SourcePath,DropInPaths,Triggers,NextElapseUSecRealtime,NextElapseUSecMonotonic,LastTriggerUSec,Result,Description ' . escapeshellarg($asrTimerSelected) . ' 2>/dev/null', $asrTimerShowOutput, $asrTimerShowExit);
+        if($asrTimerShowExit === 0) foreach($asrTimerShowOutput as $line) {
+            $pair = explode('=', $line, 2);
+            if(count($pair) === 2) $asrTimerProperties[$pair[0]] = $pair[1];
+        }
+        else $asrTimerError = 'Could not inspect selected timer.';
+    }
+}
+?>
 <?php if($asrTimerError): ?><p role="status"><?php echo asrSettingsH($asrTimerError); ?></p><?php endif; ?>
+<?php if($asrTimerProperties): ?><details open><summary>Timer details: <?php echo asrSettingsH($asrTimerSelected); ?></summary><dl><?php foreach($asrTimerProperties as $key => $value): ?><dt><?php echo asrSettingsH($key); ?></dt><dd><?php echo asrSettingsH($value); ?></dd><?php endforeach; ?></dl></details><?php endif; ?>
 <table><thead><tr><th>Timer</th><th>Unit file state</th><th>Preset</th></tr></thead><tbody>
 <?php foreach($asrTimerJson as $timer): if(!is_array($timer)) continue; ?>
-<tr><td><?php echo asrSettingsH($timer['unit_file'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['state'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['preset'] ?? ''); ?></td></tr>
+<tr><td><a href="?section=scheduling&amp;timer=<?php echo rawurlencode((string)($timer['unit_file'] ?? '')); ?>"><?php echo asrSettingsH($timer['unit_file'] ?? ''); ?></a></td><td><?php echo asrSettingsH($timer['state'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['preset'] ?? ''); ?></td></tr>
 <?php endforeach; ?>
 </tbody></table>
 </section>
