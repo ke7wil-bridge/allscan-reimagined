@@ -745,9 +745,14 @@ try {
     'bridge detail semantics do not preserve Zello talker history and roster provenance',
   )
   assert(
+    allscanLiveSource.includes('const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60'),
+    'frontend Recent Activity retention no longer matches the 24-hour backend contract',
+  )
+  assert(
     !appSource.includes('allscan-urf-')
       && appSource.includes('Recent Activity<'),
     'URF card markup remains or bridge activity section is missing',
+
   )
   assert(
     appSource.includes('allscan-controls-lower-row')
