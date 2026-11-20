@@ -148,6 +148,7 @@ pageInit();
 	var networkGraphCollapsed = new Set();
 	var networkGraphPositions = new Map();
 	var networkGraphRoot = '';
+    var networkGraphSeeds = [];
 	var networkGraphDragging = null;
 	var networkGraphLastDrag = 0;
 	var networkGraphClickTimer = null;
@@ -226,10 +227,10 @@ pageInit();
             });
         }).catch(function(){if(request===networkInfoRequest)details.textContent='Unable to load node details right now.';});
     }
-	function loadNetworkGraph(root) {
+	function loadNetworkGraph(root,seeds) {
 		var request=++networkGraphRequest;
 		networkGraphRoot=root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();
-		networkGraphZoom=1;networkGraphUnavailable=false;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
+		networkGraphZoom=1;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.map(String).filter(function(n){return /^\d{4,7}$/.test(n)&&n!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
 		networkMapLoading.hidden=true;renderNetworkGraph();
         var pending=[root],visited=new Set(),unchanged=0,temporaryFailures=new Map();
         var cacheKey='asr-standard-network-'+root;
@@ -254,6 +255,8 @@ pageInit();
                 renderNetworkGraph();
             }
         }catch(_){}
+        Array.from(networkGraphChildren.get(root)||[]).forEach(function(old){if(!networkGraphSeeds.includes(old))removeEdge(root,old);});
+        networkGraphSeeds.forEach(function(seed){addEdge(root,seed);});
         function save(){try{localStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),edges:Array.from(networkGraphEdges,function(key){return key.split(':');})}));}catch(_){}}
         async function discover(){
             while(request===networkGraphRequest&&networkMapPanel.open&&pending.length){
@@ -280,6 +283,7 @@ pageInit();
                     }
                     reported=true;
                     var currentLinks=new Set((result.data.links||[]).map(String).filter(function(id){return /^\d{3,7}$/.test(id)&&id!==result.node;}));
+                    if(result.node===networkGraphRoot)networkGraphSeeds.forEach(function(seed){currentLinks.add(seed);});
                     Array.from(networkGraphChildren.get(result.node)||[]).forEach(function(old){if(!currentLinks.has(old))removeEdge(result.node,old);});
                     currentLinks.forEach(function(linked){if(addEdge(result.node,linked))discovered=true;});
                     // Persist successful refreshes too, including removals, not only newly found nodes.
@@ -442,10 +446,13 @@ pageInit();
 		networkMapRefreshTimer = null;
 	}
 
-	function setNetworkMapNode(node) {
+	function setNetworkMapNode(node,seeds) {
 		var nextNode = String(node || '').trim();
+        var nextSeeds=Array.isArray(seeds)?seeds.map(String).filter(function(n){return /^\d{4,7}$/.test(n)&&n!==nextNode;}):networkGraphSeeds;
+        var seedsChanged=nextSeeds.slice().sort().join(',')!==networkGraphSeeds.slice().sort().join(',');
 		if(!networkMapBaseUrl(nextNode)) return;
-		if(networkMapNode !== nextNode && networkMapPanel.open)loadNetworkGraph(nextNode);
+		if((networkMapNode !== nextNode||seedsChanged)&&networkMapPanel.open)loadNetworkGraph(nextNode,nextSeeds);
+        networkGraphSeeds=nextSeeds;
 		networkMapNode = nextNode;
 		networkMapOpen.disabled = false;
 	}
@@ -745,7 +752,7 @@ pageInit();
 		if(networkMapPanel.open) return;
 		networkMapPanel.showModal();
 		networkMapOpen.setAttribute('aria-expanded', 'true');
-		loadNetworkGraph(networkMapNode);
+		loadNetworkGraph(networkMapNode,networkGraphSeeds);
 		refreshNetworkMap();
 		scheduleNetworkMapRefresh();
 	});
@@ -785,7 +792,7 @@ pageInit();
 				var localUpdated = viewerTime(payload.generatedAt);
 				updated.textContent = localUpdated ? ' · Updated ' + localUpdated : '';
 				render();
-				setNetworkMapNode(payload.node);
+				setNetworkMapNode(payload.node,(payload.items||[]).filter(function(item){return item&&item.source==='Connection Status'&&item.node;}).map(function(item){return String(item.node);}));
 				loadLiveConnectionRows(payload.node);
 				refreshStationMap();
 			})

@@ -42,6 +42,8 @@ assert.ok(source.includes('<dialog id="asrNetworkMapPanel"'), 'Native popout dia
 assert.ok(js.includes('showNetworkNodeInfo(id)'), 'Station details handler missing')
 assert.ok(js.includes('networkGraphChildren'), 'Directed collapse relationships missing')
 assert.ok(js.includes('function removeEdge(node,linked)'), 'Stale connection removal missing')
+assert.ok(js.includes("item.source==='Connection Status'"), 'Local active AllStar connections must seed graph when root API stats are absent')
+assert.ok(js.includes('networkGraphSeeds.forEach'), 'Live connected nodes must be reconciled into root topology')
 assert.ok(js.includes("cache:'no-store'"), 'Browser topology cache bypass missing')
 assert.ok(js.includes('currentLinks.has(old)'), 'Topology refresh must reconcile removed links')
 assert.ok(js.includes("observe(document.body"), 'Body theme changes must trigger graph refresh')
