@@ -408,11 +408,11 @@ def apply_activity_line(
                 reported_duration = re.search(
                     r",\s*([0-9]+(?:\.[0-9]+)?)\s+seconds\b", text, re.IGNORECASE
                 )
-                record_transmission(
-                    state, source_user, active_epoch, epoch, now,
-                    float(reported_duration.group(1)) if reported_duration else None,
-                    "incoming", mode,
-                )
+                duration = float(reported_duration.group(1)) if reported_duration else max(0, epoch - active_epoch)
+                # A DMR registration/keepalive can emit a 0.1s pseudo-stream.
+                if mode != "dmr" or duration >= 1:
+                    record_transmission(state, source_user, active_epoch, epoch, now,
+                                        duration, "incoming", mode)
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
         return
 
