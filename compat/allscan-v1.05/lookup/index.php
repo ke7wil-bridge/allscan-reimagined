@@ -88,7 +88,7 @@ pageInit();
 #asrNetworkGraph { display:block; width:100%; height:100%; overflow:visible; background:#172833; touch-action:pan-x pan-y; }
 #asrNetworkGraph[hidden], #asrNetworkMapImage[hidden] { display:none !important; }
 #asrNetworkGraph [data-node] { cursor:pointer; outline:none; }
-#asrNetworkGraph [data-node]:hover text, #asrNetworkGraph [data-node]:focus text { text-decoration:underline; }
+#asrNetworkGraph [data-node] text { text-decoration:none!important; paint-order:normal; }
 #asrNetworkGraph [data-node]:focus circle { stroke-width:4; }
 .asr-network-controls { display:flex; align-items:center; gap:7px; }
 .asr-network-controls .asr-map-button,.asr-network-controls .asr-map-close {padding:7px 12px;border:1px solid #718f9e;border-radius:5px;background:#345366;color:#fff;font-weight:750;cursor:pointer;}
@@ -168,6 +168,7 @@ pageInit();
     var networkGraphLabels = new Map();
     var networkGraphCanvasWidth = 1000;
     var networkGraphCanvasHeight = 700;
+    var networkGraphAutoFit = true;
 
 	function renderNetworkGraph() {
 		var colors = networkGraphColors();
@@ -194,12 +195,13 @@ pageInit();
             networkGraphPositions.set(n,[offsets.get(level)+col*laneWidth,(height-(inColumn-1)*rowHeight)/2+row*rowHeight]);
         });});
         networkGraphPositions.forEach(function(pos){width=Math.max(width,pos[0]+95);height=Math.max(height,pos[1]+95);});
-		var ns='http://www.w3.org/2000/svg';
-		function el(tag,attributes,parent) { var node=document.createElementNS(ns,tag); Object.keys(attributes).forEach(function(k){node.setAttribute(k,attributes[k]);}); (parent||networkGraph).appendChild(node); return node; }
-		networkGraph.replaceChildren();
-		networkGraphCanvasWidth=width;networkGraphCanvasHeight=height;
+        var ns='http://www.w3.org/2000/svg',frame=document.createDocumentFragment();
+        function el(tag,attributes,parent) { var node=document.createElementNS(ns,tag); Object.keys(attributes).forEach(function(k){node.setAttribute(k,attributes[k]);}); (parent||frame).appendChild(node); return node; }
+        networkGraphCanvasWidth=width;networkGraphCanvasHeight=height;
+        var fit=Math.min(1,(networkMapFrame.clientWidth-24)/width,(networkMapFrame.clientHeight-24)/height);
+        var scale=(networkGraphAutoFit?fit:1)*networkGraphZoom;
         networkGraph.setAttribute('viewBox','0 0 '+width+' '+height);
-        networkGraph.style.width=Math.round(width*networkGraphZoom)+'px';networkGraph.style.height=Math.round(height*networkGraphZoom)+'px';
+        networkGraph.style.width=Math.max(1,Math.round(width*scale))+'px';networkGraph.style.height=Math.max(1,Math.round(height*scale))+'px';
 		networkGraph.style.background=colors.background;
 
 		networkGraphEdges.forEach(function(key) {
@@ -215,7 +217,9 @@ pageInit();
             var title=el('title',{},g);title.textContent=n+' · '+(networkGraphLabels.get(n)||n)+' (click for details, double-click to toggle children)';
 			var label=el('text',{x:xy[0],y:xy[1]+33,'text-anchor':'middle',fill:colors.foreground,'font-size':'13','font-weight':'700'},g);label.textContent=n;
 		});
-		if(!networkGraphUnavailable)networkGraphStatus.textContent=visible.length+' stations · '+networkGraphEdges.size+' connections. Select a node to open its AllStarLink details; press C to collapse.';
+        // Swap the complete SVG tree once per update to avoid visible intermediate frames.
+        networkGraph.replaceChildren(frame);
+        if(!networkGraphUnavailable)networkGraphStatus.textContent=visible.length+' stations · '+networkGraphEdges.size+' connections. Select a node to open its AllStarLink details; press C to collapse.';
 	}
 	function showNetworkNodeInfo(id) {
         var request=++networkInfoRequest;
@@ -236,7 +240,7 @@ pageInit();
 	function loadNetworkGraph(root,seeds) {
 		var request=++networkGraphRequest;
 		networkGraphRoot=root;networkMapTitle.textContent='AllStarLink Network Map · '+root;networkGraphEdges.clear();networkGraphChildren.clear();networkGraphNodes=new Set([root]);networkGraphPositions.clear();networkGraphCollapsed.clear();networkGraphKinds.clear();networkGraphLabels.clear();networkGraphKinds.set(root,'root');networkGraphLabels.set(root,root);
-		networkGraphZoom=1;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
+		networkGraphZoom=1;networkGraphAutoFit=true;networkGraphUnavailable=false;networkGraphSeeds=Array.isArray(seeds)?seeds.filter(function(seed){return seed&&/^\d{3,7}$/.test(String(seed.node))&&String(seed.node)!==root;}):networkGraphSeeds;networkGraph.removeAttribute('hidden');networkMapImage.hidden=true;
 		networkMapLoading.hidden=true;renderNetworkGraph();
         var pending=[root],visited=new Set(),unchanged=0,temporaryFailures=new Map();
         var cacheKey='asr-standard-network-'+root;
@@ -312,7 +316,7 @@ pageInit();
 	}
 	document.getElementById('asrNetworkZoomIn').addEventListener('click',function(){networkGraphZoom=Math.min(5,networkGraphZoom*1.25);renderNetworkGraph();});
 	document.getElementById('asrNetworkZoomOut').addEventListener('click',function(){networkGraphZoom=Math.max(.5,networkGraphZoom/1.25);renderNetworkGraph();});
-	document.getElementById('asrNetworkFit').addEventListener('click',function(){networkGraphZoom=1;renderNetworkGraph();networkMapFrame.scrollTo(0,0);});
+	document.getElementById('asrNetworkFit').addEventListener('click',function(){networkGraphAutoFit=true;networkGraphZoom=1;renderNetworkGraph();networkMapFrame.scrollTo(0,0);});
 	function graphSvgPoint(event) {
 		var point=networkGraph.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
 		var matrix=networkGraph.getScreenCTM();
