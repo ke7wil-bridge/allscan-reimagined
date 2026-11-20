@@ -603,8 +603,21 @@ html[data-asr-theme="lcars-frame"] .allscan-urf-group {
 
 /* Keep the node centered while pinning its action menu to the cell's right edge. */
 /* Issue #193: Node Info shortcut; leave row controls and geometry untouched. */
-.allscan-connection-network-map-link { color: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
-.allscan-connection-network-map-link:hover { opacity: .8; }
+/* ASRPlus parity: only eligible station descriptions are linked; node numbers
+   and all other columns retain their original formatting and actions. */
+.allscan-connection-table td:nth-child(2) .allscan-connection-network-map-link,
+.allscan-connection-table td:nth-child(2) .allscan-connection-network-map-link:visited {
+  color: inherit;
+  font-weight: 850;
+  text-decoration: none;
+  cursor: pointer;
+}
+.allscan-connection-table td:nth-child(2) .allscan-connection-network-map-link:hover,
+.allscan-connection-table td:nth-child(2) .allscan-connection-network-map-link:focus-visible {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .allscan-connection-network-map-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .allscan-connection-node-cell { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; }
 .allscan-connection-mode { min-width: 0; }
