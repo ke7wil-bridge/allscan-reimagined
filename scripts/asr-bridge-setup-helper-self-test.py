@@ -321,8 +321,12 @@ def main() -> None:
             returncode = 0
             stdout = "LoadState=not-found\nActiveState=inactive\n"
             stderr = ""
-        diagnostic = helper.dmr_diagnose(
-            {"bridgeId": "dmr_tgif_net"}, runner=lambda *args, **kwargs: DiagnosticResult())
+        # Use isolated paths: host DMR runtime may already contain this bridge.
+        with tempfile.TemporaryDirectory() as tmp:
+            diagnostic = helper.dmr_diagnose(
+                {"bridgeId": "dmr_tgif_net"},
+                runner=lambda *args, **kwargs: DiagnosticResult(),
+                runtime_base=Path(tmp) / "runtime", state_root=Path(tmp) / "state")
         assert diagnostic["readOnly"] is True
         assert diagnostic["classification"] == "missing_runtime_files"
         assert "password" not in json.dumps(diagnostic).lower()
