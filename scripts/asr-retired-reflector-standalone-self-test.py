@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Reapply must only retire per-mode reflector cards alongside their aggregate (#168).
+"""Reapply must never remove a working bridge card for leftover grouping fields (#168).
 
 Johnny2 (623123) lost its five working DMR/YSF/P25/NXDN/M17 bridges on the
-Beta 8.6 upgrade: each standalone card still carried the old grouping fields
-(urfReflector/urfGroupId/urfName), and the #177 retirement step removed every
-flagged card even though no aggregate reflector card existed. This runs the
-real reapply block against fixture configs.
+Beta 8.6 upgrade because each card still carried old grouping fields
+(urfReflector/urfGroupId/urfName). Those fields must decide nothing: they are
+dropped and the card stays. This runs the real reapply block against fixtures.
 """
 from __future__ import annotations
 
@@ -26,7 +25,7 @@ GROUPING = {"urfReflector", "urfGroupId", "urfName"}
 
 def card(card_id: str, mode: str, node: str, **extra) -> dict:
     return {"id": card_id, "mode": mode, "node": node, "cardType": "standard",
-            "urfReflector": True, "urfGroupId": "urf", "urfName": "URFWIL", **extra}
+            "urfReflector": True, "urfGroupId": "g", "urfName": "OLD", **extra}
 
 
 def run(directory: Path, bridges: list, retired: dict | None = None) -> tuple[dict, dict | None, str]:
@@ -47,73 +46,60 @@ def check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-standalone = [
+bridges = [
     card("dmr_johnny2", "dmr", "1001", dmrMasterHost="tgif.network"),
     card("ysf_johnny2", "ysf", "1003", bridgeType="direct-ysf"),
     card("p25_johnny2", "p25", "1004", bridgeType="direct-p25"),
     card("nxdn_johnny2", "nxdn", "1005", bridgeType="direct-nxdn"),
     card("m17_johnny2", "m17", "1006", m17Reflector="M17-073"),
+    card("zello", "zello", "1007"),
 ]
+ids = [b["id"] for b in bridges]
 
 with tempfile.TemporaryDirectory() as tmp:
-    # 1. Standalone bridges with leftover grouping fields stay, minus those fields.
-    d = Path(tmp) / "standalone"; d.mkdir()
-    after, archive, out = run(d, json.loads(json.dumps(standalone)))
-    ids = [b["id"] for b in after["bridges"]]
-    check(ids == [b["id"] for b in standalone], f"standalone bridges were dropped: {ids}")
-    check(all(not (GROUPING & set(b)) for b in after["bridges"]), "grouping fields were not removed")
+    # 1. Every bridge card stays, minus the leftover fields; settings are untouched.
+    d = Path(tmp) / "keep"; d.mkdir()
+    after, archive, out = run(d, json.loads(json.dumps(bridges)))
+    check([b["id"] for b in after["bridges"]] == ids, f"bridge cards were dropped: {after['bridges']}")
+    check(all(not (GROUPING & set(b)) for b in after["bridges"]), "leftover fields were not removed")
     check(after["bridges"][0]["dmrMasterHost"] == "tgif.network", "bridge settings were not preserved")
-    check(archive is None, "standalone bridges were written to the retired archive")
+    check(archive is None, "a working bridge was written to the retired archive")
     check(any(p.name.startswith("config.json.pre-urf-retirement-") for p in d.iterdir()), "no backup taken")
-    check("Kept 5 standalone" in out, out)
     _, _, again = run(d, after["bridges"])
     check(again == "", f"second pass was not a no-op: {again!r}")
 
-    # 2. A real aggregate reflector still retires itself and its per-mode cards;
-    #    a Zello card with the old flag stays (#177).
+    # 2. Even with an old aggregate card present, only the aggregate leaves.
     d = Path(tmp) / "aggregate"; d.mkdir()
-    bridges = [{"id": "urfnet", "mode": "urf", "cardType": "standard", "urfReflector": True, "modes": ["ysf", "dmr"]},
-               card("urf_ysf", "ysf", "1101"), card("urf_dmr", "dmr", "1102"),
-               card("zello", "zello", "1103")]
-    after, archive, out = run(d, bridges)
-    check([b["id"] for b in after["bridges"]] == ["zello"], f"aggregate group not retired: {after['bridges']}")
-    check(sorted(b["id"] for b in archive["retired"][-1]["bridges"]) == ["urf_dmr", "urf_ysf", "urfnet"],
-          "retired archive is wrong")
+    after, archive, out = run(d, [{"id": "old", "mode": "urf", "cardType": "standard"}, *json.loads(json.dumps(bridges))])
+    check([b["id"] for b in after["bridges"]] == ids, f"working bridges left with the aggregate: {after['bridges']}")
+    check([b["id"] for b in archive["retired"][-1]["bridges"]] == ["old"], "archive holds more than the aggregate")
+    check(os.stat(d / "retired-urf-bridges.json").st_mode & 0o777 == 0o600, "retired archive is not 0600")
 
-    # 3. Nodes already upgraded get their wrongly retired standalone cards back once.
+    # 3. Bridges an earlier release moved out come back once, without the fields.
     d = Path(tmp) / "recover"; d.mkdir()
-    keep = {"id": "zello", "mode": "zello", "node": "1007", "cardType": "standard"}
     archive_in = {"schema": 1, "retired": [
-        {"retiredAt": "20261120-160813", "bridges": json.loads(json.dumps(standalone))},
-        {"retiredAt": "20261101-000000", "bridges": [
-            {"id": "urfnet", "mode": "urf", "cardType": "standard", "urfReflector": True},
-            card("urf_p25", "p25", "1104")]},
+        {"retiredAt": "20261120-160813", "bridges": json.loads(json.dumps(bridges[:5]))},
+        {"retiredAt": "20261101-000000", "bridges": [{"id": "old", "mode": "urf", "cardType": "standard"}]},
     ]}
-    after, archive, out = run(d, [keep, dict(standalone[0], urfReflector=False)], archive_in)
-    ids = [b["id"] for b in after["bridges"]]
-    check(ids == ["zello", "dmr_johnny2", "ysf_johnny2", "p25_johnny2", "nxdn_johnny2", "m17_johnny2"],
-          f"recovery result wrong: {ids}")
-    check(all(not (GROUPING & set(b)) for b in after["bridges"][2:]), "restored cards kept grouping fields")
-    check("urf_p25" not in ids, "a card retired with its aggregate was restored")
+    after, archive, out = run(d, [bridges[5], {k: v for k, v in bridges[0].items() if k not in GROUPING}], archive_in)
+    got = [b["id"] for b in after["bridges"]]
+    check(got == ["zello", "dmr_johnny2", "ysf_johnny2", "p25_johnny2", "nxdn_johnny2", "m17_johnny2"],
+          f"recovery result wrong: {got}")
+    check(all(not (GROUPING & set(b)) for b in after["bridges"]), "restored cards kept leftover fields")
+    check("old" not in got, "the aggregate card was restored")
     first = archive["retired"][0]
     check(first.get("restoredAt") and first["restoredIds"] == ["ysf_johnny2", "p25_johnny2", "nxdn_johnny2", "m17_johnny2"],
           f"recovered batch not marked: {first}")
-    check(not archive["retired"][1].get("restoredAt"), "aggregate batch was marked restored")
-    check("Restored 4 standalone" in out, out)
-    # An administrator who later deletes a restored card does not see it come back.
-    after2, _, again = run(d, [keep])
-    check([b["id"] for b in after2["bridges"]] == ["zello"] and again == "", "recovery ran twice")
+    check("Restored 4 bridge" in out, out)
+    # A card an administrator deletes afterwards does not come back.
+    after2, _, again = run(d, [bridges[5] | {}])
+    check([b["id"] for b in after2["bridges"]] == ["zello"], "recovery ran twice")
 
-    # 4. The archive file keeps its owner-only mode.
-    check(os.stat(Path(tmp) / "aggregate" / "retired-urf-bridges.json").st_mode & 0o777 == 0o600,
-          "retired archive is not 0600")
-
-# The web rules must agree with reapply.
+# The web rules must not hide or drop a card for the leftover fields.
 for path in ["asr-api.php", "server/asr-api.php",
              *[f"compat/allscan-v{v}/asr-settings/settings-controller.php" for v in ("1.02", "1.03", "1.04", "1.05")]]:
     text = (ROOT / path).read_text(encoding="utf-8")
-    check("(#168)" in text and ("foreach ($bridges as $other)" in text or "foreach($bridges as $other)" in text),
-          f"{path}: retirement rule does not require an aggregate card")
-    check("IsRetiredReflectorBridge($bridge)))" not in text and "asr_is_retired_reflector_bridge($bridge)))" not in text,
-          f"{path}: a caller does not pass the bridge list")
-print("Standalone bridge retirement self-test: ok")
+    name = "function asr_is_retired_reflector_bridge" if "asr-api" in path else "function asrSettingsIsRetiredReflectorBridge"
+    body = text[text.index(name):text.index("\n}\n", text.index(name))]
+    check("urfReflector" not in body and "(#168)" in body, f"{path}: card filter still reads the leftover fields")
+print("Bridge card retirement self-test: ok")

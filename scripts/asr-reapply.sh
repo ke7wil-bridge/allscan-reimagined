@@ -62,15 +62,12 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
-# URF reflector support was retired in Beta 8.5.1 (#177). Move any saved URF
-# reflector cards (the aggregate record and its per-mode digital cards) out
-# of config.json into retired-urf-bridges.json after a full backup. Zello cards
-# that carried the old grouping flag stay. No runtime data or credential is
-# deleted; installed URF services are left exactly as they are.
-# A per-mode card is retired only together with an aggregate URF card. Without
-# one it is a standalone DMR/YSF/P25/NXDN/M17 bridge that merely kept the old
-# grouping fields: those fields are dropped and the card stays (#168). Cards
-# that earlier releases retired on that basis alone are restored once.
+# URF reflector support was retired in Beta 8.5.1 (#177). The old aggregate
+# reflector card (mode "urf") has no backend, so it moves out of config.json into
+# retired-urf-bridges.json after a full backup. Every other card is a working
+# bridge: leftover urfReflector/urfGroupId/urfName fields are dropped and the
+# card stays (#168). Bridges an earlier release moved out only because they
+# carried those fields are put back once.
 if [ "$WEB_ONLY" != "1" ] && [ -f /etc/allscan-reimagined/config.json ]; then
   python3 -I - /etc/allscan-reimagined/config.json <<'PY_RETIRE_URF' || { echo "URF card retirement failed; config.json was not changed." >&2; exit 1; }
 import json, os, sys, tempfile, time
@@ -80,63 +77,57 @@ with open(path, encoding="utf-8") as handle:
 bridges = config.get("bridges") if isinstance(config, dict) else None
 if not isinstance(bridges, list):
     raise SystemExit(0)
-DIGITAL = {"dmr", "ysf", "p25", "nxdn", "m17"}
 GROUPING = ("urfReflector", "urfGroupId", "urfName")
-def mode_of(bridge):
-    return str(bridge.get("mode") or "").lower() if isinstance(bridge, dict) else ""
-def flagged(bridge):
-    return (isinstance(bridge, dict) and bool(bridge.get("urfReflector")) and mode_of(bridge) in DIGITAL
-            and str(bridge.get("cardType") or "standard") == "standard")
-def standalone(bridge):
-    return {key: value for key, value in bridge.items() if key not in GROUPING}
+def aggregate(bridge):
+    return isinstance(bridge, dict) and str(bridge.get("mode") or "").lower() == "urf"
+def clean(bridge):
+    return {key: value for key, value in bridge.items() if key not in GROUPING} if isinstance(bridge, dict) else bridge
 stamp = time.strftime("%Y%m%d-%H%M%S")
 directory = os.path.dirname(path)
 info = os.stat(path)
 retired_path = os.path.join(directory, "retired-urf-bridges.json")
 try:
     with open(retired_path, encoding="utf-8") as handle:
-        previous = json.load(handle)
-    if not isinstance(previous, dict) or not isinstance(previous.get("retired"), list):
-        previous = None
+        archive = json.load(handle)
+    if not isinstance(archive, dict) or not isinstance(archive.get("retired"), list):
+        archive = None
 except (OSError, ValueError):
-    previous = None
-aggregate = any(mode_of(bridge) == "urf" for bridge in bridges)
-gone = [bridge for bridge in bridges if mode_of(bridge) == "urf" or (aggregate and flagged(bridge))]
-kept = [standalone(bridge) if flagged(bridge) else bridge
-        for bridge in bridges if not (mode_of(bridge) == "urf" or (aggregate and flagged(bridge)))]
-cleaned = 0 if aggregate else sum(1 for bridge in bridges if flagged(bridge))
+    archive = None
+gone = [bridge for bridge in bridges if aggregate(bridge)]
+kept = [clean(bridge) for bridge in bridges if not aggregate(bridge)]
+cleaned = sum(1 for bridge in bridges
+              if isinstance(bridge, dict) and not aggregate(bridge) and any(key in bridge for key in GROUPING))
 restored = []
-retired_changed = False
-if previous is not None:
-    for batch in previous["retired"]:
+archive_changed = False
+if archive is not None:
+    for batch in archive["retired"]:
         batch_bridges = batch.get("bridges") if isinstance(batch, dict) else None
         if not isinstance(batch_bridges, list) or batch.get("restoredAt"):
             continue
-        if any(mode_of(bridge) == "urf" for bridge in batch_bridges):
-            continue
         present = {str(bridge.get("id") or "") for bridge in kept if isinstance(bridge, dict)}
-        back = [standalone(bridge) for bridge in batch_bridges
-                if flagged(bridge) and str(bridge.get("id") or "") and str(bridge.get("id")) not in present]
+        back = [clean(bridge) for bridge in batch_bridges
+                if isinstance(bridge, dict) and not aggregate(bridge)
+                and str(bridge.get("id") or "") and str(bridge.get("id")) not in present]
         kept.extend(back)
         restored.extend(back)
         batch["restoredAt"] = stamp
         batch["restoredIds"] = [str(bridge.get("id")) for bridge in back]
-        retired_changed = True
+        archive_changed = True
 if gone:
-    if previous is None:
-        previous = {"schema": 1, "retired": []}
-    previous["retired"].append({"retiredAt": stamp, "bridges": gone})
-    retired_changed = True
+    if archive is None:
+        archive = {"schema": 1, "retired": []}
+    archive["retired"].append({"retiredAt": stamp, "bridges": gone})
+    archive_changed = True
 config_changed = bool(gone or cleaned or restored)
-if not config_changed and not retired_changed:
+if not config_changed and not archive_changed:
     raise SystemExit(0)
 if config_changed:
     with open(path, "rb") as source, open(os.path.join(directory, f"config.json.pre-urf-retirement-{stamp}"), "wb") as backup:
         backup.write(source.read())
     config["bridges"] = kept
 writes = []
-if retired_changed:
-    writes.append((retired_path, previous, 0o600))
+if archive_changed:
+    writes.append((retired_path, archive, 0o600))
 if config_changed:
     writes.append((path, config, info.st_mode & 0o777))
 for target, payload, mode in writes:
@@ -151,9 +142,9 @@ for target, payload, mode in writes:
 if gone:
     print(f"Retired {len(gone)} URF reflector card(s); backup config.json.pre-urf-retirement-{stamp}")
 if cleaned:
-    print(f"Kept {cleaned} standalone bridge card(s); removed the old URF grouping fields")
+    print(f"Removed leftover grouping fields from {cleaned} bridge card(s)")
 if restored:
-    print(f"Restored {len(restored)} standalone bridge card(s) retired by an earlier release")
+    print(f"Restored {len(restored)} bridge card(s) an earlier release moved out")
 PY_RETIRE_URF
 fi
 

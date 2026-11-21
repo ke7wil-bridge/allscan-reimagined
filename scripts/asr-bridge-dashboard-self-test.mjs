@@ -431,6 +431,15 @@ try {
     && relayEpochs.some((epoch) => Math.abs(epoch - entry.eventEpoch) <= 3)
   assert(isRelayEcho(allstarRelayEcho), 'digital relay echo was not recognized')
   assert(!isRelayEcho(genuineAllstarTalker), 'unrelated genuine AllStar talker was suppressed')
+  // Relay edges come from digital-originated (incoming) bridge events only;
+  // AllStar audio relayed out to the bridges is "outgoing" and must not hide
+  // the AllStar talker who sent it (#168).
+  {
+    const live = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+    const relayBlock = live.slice(live.indexOf('relayEventEpochs: (Array.isArray'), live.indexOf('relayEventEpochs: (Array.isArray') + 200)
+    assert(relayBlock.includes('=== "incoming"') && !relayBlock.includes('"outgoing"'),
+      'relay echo edges must come from incoming digital transmissions only')
+  }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
     id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',
