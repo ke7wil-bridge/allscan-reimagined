@@ -1788,12 +1788,17 @@ export async function fetchBridgeCards(
         .filter((record) => String(record.direction || "").toLowerCase() === "incoming")
         .map((record) => Math.max(0, Number(record.epoch) || 0))
         .filter((epoch) => epoch > 0),
-      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
+      // Pick the newest four identified transmissions. Relayed AllStar audio
+      // logs callsign-less "outgoing" events on every bridge, which must not
+      // push a digital talker out of the Talkers panel (#168).
+      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
         eventEpoch: Math.max(0, Number(record.epoch) || 0),
         duration: Math.max(0, Number(record.duration_seconds) || 0),
-      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
+      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0)
+        .sort((left, right) => right.eventEpoch - left.eventEpoch)
+        .slice(0, 4),
       recentRows: formatBridgeRecentRows(entry, mode),
       audioMeter: entry?.audio_meter ? {
         inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),

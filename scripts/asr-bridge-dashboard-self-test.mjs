@@ -439,6 +439,10 @@ try {
     const relayBlock = live.slice(live.indexOf('relayEventEpochs: (Array.isArray'), live.indexOf('relayEventEpochs: (Array.isArray') + 200)
     assert(relayBlock.includes('=== "incoming"') && !relayBlock.includes('"outgoing"'),
       'relay echo edges must come from incoming digital transmissions only')
+    const talkersBlock = live.slice(live.indexOf('recentTalkers: (Array.isArray(entry?.tx_events)'), live.indexOf('recentRows: formatBridgeRecentRows(entry, mode)'))
+    assert(talkersBlock.indexOf('Boolean(record.callsign)') < talkersBlock.indexOf('.slice(0, 4)')
+      && talkersBlock.includes('.sort((left, right) => right.eventEpoch - left.eventEpoch)'),
+      'callsign-less relay events can push digital talkers out of the Talkers panel')
   }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
