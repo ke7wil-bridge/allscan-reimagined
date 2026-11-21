@@ -884,6 +884,22 @@ function App({ config }: { config: RuntimeConfig }) {
         }
       }
     }
+    // History rows already carry the identity the server resolved for that
+    // transmission (e.g. node 1001 -> KN4EWT / DMR). Use it when this page did
+    // not see the transmission live, so a refresh does not drop every past
+    // bridge talker until someone keys up again (#168).
+    const serverSource = String(talker.source || '').trim().toUpperCase()
+    const serverCallsign = String(talker.info || '').trim().toUpperCase()
+    if (!bridgeTalkerIdentityRef.current[cacheKey]
+        && serverSource !== '' && serverSource !== 'ALLSTAR'
+        && serverCallsign !== '' && serverCallsign !== transportNode
+        && /^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(serverCallsign)) {
+      bridgeTalkerIdentityRef.current[cacheKey] = {
+        callsign: serverCallsign,
+        source: serverSource,
+        description: String(talker.description || '').trim(),
+      }
+    }
     const identity = bridgeTalkerIdentityRef.current[cacheKey]
     if (!identity && transportNode === '1001') {
       if (!isCurrentTalker) return null

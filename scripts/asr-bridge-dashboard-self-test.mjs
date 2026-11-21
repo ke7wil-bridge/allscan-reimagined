@@ -443,6 +443,10 @@ try {
     assert(talkersBlock.indexOf('Boolean(record.callsign)') < talkersBlock.indexOf('.slice(0, 4)')
       && talkersBlock.includes('.sort((left, right) => right.eventEpoch - left.eventEpoch)'),
       'callsign-less relay events can push digital talkers out of the Talkers panel')
+    const appText = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    assert(appText.includes("serverSource !== '' && serverSource !== 'ALLSTAR'")
+      && appText.indexOf('const serverCallsign') < appText.indexOf("if (!identity && transportNode === '1001')"),
+      'bridge talker history must use the server-resolved identity after a page refresh')
   }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
