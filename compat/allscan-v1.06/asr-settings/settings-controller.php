@@ -15,6 +15,7 @@ define('ASR_MAX_APPROVED_DESTINATIONS', 256);
 define('ASR_ROLLBACK_HELPER', '/usr/local/sbin/allscan-reimagined-rollback');
 define('ASR_YSF_BRIDGE_HELPER', '/usr/local/sbin/allscan-reimagined-ysf-bridge-control');
 define('ASR_BRIDGE_LIFECYCLE_HELPER', '/usr/local/sbin/allscan-reimagined-bridge-lifecycle');
+define('ASR_TIMER_CONTROL_HELPER', '/usr/local/sbin/allscan-reimagined-timer-control');
 define('ASR_BRIDGE_SETUP_HELPER', '/usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py');
 define('ASR_MAX_YSF_HOSTS_UPLOAD_BYTES', 2000000);
 define('ASR_ROLLBACK_CONFIRMATION', 'ROLLBACK_SELECTED_VERSION');
@@ -1125,7 +1126,7 @@ function asrSettingsH($value) {
 }
 
 function asrSettingsModernSection() {
-	$allowed = ['account', 'home', 'appearance', 'bridges', 'lookup', 'access', 'system'];
+	$allowed = ['account', 'home', 'appearance', 'bridges', 'lookup', 'access', 'system', 'scheduling'];
 	$section = strtolower(trim((string)($_GET['section'] ?? 'home')));
 	if($section === 'integrations') $section = 'lookup';
 	return in_array($section, $allowed, true) ? $section : 'home';
@@ -1147,6 +1148,7 @@ function asrSettingsModernNav($activeSection) {
 		'lookup' => ['Lookup & Map', 'QRZ lookup and map settings'],
 		'access' => ['Access & Administration', 'Login policy and administrator tools'],
 		'system' => ['System & Recovery', 'Updates, backups, and rollback'],
+		'scheduling' => ['Scheduling', 'AllStar connections and systemd timers'],
 	];
 	echo '<nav class="asr-settings-nav" aria-label="Settings categories">';
 	echo '<div class="asr-settings-nav-heading"><strong>Settings</strong><span>Choose a task</span></div>';
@@ -1259,6 +1261,37 @@ function asrSettingsSaveCsrfToken($user) {
 	if($userId === '' || $loginSecret === '')
 		return '';
 	return hash_hmac('sha256', 'asr-settings-save-v1|' . $userId, $loginSecret);
+}
+
+// The ASR web tree runs without PHP sessions (AllScan authenticates by its
+// login cookie), so scheduling uses the same keyed per-user token as the
+// other settings forms instead of a $_SESSION value that is never saved.
+function asrSettingsScheduleCsrfToken($user) {
+	$userId = isset($user->user_id) ? (string) $user->user_id : '';
+	$loginSecret = (string) ($_COOKIE['cpass'] ?? '');
+	if($userId === '' || $loginSecret === '')
+		return '';
+	return hash_hmac('sha256', 'asr-settings-schedule-v1|' . $userId, $loginSecret);
+}
+
+// The web SAPI's PHP_BINARY is empty (mod_php) or php-fpm, never the CLI the
+// scheduler runner needs; resolve a real CLI binary instead.
+function asrSettingsPhpCliBinary() {
+	$candidates = [];
+	if(PHP_SAPI === 'cli' && PHP_BINARY !== '') $candidates[] = PHP_BINARY;
+	$candidates[] = PHP_BINDIR . '/php' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+	$candidates[] = PHP_BINDIR . '/php';
+	$candidates[] = '/usr/bin/php';
+	foreach($candidates as $candidate) {
+		if(is_string($candidate) && $candidate !== '' && @is_file($candidate) && @is_executable($candidate))
+			return $candidate;
+	}
+	return '';
+}
+
+function asrSettingsSchedulePostValid($token) {
+	$posted = is_string($_POST['asrScheduleCsrf'] ?? null) ? $_POST['asrScheduleCsrf'] : '';
+	return $token !== '' && $posted !== '' && asrSettingsRollbackPostIsSameOrigin(true) && hash_equals($token, $posted);
 }
 
 function asrSettingsRollbackPostIsSameOrigin($requireSource = false) {
@@ -2352,6 +2385,45 @@ function asrSettingsRunBridgeSetup($action, $payload, &$error, &$diagnostic = nu
 	return $data;
 }
 
+function asrSettingsRunTimerControl($arguments, &$error) {
+	$error = '';
+	if(!is_array($arguments) || !function_exists('proc_open') || !is_executable(ASR_TIMER_CONTROL_HELPER)) {
+		$error = 'Systemd timer administration is not installed.';
+		return null;
+	}
+	$command = ['sudo', '-n', ASR_TIMER_CONTROL_HELPER];
+	foreach($arguments as $argument) {
+		if(!is_string($argument) || strlen($argument) > 500 || strpos($argument, "\0") !== false) {
+			$error = 'Invalid timer administration argument.';
+			return null;
+		}
+		$command[] = $argument;
+	}
+	$process = @proc_open($command, [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes);
+	if(!is_resource($process)) { $error = 'Timer administration helper could not be started.'; return null; }
+	fclose($pipes[0]);
+	$output = stream_get_contents($pipes[1]); fclose($pipes[1]);
+	$stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+	$status = proc_close($process);
+	$data = json_decode((string)$output, true);
+	if(!is_array($data)) $data = json_decode((string)$stderr, true);
+	if($status !== 0 || !is_array($data) || empty($data['ok'])) {
+		$error = asrSettingsCleanText($data['error'] ?? 'Timer administration failed.', 500);
+		return null;
+	}
+	return $data['data'] ?? [];
+}
+
+function asrSettingsScheduleFavorites() {
+	$result = [];
+	require_once(dirname(__DIR__) . '/include/scheduleUtils.php');
+	require_once(dirname(__DIR__) . '/include/asrFavorites.php');
+	foreach(asrFavoritesFiles('/etc/allscan', dirname(__DIR__)) as $path)
+		$result += schedFavoritesFromLines((array)@file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES));
+	ksort($result, SORT_NATURAL);
+	return $result;
+}
+
 if(defined('ASR_SETTINGS_FUNCTIONS_ONLY') && ASR_SETTINGS_FUNCTIONS_ONLY)
 	return;
 
@@ -2371,6 +2443,157 @@ if($modernSettings && $modernSettingsSection === 'account')
 	asrSettingsRenderAccount($userModel, $user);
 if(!adminUser())
 	asExit('Admin permission required.');
+// Reuse the upstream scheduler's validation and storage contract. All writes
+// require the existing authenticated ASR administrator session and CSRF token.
+$asrScheduleCsrf = '';
+$asrScheduleFeedback = '';
+$asrScheduleError = '';
+$asrScheduleDryRun = '';
+$asrTimerFeedback = '';
+$asrTimerError = '';
+if($modernSettings && $modernSettingsSection === 'scheduling') {
+    require_once('../include/scheduleUtils.php');
+    schedSetTimezone();
+    $asrScheduleCsrf = asrSettingsScheduleCsrfToken($user);
+    if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['asrScheduleOperation'])) {
+        if(!asrSettingsSchedulePostValid($asrScheduleCsrf)) {
+            $asrScheduleError = 'Invalid scheduling security token.';
+        } else {
+            $asrEntries = schedLoad();
+            // A scheduling edit must never silently rewrite an upstream schedule
+            // containing destructive actions, even when the request only toggles it.
+            $asrOperation = (string)$_POST['asrScheduleOperation'];
+            if($asrOperation === 'scheduler-enable' || $asrOperation === 'scheduler-disable') {
+                // Same contract as stock AllScan's Cfgs page: change the cron
+                // entry first, then save the cfg, and undo the cron change if
+                // the cfg cannot be saved.
+                $asrEnable = $asrOperation === 'scheduler-enable';
+                $asrCronError = '';
+                if(!schedCronSync($asrEnable, $asrCronError)) {
+                    $asrScheduleError = 'Scheduler could not be ' . ($asrEnable ? 'enabled' : 'disabled') . ': ' . $asrCronError;
+                } else {
+                    $asrPrevious = $gCfg[schedulerEnabled] ?? 0;
+                    $gCfg[schedulerEnabled] = $asrEnable ? 1 : 0;
+                    $gCfgUpdated[schedulerEnabled] = time();
+                    $cfgModel->saveCfgs();
+                    if($cfgModel->error) {
+                        $gCfg[schedulerEnabled] = $asrPrevious;
+                        $asrUndoError = '';
+                        schedCronSync(!empty($asrPrevious), $asrUndoError);
+                        $asrScheduleError = 'Scheduler setting could not be saved: ' . asrSettingsCleanText($cfgModel->error, 200);
+                    } else {
+                        $asrScheduleFeedback = $asrEnable
+                            ? 'Scheduler enabled. Enabled schedules now run at their set times.'
+                            : 'Scheduler disabled. Schedules are kept but will not run.';
+                    }
+                }
+            } elseif($asrOperation === 'dry-run') {
+				$runner = realpath('../_tools/runSchedule.php');
+				if(!$runner || !is_executable($runner)) $asrScheduleError = 'Native scheduler runner is unavailable.';
+				else {
+					// Under Apache (mod_php/FPM) PHP_BINARY is empty or not the CLI;
+					// proc_open() then throws a ValueError that @ cannot suppress.
+					$phpCli = asrSettingsPhpCliBinary();
+					$process = false;
+					if($phpCli !== '') {
+						try { $process = @proc_open([$phpCli, $runner, '--dry-run'], [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes); }
+						catch(\Throwable $e) { $process = false; }
+					}
+					if(!is_resource($process)) $asrScheduleError = 'Could not start scheduler dry run.';
+					else {
+						fclose($pipes[0]); $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
+						$stderr = stream_get_contents($pipes[2]); fclose($pipes[2]); $status = proc_close($process);
+						if($status !== 0) $asrScheduleError = asrSettingsCleanText($stderr ?: 'Scheduler dry run failed.', 500);
+						else $asrScheduleDryRun = trim($stdout) ?: 'No schedules are due in the current system-time minute.';
+					}
+				}
+            } elseif($asrOperation === 'add' || $asrOperation === 'edit') {
+                if($asrOperation === 'add' && count($asrEntries) >= SCHED_MAX_ENTRIES) $asrScheduleError = 'Maximum schedules reached.';
+                else {
+                    $asrInput = [];
+                    foreach(['action', 'node', 'time', 'days', 'perm', 'autodisc', 'duration'] as $field)
+                        $asrInput[$field] = is_string($_POST[$field] ?? null) ? trim($_POST[$field]) : '';
+                    $asrEntry = schedValidate($asrInput, $asrScheduleError);
+                    if($asrEntry !== false) {
+                        // ASR deliberately disallows upstream's disconnect-all shortcuts.
+                        if($asrEntry['node'] === '0' || !empty($asrEntry['autodisc'])) $asrScheduleError = 'Disconnect-all and disconnect-first are unsafe and unavailable in ASR.';
+                        elseif($asrOperation === 'add') $asrEntries[] = $asrEntry;
+                        else {
+                            $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
+                            if(!preg_match('/^[a-f0-9]{8}$/D', $asrId)) $asrScheduleError = 'Invalid schedule ID.';
+                            $asrFound = false;
+                            foreach($asrEntries as $i => $old) {
+                                if(!is_array($old) || !hash_equals((string)($old['id'] ?? ''), $asrId)) continue;
+                                $asrEntry['id'] = $asrId;
+                                $asrEntry['enabled'] = !empty($old['enabled']);
+                                $asrEntries[$i] = $asrEntry;
+                                $asrFound = true;
+                                break;
+                            }
+                            if(!$asrFound) $asrScheduleError = 'Schedule not found.';
+                        }
+                    }
+                }
+            } elseif($asrOperation === 'toggle' || $asrOperation === 'delete') {
+                $asrId = is_string($_POST['id'] ?? null) ? $_POST['id'] : '';
+                if(!preg_match('/^[a-f0-9]{8}$/D', $asrId)) $asrScheduleError = 'Invalid schedule ID.';
+                $asrFound = false;
+                foreach($asrEntries as $i => $entry) {
+                    if(!is_array($entry) || !hash_equals((string)($entry['id'] ?? ''), $asrId)) continue;
+                    if($asrOperation === 'toggle' && empty($entry['enabled']) && (($entry['node'] ?? '') === '0' || !empty($entry['autodisc']))) {
+                        $asrScheduleError = 'Unsafe upstream schedule cannot be enabled in ASR.';
+                        $asrFound = true;
+                        break;
+                    }
+                    $asrFound = true;
+                    if($asrOperation === 'delete') unset($asrEntries[$i]);
+                    else $asrEntries[$i]['enabled'] = empty($entry['enabled']);
+                    break;
+                }
+                if(!$asrFound) $asrScheduleError = 'Schedule not found.';
+            } else $asrScheduleError = 'Unsupported schedule operation.';
+            if($asrScheduleError === '' && !in_array($asrOperation, ['dry-run', 'scheduler-enable', 'scheduler-disable'], true)) {
+                if(schedSave(array_values($asrEntries), $asrScheduleError)) {
+                    $asrScheduleFeedback = 'Schedule saved.';
+                }
+            }
+        }
+    }
+	if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['asrTimerOperation'])) {
+		if(!asrSettingsSchedulePostValid($asrScheduleCsrf)) {
+			$asrTimerError = 'Invalid timer security token.';
+		} else {
+			$operation = is_string($_POST['asrTimerOperation'] ?? null) ? $_POST['asrTimerOperation'] : '';
+			$unit = is_string($_POST['timerUnit'] ?? null) ? trim($_POST['timerUnit']) : '';
+			$actor = asrSettingsCleanText($user->name ?? 'administrator', 80);
+			$args = [];
+			if(in_array($operation, ['preview','apply'], true)) {
+				$args = [$operation, '--unit', $unit, '--calendar', trim((string)($_POST['timerCalendar'] ?? '')),
+					'--service', trim((string)($_POST['timerService'] ?? '')), '--description', trim((string)($_POST['timerDescription'] ?? '')),
+					'--actor', $actor];
+				if(!empty($_POST['timerPersistent'])) $args[] = '--persistent';
+				if($operation === 'apply') array_push($args, '--confirm', trim((string)($_POST['timerConfirmation'] ?? '')));
+			} elseif($operation === 'action') {
+				$args = ['action', '--unit', $unit, '--action', trim((string)($_POST['timerAction'] ?? '')),
+					'--confirm', trim((string)($_POST['timerConfirmation'] ?? '')), '--actor', $actor];
+			} elseif($operation === 'delete') {
+				$args = ['delete', '--unit', $unit, '--confirm', trim((string)($_POST['timerConfirmation'] ?? '')), '--actor', $actor];
+			} elseif($operation === 'rollback') {
+				$args = ['rollback', '--unit', $unit, '--backup', trim((string)($_POST['timerBackup'] ?? '')),
+					'--confirm', trim((string)($_POST['timerConfirmation'] ?? '')), '--actor', $actor];
+			} else $asrTimerError = 'Unsupported timer operation.';
+			if($asrTimerError === '') {
+				$result = asrSettingsRunTimerControl($args, $asrTimerError);
+				if($result !== null) {
+					$asrTimerFeedback = $operation === 'preview'
+						? "Preview validated. Confirmation: " . ($result['confirmation'] ?? '') . "\n\n" . ($result['definition'] ?? '')
+						: 'Timer operation completed. Backup: ' . ($result['backup'] ?? $result['safetyBackup'] ?? 'not applicable');
+				}
+			}
+		}
+	}
+}
+
 
 $config = asrSettingsReadConfig();
 $secrets = asrSettingsReadSecrets();
@@ -2795,7 +3018,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<h2><?php echo asrSettingsH([
 				'home'=>'Settings Home', 'appearance'=>'Appearance & Display', 'bridges'=>'Bridges',
 				'lookup'=>'Lookup & Map', 'access'=>'Access & Administration',
-				'system'=>'System & Recovery'
+				'system'=>'System & Recovery', 'scheduling'=>'Scheduling'
 			][$modernSettingsSection]); ?></h2>
 			<p><?php echo asrSettingsH([
 				'home'=>'Review node configuration and go directly to the task you need.',
@@ -2803,7 +3026,8 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 				'bridges'=>'Configure bridge cards without changing active radio behavior until you save.',
 				'lookup'=>'Manage QRZ lookup and map enrichment.',
 				'access'=>'Control dashboard access and open administrator tools.',
-				'system'=>'Check versions, update safely, or recover a previous installation.'
+				'system'=>'Check versions, update safely, or recover a previous installation.',
+				'scheduling'=>'Manage scheduled node connections and inspect systemd timers.'
 			][$modernSettingsSection]); ?></p>
 		</header>
 		<?php if($modernSettingsSection === 'home'): ?>
@@ -2811,6 +3035,7 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<a class="asr-settings-overview-card" href="?section=bridges"><span>Digital bridges</span><strong><?php echo count($bridgeRows) + (!empty($netBridgeRows) ? 1 : 0); ?> configured</strong><small>Cards, permissions, clients, and diagnostics</small></a>
 			<a class="asr-settings-overview-card" href="?section=access"><span>Dashboard access</span><strong><?php echo $requireLogin ? 'Login required' : 'Public viewing'; ?></strong><small>Review access policy and administrator tools</small></a>
 			<a class="asr-settings-overview-card" href="?section=system"><span>Installed version</span><strong><?php echo asrSettingsH($currentAsrVersion); ?></strong><small>Updates, backups, rollback, and recovery</small></a>
+			<a class="asr-settings-overview-card" href="?section=scheduling"><span>Scheduling</span><strong>Connections &amp; Timers</strong><small>Review scheduled links and system timers</small></a>
 			<a class="asr-settings-overview-card" href="?section=appearance"><span>Node display</span><strong><?php echo $lowPowerMode ? 'Low-power mode' : 'Standard mode'; ?></strong><small>Branding, station filters, and display behavior</small></a>
 		</section>
 		<section class="asr-settings-common-tasks">
@@ -2818,6 +3043,114 @@ $qrzSecrets = is_array($secrets['qrz'] ?? null) ? $secrets['qrz'] : [];
 			<div><a href="?section=bridges">Add or edit a bridge</a><a href="?section=appearance">Change the header</a><a href="?section=lookup">Configure QRZ lookup</a><a href="?section=system">Update or roll back ASR</a></div>
 		</section>
 		<?php endif; ?>
+<?php endif; ?>
+<?php if($modernSettingsSection === 'scheduling'): ?>
+<section class="asr-settings-section" aria-label="Scheduled Connections">
+<h3>Scheduled Connections</h3>
+<p>AllScan v1.06 provides the native schedule store, AMI execution and single minute runner. ASR adds duration, history, DST duplicate protection, and deterministic conflict handling without creating another scheduler.</p>
+<?php
+$asrScheduleRows = schedLoad();
+$asrScheduleEnabled = schedEnabled();
+$asrScheduleHeartbeat = schedRunnerActive();
+$asrScheduleHistory = schedHistoryLoad(30);
+$asrScheduleFavorites = asrSettingsScheduleFavorites();
+?>
+<?php if($asrScheduleError): ?><p role="alert"><?php echo asrSettingsH($asrScheduleError); ?></p><?php endif; ?>
+<?php if($asrScheduleFeedback): ?><p role="status"><?php echo asrSettingsH($asrScheduleFeedback); ?></p><?php endif; ?>
+<?php if($asrScheduleDryRun): ?><pre><?php echo asrSettingsH($asrScheduleDryRun); ?></pre><?php endif; ?>
+<p>Stored entries: <strong><?php echo count($asrScheduleRows); ?></strong>. Scheduler: <strong><?php echo $asrScheduleEnabled ? 'Enabled' : 'Disabled'; ?></strong>. Runner heartbeat: <strong><?php echo $asrScheduleHeartbeat ? 'Healthy' : 'Not reporting'; ?></strong>. System timezone: <strong><?php echo asrSettingsH(date_default_timezone_get()); ?></strong>. On the fall DST transition, each local wall-clock minute runs once; a nonexistent spring-transition minute is skipped.</p>
+<form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><?php if($asrScheduleEnabled): ?><button name="asrScheduleOperation" value="scheduler-disable" type="submit" onclick="return confirm('Disable the scheduler? Schedules are kept but will not run.')">Disable Scheduler</button><?php else: ?><button name="asrScheduleOperation" value="scheduler-enable" type="submit" onclick="return confirm('Enable the scheduler? Enabled schedules will start running at their set times.')">Enable Scheduler</button><?php endif; ?> <button name="asrScheduleOperation" value="dry-run" type="submit">Dry Run Current Minute</button></form>
+<form method="post" action="?section=scheduling">
+<input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>">
+<input type="hidden" name="asrScheduleOperation" value="add">
+<label>Action <select name="action"><option value="connect">Connect</option><option value="monitor">Monitor</option><option value="localmonitor">Local Monitor</option><option value="disconnect">Disconnect</option></select></label>
+<label>Node or favorite <input name="node" list="asrScheduleFavorites" required pattern="[0-9]{1,7}" maxlength="7" placeholder="Node number"></label>
+<datalist id="asrScheduleFavorites"><?php foreach($asrScheduleFavorites as $node => $label): ?><option value="<?php echo asrSettingsH($node); ?>"><?php echo asrSettingsH($label); ?></option><?php endforeach; ?></datalist>
+<label>Time <input name="time" type="time" required></label>
+<label>Days (0=Sun through 6=Sat, blank=daily) <input name="days" placeholder="0,1,2,3,4,5,6"></label>
+<label>Automatic disconnect after minutes <input name="duration" type="number" min="1" max="1440" placeholder="Optional"></label>
+<label><input type="checkbox" name="perm" value="true"> Permanent link</label>
+<button type="submit">Add Schedule</button>
+</form>
+<p>Disconnect-all and disconnect-first are intentionally unavailable. If schedules for one node collide in the same minute, Disconnect wins; otherwise the lowest stable schedule ID wins and the skipped entry is recorded.</p>
+<table><thead><tr><th>Action</th><th>Node</th><th>Time</th><th>Days</th><th>Duration</th><th>Enabled</th><th>Manage</th></tr></thead><tbody>
+<?php foreach($asrScheduleRows as $entry): if(!is_array($entry)) continue; ?>
+<tr><td><?php echo asrSettingsH($entry['action'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['node'] ?? ''); ?></td><td><?php echo asrSettingsH($entry['time'] ?? ''); ?></td><td><?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?></td><td><?php echo !empty($entry['duration']) ? (int)$entry['duration'] . ' min' : '—'; ?></td><td><?php echo !empty($entry['enabled']) ? 'Yes' : 'No'; ?></td><td>
+<form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><input type="hidden" name="id" value="<?php echo asrSettingsH($entry['id'] ?? ''); ?>"><button name="asrScheduleOperation" value="toggle" type="submit"><?php echo !empty($entry['enabled']) ? 'Disable' : 'Enable'; ?></button><button name="asrScheduleOperation" value="delete" type="submit" onclick="return confirm('Delete this schedule?')">Delete</button></form>
+</td></tr>
+<tr><td colspan="7"><details><summary>Edit this schedule</summary>
+<form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><input type="hidden" name="id" value="<?php echo asrSettingsH($entry['id'] ?? ''); ?>">
+<label>Action <select name="action"><?php foreach(['connect','monitor','localmonitor','disconnect'] as $choice): ?><option value="<?php echo $choice; ?>"<?php echo ($entry['action'] ?? '') === $choice ? ' selected' : ''; ?>><?php echo $choice; ?></option><?php endforeach; ?></select></label>
+<label>Node <input name="node" list="asrScheduleFavorites" pattern="[0-9]{1,7}" required value="<?php echo asrSettingsH($entry['node'] ?? ''); ?>"></label>
+<label>Time <input name="time" type="time" required value="<?php echo asrSettingsH($entry['time'] ?? ''); ?>"></label>
+<label>Days <input name="days" value="<?php echo asrSettingsH(implode(',', (array)($entry['days'] ?? []))); ?>"></label>
+<label>Automatic disconnect after minutes <input name="duration" type="number" min="1" max="1440" value="<?php echo !empty($entry['duration']) ? (int)$entry['duration'] : ''; ?>"></label>
+<label><input type="checkbox" name="perm" value="true"<?php echo !empty($entry['perm']) ? ' checked' : ''; ?>> Permanent</label>
+<button name="asrScheduleOperation" value="edit" type="submit">Save Schedule</button></form>
+</details></td></tr>
+<?php endforeach; ?>
+</tbody></table>
+<details><summary>Recent scheduler execution history</summary><table><thead><tr><th>Time</th><th>Event</th><th>Action</th><th>Node</th><th>Result</th></tr></thead><tbody><?php foreach($asrScheduleHistory as $row): ?><tr><td><?php echo asrSettingsH($row['timestamp'] ?? ''); ?></td><td><?php echo asrSettingsH($row['event'] ?? ''); ?></td><td><?php echo asrSettingsH($row['action'] ?? ''); ?></td><td><?php echo asrSettingsH($row['node'] ?? ''); ?></td><td><?php echo !empty($row['ok']) ? 'OK' : 'Error'; ?> <?php echo asrSettingsH($row['detail'] ?? ''); ?></td></tr><?php endforeach; ?></tbody></table></details>
+</section>
+<section class="asr-settings-section" aria-label="Systemd Timers">
+<h3>Systemd Timers</h3>
+<p>All system and current web-account user timers are inventoried, including inactive, disabled, static, generated, and package timers. Unrelated and critical timers are inspect-only. Mutations are limited to ASR-owned units; creation, editing, deletion, and rollback are further limited to <code>allscan-reimagined-admin-*.timer</code>.</p>
+<?php
+$asrTimerInventory = asrSettingsRunTimerControl(['list','--scope','all','--actor',asrSettingsCleanText($user->name ?? 'administrator', 80)], $asrTimerListError);
+if($asrTimerError === '' && $asrTimerListError !== '') $asrTimerError = $asrTimerListError;
+if($asrTimerError === '' && !empty($asrTimerInventory['errors']))
+	$asrTimerError = 'Partial timer inventory: ' . implode('; ', array_map('strval', $asrTimerInventory['errors']));
+$asrTimerJson = is_array($asrTimerInventory['timers'] ?? null) ? array_slice($asrTimerInventory['timers'], 0, 1000) : [];
+$asrTimerSelected = is_string($_GET['timer'] ?? null) ? $_GET['timer'] : '';
+if($asrTimerSelected === '' && is_string($_POST['timerUnit'] ?? null)
+	&& in_array((string)($_POST['asrTimerOperation'] ?? ''), ['apply','action','delete','rollback'], true))
+	$asrTimerSelected = trim($_POST['timerUnit']);
+$asrTimerScope = ($_GET['scope'] ?? '') === 'user' ? 'user' : 'system';
+$asrTimerDetails = [];
+if($asrTimerSelected !== '') {
+	$asrTimerDetails = asrSettingsRunTimerControl(['inspect','--scope',$asrTimerScope,'--unit',$asrTimerSelected,'--actor',asrSettingsCleanText($user->name ?? 'administrator', 80)], $asrTimerInspectError);
+	if($asrTimerError === '' && $asrTimerInspectError !== '') $asrTimerError = $asrTimerInspectError;
+}
+$asrTimerForm = ['description'=>'','calendar'=>'','service'=>'','persistent'=>false];
+$asrTimerBackups = [];
+$asrTimerIsManaged = (bool)preg_match('/^allscan-reimagined-admin-[A-Za-z0-9_.@:-]{1,200}\.timer$/D', $asrTimerSelected);
+if(!empty($asrTimerDetails['managed']) && is_string($asrTimerDetails['definition'] ?? null)) {
+	$definition = $asrTimerDetails['definition'];
+	foreach(['Description'=>'description','OnCalendar'=>'calendar','Unit'=>'service'] as $property => $key)
+		if(preg_match('/^' . $property . '=(.+)$/m', $definition, $match)) $asrTimerForm[$key] = trim($match[1]);
+	$asrTimerForm['persistent'] = (bool)preg_match('/^Persistent=(?:true|yes|1)$/mi', $definition);
+
+}
+if($asrTimerIsManaged) {
+	$backupResult = asrSettingsRunTimerControl(['backups','--unit',$asrTimerSelected,'--actor',asrSettingsCleanText($user->name ?? 'administrator', 80)], $asrTimerBackupError);
+	if(is_array($backupResult)) $asrTimerBackups = $backupResult;
+	if($asrTimerError === '' && $asrTimerBackupError !== '') $asrTimerError = $asrTimerBackupError;
+}
+?>
+<?php if($asrTimerError): ?><p role="alert"><?php echo asrSettingsH($asrTimerError); ?></p><?php endif; ?>
+<?php if($asrTimerFeedback): ?><pre role="status"><?php echo asrSettingsH($asrTimerFeedback); ?></pre><?php endif; ?>
+<?php if($asrTimerDetails): ?><details open><summary>Timer details: <?php echo asrSettingsH($asrTimerSelected); ?></summary><dl><?php foreach((array)($asrTimerDetails['properties'] ?? []) as $key => $value): ?><dt><?php echo asrSettingsH($key); ?></dt><dd><?php echo asrSettingsH($value); ?></dd><?php endforeach; ?></dl><?php if(!empty($asrTimerDetails['serviceProperties'])): ?><h4>Associated service status</h4><dl><?php foreach($asrTimerDetails['serviceProperties'] as $key => $value): ?><dt><?php echo asrSettingsH($key); ?></dt><dd><?php echo asrSettingsH($value); ?></dd><?php endforeach; ?></dl><?php endif; ?><h4>Unit definition</h4><pre><?php echo asrSettingsH($asrTimerDetails['definition'] ?? 'Unavailable'); ?></pre><h4>Recent timer and service execution history</h4><pre><?php echo asrSettingsH($asrTimerDetails['history'] ?? 'Unavailable'); ?></pre></details><?php endif; ?>
+<details><summary>Create or edit a supported ASR timer</summary><form method="post" action="?section=scheduling">
+<input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>">
+<label>Timer unit <input name="timerUnit" required pattern="allscan-reimagined-admin-[A-Za-z0-9_.@:-]+\.timer" placeholder="allscan-reimagined-admin-example.timer" value="<?php echo !empty($asrTimerDetails['managed']) ? asrSettingsH($asrTimerSelected) : ''; ?>"></label>
+<label>Description <input name="timerDescription" required maxlength="160" placeholder="Run an ASR maintenance task" value="<?php echo asrSettingsH($asrTimerForm['description']); ?>"></label>
+<label>OnCalendar <input name="timerCalendar" required maxlength="160" placeholder="Mon..Fri 08:00" value="<?php echo asrSettingsH($asrTimerForm['calendar']); ?>"></label>
+<label>Associated ASR service <input name="timerService" required pattern="allscan-reimagined-[A-Za-z0-9_.@:-]+\.service" placeholder="allscan-reimagined-example.service" value="<?php echo asrSettingsH($asrTimerForm['service']); ?>"></label>
+<label><input type="checkbox" name="timerPersistent" value="1"<?php echo $asrTimerForm['persistent'] ? ' checked' : ''; ?>> Catch up after downtime</label>
+<label>Confirmation for Apply <input name="timerConfirmation" placeholder="APPLY allscan-reimagined-admin-example.timer"></label>
+<button name="asrTimerOperation" value="preview" type="submit">Preview &amp; Validate</button><button name="asrTimerOperation" value="apply" type="submit">Apply Confirmed Change</button>
+</form></details>
+<?php if($asrTimerScope === 'system' && (($asrTimerDetails && empty($asrTimerDetails['protected'])) || ($asrTimerIsManaged && $asrTimerBackups))): ?><details><summary>Operate selected ASR timer</summary>
+<?php if($asrTimerDetails && empty($asrTimerDetails['protected'])): ?><form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><input type="hidden" name="timerUnit" value="<?php echo asrSettingsH($asrTimerSelected); ?>"><label>Action <select name="timerAction"><?php foreach(['enable','disable','start','stop','restart','trigger'] as $action): ?><option value="<?php echo $action; ?>"><?php echo ucfirst($action); ?></option><?php endforeach; ?></select></label><label>Exact confirmation <input name="timerConfirmation" required placeholder="RESTART <?php echo asrSettingsH($asrTimerSelected); ?>"></label><button name="asrTimerOperation" value="action" type="submit">Run Confirmed Action</button></form><?php endif; ?>
+<?php if($asrTimerIsManaged && $asrTimerDetails): ?><form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><input type="hidden" name="timerUnit" value="<?php echo asrSettingsH($asrTimerSelected); ?>"><label>Delete confirmation <input name="timerConfirmation" required placeholder="DELETE <?php echo asrSettingsH($asrTimerSelected); ?>"></label><button name="asrTimerOperation" value="delete" type="submit">Delete Managed Timer</button></form><?php endif; ?>
+<?php if($asrTimerIsManaged && $asrTimerBackups): ?><form method="post" action="?section=scheduling"><input type="hidden" name="asrScheduleCsrf" value="<?php echo asrSettingsH($asrScheduleCsrf); ?>"><input type="hidden" name="timerUnit" value="<?php echo asrSettingsH($asrTimerSelected); ?>"><label>Backup <select name="timerBackup" required><?php foreach($asrTimerBackups as $backup): ?><option value="<?php echo asrSettingsH($backup['id'] ?? ''); ?>"><?php echo asrSettingsH(($backup['created'] ?? '') . (!empty($backup['existed']) ? ' — definition saved' : ' — timer previously absent')); ?></option><?php endforeach; ?></select></label><label>Rollback confirmation <input name="timerConfirmation" required placeholder="ROLLBACK <?php echo asrSettingsH($asrTimerSelected); ?>"></label><button name="asrTimerOperation" value="rollback" type="submit">Roll Back Timer</button></form><?php endif; ?>
+</details><?php endif; ?>
+<table><thead><tr><th>Scope</th><th>Timer</th><th>Enabled</th><th>Active</th><th>Next</th><th>Previous</th><th>Service</th><th>Result</th></tr></thead><tbody>
+<?php foreach($asrTimerJson as $timer): if(!is_array($timer)) continue; ?>
+<tr><td><?php echo asrSettingsH($timer['scope'] ?? ''); ?></td><td><a href="?section=scheduling&amp;scope=<?php echo rawurlencode((string)($timer['scope'] ?? 'system')); ?>&amp;timer=<?php echo rawurlencode((string)($timer['name'] ?? '')); ?>"><?php echo asrSettingsH($timer['name'] ?? ''); ?></a><?php echo !empty($timer['protected']) ? ' 🔒' : ''; ?></td><td><?php echo asrSettingsH($timer['unitFileState'] ?? ''); ?></td><td><?php echo asrSettingsH(($timer['activeState'] ?? '') . '/' . ($timer['subState'] ?? '')); ?></td><td><?php echo asrSettingsH($timer['next'] ?? ''); ?></td><td><?php echo asrSettingsH($timer['previous'] ?? ''); ?></td><td><?php echo asrSettingsH(($timer['service'] ?? '') . ' ' . ($timer['serviceState'] ?? '')); ?></td><td><?php echo !empty($timer['failure']) ? '⚠ ' : ''; ?><?php echo asrSettingsH(($timer['serviceResult'] ?? $timer['result'] ?? '') . (($timer['serviceExecStatus'] ?? '') !== '' ? ' (exit ' . $timer['serviceExecStatus'] . ')' : '')); ?></td></tr>
+<?php endforeach; ?>
+</tbody></table>
+</section>
 <?php endif; ?>
 <div id="asrRollbackProgress" class="asr-rollback-progress" data-state="queued" role="status" aria-live="polite" aria-atomic="true"<?php echo empty($rollbackQueuedJobId) ? ' hidden' : ''; ?>>
 	<strong id="asrRollbackProgressTitle">ROLLBACK IN PROGRESS — DO NOT LEAVE THIS PAGE</strong>

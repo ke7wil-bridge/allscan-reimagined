@@ -111,6 +111,8 @@ grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-br
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-favorites-manager *" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-timer-control *" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
+[ -x /usr/local/sbin/allscan-reimagined-timer-control ] || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --check-json" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
 grep -Fqx "$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update" /etc/sudoers.d/allscan-reimagined 2>/dev/null || needs_reapply=1
