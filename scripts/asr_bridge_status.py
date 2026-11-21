@@ -22,6 +22,7 @@ ASTAPI_CACHE_DIR = Path("/run/allscan-reimagined")
 MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 STANDARD_RUN_DIR = Path("/run/allscan-reimagined-standard-bridge-status")
 STANDARD_STATUS_PATH = STANDARD_RUN_DIR / "bridge-live.json"
+MANAGED_CLIENT_ROSTER_PATH = Path("/var/www/html/asr/asr-connected-clients.json")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
 MMDVM_LOG_NAME_RE = re.compile(
@@ -83,6 +84,7 @@ M17_END_RE = re.compile(LINE_PREFIX + r"USRP received end of voice transmission,
 KEYED_SAMPLE_GRACE_SECONDS = 3.0
 ACTIVE_STATE_MAX_AGE_SECONDS = 300
 BRIDGE_RECENT_MAX_AGE_SECONDS = 86400
+CLIENT_ROSTER_MAX_AGE_SECONDS = 45
 ASTAPI_MAX_AGE_SECONDS = 5.0
 MAX_JSON_BYTES = 2 * 1024 * 1024
 INITIAL_TAIL_BYTES = 262_144
@@ -132,7 +134,138 @@ def initial_activity_state() -> dict[str, Any]:
         "linked_clients": [],
         "client_snapshot": None,
         "client_events": [],
+        "client_snapshot_version": 0,
     }
+
+def reconcile_client_snapshot(state: dict[str, Any], clients: list[str] | None, now: int) -> None:
+    """Record evidenced roster changes; unknown snapshots never imply disconnects."""
+    if clients is None:
+        return
+    current = sorted({clean_caller(client, 120).upper() for client in clients if clean_caller(client, 120)})
+    previous = state.get("client_snapshot")
+    state["client_snapshot"] = current
+    baseline_version = int(state.get("client_snapshot_version", 0) or 0)
+    if baseline_version < 1:
+        # On first observation (including upgrade from the old collector),
+        # report currently connected stations as present at observation time.
+        # This is explicitly a baseline observation, not a claimed historical
+        # connect timestamp. It lets already-connected operators appear in UI.
+        events = [row for row in state.get("client_events", []) if isinstance(row, dict)
+                  and 0 < int(row.get("epoch", 0) or 0) <= now
+                  and now - int(row.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS]
+        known = {str(row.get("callsign", "")).upper() for row in events}
+        events.extend({"callsign": name, "event": "connect", "epoch": now,
+                       "source": "baseline_observation"}
+                      for name in current if name not in known)
+        events.sort(key=lambda row: int(row.get("epoch", 0) or 0), reverse=True)
+        state["client_events"] = events[:100]
+        state["client_snapshot_version"] = 1
+        return
+    if not isinstance(previous, list):
+        return
+    old = set(previous)
+    new = set(current)
+    events = [row for row in state.get("client_events", []) if isinstance(row, dict)
+              and 0 < int(row.get("epoch", 0) or 0) <= now
+              and now - int(row.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS]
+    events.extend({"callsign": name, "event": kind, "epoch": now}
+                  for kind, names in (("disconnect", old - new), ("connect", new - old))
+                  for name in sorted(names))
+    events.sort(key=lambda row: int(row.get("epoch", 0) or 0), reverse=True)
+    state["client_events"] = events[:100]
+
+
+def _roster_identity(row: object, config: dict[str, Any]) -> str:
+    """Return a public client identity, excluding infrastructure and service rows."""
+    if not isinstance(row, dict):
+        return ""
+    if row.get("connected") is False or row.get("active") is False or row.get("current") is False:
+        return ""
+    classification = " ".join(
+        str(row.get(key, "")).strip().lower()
+        for key in ("role", "kind", "type", "source", "mode", "protocol")
+    )
+    classification_tokens = set(re.split(r"[^a-z]+", classification))
+    if any(marker in classification_tokens for marker in (
+        "relay", "service", "infrastructure", "allstar", "asl", "usrp",
+    )):
+        return ""
+    if any(row.get(key) is True for key in ("relay", "service", "is_relay", "is_service")):
+        return ""
+    identity = ""
+    for key in ("callsign", "call", "station", "username", "name", "display_name", "displayName", "user"):
+        identity = clean_caller(str(row.get(key, "")), 120).upper()
+        if identity:
+            break
+    if not identity:
+        return ""
+    identity = re.sub(r"\s+[A-Z]$", "", identity).strip()
+    if not identity:
+        return ""
+    service_identities = {"RFCKRD0", "YSF-LIVE", "KF0WSS", "SRVPROB", "M7TEST"}
+    if identity in service_identities:
+        return ""
+    filtered = set()
+    for value in config.get("filteredStations", []) if isinstance(config.get("filteredStations"), list) else []:
+        candidate = clean_caller(str(value), 120).upper()
+        if candidate:
+            filtered.add(candidate)
+    return "" if config.get("filterServiceStations", True) is not False and identity in filtered else identity
+
+
+def authoritative_client_snapshots(
+    config: dict[str, Any],
+    now: int,
+    path: Path = MANAGED_CLIENT_ROSTER_PATH,
+) -> dict[str, list[str]]:
+    """Read only fresh, explicitly current rosters from the managed collector."""
+    try:
+        before = path.lstat()
+    except OSError:
+        return {}
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or (os.geteuid() == 0 and before.st_uid != 0)
+        or stat.S_IMODE(before.st_mode) & 0o002
+        or before.st_size > MAX_JSON_BYTES
+        or before.st_mtime > now + 300
+        or now - before.st_mtime > CLIENT_ROSTER_MAX_AGE_SECONDS
+    ):
+        return {}
+    payload = _safe_json(
+        path,
+        required_uid=0 if os.geteuid() == 0 else None,
+        forbidden_write_mask=0o002,
+    )
+    try:
+        after = path.lstat()
+    except OSError:
+        return {}
+    if payload is None or (before.st_dev, before.st_ino, before.st_mtime_ns, before.st_size) != (
+        after.st_dev, after.st_ino, after.st_mtime_ns, after.st_size
+    ):
+        return {}
+    metadata = payload.get("_asr_meta")
+    if not isinstance(metadata, dict):
+        return {}
+    snapshots: dict[str, list[str]] = {}
+    for bridge in all_configured_standard_bridges(config):
+        bridge_id = str(bridge.get("id", ""))
+        mode = str(bridge.get("mode", "")).lower()
+        rows = payload.get(bridge_id)
+        meta = metadata.get(bridge_id)
+        if (
+            not isinstance(rows, list)
+            or not isinstance(meta, dict)
+            or str(meta.get("kind", "")).lower() != "current"
+            or str(meta.get("mode", "")).lower() != mode
+        ):
+            continue
+        snapshots[bridge_id] = sorted({
+            identity for row in rows if (identity := _roster_identity(row, config))
+        })
+    return snapshots
 
 
 def record_transmission(
@@ -293,11 +426,11 @@ def apply_activity_line(
                 reported_duration = re.search(
                     r",\s*([0-9]+(?:\.[0-9]+)?)\s+seconds\b", text, re.IGNORECASE
                 )
-                record_transmission(
-                    state, source_user, active_epoch, epoch, now,
-                    float(reported_duration.group(1)) if reported_duration else None,
-                    "incoming", mode,
-                )
+                duration = float(reported_duration.group(1)) if reported_duration else max(0, epoch - active_epoch)
+                # A DMR registration/keepalive can emit a 0.1s pseudo-stream.
+                if mode != "dmr" or duration >= 1:
+                    record_transmission(state, source_user, active_epoch, epoch, now,
+                                        duration, "incoming", mode)
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
         return
 
@@ -336,7 +469,7 @@ def apply_activity_line(
         state.update({"observed": True, "activity_epoch": epoch, "last_event_epoch": epoch})
 
 
-def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
+def apply_m17_activity(state: dict[str, Any], line: str, now: int, bridge_call: str = "") -> None:
     """Track M17 network-origin events separately from outgoing USRP relay."""
     text = line.rstrip("\r\n")
     start = M17_START_RE.fullmatch(text)
@@ -376,7 +509,7 @@ def apply_m17_activity(state: dict[str, Any], line: str, now: int) -> None:
                        and abs(int(u.get("LastHeardTime", 0)) - event_epoch) <= 2
                        and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?",
                                         str(u.get("Source", "")).strip().upper().replace(" ", "-"))]
-            if len(set(matches)) == 1:
+            if len(set(matches)) == 1 and not matches[0].startswith(bridge_call + "-") and matches[0] != bridge_call:
                 identity = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", matches[0])
         except (OSError, ValueError, TypeError):
             pass
@@ -395,7 +528,7 @@ M17_CLOSE_JOURNAL_RE = re.compile(
     r"^(\d+\.\d+) .*?mrefd\[\d+\]: Closing stream on module [A-Z]\s*$", re.I)
 
 
-def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
+def apply_m17_journal(state: dict[str, Any], line: str, now: int, bridge_call: str = "") -> None:
     """Use authoritative reflector stream open/close for live source identity."""
     opened = M17_OPEN_JOURNAL_RE.fullmatch(line)
     closed = M17_CLOSE_JOURNAL_RE.fullmatch(line)
@@ -410,6 +543,8 @@ def apply_m17_journal(state: dict[str, Any], line: str, now: int) -> None:
     if opened:
         caller = opened.group(2).strip().upper().replace(" ", "-")
         caller = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", caller)
+        if bridge_call and (caller == bridge_call or caller.startswith(bridge_call + "-")):
+            return  # Reflector bridge loopback is not a remote M17 station.
         if not re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,3})?", caller):
             return
         state.update({"observed": True, "role": "source", "current_user": caller,
@@ -915,6 +1050,11 @@ def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str]
         "recent_users": list(state.get("recent_users", [])),
         "tx_events": list(state.get("tx_events", [])),
         "client_events": list(state.get("client_events", [])),
+        "client_snapshot_version": int(state.get("client_snapshot_version", 0) or 0),
+        # Internal restart baseline. The public API sanitizer intentionally
+        # omits this field while the root-owned collector can restore it.
+        "client_snapshot": list(state.get("client_snapshot", []))
+        if isinstance(state.get("client_snapshot"), list) else None,
         "linked_clients": list(state.get("linked_clients", [])),
     }
 
@@ -929,6 +1069,7 @@ def standard_live_payload(
     external_lines: list[str] | None = None,
     m17_lines: list[str] | None = None,
     m17_journal_lines: list[str] | None = None,
+    client_snapshots: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -994,17 +1135,40 @@ def standard_live_payload(
     for tagged in m17_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
-            apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now)
+            apply_m17_activity(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call)
     for tagged in m17_journal_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
-            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now)
+            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call)
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids and str(bridge.get("mode", "")).lower() != "m17":
             # Do not retain or invent activity for an ambiguously routed card.
+            previous = states.get(bridge_id) if isinstance(states.get(bridge_id), dict) else {}
             states[bridge_id] = initial_activity_state()
+            states[bridge_id]["client_snapshot"] = (
+                previous.get("client_snapshot") if isinstance(previous.get("client_snapshot"), list) else None
+            )
+            states[bridge_id]["client_events"] = (
+                previous.get("client_events") if isinstance(previous.get("client_events"), list) else []
+            )
         state = states.setdefault(bridge_id, initial_activity_state())
+        if str(bridge.get("mode", "")).lower() == "m17" and local_call:
+            def is_bridge_identity(value: object) -> bool:
+                identity = str(value or "").upper().replace(" ", "-")
+                return identity == local_call or identity.startswith(local_call + "-")
+            for key in ("last_user", "last_source_user", "current_user"):
+                if is_bridge_identity(state.get(key)):
+                    state[key] = ""
+            state["tx_events"] = [event for event in state.get("tx_events", [])
+                                  if isinstance(event, dict) and not is_bridge_identity(event.get("callsign"))]
+            state["recent_users"] = [row for row in state.get("recent_users", [])
+                                     if isinstance(row, dict) and not is_bridge_identity(row.get("callsign"))]
+            if state.get("role") == "source" and not state.get("current_user"):
+                state["role"] = "idle"
+                state["active_start_epoch"] = 0
+        if client_snapshots is not None and bridge_id in client_snapshots:
+            reconcile_client_snapshot(state, client_snapshots[bridge_id], now)
         active_start = int(state.get("active_start_epoch", 0) or 0)
         if (
             state.get("role") != "idle"
@@ -1017,6 +1181,12 @@ def standard_live_payload(
                 "role": "idle", "current_user": "", "active_start_epoch": 0,
                 "source_slot": 0, "network_relay": False, "relay_user": "",
             })
+        state["client_events"] = [
+            item for item in state.get("client_events", [])
+            if isinstance(item, dict)
+            and 0 < int(item.get("epoch", 0) or 0) <= now + 300
+            and now - int(item.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS
+        ][:100]
         state["tx_events"] = [
             item for item in state.get("tx_events", [])
             if isinstance(item, dict)
@@ -1118,6 +1288,7 @@ def restore_standard_states(path: Path, now: int | None = None) -> dict[str, dic
         tx_events = entry.get("tx_events") if isinstance(entry.get("tx_events"), list) else []
         client_events = entry.get("client_events") if isinstance(entry.get("client_events"), list) else []
         linked_clients = entry.get("linked_clients") if isinstance(entry.get("linked_clients"), list) else []
+        client_snapshot = entry.get("client_snapshot") if isinstance(entry.get("client_snapshot"), list) else None
         state = initial_activity_state()
         state.update({
             "last_user": clean_caller(entry.get("last_user", "-"), 120) or "-",
@@ -1142,8 +1313,16 @@ def restore_standard_states(path: Path, now: int | None = None) -> dict[str, dic
                 and current - epoch(row.get("epoch", 0)) <= BRIDGE_RECENT_MAX_AGE_SECONDS
             ][:100],
             "client_events": [
-                row for row in client_events if isinstance(row, dict)
+                row for row in client_events
+                if isinstance(row, dict)
+                and 0 < epoch(row.get("epoch", 0)) <= current + 300
+                and current - epoch(row.get("epoch", 0)) <= BRIDGE_RECENT_MAX_AGE_SECONDS
             ][:100],
+            "client_snapshot_version": epoch(entry.get("client_snapshot_version", 0)),
+            "client_snapshot": sorted({
+                clean_caller(row, 120).upper() for row in client_snapshot or []
+                if isinstance(row, str) and clean_caller(row, 120)
+            }) if client_snapshot is not None else None,
             "linked_clients": [
                 row for row in linked_clients if isinstance(row, dict)
             ][:100],
@@ -1183,6 +1362,7 @@ def watch_standard_status(
     config_path: Path = CONFIG_PATH,
     status_path: Path = STANDARD_STATUS_PATH,
     log_dir: Path = MMDVM_LOG_DIR,
+    client_roster_path: Path = MANAGED_CLIENT_ROSTER_PATH,
     once: bool = False,
 ) -> None:
     follower = MmdvmFollower(log_dir)
@@ -1277,6 +1457,7 @@ def watch_standard_status(
                 ),
                 tag_stem=True,
             ),
+            client_snapshots=authoritative_client_snapshots(config, now, client_roster_path),
         ))
         if once:
             return

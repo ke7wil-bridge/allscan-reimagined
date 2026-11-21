@@ -1622,7 +1622,8 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
 }
 
 const BRIDGE_LAST_TALKER_MAX_AGE = 60 * 60
-const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 12 * 60 * 60
+// Match the collector and API retention contract exactly.
+const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60
 const ZELLO_RECENT_TALKERS_MAX_AGE = BRIDGE_RECENT_ACTIVITY_MAX_AGE
 
 function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
@@ -1649,29 +1650,35 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
 }
 
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
-  // Recent Activity is a history of transmissions *originating* on the
-  // digital bridge. AllStar-to-digital relays are not digital talkers.
-  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-    .filter((record) => String(record.direction || '').toLowerCase() === 'incoming')
-    .map((record, index) => {
-    const epoch = Number(record.epoch || 0)
-    const started = Number(record.start_epoch || epoch)
-    const duration = Number(record.duration_seconds || 0)
-    const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
-    const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
-    const identity = bridgeClientName(record)
-    const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
-    const direction = String(record.direction || '').toLowerCase()
-    const activityLabel = direction === 'incoming' ? 'RECEIVED' : direction === 'outgoing' ? 'RELAYED' : 'TRANSMITTED'
-    return { key: `${mode}-tx-${label}-${epoch}-${index}`, label, meta: [activityLabel, time, durationLabel].filter(Boolean).join(' · '), epoch }
-  })
   const now = Date.now() / 1000
-  const rows = talkers
-    .filter((row) => row.epoch > 0 && now - row.epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)
-    .sort((a, b) => b.epoch - a.epoch)
-    .slice(0, 100)
+  const cleanIdentity = (value: unknown) => String(value || '').trim().toUpperCase()
+    .replace(/\s+[A-Z0-9]{1,3}$/, '').replace(/-[A-Z0-9]{1,3}$/, '')
+  const rows: (BridgeDetailItem & { epoch: number })[] = []
+  for (const [records, kind] of [
+    [entry?.tx_events, 'TX'], [entry?.client_events, 'CLIENT'],
+  ] as const) {
+    if (!Array.isArray(records)) continue
+    records.forEach((record, index) => {
+      const epoch = Number(record.epoch || 0)
+      if (!(epoch > 0 && now - epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)) return
+      const identity = cleanIdentity(bridgeClientName(record))
+      const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
+      if (!label || label === '-') return
+      const event = String(record.event || '').toLowerCase()
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
+      if (!action) return
+      if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
+      const duration = Number(record.duration_seconds)
+      // DMR network registration produces spurious 0.1s voice frames.
+      if (kind === 'TX' && (!Number.isFinite(duration) || duration < 1)) return
+      const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+      rows.push({ key: `${mode}-${action}-${label}-${epoch}-${index}`, label,
+        meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '), epoch })
+    })
+  }
+  rows.sort((a, b) => b.epoch - a.epoch)
   if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
-  return rows.map((row) => ({ key: row.key, label: row.label, meta: row.meta }))
+  return rows.slice(0, 100).map(({ key, label, meta }) => ({ key, label, meta }))
 }
 
 export function safeAudioMeterLevel(value: unknown): number {
