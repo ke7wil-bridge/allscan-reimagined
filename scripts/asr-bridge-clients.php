@@ -252,6 +252,20 @@ function asrSelfTest(): void {
 	if(!mkdir($tmp . '/srv/http/allscan', 0775, true) || !mkdir($tmp . '/srv/http/asr', 0775, true))
 		throw new RuntimeException('Could not create bridge-client self-test directories.');
 	try {
+		// Owned reflector configs/logs installed root:root 775/664 are trusted;
+		// group write by any other group, or world write, is not (#224).
+		asrAssertSelfTest(
+			asrOnlyRootCanWrite(['mode' => 0100664, 'gid' => 0])
+				&& asrOnlyRootCanWrite(['mode' => 0040775, 'gid' => 0])
+				&& asrOnlyRootCanWrite(['mode' => 0100644, 'gid' => 33]),
+			'Root-only-writable reflector files were rejected.'
+		);
+		asrAssertSelfTest(
+			!asrOnlyRootCanWrite(['mode' => 0100664, 'gid' => 33])
+				&& !asrOnlyRootCanWrite(['mode' => 0040777, 'gid' => 0])
+				&& !asrOnlyRootCanWrite(['mode' => 0100646, 'gid' => 0]),
+			'A file writable by a non-root group or by everyone was trusted.'
+		);
 		$detectedRoot = asrDetectedWebRoot([$tmp . '/var/www/html', $tmp . '/srv/http']);
 		asrAssertSelfTest(
 			$detectedRoot === $tmp . '/srv/http',
@@ -661,6 +675,25 @@ INI);
 			&& array_column($reflectorRows, 'callsign') === ['N7NEW']
 			&& !isset($reflectorRows[0]['address']),
 		'P25/NXDN snapshot, event replay, loopback exclusion, or address redaction failed.'
+	);
+	$procAddresses = asrProcLocalAddresses(
+		"Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 203.0.113.64\n        /26 link UNICAST\n     |-- 203.0.113.92\n        /32 host LOCAL\n     |-- 203.0.113.127\n        /32 link BROADCAST\n",
+		"20010db8000000000000000000000001 02 40 00 80     eth0\n"
+	);
+	asrAssertSelfTest(
+		$procAddresses === ['203.0.113.92', '2001:db8::1'],
+		'Host interface addresses were not read from /proc/net.'
+	);
+	// The bridge's own gateway logs in from one of this host's public addresses.
+	$hostReflectorAvailable = false;
+	$hostReflectorRows = asrReflectorRowsFromLogLines([
+		'M: 2026-08-11 20:02:00.000 Currently linked repeaters:',
+		'M: 2026-08-11 20:02:00.000     N1YKT     : 203.0.113.92:24761 0/120',
+		'M: 2026-08-11 20:02:00.000     KF0WSS    : 198.51.100.20:41000 0/120',
+	], 'p25', (int) $logNow, ['203.0.113.92' => true], $hostReflectorAvailable);
+	asrAssertSelfTest(
+		$hostReflectorAvailable && array_column($hostReflectorRows, 'callsign') === ['KF0WSS'],
+		'The bridge gateway on this host\'s own address was listed as a P25/NXDN client.'
 	);
 	$proxiedReflectorAvailable = false;
 	$proxiedReflectorRows = asrReflectorRowsFromLogLines([
@@ -1166,6 +1199,17 @@ function asrTrustedTgifRosterPath(
 	return $path;
 }
 
+// Nobody but root may be able to change a trusted file or any directory above
+// it. Group write is allowed only for the root group (gid 0): operators often
+// install reflector configs and logs as root:root 775/664, and only root can
+// write those anyway (#224).
+function asrOnlyRootCanWrite(array $stat): bool {
+	$mode = (int) ($stat['mode'] ?? 0);
+	if(($mode & 0002) !== 0)
+		return false;
+	return ($mode & 0020) === 0 || (int) ($stat['gid'] ?? -1) === 0;
+}
+
 function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): string {
 	if($path === '' || strpos($path, "\0") !== false || $path[0] !== '/' || is_link($path))
 		return '';
@@ -1176,7 +1220,7 @@ function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): s
 	if(!is_array($stat)
 		|| (($stat['mode'] ?? 0) & 0170000) !== 0100000
 		|| (int) ($stat['nlink'] ?? 0) !== 1
-		|| (($stat['mode'] ?? 0) & 0022) !== 0
+		|| !asrOnlyRootCanWrite($stat)
 		|| ($requireRootOwner && (int) ($stat['uid'] ?? -1) !== 0))
 		return '';
 
@@ -1185,7 +1229,7 @@ function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): s
 		$dirStat = @lstat($directory);
 		if(!is_array($dirStat)
 			|| (($dirStat['mode'] ?? 0) & 0170000) !== 0040000
-			|| (($dirStat['mode'] ?? 0) & 0022) !== 0)
+			|| !asrOnlyRootCanWrite($dirStat))
 			return '';
 		$parent = dirname($directory);
 		if($parent === $directory)
@@ -1246,7 +1290,37 @@ function asrLocalIpAddresses(): array {
 		foreach(gethostbynamel($hostname) ?: [] as $address)
 			$addresses[strtolower($address)] = true;
 	}
+	// The hostname usually resolves to 127.0.1.1 on Debian, so also take the
+	// interface addresses: a bridge gateway that logs into an owned reflector
+	// from this host's public address is not a connected client (#224).
+	// Read /proc/net: the collector unit allows no netlink sockets, so
+	// net_get_interfaces() returns nothing under systemd.
+	foreach(asrProcLocalAddresses(
+		(string) @file_get_contents('/proc/net/fib_trie'),
+		(string) @file_get_contents('/proc/net/if_inet6')
+	) as $address)
+		$addresses[$address] = true;
 	return $addresses;
+}
+
+function asrProcLocalAddresses(string $fibTrie, string $ifInet6): array {
+	$addresses = [];
+	$last = '';
+	foreach(preg_split('/\R/', $fibTrie) ?: [] as $line) {
+		if(preg_match('/^[\s|`+-]*--\s+(\d{1,3}(?:\.\d{1,3}){3})\s*$/', $line, $match))
+			$last = $match[1];
+		elseif($last !== '' && preg_match('#^\s*/32\s+host\s+LOCAL\b#', $line)
+			&& filter_var($last, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false)
+			$addresses[] = $last;
+	}
+	foreach(preg_split('/\R/', $ifInet6) ?: [] as $line) {
+		if(!preg_match('/^([0-9a-f]{32})\s/i', trim($line) . ' ', $match))
+			continue;
+		$address = @inet_ntop((string) hex2bin($match[1]));
+		if(is_string($address) && $address !== '')
+			$addresses[] = strtolower($address);
+	}
+	return array_values(array_unique($addresses));
 }
 
 function asrEndpointIsLocal(string $endpoint, ?array $localAddresses = null): bool {
@@ -1386,7 +1460,7 @@ function asrReflectorRowsFromLogLines(
 	array $lines,
 	string $mode,
 	int $now,
-	array $localAddresses = [],
+	?array $localAddresses = null,
 	?bool &$available = null,
 	bool $proxiedSessions = false,
 	string $localCallsign = ''
@@ -1494,11 +1568,13 @@ function asrBuiltinP25OrNxdnRows(
 	$mtime = (int) @filemtime($logPath);
 	if($mtime <= 0 || $mtime > time() + ASR_CLOCK_FUTURE_TOLERANCE || time() - $mtime > ASR_REFLECTOR_SNAPSHOT_MAX_AGE)
 		return [];
+	// null = this host's own addresses, so the bridge's own gateway session
+	// is not listed as a client (YSF already does this) (#224).
 	return asrReflectorRowsFromLogLines(
 		asrTailLines($logPath),
 		$mode,
 		time(),
-		[],
+		null,
 		$available,
 		$proxiedSessions,
 		$localCallsign
