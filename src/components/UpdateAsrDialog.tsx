@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  asrPath, checkAsrUpdate, fetchAsrUpdateJob, queueAsrUpdate,
+  asrPath, checkAsrUpdate, fetchAsrUpdateJob, queueAsrUpdate, updateJobReportUrl,
   type UpdateCheck, type UpdateJob,
 } from '../lib/allscanLive'
 import { ASR_WHATS_NEW } from '../config/whatsNew'
@@ -52,6 +52,7 @@ export default function UpdateAsrDialog({
         setConnectionMessage('')
         if (next.state === 'complete' || next.state === 'failed') {
           window.localStorage.removeItem(STORED_JOB)
+          setJobId('')
         }
       } catch (cause) {
         if (cancelled) return
@@ -137,13 +138,25 @@ export default function UpdateAsrDialog({
         <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
-          {job.message && job.state !== 'complete' ? <p>{job.message}</p> : null}
+          {job.message && job.state !== 'complete' && job.state !== 'failed' ? <p>{job.message}</p> : null}
           {running ? <p>Please do not close this window while the update is in progress.</p> : null}
           {job.state === 'complete' ? <>
             <p><strong>ASR {job.availableVersion || 'update'} is installed successfully.</strong></p>
             <button type="button" onClick={() => window.location.reload()}>Reload ASR</button>
           </> : null}
-          {job.state === 'failed' ? <p><strong>Update not installed.</strong> {job.message || 'The safety checks or installation did not complete.'} Open Backups &amp; Rollback if recovery needs attention.</p> : null}
+          {job.state === 'failed' ? <>
+            <p><strong>Update not installed.</strong></p>
+            <p><strong>Failure:</strong> {job.failureReason || 'The safety checks or installation did not complete.'}</p>
+            <p><strong>Restoration:</strong> {job.restoration === 'succeeded'
+              ? 'The previous installation was restored successfully.'
+              : job.restoration === 'failed'
+                ? 'Automatic restoration did not complete.'
+                : 'No restoration was required.'}</p>
+            <p>{job.manualInterventionRequired
+              ? 'Manual intervention is required. Open System & Recovery before retrying.'
+              : 'Manual intervention is not required.'}</p>
+            <button type="button" onClick={() => { window.location.href = updateJobReportUrl(job.jobId) }}>Download Error Log</button>
+          </> : null}
           {connectionMessage ? <p>{connectionMessage}</p> : null}
         </div> : null}
         {!job && !running ? <>
