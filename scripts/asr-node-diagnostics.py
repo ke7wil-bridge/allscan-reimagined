@@ -20,6 +20,16 @@ REPEAT_REQUIRED = 3
 PROTECTED = re.compile(r"(?i)(asterisk|asl3|app_rpt)")
 SECRET = re.compile(r"(?i)\b(password|passwd|token|cookie|authorization|secret|tgif)\b\s*[:=]\s*([^\s,;]+)")
 RECOVERABLE = {"apache2.service", "connected-clients-daemon.service"}
+# IAX2/app_rpt stall signature (issue #185). During the 2026-11-13 net,
+# Asterisk froze for 10-25 s: dozens of channels resynced their jitter
+# buffers in the same second, the iax2_transmit taskprocessor hit its
+# high-water mark, peers hit "Max retries", and torn-down calls produced a
+# flood of "Silently dropping frame" lines. Thresholds are per 5-minute window.
+STALL_WINDOW = 300
+STALL_JB_BURST = 10          # jitter-buffer resyncs logged within one second
+STALL_TXQ_HITS = 3           # iax2_transmit high-water warnings
+STALL_DROPPED_FRAMES = 1000  # frames for calls Asterisk already destroyed
+STALL_MAX_RETRIES = 20       # IAX2 "Max retries exceeded"
 
 def sanitize_text(value: str) -> str:
     return SECRET.sub(lambda m: f"{m.group(1)}=[REDACTED]", value)[:240]
@@ -117,6 +127,194 @@ def recover(sample, rows, state, runner=subprocess.run, sleeper=time.sleep):
     return {"unit": unit, "reason": "repeated measured PSS pressure", "beforePssKb": off["pssKb"],
             "restartExit": result.returncode, "serviceReady": active, "endToEndAudioConfirmed": False}
 
+# Native log cursor: bounded per invocation; state survives minute-spaced runs.
+# Explicit test state directory enables isolated regression without production writes.
+LOG_READ_LIMIT = 262144
+LOG_HISTORY_LIMIT = 12000
+def read_incremental_log(path, now):
+    import hashlib, fcntl
+    configured = os.getenv("ASR_ASTERISK_CURSOR_DIR")
+    # Custom log paths in existing offline tests retain their stateless behavior.
+    default = Path(os.getenv("ASR_ASTERISK_LOG_PATH", "/var/log/asterisk/messages.log"))
+    if configured is None and path != default:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - LOG_READ_LIMIT))
+            if fh.tell(): fh.readline()
+            return fh.read().decode("utf-8", "replace").splitlines(), {}
+    directory = Path(configured) if configured else STATE_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(str(path).encode()).hexdigest()[:16]
+    state_path = directory / ("asterisk-cursor-" + key + ".json")
+    lock_path = directory / ("asterisk-cursor-" + key + ".lock")
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_json(state_path)
+        with path.open("rb") as fh:
+            stat = os.fstat(fh.fileno())
+            identity = [stat.st_dev, stat.st_ino]
+            offset = int(state.get("offset", 0))
+            gap = ""
+            if state.get("identity") != identity:
+                if state.get("identity"):
+                    gap = "log rotated; unread records may be missing"
+                    # Read remaining bytes from the previous inode when the
+                    # conventional rename-rotation file is still available.
+                    rotated = path.with_name(path.name + ".1")
+                    try:
+                        with rotated.open("rb") as old:
+                            old_stat = os.fstat(old.fileno())
+                            if [old_stat.st_dev, old_stat.st_ino] == state["identity"]:
+                                old.seek(min(offset, old_stat.st_size))
+                                tail = old.read(LOG_READ_LIMIT)
+                                tail_end = tail.rfind(bytes([10])) + 1
+                                if tail_end == len(tail) and old_stat.st_size - offset <= LOG_READ_LIMIT:
+                                    state["rotationTail"] = tail.decode("utf-8", "replace").splitlines()
+                                    gap = ""
+                    except OSError:
+                        pass
+                offset = max(0, stat.st_size - LOG_READ_LIMIT) if not state else 0
+            elif offset > stat.st_size:
+                gap = "log truncated; unread records may be missing"
+                offset = 0
+            elif offset and state.get("checkpoint"):
+                # Verify the last committed bytes; detects copytruncate followed
+                # by regrowth beyond the old offset (size checks cannot).
+                start = max(0, offset - 128)
+                fh.seek(start)
+                fingerprint = hashlib.sha256(fh.read(offset - start)).hexdigest()
+                if fingerprint != state["checkpoint"]:
+                    gap = "log checkpoint rewritten; possible copytruncate"
+                    offset = 0
+            if offset and not state.get("identity"):
+                # First-run tail starts in the middle of an arbitrary record.
+                fh.seek(offset - 1)
+                if fh.read(1) != bytes([10]):
+                    fh.readline()
+                    offset = fh.tell()
+            fh.seek(offset)
+            data = fh.read(LOG_READ_LIMIT)
+            # Advance only past complete newline-terminated records.
+            complete = data.rfind(b"\n") + 1
+            if complete == 0 and len(data) == LOG_READ_LIMIT:
+                # Pathological oversized line: advance with an explicit gap.
+                complete = len(data)
+                gap = "oversized log record skipped"
+            lines = state.pop("rotationTail", []) + data[:complete].decode("utf-8", "replace").splitlines()
+            next_offset = offset + complete
+            backlog = max(0, stat.st_size - next_offset)
+            # Retain bounded five-minute signal history across invocations.
+            previous = state.get("history", [])
+            history = [row for row in previous if isinstance(row, list) and len(row) == 2 and
+                       isinstance(row[0], (int, float)) and now - STALL_WINDOW <= row[0] <= now]
+            import datetime
+            tz = os.getenv("ASR_ASTERISK_LOG_TZ", "local").lower()
+            stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+            for line in lines:
+                if not any(x in line for x in ("Resyncing the jb", "iax2_transmit' queue reached",
+                    "Silently dropping frame without existent call number", "Max retries exceeded to host",
+                    "Log queue threshold", "Exceptionally long voice queue length")): continue
+                m = stamp_re.match(line)
+                if not m: continue
+                try:
+                    dt = datetime.datetime.strptime(m[1], "%Y-%m-%d %H:%M:%S")
+                    if tz == "utc": dt = dt.replace(tzinfo=datetime.timezone.utc)
+                    epoch = dt.timestamp()
+                except ValueError: continue
+                if 0 <= now - epoch <= STALL_WINDOW: history.append([epoch, line[:350]])
+            if len(history) > LOG_HISTORY_LIMIT:
+                history = history[-LOG_HISTORY_LIMIT:]
+                gap = "rolling event history capped; some warning counts may be incomplete"
+            checkpoint_start = max(0, next_offset - 128)
+            fh.seek(checkpoint_start)
+            checkpoint = hashlib.sha256(fh.read(next_offset - checkpoint_start)).hexdigest()
+            atomic(state_path, {"identity": identity, "offset": next_offset, "history": history,
+                                "checkpoint": checkpoint}, 0o600)
+            return [row[1] for row in history], {"backlogBytes": backlog, "monitoringGap": gap,
+                                                   "bytesRead": len(data), "cursorOffset": next_offset}
+
+def read_container_incremental(container, now, runner):
+    """Read-only bounded container cursor, using POSIX tools and a host checkpoint."""
+    import fcntl, hashlib, datetime
+    directory = Path(os.getenv("ASR_ASTERISK_CURSOR_DIR", str(STATE_DIR)))
+    directory.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(("container:" + container).encode()).hexdigest()[:16]
+    state_path = directory / ("asterisk-cursor-" + key + ".json")
+    with (directory / ("asterisk-cursor-" + key + ".lock")).open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_json(state_path)
+        source = "/var/log/asterisk/messages.log"
+        stat_result = runner(["/usr/bin/docker", "exec", container, "stat", "-c", "%d:%i:%s", source],
+                             capture_output=True, timeout=4, check=False)
+        if stat_result.returncode: raise OSError("container log stat failed")
+        try:
+            device, inode, size = map(int, stat_result.stdout.decode().strip().split(":"))
+        except (ValueError, UnicodeError) as exc:
+            raise OSError("invalid container log stat") from exc
+        identity = [device, inode]
+        offset = int(state.get("offset", 0))
+        gap = ""
+        recovered = []
+        if state.get("identity") != identity:
+            if state.get("identity"):
+                gap = "container log rotated; unread records may be missing"
+                rotated = source + ".1"
+                try:
+                    old_stat = runner(["/usr/bin/docker", "exec", container, "stat", "-c",
+                                       "%d:%i:%s", rotated], capture_output=True, timeout=4, check=False)
+                    if not old_stat.returncode:
+                        old_dev, old_ino, old_size = map(int, old_stat.stdout.decode().strip().split(":"))
+                        if [old_dev, old_ino] == state["identity"] and old_size >= offset:
+                            unread = old_size - offset
+                            if unread <= LOG_READ_LIMIT:
+                                old_data = runner(["/usr/bin/docker", "exec", container, "sh", "-c",
+                                    'tail -c +"$1" "$2" | head -c "$3"', "asr-log-reader",
+                                    str(offset + 1), rotated, str(LOG_READ_LIMIT)],
+                                    capture_output=True, timeout=4, check=False)
+                                if not old_data.returncode and len(old_data.stdout) == unread and (
+                                        not unread or old_data.stdout.endswith(bytes([10]))):
+                                    recovered = old_data.stdout.decode("utf-8", "replace").splitlines()
+                                    gap = ""
+                except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired):
+                    pass
+            offset = max(0, size - LOG_READ_LIMIT) if not state else 0
+        elif offset > size:
+            gap = "container log truncated; unread records may be missing"
+            offset = 0
+        # tail's +N counts bytes from 1, head caps output; no shell interpolation.
+        command = 'tail -c +"$1" "$2" | head -c "$3"'
+        result = runner(["/usr/bin/docker", "exec", container, "sh", "-c", command,
+                         "asr-log-reader", str(offset + 1), source, str(LOG_READ_LIMIT)],
+                        capture_output=True, timeout=4, check=False)
+        if result.returncode: raise OSError("container log read failed")
+        data = result.stdout[:LOG_READ_LIMIT]
+        complete = data.rfind(bytes([10])) + 1
+        if not complete and len(data) == LOG_READ_LIMIT:
+            complete = len(data)
+            gap = "oversized container log record skipped"
+        next_offset = offset + complete
+        history = [row for row in state.get("history", []) if isinstance(row, list)
+                   and len(row) == 2 and isinstance(row[0], (int, float))
+                   and 0 <= now - row[0] <= STALL_WINDOW]
+        stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+        for line in recovered + data[:complete].decode("utf-8", "replace").splitlines():
+            if not any(x in line for x in ("Resyncing the jb", "iax2_transmit' queue reached",
+                "Silently dropping frame without existent call number", "Max retries exceeded to host",
+                "Log queue threshold", "Exceptionally long voice queue length")): continue
+            match = stamp_re.match(line)
+            if not match: continue
+            try:
+                moment = datetime.datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S")
+                timestamp = moment.replace(tzinfo=datetime.timezone.utc).timestamp()
+            except ValueError: continue
+            if 0 <= now - timestamp <= STALL_WINDOW: history.append([timestamp, line[:350]])
+        if len(history) > LOG_HISTORY_LIMIT:
+            history = history[-LOG_HISTORY_LIMIT:]
+            gap = "container rolling event history capped"
+        atomic(state_path, {"identity": identity, "offset": next_offset, "history": history}, 0o600)
+        return [row[1] for row in history], {"mode": "container-incremental", "bytesRead": len(data),
+                "cursorOffset": next_offset, "backlogBytes": max(0, size-next_offset), "monitoringGap": gap}
+
 def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     """Read-only early warning for persistent Asterisk media queues.
 
@@ -126,12 +324,12 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
     import datetime
     now = time.time() if now is None else now
     log_path = Path(os.getenv("ASR_ASTERISK_LOG_PATH", "/var/log/asterisk/messages.log")) if log_path is None else Path(log_path)
+    # Native ASL3 hosts log in host-local time; the Asterisk container logs UTC.
+    # ASR_ASTERISK_LOG_TZ=utc|local overrides the per-source default.
+    log_tz = os.getenv("ASR_ASTERISK_LOG_TZ", "").strip().lower()
+    source_tz = "local"
     try:
-        with log_path.open("rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            fh.seek(max(0, fh.tell() - 262144))
-            if fh.tell(): fh.readline()
-            lines = fh.read().decode("utf-8", "replace").splitlines()
+        lines, monitoring = read_incremental_log(log_path, now)
     except OSError:
         # On container deployments the log is inside the Asterisk container.
         # Read only its last 256 KiB, bounded by a hard timeout. Never write to
@@ -140,30 +338,78 @@ def asterisk_queue_health(log_path=None, now=None, runner=subprocess.run):
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container):
             return {"available": False, "persistentChannels": [], "recentWarnings": 0}
         try:
-            result = runner(["/usr/bin/docker", "exec", container, "tail", "-c", "262144",
-                             "/var/log/asterisk/messages.log"], capture_output=True, timeout=4, check=False)
-            if result.returncode:
-                return {"available": False, "persistentChannels": [], "recentWarnings": 0}
-            lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+            lines, monitoring = read_container_incremental(container, now, runner)
+            source_tz = "utc"
         except (OSError, subprocess.TimeoutExpired):
-            return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+            # Compatibility fallback for older container images without stat/sh.
+            try:
+                result = runner(["/usr/bin/docker", "exec", container, "tail", "-c", "262144",
+                                 "/var/log/asterisk/messages.log"], capture_output=True, timeout=4, check=False)
+                if result.returncode:
+                    return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+                lines = result.stdout.decode("utf-8", "replace").splitlines()[1:]
+                source_tz = "utc"
+                monitoring = {"mode": "container-tail", "coverageLimited": True,
+                              "monitoringGap": "container cursor unavailable; tail-only coverage can miss warnings",
+                              "bytesRead": len(result.stdout)}
+            except (OSError, subprocess.TimeoutExpired):
+                return {"available": False, "persistentChannels": [], "recentWarnings": 0}
+    use_utc = (log_tz or source_tz) == "utc"
+    def parse(stamp):
+        moment = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+        if use_utc: moment = moment.replace(tzinfo=datetime.timezone.utc)
+        return moment.timestamp()  # naive => host-local time
     recent = {}
-    pattern = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\].*Exceptionally long voice queue length \((\d+) voice / \d+ total\) queuing to ([-\w/]+);\d+")
+    stamp_re = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\.\d+\]")
+    queue_re = re.compile(r"Exceptionally long voice queue length \((\d+) voice / \d+ total\) queuing to ([-\w/]+);\d+")
+    stall = {"jbResyncMaxPerSecond": 0, "transmitQueueHighWater": 0, "droppedFrames": 0,
+             "maxRetries": 0, "loggerDiscards": 0, "first": None, "last": None}
+    jb_per_second = {}
     for line in lines:
-        match = pattern.search(line)
+        stamp = stamp_re.match(line)
+        if not stamp: continue
+        try: timestamp = parse(stamp[1])
+        except ValueError: continue
+        if not 0 <= now - timestamp <= STALL_WINDOW: continue
+        signal = None
+        if "Resyncing the jb" in line:
+            jb_per_second[stamp[1]] = jb_per_second.get(stamp[1], 0) + 1; signal = True
+        elif "Taskprocessor 'iax2_transmit' queue reached" in line:
+            stall["transmitQueueHighWater"] += 1; signal = True
+        elif "Silently dropping frame without existent call number" in line:
+            stall["droppedFrames"] += 1; signal = True
+        elif "Max retries exceeded to host" in line:
+            stall["maxRetries"] += 1; signal = True
+        elif "Log queue threshold" in line and "Discarding new messages" in line:
+            stall["loggerDiscards"] += 1; signal = True
+        if signal:
+            stall["first"] = timestamp if stall["first"] is None else min(stall["first"], timestamp)
+            stall["last"] = timestamp if stall["last"] is None else max(stall["last"], timestamp)
+            continue
+        match = queue_re.search(line)
         if not match: continue
-        # Asterisk container logs use UTC; do not interpret as host-local time.
-        timestamp = datetime.datetime.strptime(match[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
-        if not 0 <= now - timestamp <= 300: continue
-        channel = match[3]
+        channel = match[2]
         entry = recent.setdefault(channel, {"count": 0, "first": timestamp, "last": timestamp, "maxVoiceFrames": 0})
         entry["count"] += 1
         entry["first"] = min(entry["first"], timestamp)
         entry["last"] = max(entry["last"], timestamp)
-        entry["maxVoiceFrames"] = max(entry["maxVoiceFrames"], int(match[2]))
+        entry["maxVoiceFrames"] = max(entry["maxVoiceFrames"], int(match[1]))
+    stall["jbResyncMaxPerSecond"] = max(jb_per_second.values(), default=0)
+    reasons = []
+    if stall["jbResyncMaxPerSecond"] >= STALL_JB_BURST: reasons.append("jitter-buffer resync burst")
+    if stall["transmitQueueHighWater"] >= STALL_TXQ_HITS: reasons.append("iax2_transmit queue at high-water")
+    if stall["droppedFrames"] >= STALL_DROPPED_FRAMES: reasons.append("frames for torn-down calls")
+    if stall["maxRetries"] >= STALL_MAX_RETRIES: reasons.append("IAX2 max retries")
+    if stall["loggerDiscards"]: reasons.append("Asterisk logger discarding")
+    # One noisy signal alone can be a single bad peer; require two, or the
+    # logger itself falling behind, before calling it a whole-process stall.
+    stall["suspected"] = len(reasons) >= 2 or bool(stall["loggerDiscards"])
+    stall["reasons"] = reasons
     persistent = [{"channel": name, **value} for name, value in recent.items()
                   if value["count"] >= 3 and value["last"] - value["first"] >= 10]
-    return {"available": True, "persistentChannels": persistent[:12], "recentWarnings": sum(v["count"] for v in recent.values())}
+    return {"available": True, "persistentChannels": persistent[:12],
+            "recentWarnings": sum(v["count"] for v in recent.values()), "stall": stall,
+            "monitoring": monitoring}
 
 def sample_once(allow_recovery=True):
     STATE_DIR.mkdir(parents=True, exist_ok=True); os.chmod(STATE_DIR, 0o750)
@@ -179,8 +425,13 @@ def sample_once(allow_recovery=True):
     queue_health = asterisk_queue_health()
     sample["asteriskQueueHealth"] = queue_health
     state = load_json(STATE); warnings = warning_for(sample, state)
+    if queue_health.get("monitoring", {}).get("monitoringGap"):
+        warnings.append("Asterisk diagnostic monitoring gap: " + queue_health["monitoring"]["monitoringGap"])
     if queue_health["persistentChannels"]:
         warnings.append("Asterisk has a persistent unconsumed audio queue; investigate IAXLink and app_rpt before TX hangs.")
+    if queue_health.get("stall", {}).get("suspected"):
+        warnings.append("Asterisk IAX2 stall signature in the last 5 minutes (" +
+                        ", ".join(queue_health["stall"]["reasons"]) + "); links may be dropping.")
     recovery = recover(sample, rows, state) if allow_recovery else None
     atomic(STATE, state, 0o600)
     record = {"sample": sample, "warnings": warnings, "snapshot": rows[:30] if warnings else [], "recovery": recovery}
