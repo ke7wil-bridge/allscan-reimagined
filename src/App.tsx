@@ -6,6 +6,7 @@ import UpdateAsrDialog from './components/UpdateAsrDialog'
 import { ASR_WHATS_NEW } from './config/whatsNew'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
+import AllStarBubbleDialog from './components/AllStarBubbleDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -561,6 +562,7 @@ function formatUtc(date: Date) {
 }
 
 function App({ config }: { config: RuntimeConfig }) {
+  const [bubbleNode, setBubbleNode] = useState<string | null>(null)
   const [rows, setRows] = useState<LiveConnectionRow[]>([])
   const [connectionFeedReady, setConnectionFeedReady] = useState(false)
   const [currentTalker, setCurrentTalker] = useState<TalkerFeedEntry | null>(null)
@@ -3939,7 +3941,8 @@ function App({ config }: { config: RuntimeConfig }) {
                           : configuredBridgeState || row.state
                       const canUseRowNode = !row.configuredTransport && canPopulateNodeControl(row.node)
                       const canViewNetworkMap = canUseRowNode && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node)
-                        && !/^3\d{6}$/.test(row.node) && !/echolink/i.test(row.mode)
+                        && /^[0-9]{3,7}$/.test(row.node) && !/^100[1-6]$/.test(row.node)
+                        && !/^3\d{6}$/.test(row.node) && !/echolink|bridge|broadcastify|digital|transport/i.test(`${row.mode} ${row.info}`)
                       const localStyle = isLocalRow
                         ? localRowStyles[row.state as keyof typeof localRowStyles]
                         : undefined
@@ -3995,15 +3998,14 @@ function App({ config }: { config: RuntimeConfig }) {
                                 </div>
                               </td>
                               <td className="border-r border-[rgba(255,255,255,.14)] px-4 py-[5px]">
-                                {canViewNetworkMap && row.info ? (
+                                {canViewNetworkMap ? (
                                   <a
                                     className="allscan-connection-network-map-link"
-                                    href={`https://stats.allstarlink.org/stats/${encodeURIComponent(row.node)}/networkMap`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                    href={asrPath('lookup/')}
+                                    onClick={(event) => { event.preventDefault(); setBubbleNode(row.node) }}
                                     title={`View network bubble chart for AllStar node ${row.node}`}
-                                    aria-label={`View network bubble chart for AllStar node ${row.node}: ${row.info}`}
-                                  >{row.info}</a>
+                                    aria-label={`View network bubble chart for AllStar node ${row.node}${row.info ? `: ${row.info}` : ''}`}
+                                  >{row.info || `View network map for ${row.node}`}</a>
                                 ) : row.info}
                               </td>
                               <td className="border-r border-[rgba(255,255,255,.14)] px-4 py-[5px]">
@@ -4512,6 +4514,8 @@ function App({ config }: { config: RuntimeConfig }) {
       ) : null}
 
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog initialView={updateDialogView} onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
+
+      {bubbleNode ? <AllStarBubbleDialog node={bubbleNode} onClose={() => setBubbleNode(null)} /> : null}
 
       {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
       {donateAsrOpen ? <SupportAsrDialog onClose={() => setDonateAsrOpen(false)} /> : null}

@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const app = readFileSync('src/App.tsx', 'utf8')
+const dialog = readFileSync('src/components/AllStarBubbleDialog.tsx', 'utf8')
+const css = readFileSync('src/components/AllStarBubbleDialog.css', 'utf8')
+assert.match(app, /setBubbleNode\(row\.node\)/, 'Connection Status must open native dialog')
+assert.match(app, /canViewNetworkMap \? \(/, 'Chart link must not depend on description being present')
+assert.match(app, /row\.info \|\| `View network map for/, 'Missing descriptions must still have a chart link')
+assert.doesNotMatch(app, /href=\{`https:\/\/stats\.allstarlink\.org\/stats\/\$\{encodeURIComponent\(row\.node\)\}\/networkMap`\}/, 'Legacy chart must not be primary click')
+assert.match(app, /!row\.bridgeId/, 'Bridge exclusion missing')
+assert.match(app, /!row\.configuredTransport/, 'Transport exclusion missing')
+assert.match(dialog, /lookup\/network-graph\.php/, 'Authenticated topology proxy missing')
+assert.match(dialog, /lookup\/node-info\.php/, 'Station detail proxy missing')
+assert.match(dialog, /controller\.abort\(\)/, 'Network cancellation missing')
+assert.match(dialog, /showModal\(\)/, 'Modal entry missing')
+assert.match(dialog, /window\.scrollTo/, 'Scroll restoration missing')
+assert.match(dialog, /origin\.current\?\.focus/, 'Focus restoration missing')
+assert.match(dialog, /onCancel=/, 'Escape handling missing')
+assert.match(dialog, /Open AllStarLink full map/, 'Fallback must remain available')
+assert.match(css, /var\(--theme-accent/, 'Native theme accent missing')
+assert.match(css, /var\(--theme-text/, 'Native theme foreground missing')
+console.log('PASS: #207 dashboard native bubble modal wiring')
