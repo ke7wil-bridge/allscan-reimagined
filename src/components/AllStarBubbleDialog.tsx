@@ -13,13 +13,22 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
   const frame = useRef<HTMLDivElement>(null)
   const origin = useRef<HTMLElement | null>(null)
   const [edges, setEdges] = useState<string[]>([])
-  const [status, setStatus] = useState('Loading verified AllStarLink network topology…')
+  const [status, setStatus] = useState(() => safeNode(node) ? 'Loading verified AllStarLink network topology…' : 'Not a valid AllStarLink node.')
   const [zoom, setZoom] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
   const [details, setDetails] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  const closeCallback = useRef(onClose)
-  closeCallback.current = onClose
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const element = frame.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setFrameSize({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const element = dialog.current
@@ -29,7 +38,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
     const prior = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     element.showModal()
-    const closed = () => closeCallback.current()
+    const closed = () => onClose()
     element.addEventListener('close', closed)
     return () => {
       element.removeEventListener('close', closed)
@@ -38,10 +47,10 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
       window.scrollTo({ top: y, behavior: 'instant' })
       origin.current?.focus({ preventScroll: true })
     }
-  }, [])
+  }, [onClose])
 
   useEffect(() => {
-    if (!safeNode(node)) { setStatus('Not a valid AllStarLink node.'); return }
+    if (!safeNode(node)) return
     let active = true
     const controller = new AbortController()
     const unique = new Set<string>()
@@ -107,7 +116,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
   columns.forEach((ids, level) => ids.sort((a, b) => Number(a) - Number(b)).forEach((id, i) => positions.set(id, { x: offsets.get(level)! + Math.floor(i / maxPerColumn) * laneWidth, y: 90 + (i % maxPerColumn) * rowHeight })))
   const width = Math.max(850, nextX + 90)
   const height = Math.max(520, 170 + Math.min(maxPerColumn, Math.max(0, ...[...columns.values()].map(ids => ids.length))) * rowHeight)
-  const fit = frame.current ? Math.min(1, (frame.current.clientWidth - 24) / width, (frame.current.clientHeight - 24) / height) : 0.8
+  const fit = frameSize.width && frameSize.height ? Math.min(1, (frameSize.width - 24) / width, (frameSize.height - 24) / height) : 0.8
   const scale = Math.max(0.12, fit * zoom)
 
   return createPortal(<dialog ref={dialog} className="asr-bubble-dialog" aria-label={`AllStarLink network chart for ${node}`} onCancel={event => { event.preventDefault(); dialog.current?.close() }}>
