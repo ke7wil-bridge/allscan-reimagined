@@ -1758,8 +1758,11 @@ export async function fetchBridgeCards(
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      // Digital-originated transmissions only. "outgoing" is AllStar audio
+      // sent out to the digital network, so matching it hid every genuine
+      // AllStar talker whenever a bridge was linked (#168).
       relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .filter((record) => String(record.direction || "").toLowerCase() === "incoming")
         .map((record) => Math.max(0, Number(record.epoch) || 0))
         .filter((epoch) => epoch > 0),
       recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
