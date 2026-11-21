@@ -13,6 +13,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
   const frame = useRef<HTMLDivElement>(null)
   const origin = useRef<HTMLElement | null>(null)
   const [edges, setEdges] = useState<string[]>([])
+  const [verified, setVerified] = useState(false)
   const [status, setStatus] = useState(() => safeNode(node) ? 'Loading verified AllStarLink network topology…' : 'Not a valid AllStarLink node.')
   const [zoom, setZoom] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
@@ -66,9 +67,10 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           const data = await response.json() as GraphResult
           if (!data.reported) {
-            if (current === node && unique.size === 0) setStatus('Live topology unavailable. Use the AllStarLink fallback below.')
+            if (current === node && unique.size === 0) setStatus(data.status === 'stale' ? 'Cached topology is too old to verify. Use the AllStarLink fallback below.' : 'Live topology unavailable. Use the AllStarLink fallback below.')
             continue
           }
+          if (current === node) setVerified(true)
           for (const linked of data.links || []) {
             if (!safeNode(linked) || linked === current) continue
             unique.add([current, linked].sort().join(':'))
@@ -99,7 +101,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
     return () => controller.abort()
   }, [selected])
 
-  const allNodes = [...new Set([node, ...edges.flatMap(key => key.split(':'))])]
+  const allNodes = verified ? [...new Set([node, ...edges.flatMap(key => key.split(':'))])] : []
   const children = new Map<string, string[]>()
   edges.forEach(key => { const [a, b] = key.split(':'); children.set(a, [...(children.get(a) || []), b]); children.set(b, [...(children.get(b) || []), a]) })
   const depth = new Map([[node, 0]])
@@ -131,6 +133,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
         {edges.map(key => { const [a, b] = key.split(':'); if (!depth.has(a) || !depth.has(b)) return null; const start = positions.get(a), end = positions.get(b); return start && end ? <line key={key} x1={start.x} x2={end.x} y1={start.y} y2={end.y} /> : null })}
         {nodes.map(id => { const point = positions.get(id); return point ? <g key={id} className={id === node ? 'asr-bubble-root' : ''} role="button" tabIndex={0} aria-label={`Node ${id}: view details`} onClick={() => { setSelected(id); setDetails('Loading…') }} onDoubleClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next })} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(id); setDetails('Loading…') } }}><circle cx={point.x} cy={point.y} r={id === node ? 26 : 18} strokeDasharray={collapsed.has(id) ? '4 3' : undefined} /><text x={point.x} y={point.y + (id === node ? 47 : 37)} textAnchor="middle">{id}</text></g> : null })}
       </svg>
+      {!verified ? <div className="asr-bubble-details" role="status">Topology unavailable — no verified network map to display.</div> : null}
       {selected ? <aside className="asr-bubble-details"><button type="button" aria-label="Close node details" onClick={() => setSelected(null)}>×</button><strong>Node {selected}</strong><p>{details}</p></aside> : null}
     </div>
     <footer className="asr-bubble-footer"><span role="status">{status}</span><a href={`https://stats.allstarlink.org/stats/${encodeURIComponent(node)}/networkMap`} target="_blank" rel="noopener noreferrer">Open AllStarLink full map ↗</a></footer>
