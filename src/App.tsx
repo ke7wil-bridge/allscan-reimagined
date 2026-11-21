@@ -640,6 +640,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteInventory, setFavoriteInventory] = useState<Array<{ path: string; exists: boolean; symlink: boolean; readable: boolean; bytes: number | null }> | null>(null)
   const [favoriteFileView, setFavoriteFileView] = useState<{ name: string; path: string; content: string; hash: string } | null>(null)
   const [favoriteFileDraft, setFavoriteFileDraft] = useState('')
+  const [favoriteFileEditing, setFavoriteFileEditing] = useState(false)
   const [favoriteFileInfo, setFavoriteFileInfo] = useState<{ exists?: boolean; readable?: boolean; path?: string; bytes?: number | null }>({})
   const [selectedFavoriteFile, setSelectedFavoriteFile] = useState('')
   const [favoriteStats, setFavoriteStats] = useState<Record<string, FavoriteStats>>(() => loadFavoriteStatsCache())
@@ -2217,7 +2218,14 @@ function App({ config }: { config: RuntimeConfig }) {
     )
   }
 
+  function closeFavoritesDetails() {
+    setFavoriteInventory(null)
+    setFavoriteFileView(null)
+    setFavoriteFileEditing(false)
+  }
+
   async function inspectFavoritesSources() {
+    closeFavoritesDetails()
     try {
       const result = await inspectFavoritesFiles()
       setFavoriteInventory(result.files)
@@ -2227,10 +2235,12 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   async function showFavoritesSource() {
+    closeFavoritesDetails()
     try {
       const file = await viewFavoritesFile(selectedFavoriteFile)
       setFavoriteFileView(file)
       setFavoriteFileDraft(file.content)
+      setFavoriteFileEditing(false)
     } catch (error) {
       setFavoriteStatus(error instanceof Error ? error.message : 'Unable to view Favorites source.')
     }
@@ -2259,54 +2269,11 @@ function App({ config }: { config: RuntimeConfig }) {
       const result = await editFavoritesFile(favoriteFileView.name, favoriteFileDraft, favoriteFileView.hash)
       await reloadFavorites()
       await showFavoritesSource()
+      setFavoriteFileEditing(false)
       setFavoriteStatus(result.changed ? `Favorites saved; original backed up at ${result.backup || 'the Favorites directory'}.` : 'No Favorites changes needed.')
     } catch (error) {
       setFavoriteStatus(error instanceof Error ? error.message : 'Unable to save Favorites file.')
     } finally { setBusy(false) }
-  }
-
-  async function syncUpstreamFavoriteOrder() {
-    if (!authStatus.canModify || busy) return
-    try {
-      setBusy(true)
-      const preview = await manageFavorite({ operation: 'preview-upstream-order', favsfile: selectedFavoriteFile })
-      const upstream = Array.isArray(preview.upstreamOrder) ? preview.upstreamOrder.join(', ') : ''
-      const current = Array.isArray(preview.customOrder) ? preview.customOrder.join(', ') : 'No ASR override'
-      if (!preview.different) {
-        setFavoriteStatus('Favorites order already matches upstream AllScan.')
-        return
-      }
-      if (!window.confirm(`Import upstream AllScan Favorites order into ASR?\n\nCurrent ASR order: ${current}\nUpstream file order: ${upstream}\n\nOnly ASR ordering metadata changes. Descriptions, colors, and the shared Favorites file are preserved.`)) return
-      const result = await manageFavorite({ operation: 'import-upstream-order', favsfile: selectedFavoriteFile, value: String(preview.token || '') })
-      await reloadFavorites()
-      setFavoriteStatus(`Imported upstream ordering for ${Number(result.count || 0)} Favorites.`)
-    } catch (error) {
-      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to synchronize Favorites order.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function exportFavoriteOrderUpstream() {
-    if (!authStatus.canModify || busy) return
-    try {
-      setBusy(true)
-      const preview = await manageFavorite({ operation: 'preview-export-upstream-order', favsfile: selectedFavoriteFile })
-      if (!preview.different) {
-        setFavoriteStatus('AllScan Favorites file already matches ASR order.')
-        return
-      }
-      const current = Array.isArray(preview.upstreamOrder) ? preview.upstreamOrder.join(', ') : ''
-      const desired = Array.isArray(preview.customOrder) ? preview.customOrder.join(', ') : ''
-      if (!window.confirm(`Write ASR Favorites order into the shared AllScan file?\n\nCurrent file: ${current}\nNew file order: ${desired}\n\nA timestamped original-file backup will be created first. AllScan and ASR will then share this order.`)) return
-      const result = await manageFavorite({ operation: 'export-upstream-order', favsfile: selectedFavoriteFile, value: String(preview.token || '') })
-      await reloadFavorites()
-      setFavoriteStatus(`AllScan order updated. Original file backed up at ${String(result.backup || 'the Favorites directory')}.`)
-    } catch (error) {
-      setFavoriteStatus(error instanceof Error ? error.message : 'Unable to export Favorites order.')
-    } finally {
-      setBusy(false)
-    }
   }
 
   async function reorderFavorite(sourceNode: string, targetNode: string) {
@@ -3011,36 +2978,40 @@ function App({ config }: { config: RuntimeConfig }) {
             </select>
           </form>
           <div className="allscan-favorites-tools">
-            {authStatus.canModify ? <button type="button" onClick={() => void inspectFavoritesSources()}>Find Favorites files and backups</button> : null}
-            <button type="button" disabled={busy || !selectedFavoriteFile} onClick={() => void showFavoritesSource()}>View Favorites file</button>
-            <a href={`${asrPath('asr-api.php')}?action=favorites-download&favsfile=${encodeURIComponent(selectedFavoriteFile)}`} download={selectedFavoriteFile || 'favorites.ini'}>Download Favorites file</a>
-            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void exportFavoriteOrderUpstream()}>
-              <RotateCcw /> Sync ASR order to AllScan
-            </button>
-            <button type="button" disabled={busy || !authStatus.canModify} onClick={() => void syncUpstreamFavoriteOrder()}>
-              <RotateCcw /> Sync upstream order
-            </button>
+            {authStatus.canModify ? <button type="button" onClick={() => void inspectFavoritesSources()}>Find backups</button> : null}
+            <button type="button" disabled={busy || !selectedFavoriteFile} onClick={() => void showFavoritesSource()}>View file</button>
+            <a href={`${asrPath('asr-api.php')}?action=favorites-download&favsfile=${encodeURIComponent(selectedFavoriteFile)}`} onClick={closeFavoritesDetails} download={selectedFavoriteFile || 'favorites.ini'}>Download file</a>
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              closeFavoritesDetails()
               if (window.confirm('WARNING: Reset the saved custom order for this Favorites list?\n\nThis cannot be undone. Descriptions and colors will stay unchanged.')) void favoriteOperation('reset-order')
             }}><RotateCcw /> Reset order</button>
             <button type="button" disabled={busy || !authStatus.canModify} onClick={() => {
+              closeFavoritesDetails()
               if (window.confirm('WARNING: Reset all Favorite colors for this list?\n\nThis cannot be undone. Descriptions and order will stay unchanged.')) void favoriteOperation('reset-appearance')
             }}><RotateCcw /> Reset colors</button>
           </div>
         </div>
-        <p className="allscan-favorites-status" role="status">
-          Favorites source: {favoriteFileInfo.path || 'Not located'} — {favoriteFileInfo.exists === false ? 'File missing; check preserved backups before creating a replacement' : favoriteFileInfo.readable === false ? 'File not readable; check permissions' : favoriteFileInfo.bytes === 0 ? 'File exists but is empty' : favoriteFileInfo.bytes != null ? `${favoriteFileInfo.bytes} bytes` : 'Status unavailable'}.
-        </p>
         {favoriteInventory ? <div className="allscan-favorites-source-view">
-          <p><strong>Favorites file inventory (read-only)</strong> — originals and backups are never overwritten by this scan.</p>
-          <button type="button" onClick={() => setFavoriteInventory(null)}>Close inventory</button>
-          {favoriteInventory.length ? <ul>{favoriteInventory.map((item) => <li key={item.path}>{item.path} — {item.exists ? item.readable ? `${item.bytes ?? '?'} bytes` : 'unreadable' : 'missing target'}{item.symlink ? ' (link)' : ''}{authStatus.isAdmin && canPreviewFavoriteBackup(item) && (!selectedFavoriteFile || favoriteFileInfo.path?.startsWith('/etc/allscan/')) ? <button type="button" disabled={busy} onClick={() => void restoreFavoritesBackup(item.path)}>Preview restore</button> : null}</li>)}</ul> : <p>No matching files found in known locations. Check external backups before creating a replacement.</p>}
+          <div className="allscan-favorites-detail-heading"><strong>Available Favorites files and backups</strong><button type="button" onClick={() => setFavoriteInventory(null)}>Close</button></div>
+          <p>Selected source: <code>{favoriteFileInfo.path || 'Not located'}</code> — {favoriteFileInfo.exists === false ? 'Missing' : favoriteFileInfo.readable === false ? 'Unreadable' : favoriteFileInfo.bytes != null ? `${favoriteFileInfo.bytes} bytes` : 'Size unavailable'}.</p>
+          <p>These files are listed for recovery only. Nothing is changed unless you choose Restore.</p>
+          {favoriteInventory.length ? <ul className="allscan-favorites-inventory-list">{favoriteInventory.map((item) => <li key={item.path}><code>{item.path}</code><span>{item.exists ? item.readable ? `${item.bytes ?? '?'} bytes` : 'Unreadable' : 'Missing'}{item.symlink ? ' · Link' : ''}</span>{authStatus.isAdmin && canPreviewFavoriteBackup(item) && (!selectedFavoriteFile || favoriteFileInfo.path?.startsWith('/etc/allscan/')) ? <button type="button" disabled={busy} onClick={() => void restoreFavoritesBackup(item.path)}>Restore…</button> : null}</li>)}</ul> : <p>No matching files found.</p>}
         </div> : null}
         {favoriteFileView ? <div className="allscan-favorites-source-view">
-          <p><strong>{favoriteFileView.name}</strong> — {favoriteFileView.path}</p>
-          <button type="button" onClick={() => setFavoriteFileView(null)}>Close file view</button>
-          <textarea readOnly={!authStatus.isAdmin || !favoriteFileView.path.startsWith('/etc/allscan/')} aria-label="Favorites file contents" value={authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ? favoriteFileDraft : favoriteFileView.content} onChange={(event) => setFavoriteFileDraft(event.target.value)} rows={14} style={{ width: '100%', fontFamily: 'monospace' }} />
-          {authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ? <button type="button" disabled={busy || favoriteFileDraft === favoriteFileView.content} onClick={() => void saveFavoritesSource()}>Save Favorites file (creates backup)</button> : null}
+          <div className="allscan-favorites-detail-heading"><strong>Viewing {favoriteFileView.name}</strong><button type="button" onClick={() => { setFavoriteFileView(null); setFavoriteFileEditing(false) }}>Close</button></div>
+          {favoriteFileEditing && authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ? <>
+            <p>Editing Favorites file — changes are not applied until you save.</p>
+            <textarea aria-label="Edit Favorites file contents" value={favoriteFileDraft} onChange={(event) => setFavoriteFileDraft(event.target.value)} rows={14} className="allscan-favorites-file-editor" />
+            <div className="allscan-favorites-editor-actions">
+              <button type="button" disabled={busy || favoriteFileDraft === favoriteFileView.content} onClick={() => void saveFavoritesSource()}>Save Favorites file (creates backup)</button>
+              <button type="button" onClick={() => { setFavoriteFileDraft(favoriteFileView.content); setFavoriteFileEditing(false) }}>Cancel editing</button>
+            </div>
+          </> : <>
+            <p>File contents (read-only). Select Edit to make changes.</p>
+            <pre tabIndex={0} role="region" aria-label="Favorites file contents (read only)" className="allscan-favorites-file-preview">{favoriteFileView.content}</pre>
+            {authStatus.isAdmin && favoriteFileView.path.startsWith('/etc/allscan/') ?
+              <button type="button" className="allscan-favorites-edit-button" onClick={() => { setFavoriteFileDraft(favoriteFileView.content); setFavoriteFileEditing(true) }}>Edit Favorites file</button> : null}
+          </>}
         </div> : null}
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
 
