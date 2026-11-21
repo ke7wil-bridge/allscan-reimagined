@@ -2142,15 +2142,21 @@ function asrSettingsSavedDmrGains($bridgeId) {
     return [0.0, 0.0];
 }
 
-function asrSettingsIsRetiredReflectorBridge($bridge) {
+function asrSettingsIsRetiredReflectorBridge($bridge, array $bridges = []) {
 	// Retired URF reflector cards (#177): the aggregate record and its
 	// per-mode digital cards. Zello cards that carried the old grouping flag
 	// stay ordinary Standard bridges.
 	if(!is_array($bridge)) return false;
 	$mode = strtolower((string)($bridge['mode'] ?? ''));
 	if($mode === 'urf') return true;
-	return !empty($bridge['urfReflector']) && in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)
-		&& (string)($bridge['cardType'] ?? 'standard') === 'standard';
+	if(empty($bridge['urfReflector']) || !in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)
+		|| (string)($bridge['cardType'] ?? 'standard') !== 'standard') return false;
+	// Retired URF reflector cards leave only with their aggregate card; alone
+	// this is a standalone bridge that kept the old grouping flag (#168).
+	foreach($bridges as $other) {
+		if(is_array($other) && strtolower((string)($other['mode'] ?? '')) === 'urf') return true;
+	}
+	return false;
 }
 
 function asrSettingsDmrSetupPayload($requireSecret, &$error) {
@@ -2569,7 +2575,7 @@ if($ysfImportBridgeId !== '') {
 			$netCardTypes = ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'];
 			// Retired URF reflector cards (#177) are never carried into a save.
 			$existingBridges = array_values(array_filter((array)($config['bridges'] ?? []), static fn($bridge) => !is_array($bridge)
-				|| !asrSettingsIsRetiredReflectorBridge($bridge)));
+				|| !asrSettingsIsRetiredReflectorBridge($bridge, (array)($config['bridges'] ?? []))));
 			$bridges = asrSettingsBridgeRowsFromPost(
 				$bridgeError,
 				$existingBridges,
@@ -2742,7 +2748,7 @@ $announceNoConnectedBridges = $announceStartupBridgeSummary && !empty($config['a
 $lowPowerMode = !empty($config['lowPowerMode']);
 $filterServiceStations = !array_key_exists('filterServiceStations', $config) || !empty($config['filterServiceStations']);
 $filteredStations = asrSettingsCleanFilteredStations(implode("\n", (array)($config['filteredStations'] ?? [])));
-$allBridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || !asrSettingsIsRetiredReflectorBridge($bridge)));
+$allBridgeRows = array_values(array_filter(is_array($config['bridges'] ?? null) ? $config['bridges'] : [], static fn($bridge) => !is_array($bridge) || !asrSettingsIsRetiredReflectorBridge($bridge, (array)($config['bridges'] ?? []))));
 $netCardTypes = ['dmr_net','ysf_net','p25_net','nxdn_net','m17_net'];
 $netBridgeRows = array_values(array_filter($allBridgeRows, static fn($bridge) => is_array($bridge) && in_array(($bridge['cardType'] ?? ''), $netCardTypes, true)));
 $bridgeRows = array_values(array_filter($allBridgeRows, static fn($bridge) => !is_array($bridge) || !in_array(($bridge['cardType'] ?? ''), $netCardTypes, true)));

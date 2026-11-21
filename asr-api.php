@@ -380,16 +380,22 @@ function asr_runtime_client_admin(string $id, string $mode): array {
     return array_values(array_unique($result));
 }
 
-function asr_is_retired_reflector_bridge($bridge): bool {
+function asr_is_retired_reflector_bridge($bridge, array $bridges = []): bool {
     // Retired URF reflector cards: the aggregate record and its per-mode
     // digital cards. Zello cards installed by older releases also carried the
     // URF grouping flag; they remain ordinary Standard Zello bridges.
     if (!is_array($bridge)) return false;
     $mode = strtolower((string) ($bridge['mode'] ?? ''));
     if ($mode === 'urf') return true;
-    return !empty($bridge['urfReflector'])
-        && in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
-        && (string) ($bridge['cardType'] ?? 'standard') === 'standard';
+    if (empty($bridge['urfReflector'])
+        || !in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
+        || (string) ($bridge['cardType'] ?? 'standard') !== 'standard') return false;
+    // Without an aggregate card this is a standalone bridge that only kept the
+    // old URF grouping flag (#168), so it stays.
+    foreach ($bridges as $other) {
+        if (is_array($other) && strtolower((string) ($other['mode'] ?? '')) === 'urf') return true;
+    }
+    return false;
 }
 
 function asr_standalone_client_admin(array $bridge): array {
@@ -482,7 +488,7 @@ function asr_runtime_config(): array {
     // URF reflector bridges were retired in Beta 8.5.1 (#177). Reapply moves
     // any saved reflector card out of config.json; until then it is ignored.
     $storedBridges = array_values(array_filter($storedBridges, static fn ($bridge): bool =>
-        !asr_is_retired_reflector_bridge($bridge)));
+        !asr_is_retired_reflector_bridge($bridge, $storedBridges)));
     $tgifSessionRequired = false;
     foreach ($storedBridges as $candidate) {
         if (!is_array($candidate)) continue;
