@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 
 import asr_bridge_status as status
 
@@ -680,6 +682,123 @@ def test_standard_net_log_isolation() -> None:
         assert payload["bridges"]["ysf"]["active"] is False
 
 
+def test_client_snapshot_evidence() -> None:
+    state = status.initial_activity_state()
+    status.reconcile_client_snapshot(state, ["N0CALL"], 100)
+    assert [(e["callsign"], e["event"], e.get("source")) for e in state["client_events"]] == [
+        ("N0CALL", "connect", "baseline_observation")]
+    status.reconcile_client_snapshot(state, None, 101)
+    assert len(state["client_events"]) == 1  # Missing roster never erases evidence.
+    status.reconcile_client_snapshot(state, ["N0CALL", "W1ABC"], 102)
+    status.reconcile_client_snapshot(state, ["W1ABC"], 103)
+    assert ("N0CALL", "disconnect") in [(e["callsign"], e["event"]) for e in state["client_events"]]
+    assert ("W1ABC", "connect") in [(e["callsign"], e["event"]) for e in state["client_events"]]
+
+
+def test_authoritative_client_rosters() -> None:
+    now = int(time.time())
+    config = {
+        "filteredStations": ["CUSTOMBOT"],
+        "bridges": [
+            {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+            {"id": "ysf_net", "mode": "ysf", "cardType": "standard", "node": "2222"},
+        ],
+    }
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "asr-connected-clients.json"
+        path.write_text(json.dumps({
+            "dmr": [
+                {"callsign": "N0CALL"},
+                {"callsign": "ALLSTAR-LEG", "role": "relay"},
+                {"callsign": "ALLSTAR-TAGGED", "role": "allstar-relay"},
+                {"callsign": "GONE", "connected": False},
+                {"callsign": "RFCKRD0"},
+                {"callsign": "CUSTOMBOT"},
+            ],
+            "ysf_net": [],
+            "_asr_meta": {
+                "dmr": {"kind": "current", "mode": "dmr"},
+                "ysf_net": {"kind": "current", "mode": "ysf"},
+            },
+        }), encoding="utf-8")
+        path.chmod(0o664)
+        snapshots = status.authoritative_client_snapshots(config, now, path)
+        assert snapshots == {"dmr": ["N0CALL"], "ysf_net": []}
+
+        os.utime(path, (now - status.CLIENT_ROSTER_MAX_AGE_SECONDS - 1,) * 2)
+        assert status.authoritative_client_snapshots(config, now, path) == {}
+
+        os.utime(path, (now, now))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["_asr_meta"]["dmr"]["kind"] = "empty"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        path.chmod(0o664)
+        assert "dmr" not in status.authoritative_client_snapshots(config, now, path)
+
+
+def test_client_snapshot_restart_baseline() -> None:
+    now = 1_800_000_000
+    config = {"node": "123456", "bridges": [
+        {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+    ]}
+    states: dict[str, dict] = {}
+    first = status.standard_live_payload(
+        config, states, [], now, client_snapshots={"dmr": ["N0CALL"]})
+    assert [(row["callsign"], row["event"], row.get("source"))
+            for row in first["bridges"]["dmr"]["client_events"]] == [
+        ("N0CALL", "connect", "baseline_observation")]
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "bridge-live.json"
+        path.write_text(json.dumps(first), encoding="utf-8")
+        path.chmod(0o644)
+        restored = status.restore_standard_states(path, now + 1)
+    second = status.standard_live_payload(
+        config, restored, [], now + 2, client_snapshots={"dmr": ["W1ABC"]})
+    transitions = [(row["callsign"], row["event"]) for row in second["bridges"]["dmr"]["client_events"]]
+    assert ("N0CALL", "disconnect") in transitions
+    assert ("W1ABC", "connect") in transitions
+
+
+def test_asrplus_recent_activity_parity() -> None:
+    # ASRPlus is distributed separately, not in the ASR release payload.
+    # Validate parity in source checkouts without requiring it in staged archives.
+    if not (PAYLOAD_ROOT / "scripts/asrplus-status.py").is_file() and not (PAYLOAD_ROOT / "ops/asrplus/asrplus.js").is_file():
+        return
+    asrplus = load_script("asrplus_status_recent", "asrplus-status.py")
+    now = 2_000_000
+    rows = asrplus.bridge_recent_activity({
+        "tx_events": [
+            {"callsign": "N0TX", "epoch": now, "start_epoch": now - 5, "duration_seconds": 5},
+            {"callsign": "OLD", "epoch": now - asrplus.BRIDGE_RECENT_MAX_AGE_SECONDS - 1},
+        ],
+        "client_events": [
+            {"callsign": "W1NEW", "event": "connect", "epoch": now - 1},
+            {"callsign": "BAD", "event": "kick", "epoch": now - 2},
+        ],
+    }, [], now)
+    assert [(row["callsign"], row["event"]) for row in rows] == [
+        ("N0TX", "transmit"), ("W1NEW", "connect")]
+    javascript = (PAYLOAD_ROOT / "ops/asrplus/asrplus.js").read_text(encoding="utf-8")
+    assert "recentActivityLabel" in javascript
+    assert "DISCONNECTED" in javascript and "TRANSMITTED" in javascript
+
+
+def test_client_event_retention() -> None:
+    now = 1_800_000_000
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "state.json"
+        path.write_text(json.dumps({"bridges": {"dmr": {
+            "client_events": [
+                {"callsign": "FRESH", "event": "connect", "epoch": now - 20},
+                {"callsign": "OLD", "event": "disconnect", "epoch": now - status.BRIDGE_RECENT_MAX_AGE_SECONDS - 1},
+                {"callsign": "FUTURE", "event": "connect", "epoch": now + 400},
+            ]
+        }}}))
+        path.chmod(0o644)
+        restored = status.restore_standard_states(path, now=now)
+        assert [item["callsign"] for item in restored["dmr"]["client_events"]] == ["FRESH"]
+
+
 def test_standard_once_writer() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-standard-once-") as raw:
         root = Path(raw)
@@ -695,13 +814,13 @@ def test_standard_once_writer() -> None:
         assert status._safe_json(config_path, forbidden_write_mask=0o002) is not None
         log_dir = root / "logs"
         log_dir.mkdir(mode=0o755)
-        log = log_dir / "MMDVM_Bridge-2026-08-21.log"
-        current_stamp = status.time.strftime(
-            "%Y-%m-%d %H:%M:%S", status.time.gmtime(status.time.time())
-        )
+        current = time.gmtime()
+        date = time.strftime("%Y-%m-%d", current)
+        clock = time.strftime("%H:%M:%S", current)
+        log = log_dir / f"MMDVM_Bridge-{date}.log"
         log.write_text(
-            f"M: {current_stamp}.000 DMR Slot 2, received network voice header "
-            "from ONCE to TG 91\n",
+            f"M: {date} {clock}.000 DMR Slot 2, received network voice header from ONCE to TG 12345\n",
+
             encoding="utf-8",
         )
         log.chmod(0o644)
@@ -774,6 +893,11 @@ def main() -> None:
     test_direct_service_discovery()
     test_log_follower_safety()
     test_standard_net_log_isolation()
+    test_client_snapshot_evidence()
+    test_authoritative_client_rosters()
+    test_client_snapshot_restart_baseline()
+    test_asrplus_recent_activity_parity()
+    test_client_event_retention()
     test_standard_once_writer()
     test_net_helpers()
     test_wiring_contracts()

@@ -73,7 +73,7 @@ export function provisionedNetBridgeModes(bridges: RuntimeBridgeConfig[]): Set<s
   )))
 }
 
-export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.6'
+export const ASR_BUILD_VERSION_LABEL = 'v1.0.0 Beta 8.6.1'
 
 export const defaultRuntimeConfig: RuntimeConfig = {
   node: '',
@@ -450,6 +450,9 @@ export type UpdateJob = {
   currentVersion?: string
   availableVersion?: string
   message?: string
+  failureReason?: string
+  restoration?: 'not_needed' | 'succeeded' | 'failed'
+  manualInterventionRequired?: boolean
 }
 
 async function updateRequest<T>(action: string, method: 'GET' | 'POST' = 'GET', jobId = ''): Promise<T> {
@@ -463,7 +466,12 @@ async function updateRequest<T>(action: string, method: 'GET' | 'POST' = 'GET', 
     headers: method === 'POST' ? { 'X-ASR-Requested-With': 'asr-update-control' } : undefined,
   })
   const payload = (await response.json()) as T & { ok?: boolean; error?: string }
-  if (!response.ok || payload.ok === false) {
+  const failedJobStatus = action === 'update-job-status'
+    && response.ok
+    && payload.ok === false
+    && (payload as T & Partial<UpdateJob>).state === 'failed'
+    && (payload as T & Partial<UpdateJob>).jobId === jobId
+  if (!response.ok || (payload.ok === false && !failedJobStatus)) {
     throw new Error(payload.error || 'ASR update request failed.')
   }
   return payload
@@ -475,6 +483,12 @@ export const queueAsrUpdate = () => updateRequest<UpdateJob>('update-queue', 'PO
 export const recoverAsrUpdate = () => updateRequest<{ ok: boolean; status: string }>('update-recover', 'POST')
 export const fetchAsrUpdateJob = (jobId: string) =>
   updateRequest<UpdateJob>('update-job-status', 'GET', jobId)
+export const updateJobReportUrl = (jobId: string) => {
+  const url = new URL(ASR_API, window.location.href)
+  url.searchParams.set('action', 'update-job-report')
+  url.searchParams.set('jobId', jobId)
+  return url.toString()
+}
 
 export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
   const response = await fetch(`${ASR_API}?action=runtime-config`, {
@@ -836,7 +850,9 @@ function buildSnapshot(
   const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
   const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
   const recentTalkers = serverHistory.length
-    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    // Up to 12 server events: the Talkers panel filters relay echoes and
+    // merges bridge events before showing the newest four (#168).
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 12)
     : talkerRows
       .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
       .map(rowTalkerEntry)
@@ -1622,7 +1638,8 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
 }
 
 const BRIDGE_LAST_TALKER_MAX_AGE = 60 * 60
-const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 12 * 60 * 60
+// Match the collector and API retention contract exactly.
+const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60
 const ZELLO_RECENT_TALKERS_MAX_AGE = BRIDGE_RECENT_ACTIVITY_MAX_AGE
 
 function zelloRecentTalkerEpoch(item: Record<string, unknown>) {
@@ -1649,29 +1666,35 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
 }
 
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
-  // Recent Activity is a history of transmissions *originating* on the
-  // digital bridge. AllStar-to-digital relays are not digital talkers.
-  const talkers = (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-    .filter((record) => String(record.direction || '').toLowerCase() === 'incoming')
-    .map((record, index) => {
-    const epoch = Number(record.epoch || 0)
-    const started = Number(record.start_epoch || epoch)
-    const duration = Number(record.duration_seconds || 0)
-    const time = started > 0 ? new Date(started * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : ''
-    const durationLabel = duration >= 1 ? `${Math.round(duration)}s` : '<1s'
-    const identity = bridgeClientName(record)
-    const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
-    const direction = String(record.direction || '').toLowerCase()
-    const activityLabel = direction === 'incoming' ? 'RECEIVED' : direction === 'outgoing' ? 'RELAYED' : 'TRANSMITTED'
-    return { key: `${mode}-tx-${label}-${epoch}-${index}`, label, meta: [activityLabel, time, durationLabel].filter(Boolean).join(' · '), epoch }
-  })
   const now = Date.now() / 1000
-  const rows = talkers
-    .filter((row) => row.epoch > 0 && now - row.epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)
-    .sort((a, b) => b.epoch - a.epoch)
-    .slice(0, 100)
+  const cleanIdentity = (value: unknown) => String(value || '').trim().toUpperCase()
+    .replace(/\s+[A-Z0-9]{1,3}$/, '').replace(/-[A-Z0-9]{1,3}$/, '')
+  const rows: (BridgeDetailItem & { epoch: number })[] = []
+  for (const [records, kind] of [
+    [entry?.tx_events, 'TX'], [entry?.client_events, 'CLIENT'],
+  ] as const) {
+    if (!Array.isArray(records)) continue
+    records.forEach((record, index) => {
+      const epoch = Number(record.epoch || 0)
+      if (!(epoch > 0 && now - epoch <= BRIDGE_RECENT_ACTIVITY_MAX_AGE)) return
+      const identity = cleanIdentity(bridgeClientName(record))
+      const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
+      if (!label || label === '-') return
+      const event = String(record.event || '').toLowerCase()
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
+      if (!action) return
+      if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
+      const duration = Number(record.duration_seconds)
+      // DMR network registration produces spurious 0.1s voice frames.
+      if (kind === 'TX' && (!Number.isFinite(duration) || duration < 1)) return
+      const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+      rows.push({ key: `${mode}-${action}-${label}-${epoch}-${index}`, label,
+        meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '), epoch })
+    })
+  }
+  rows.sort((a, b) => b.epoch - a.epoch)
   if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
-  return rows.map((row) => ({ key: row.key, label: row.label, meta: row.meta }))
+  return rows.slice(0, 100).map(({ key, label, meta }) => ({ key, label, meta }))
 }
 
 export function safeAudioMeterLevel(value: unknown): number {
@@ -1758,16 +1781,24 @@ export async function fetchBridgeCards(
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      // Digital-originated transmissions only. "outgoing" is AllStar audio
+      // sent out to the digital network, so matching it hid every genuine
+      // AllStar talker whenever a bridge was linked (#168).
       relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .filter((record) => String(record.direction || "").toLowerCase() === "incoming")
         .map((record) => Math.max(0, Number(record.epoch) || 0))
         .filter((epoch) => epoch > 0),
-      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
+      // Pick the newest four identified transmissions. Relayed AllStar audio
+      // logs callsign-less "outgoing" events on every bridge, which must not
+      // push a digital talker out of the Talkers panel (#168).
+      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
         eventEpoch: Math.max(0, Number(record.epoch) || 0),
         duration: Math.max(0, Number(record.duration_seconds) || 0),
-      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
+      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0)
+        .sort((left, right) => right.eventEpoch - left.eventEpoch)
+        .slice(0, 4),
       recentRows: formatBridgeRecentRows(entry, mode),
       audioMeter: entry?.audio_meter ? {
         inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),
@@ -2016,6 +2047,8 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   const response = await fetch(`${ASR_API}?action=auth-status`, {
     credentials: 'same-origin',
     cache: 'no-store',
+    // An idle browser or a broken connection must not leave the auth gate stuck.
+    signal: AbortSignal.timeout(10000),
   })
   const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
   if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')

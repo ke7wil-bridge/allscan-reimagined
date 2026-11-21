@@ -10,7 +10,20 @@ umask 022
 # Keep bootstrap, preflight, subprocesses, and the official AllScan installer
 # on one operator-selected temporary filesystem. ASR_STAGE_DIR takes priority;
 # TMPDIR is the standard fallback for direct installer runs.
+# Automatically recover from small/noexec default staging without overriding
+# an explicit operator-selected directory. The preflight still verifies the
+# combined disk budget before any package changes.
 requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+if [ -z "${ASR_STAGE_DIR:-}" ] && [ -z "${TMPDIR:-}" ]; then
+  stage_free=$(df -Pk /var/tmp 2>/dev/null | awk 'NR==2 {print $4}')
+  stage_options=$(findmnt -n -T /var/tmp -o OPTIONS 2>/dev/null || true)
+  if [ -z "$stage_free" ] || [ "$stage_free" -lt 131072 ] || [[ ",$stage_options," == *,noexec,* ]]; then
+    if [ -d /opt ] && [ -w /opt ] && [ -x /opt ]; then
+      requested_stage=/opt
+      echo "ASR staging: /var/tmp unsuitable; trying /opt (preflight will verify capacity)."
+    fi
+  fi
+fi
 case "$requested_stage" in
   /*) ;;
   *) echo "ERROR: ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
@@ -140,7 +153,7 @@ restore_shared_backup() {
     elif [ -f "$BACKUP_DIR/allscan.db.absent" ]; then
       rm -f /etc/allscan/allscan.db
     fi
-    for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log; do
+    for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log schedule.pending.json schedule.state.json schedule.history.jsonl; do
       if [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ]; then
         install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan
         [ ! -L "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ] || continue
@@ -175,7 +188,7 @@ restore_shared_backup() {
 backup_scheduler_state() {
   local scheduler_dir="$BACKUP_DIR/runtime/allscan-scheduler" scheduler_file cron_status
   install -d -o root -g root -m 700 "$scheduler_dir"
-  for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log; do
+  for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log schedule.pending.json schedule.state.json schedule.history.jsonl; do
     if [ -L "/etc/allscan/$scheduler_file" ]; then
       fail "Refusing to back up unsafe AllScan scheduler state: $scheduler_file"
     elif [ -f "/etc/allscan/$scheduler_file" ]; then
@@ -1098,6 +1111,7 @@ find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
 chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-bridge-audio-telemetry.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
 chmod 755 "$RELEASE_STAGE/scripts/asr-allscan-v106-migrate.py"
+chmod 755 "$RELEASE_STAGE/scripts/asr-systemd-timers.py" "$RELEASE_STAGE/scripts/asr-timer-control.py"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then

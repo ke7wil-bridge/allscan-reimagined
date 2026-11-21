@@ -62,11 +62,12 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
-# URF reflector support was retired in Beta 8.5.1 (#177). Move any saved URF
-# reflector cards (the aggregate record and its per-mode digital cards) out
-# of config.json into retired-urf-bridges.json after a full backup. Zello cards
-# that carried the old grouping flag stay. No runtime data or credential is
-# deleted; installed URF services are left exactly as they are.
+# URF reflector support was retired in Beta 8.5.1 (#177). The old aggregate
+# reflector card (mode "urf") has no backend, so it moves out of config.json into
+# retired-urf-bridges.json after a full backup. Every other card is a working
+# bridge: leftover urfReflector/urfGroupId/urfName fields are dropped and the
+# card stays (#168). Bridges an earlier release moved out only because they
+# carried those fields are put back once.
 if [ "$WEB_ONLY" != "1" ] && [ -f /etc/allscan-reimagined/config.json ]; then
   python3 -I - /etc/allscan-reimagined/config.json <<'PY_RETIRE_URF' || { echo "URF card retirement failed; config.json was not changed." >&2; exit 1; }
 import json, os, sys, tempfile, time
@@ -76,29 +77,60 @@ with open(path, encoding="utf-8") as handle:
 bridges = config.get("bridges") if isinstance(config, dict) else None
 if not isinstance(bridges, list):
     raise SystemExit(0)
-def retired(bridge):
-    if not isinstance(bridge, dict):
-        return False
-    mode = str(bridge.get("mode") or "").lower()
-    return mode == "urf" or (bool(bridge.get("urfReflector")) and mode in {"dmr", "ysf", "p25", "nxdn", "m17"}
-                             and str(bridge.get("cardType") or "standard") == "standard")
-gone = [bridge for bridge in bridges if retired(bridge)]
-if not gone:
-    raise SystemExit(0)
+GROUPING = ("urfReflector", "urfGroupId", "urfName")
+def aggregate(bridge):
+    return isinstance(bridge, dict) and str(bridge.get("mode") or "").lower() == "urf"
+def clean(bridge):
+    return {key: value for key, value in bridge.items() if key not in GROUPING} if isinstance(bridge, dict) else bridge
 stamp = time.strftime("%Y%m%d-%H%M%S")
 directory = os.path.dirname(path)
 info = os.stat(path)
-with open(path, "rb") as source, open(os.path.join(directory, f"config.json.pre-urf-retirement-{stamp}"), "wb") as backup:
-    backup.write(source.read())
 retired_path = os.path.join(directory, "retired-urf-bridges.json")
 try:
     with open(retired_path, encoding="utf-8") as handle:
-        previous = json.load(handle)
+        archive = json.load(handle)
+    if not isinstance(archive, dict) or not isinstance(archive.get("retired"), list):
+        archive = None
 except (OSError, ValueError):
-    previous = {"schema": 1, "retired": []}
-previous.setdefault("retired", []).append({"retiredAt": stamp, "bridges": gone})
-config["bridges"] = [bridge for bridge in bridges if not retired(bridge)]
-for target, payload, mode in ((retired_path, previous, 0o600), (path, config, info.st_mode & 0o777)):
+    archive = None
+gone = [bridge for bridge in bridges if aggregate(bridge)]
+kept = [clean(bridge) for bridge in bridges if not aggregate(bridge)]
+cleaned = sum(1 for bridge in bridges
+              if isinstance(bridge, dict) and not aggregate(bridge) and any(key in bridge for key in GROUPING))
+restored = []
+archive_changed = False
+if archive is not None:
+    for batch in archive["retired"]:
+        batch_bridges = batch.get("bridges") if isinstance(batch, dict) else None
+        if not isinstance(batch_bridges, list) or batch.get("restoredAt"):
+            continue
+        present = {str(bridge.get("id") or "") for bridge in kept if isinstance(bridge, dict)}
+        back = [clean(bridge) for bridge in batch_bridges
+                if isinstance(bridge, dict) and not aggregate(bridge)
+                and str(bridge.get("id") or "") and str(bridge.get("id")) not in present]
+        kept.extend(back)
+        restored.extend(back)
+        batch["restoredAt"] = stamp
+        batch["restoredIds"] = [str(bridge.get("id")) for bridge in back]
+        archive_changed = True
+if gone:
+    if archive is None:
+        archive = {"schema": 1, "retired": []}
+    archive["retired"].append({"retiredAt": stamp, "bridges": gone})
+    archive_changed = True
+config_changed = bool(gone or cleaned or restored)
+if not config_changed and not archive_changed:
+    raise SystemExit(0)
+if config_changed:
+    with open(path, "rb") as source, open(os.path.join(directory, f"config.json.pre-urf-retirement-{stamp}"), "wb") as backup:
+        backup.write(source.read())
+    config["bridges"] = kept
+writes = []
+if archive_changed:
+    writes.append((retired_path, archive, 0o600))
+if config_changed:
+    writes.append((path, config, info.st_mode & 0o777))
+for target, payload, mode in writes:
     descriptor, temporary = tempfile.mkstemp(prefix=".asr-urf-retire.", dir=directory)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
@@ -107,7 +139,12 @@ for target, payload, mode in ((retired_path, previous, 0o600), (path, config, in
     if target == path:
         os.chown(temporary, info.st_uid, info.st_gid)
     os.replace(temporary, target)
-print(f"Retired {len(gone)} URF reflector card(s); backup config.json.pre-urf-retirement-{stamp}")
+if gone:
+    print(f"Retired {len(gone)} URF reflector card(s); backup config.json.pre-urf-retirement-{stamp}")
+if cleaned:
+    print(f"Removed leftover grouping fields from {cleaned} bridge card(s)")
+if restored:
+    print(f"Restored {len(restored)} bridge card(s) an earlier release moved out")
 PY_RETIRE_URF
 fi
 
@@ -279,7 +316,9 @@ stage_asr_web() {
     while IFS= read -r -d '' source; do
       relative=${source#"$compat_dir/"}
       install -d -m 755 "$(dirname "$stage/$relative")"
-      install -m 644 "$source" "$stage/$relative"
+      compat_mode=644
+      [ "$relative" = "_tools/runSchedule.php" ] && compat_mode=755
+      install -m "$compat_mode" "$source" "$stage/$relative"
     done < <(find "$compat_dir" -type f -print0)
   else
     echo "No exact ASR compatibility layer exists for AllScan ${backend_version:-unknown}; keeping the current /asr tree." >&2
@@ -358,6 +397,10 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/s
 [ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-zello-session-patch.py" /usr/local/sbin/allscan-reimagined-zello-session-patch
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
+[ -f "$MASTER_DIR/scripts/asr-systemd-timers.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-systemd-timers.py" /usr/local/sbin/allscan-reimagined-systemd-timers
+[ -f "$MASTER_DIR/scripts/asr-timer-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-timer-control.py" /usr/local/sbin/allscan-reimagined-timer-control
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
@@ -1271,6 +1314,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban unban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]* --client-id [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-timer-control *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
@@ -1328,6 +1372,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --pre
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --diagnostic-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standard-bridge-repair [a-z]*
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined
@@ -1336,6 +1381,9 @@ visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null
 find "$ALLSCAN_DIR" ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chown root:root "$file" 2>/dev/null || true; done' sh {} +
 find "$ALLSCAN_DIR" -type d -exec chmod 755 {} + || true
 find "$ALLSCAN_DIR" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 644 "$file" 2>/dev/null || true; done' sh {} +
+# The native scheduler runner is executed directly from the web user's
+# crontab and must stay executable after the blanket 644 above (#200).
+[ -f "$ALLSCAN_DIR/_tools/runSchedule.php" ] && chmod 755 "$ALLSCAN_DIR/_tools/runSchedule.php"
 install -d -o root -g "$WEB_GROUP" -m 775 "$ALLSCAN_DIR/asr-user-content"
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'owner="$1"; shift; for file; do [ -e "$file" ] && chown "$owner" "$file" 2>/dev/null || true; done' sh "root:$WEB_GROUP" {} +
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 664 "$file" 2>/dev/null || true; done' sh {} +

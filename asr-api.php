@@ -41,8 +41,8 @@ const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-st
 const ASR_GLOBAL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-global-ban';
 const ASR_GLOBAL_BAN_ROOT = '/var/lib/allscan-reimagined/admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.6';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.6';
+const ASR_VERSION = '1.0.0-beta.8.6.1';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.6.1';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -381,15 +381,12 @@ function asr_runtime_client_admin(string $id, string $mode): array {
 }
 
 function asr_is_retired_reflector_bridge($bridge): bool {
-    // Retired URF reflector cards: the aggregate record and its per-mode
-    // digital cards. Zello cards installed by older releases also carried the
-    // URF grouping flag; they remain ordinary Standard Zello bridges.
+    // Retired URF reflector cards: only the old aggregate record, which has
+    // no backend.
     if (!is_array($bridge)) return false;
     $mode = strtolower((string) ($bridge['mode'] ?? ''));
-    if ($mode === 'urf') return true;
-    return !empty($bridge['urfReflector'])
-        && in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)
-        && (string) ($bridge['cardType'] ?? 'standard') === 'standard';
+    // Leftover grouping fields never hide a working bridge card (#168).
+    return $mode === 'urf';
 }
 
 function asr_standalone_client_admin(array $bridge): array {
@@ -689,14 +686,16 @@ function asr_updater_command(string $operation, string $jobId = ''): array {
         'queue' => '--queue-update',
         'recover' => '--recover-json',
         'status' => '--status-json',
+        'diagnostic' => '--diagnostic-json',
     ];
     if (!isset($allowed[$operation])) asr_error('Invalid update operation.', 400);
-    if ($operation === 'status' && !preg_match('/^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/D', $jobId)) {
+    if (in_array($operation, ['status', 'diagnostic'], true)
+        && !preg_match('/^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/D', $jobId)) {
         asr_error('Invalid update job ID.', 400);
     }
     if (!is_executable(ASR_UPDATER_HELPER)) asr_error('ASR updater is not installed.', 503);
     $argv = ['sudo', '-n', ASR_UPDATER_HELPER, $allowed[$operation]];
-    if ($operation === 'status') $argv[] = $jobId;
+    if (in_array($operation, ['status', 'diagnostic'], true)) $argv[] = $jobId;
     $process = @proc_open($argv, [
         0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
     ], $pipes);
@@ -710,7 +709,12 @@ function asr_updater_command(string $operation, string $jobId = ''): array {
     $exit = proc_close($process);
     $payload = json_decode((string) $stdout, true);
     if (!is_array($payload)) asr_error('ASR updater did not return a valid status.', 503);
-    if ($exit !== 0 || empty($payload['ok'])) {
+    $failedStatus = $operation === 'status'
+        && $exit === 0
+        && ($payload['ok'] ?? null) === false
+        && ($payload['state'] ?? '') === 'failed'
+        && hash_equals($jobId, (string) ($payload['jobId'] ?? ''));
+    if ($exit !== 0 || (empty($payload['ok']) && !$failedStatus)) {
         $reason = (string) ($payload['error'] ?? 'Update operation could not complete.');
         asr_error(substr(preg_replace('/[^A-Za-z0-9 .,;:-]/', '', $reason), 0, 180), 409);
     }
@@ -4048,6 +4052,18 @@ if ($action === 'node-diagnostics') {
 if ($action === 'release-status') {
     asr_require_read();
     asr_json(asr_release_status_payload());
+}
+if ($action === 'update-job-report') {
+    header('Cache-Control: no-store');
+    asr_require_admin();
+    $jobId = (string) ($_GET['jobId'] ?? '');
+    $payload = asr_updater_command('diagnostic', $jobId);
+    $report = (string) ($payload['report'] ?? '');
+    if ($report === '') asr_error('Update diagnostic report is unavailable.', 404);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Content-Disposition: attachment; filename="asr-update-' . $jobId . '-error.txt"');
+    echo $report;
+    exit;
 }
 if (in_array($action, ['update-check', 'update-preflight', 'update-queue', 'update-recover', 'update-job-status'], true)) {
     header('Cache-Control: no-store');

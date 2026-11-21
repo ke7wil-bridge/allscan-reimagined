@@ -186,7 +186,15 @@ function asrSelectCurrentTalker($rows, $localNode, $localInfo, $astdb, $now = nu
 	], $astdb);
 }
 
-function asrAdvanceTalkerState($current, $next, $history, $now = null, $historyLimit = 4) {
+// More events than the four Last Talker slots are kept: the dashboard drops
+// bridge relay echoes and merges bridge transport events, so a four-event
+// history left slots empty while real talkers had already rolled off (#168).
+const ASR_TALKER_HISTORY_LIMIT = 12;
+// A re-key by the same node within this many seconds of its unkey (a quick
+// unkey/re-key or a keyed-state flicker) continues the same transmission.
+const ASR_TALKER_REKEY_MERGE_SECONDS = 3;
+
+function asrAdvanceTalkerState($current, $next, $history, $now = null, $historyLimit = ASR_TALKER_HISTORY_LIMIT) {
 	$now = is_int($now) ? $now : time();
 	$history = array_values(array_filter((array)$history, 'is_array'));
 	$previousNode = (string)($current['node'] ?? '');
@@ -199,13 +207,21 @@ function asrAdvanceTalkerState($current, $next, $history, $now = null, $historyL
 		array_unshift($history, $finished);
 		$history = array_slice($history, 0, max(0, (int)$historyLimit));
 	}
-	if(is_array($next)) {
+	$resumed = false;
+	if(is_array($next) && !is_array($current) && $nextNode !== ''
+		&& is_array($history[0] ?? null)
+		&& (string)($history[0]['node'] ?? '') === $nextNode
+		&& $now - (int)($history[0]['event_epoch'] ?? 0) <= ASR_TALKER_REKEY_MERGE_SECONDS) {
+		$next['started_epoch'] = (int)($history[0]['started_epoch'] ?? $now);
+		array_shift($history);
+		$resumed = true;
+	} elseif(is_array($next)) {
 		if(!is_array($current) || $previousNode !== $nextNode)
 			$next['started_epoch'] = $now;
 		else
 			$next['started_epoch'] = $current['started_epoch'] ?? $now;
 	}
-	return ['current'=>$next, 'history'=>$history, 'history_changed'=>$changed];
+	return ['current'=>$next, 'history'=>$history, 'history_changed'=>$changed || $resumed];
 }
 
 function asrEnrichBridgeTalker($row, $events, $astdbPath = '/var/lib/asterisk/astdb.txt', $bridgeEvidence = []) {

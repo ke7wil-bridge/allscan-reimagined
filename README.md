@@ -11,7 +11,7 @@ AllScan Reimagined is customized by KE7WIL.
 
 If you're using AllScan Reimagined, I'd appreciate a quick email letting me know you're running it. It helps me understand how ASR is being used and support its continued development. [Email KE7WIL](mailto:ke7wil@gmail.com).
 
-This archive is **Beta 8.6**, the bridge integration and digital talker parity release (URF reflector support removed).
+This archive is **Beta 8.6.1**, an unpublished maintenance release candidate for Beta 8.6.
 
 Beta 8.5 improves installer recovery, Favorites management, Support and
 Feedback, read-only diagnostics, and release-note accessibility. It preserves
