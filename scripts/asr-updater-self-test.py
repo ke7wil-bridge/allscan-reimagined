@@ -71,6 +71,7 @@ def self_test():
         "queue": "--queue-update",
         "recover": "--recover-json",
         "status": "--status-json [0-9]*",
+        "diagnostic": "--diagnostic-json [0-9]*",
     }
     for operation, sudo_argument in updater_rules.items():
         api_argument = sudo_argument.split()[0]
@@ -216,12 +217,23 @@ def self_test():
         local_installer = root / "local-installer"
         local_installer.mkdir()
         (local_installer / "install.sh").write_text(
-            '#!/bin/bash\necho "private-config-value" >&2\nexit 2\n')
+            '#!/bin/bash\necho "ERROR: password=hunter2 token=abc123 installer failed" >&2\nexit 2\n')
         assert up.install_release(local_installer, job) == 2
-        private_log = up.JOB_ROOT / (job + ".log")
+        private_log = up.PERSIST_ROOT / (job + ".log")
         assert private_log.stat().st_mode & 0o777 == 0o600
-        assert "private-config-value" in private_log.read_text()
-        assert "private-config-value" not in json.dumps(up.read_status(job))
+        assert "hunter2" in private_log.read_text()
+        assert "hunter2" not in json.dumps(up.read_status(job))
+        up.status(job, "failed", message="Update failed; recovery needs attention.",
+                  failureReason=up.installer_failure_reason(job), restoration="failed",
+                  manualInterventionRequired=True)
+        report = up.diagnostic_report(job)
+        assert report["jobId"] == job
+        assert "Manual intervention required: yes" in report["report"]
+        assert "hunter2" not in report["report"] and "abc123" not in report["report"]
+        assert "[redacted]" in report["report"]
+        (up.JOB_ROOT / (job + ".json")).unlink()
+        assert up.diagnostic_report(job)["report"] == report["report"]
+        fails(lambda: up.diagnostic_report("../../etc/passwd"))
 
         backup = up.BACKUPS / "20260924-120001"
         backup.mkdir()
@@ -232,6 +244,9 @@ def self_test():
             assert rollback.call_args.args[0] == [
                 "/usr/local/sbin/allscan-reimagined-rollback", "rollback",
                 "20260924-120001"]
+        with mock.patch.object(up, "healthy", side_effect=[False, False]), mock.patch.object(
+                up.subprocess, "run", return_value=SimpleNamespace(returncode=1)):
+            assert not up.recover("1.0.0-beta.7.5", set())
         assert up.backup_since({"20260924-120001"}) is None
 
         # A preflight failure cannot imply that recovery is needed.
@@ -268,6 +283,24 @@ def self_test():
             json.dumps(stock_manifest())
         )
         (staged_for_failure / "install.sh").write_text("exit 1")
+
+        # The supported Beta 8.3.5 upgrade path reaches a terminal success.
+        checks["installedVersion"] = "1.0.0-beta.8.3.5"
+        with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
+                up, "preflight", return_value=checks), mock.patch.object(
+                up, "install_busy", return_value=False), mock.patch.object(
+                up, "fetch", return_value=package()), mock.patch.object(
+                up, "stage_release", return_value=staged_for_failure), mock.patch.object(
+                up, "install_release", return_value=0), mock.patch.object(
+                up, "healthy", return_value=True):
+            up.status(job, "queued")
+            assert up.run(job) == 0
+        successful = up.read_status(job)
+        assert successful["state"] == "complete"
+        assert successful["currentVersion"] == "1.0.0-beta.8.3.5"
+
+        checks["installedVersion"] = "1.0.0-beta.7.5"
+        up.status(job, "queued")
         with mock.patch.object(up.os, "geteuid", return_value=0), mock.patch.object(
                 up, "preflight", return_value=checks), mock.patch.object(
                 up, "install_busy", return_value=False), mock.patch.object(
