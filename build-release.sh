@@ -128,6 +128,7 @@ python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
 python3 "$ROOT/scripts/asr-retired-reflector-absence-self-test.py"
+python3 "$ROOT/scripts/asr-retired-reflector-standalone-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"

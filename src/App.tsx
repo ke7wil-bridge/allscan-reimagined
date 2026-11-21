@@ -884,6 +884,22 @@ function App({ config }: { config: RuntimeConfig }) {
         }
       }
     }
+    // History rows already carry the identity the server resolved for that
+    // transmission (e.g. node 1001 -> KN4EWT / DMR). Use it when this page did
+    // not see the transmission live, so a refresh does not drop every past
+    // bridge talker until someone keys up again (#168).
+    const serverSource = String(talker.source || '').trim().toUpperCase()
+    const serverCallsign = String(talker.info || '').trim().toUpperCase()
+    if (!bridgeTalkerIdentityRef.current[cacheKey]
+        && serverSource !== '' && serverSource !== 'ALLSTAR'
+        && serverCallsign !== '' && serverCallsign !== transportNode
+        && /^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(serverCallsign)) {
+      bridgeTalkerIdentityRef.current[cacheKey] = {
+        callsign: serverCallsign,
+        source: serverSource,
+        description: String(talker.description || '').trim(),
+      }
+    }
     const identity = bridgeTalkerIdentityRef.current[cacheKey]
     if (!identity && transportNode === '1001') {
       if (!isCurrentTalker) return null
@@ -926,8 +942,9 @@ function App({ config }: { config: RuntimeConfig }) {
     const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
     const cutoff = Math.floor(clock.getTime() / 1000) - TALKER_HISTORY_MAX_AGE_SECONDS
     // ASTAPI reports the AllStar/EchoLink side of a digital bridge relay as
-    // a talker too. When its event timestamp matches an outgoing digital
-    // bridge TX edge, it is transport echo, not the originating digital user.
+    // a talker too. When its event timestamp matches a digital user's
+    // incoming bridge TX edge, it is transport echo, not the originating
+    // digital user. AllStar-originated audio relayed out stays visible.
     const relayEpochs = bridgeState.cards.flatMap((card) => card.relayEventEpochs || [])
     const isRelayEcho = (entry: TalkerFeedEntry | null) => Boolean(entry
       && String(entry.source || '').toUpperCase() === 'ALLSTAR'

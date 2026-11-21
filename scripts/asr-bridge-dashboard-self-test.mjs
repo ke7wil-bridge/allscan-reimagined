@@ -431,6 +431,23 @@ try {
     && relayEpochs.some((epoch) => Math.abs(epoch - entry.eventEpoch) <= 3)
   assert(isRelayEcho(allstarRelayEcho), 'digital relay echo was not recognized')
   assert(!isRelayEcho(genuineAllstarTalker), 'unrelated genuine AllStar talker was suppressed')
+  // Relay edges come from digital-originated (incoming) bridge events only;
+  // AllStar audio relayed out to the bridges is "outgoing" and must not hide
+  // the AllStar talker who sent it (#168).
+  {
+    const live = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+    const relayBlock = live.slice(live.indexOf('relayEventEpochs: (Array.isArray'), live.indexOf('relayEventEpochs: (Array.isArray') + 200)
+    assert(relayBlock.includes('=== "incoming"') && !relayBlock.includes('"outgoing"'),
+      'relay echo edges must come from incoming digital transmissions only')
+    const talkersBlock = live.slice(live.indexOf('recentTalkers: (Array.isArray(entry?.tx_events)'), live.indexOf('recentRows: formatBridgeRecentRows(entry, mode)'))
+    assert(talkersBlock.indexOf('Boolean(record.callsign)') < talkersBlock.indexOf('.slice(0, 4)')
+      && talkersBlock.includes('.sort((left, right) => right.eventEpoch - left.eventEpoch)'),
+      'callsign-less relay events can push digital talkers out of the Talkers panel')
+    const appText = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    assert(appText.includes("serverSource !== '' && serverSource !== 'ALLSTAR'")
+      && appText.indexOf('const serverCallsign') < appText.indexOf("if (!identity && transportNode === '1001')"),
+      'bridge talker history must use the server-resolved identity after a page refresh')
+  }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
     id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',

@@ -836,7 +836,9 @@ function buildSnapshot(
   const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
   const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
   const recentTalkers = serverHistory.length
-    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    // Up to 12 server events: the Talkers panel filters relay echoes and
+    // merges bridge events before showing the newest four (#168).
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 12)
     : talkerRows
       .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
       .map(rowTalkerEntry)
@@ -1758,16 +1760,24 @@ export async function fetchBridgeCards(
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      // Digital-originated transmissions only. "outgoing" is AllStar audio
+      // sent out to the digital network, so matching it hid every genuine
+      // AllStar talker whenever a bridge was linked (#168).
       relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .filter((record) => String(record.direction || "").toLowerCase() === "incoming")
         .map((record) => Math.max(0, Number(record.epoch) || 0))
         .filter((epoch) => epoch > 0),
-      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
+      // Pick the newest four identified transmissions. Relayed AllStar audio
+      // logs callsign-less "outgoing" events on every bridge, which must not
+      // push a digital talker out of the Talkers panel (#168).
+      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
         eventEpoch: Math.max(0, Number(record.epoch) || 0),
         duration: Math.max(0, Number(record.duration_seconds) || 0),
-      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
+      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0)
+        .sort((left, right) => right.eventEpoch - left.eventEpoch)
+        .slice(0, 4),
       recentRows: formatBridgeRecentRows(entry, mode),
       audioMeter: entry?.audio_meter ? {
         inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),
