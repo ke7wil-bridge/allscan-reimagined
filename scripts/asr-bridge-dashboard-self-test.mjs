@@ -22,7 +22,7 @@ const server = await createServer({
 try {
   const activitySource = readFileSync('src/lib/allscanLive.ts', 'utf8')
   const bridgeCss = readFileSync('src/styles/asr/04-bridge-cards.css', 'utf8')
-  assert(activitySource.includes(".filter((record) => String(record.direction || '').toLowerCase() === 'incoming')"), 'Recent Activity must exclude outgoing and unknown-direction relay events')
+  assert(activitySource.includes("String(record.direction || '').toLowerCase() !== 'incoming'"), 'Recent Activity must exclude outgoing and unknown-direction relay events')
   assert(bridgeCss.includes('.allscan-bridge-grid .allscan-bridge-recent > .allscan-bridge-detail-box') && bridgeCss.includes('max-height: min(360px, 45vh)') && bridgeCss.includes('overflow-y: auto'), 'Recent Activity panels must scroll without stretching bridge grid')
 
   const {
@@ -754,9 +754,14 @@ try {
     'bridge detail semantics do not preserve Zello talker history and roster provenance',
   )
   assert(
+    allscanLiveSource.includes('const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60'),
+    'frontend Recent Activity retention no longer matches the 24-hour backend contract',
+  )
+  assert(
     !appSource.includes('allscan-urf-')
       && appSource.includes('Recent Activity<'),
     'URF card markup remains or bridge activity section is missing',
+
   )
   assert(
     appSource.includes('allscan-controls-lower-row')
