@@ -12,6 +12,8 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
   const dialog = useRef<HTMLDialogElement>(null)
   const frame = useRef<HTMLDivElement>(null)
   const origin = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
   const [edges, setEdges] = useState<string[]>([])
   const [verified, setVerified] = useState(false)
   const [status, setStatus] = useState(() => safeNode(node) ? 'Loading verified AllStarLink network topology…' : 'Not a valid AllStarLink node.')
@@ -39,7 +41,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
     const prior = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     element.showModal()
-    const closed = () => onClose()
+    const closed = () => onCloseRef.current()
     element.addEventListener('close', closed)
     return () => {
       element.removeEventListener('close', closed)
@@ -48,7 +50,7 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
       window.scrollTo({ top: y, behavior: 'instant' })
       origin.current?.focus({ preventScroll: true })
     }
-  }, [onClose])
+  }, [])
 
   useEffect(() => {
     if (!safeNode(node)) return
