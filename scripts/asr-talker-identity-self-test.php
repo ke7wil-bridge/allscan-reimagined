@@ -78,16 +78,29 @@ $state = asrAdvanceTalkerState($state['current'], null, $state['history'], 17918
 check($state['current'] === null && $state['history_changed'], 'local COS release did not close the current-talker event');
 check($state['history'][0]['node'] === '63916' && $state['history'][0]['duration'] === 7 && $state['history'][0]['event_epoch'] === 1791834007, 'local COS history lost node, duration, or event time');
 
-for($event = 1; $event <= 5; $event++) {
-	$start = 1791834010 + ($event * 10);
+for($event = 1; $event <= 14; $event++) {
+	$start = 1791834010 + ($event * 30);
 	$next = asrSelectCurrentTalker([
 		['node'=>'1', 'info'=>'COS-Detected', 'cos_keyed'=>1, 'tx_keyed'=>1],
 	], '63916', 'NY7S 147.300 Sun City West, Arizona', $nodeDatabase, $start);
 	$state = asrAdvanceTalkerState($state['current'], $next, $state['history'], $start);
 	$state = asrAdvanceTalkerState($state['current'], null, $state['history'], $start + $event);
 }
-check(count($state['history']) === 4, 'talker history did not remain capped at four transmission events');
-check(array_column($state['history'], 'duration') === [5, 4, 3, 2], 'repeated local transmissions were lost, deduplicated, or misordered');
+check(count($state['history']) === 12, 'talker history did not remain capped at twelve transmission events');
+check(array_slice(array_column($state['history'], 'duration'), 0, 4) === [14, 13, 12, 11], 'repeated local transmissions were lost, deduplicated, or misordered');
+
+// A re-key by the same node within three seconds continues one transmission;
+// a later re-key is a new transmission event (#168).
+$allstar = ['node'=>'674981', 'info'=>'KN4EWT', 'source'=>'AllStar'];
+$rekey = asrAdvanceTalkerState(null, $allstar, [], 1791835000);
+$rekey = asrAdvanceTalkerState($rekey['current'], null, $rekey['history'], 1791835010);
+$rekey = asrAdvanceTalkerState($rekey['current'], $allstar, $rekey['history'], 1791835012);
+check(count($rekey['history']) === 0 && $rekey['current']['started_epoch'] === 1791835000 && $rekey['history_changed'],
+	'a quick re-key created a duplicate Last Talker');
+$rekey = asrAdvanceTalkerState($rekey['current'], null, $rekey['history'], 1791835020);
+check(count($rekey['history']) === 1 && $rekey['history'][0]['duration'] === 20, 'merged transmission lost its full duration');
+$rekey = asrAdvanceTalkerState($rekey['current'], $allstar, $rekey['history'], 1791835030);
+check(count($rekey['history']) === 1 && $rekey['current']['started_epoch'] === 1791835030, 'a separate re-key was merged');
 check(count(array_unique(array_column($state['history'], 'info'))) === 1 && $state['history'][0]['info'] === 'NY7S', 'local callsign did not survive repeated talker history events');
 
 $latched = asrEnrichBridgeTalker([
