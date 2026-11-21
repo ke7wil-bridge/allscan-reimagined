@@ -97,7 +97,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # The web rules must not hide or drop a card for the leftover fields.
 for path in ["asr-api.php", "server/asr-api.php",
-             *[f"compat/allscan-v{v}/asr-settings/settings-controller.php" for v in ("1.02", "1.03", "1.04", "1.05")]]:
+             *[f"compat/allscan-v{v}/asr-settings/settings-controller.php" for v in ("1.02", "1.03", "1.04", "1.05", "1.06")]]:
     text = (ROOT / path).read_text(encoding="utf-8")
     name = "function asr_is_retired_reflector_bridge" if "asr-api" in path else "function asrSettingsIsRetiredReflectorBridge"
     body = text[text.index(name):text.index("\n}\n", text.index(name))]

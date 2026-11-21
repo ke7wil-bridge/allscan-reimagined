@@ -836,7 +836,9 @@ function buildSnapshot(
   const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
   const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
   const recentTalkers = serverHistory.length
-    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    // Up to 12 server events: the Talkers panel filters relay echoes and
+    // merges bridge events before showing the newest four (#168).
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 12)
     : talkerRows
       .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
       .map(rowTalkerEntry)
