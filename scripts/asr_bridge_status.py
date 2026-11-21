@@ -91,6 +91,46 @@ SERVICE_CHECK_INTERVAL = 5.0
 UNIT_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.service$")
 
 
+RADIO_ID_PATH = Path("/var/lib/mmdvm/DMRIds.dat")
+RADIO_ID_MAX_BYTES = 64 * 1024 * 1024
+_radio_id_cache: dict[int, str] = {}
+
+
+def radio_id_callsign(radio_id: str, path: Path | None = None) -> str:
+    """Resolve a numeric DMR radio ID through the host's full DMRIds.dat.
+
+    Managed DMR bridges keep a bridge-only DMRIds.dat that lists just the
+    node owner, so MMDVM logs every other station as a bare number (#224).
+    Returns "" when the ID is unknown or the database is not trustworthy.
+    """
+    if not radio_id.isdecimal() or len(radio_id) > 10:
+        return ""
+    source_id = int(radio_id)
+    if source_id in _radio_id_cache:
+        return _radio_id_cache[source_id]
+    path = path or RADIO_ID_PATH
+    try:
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != 0
+                or stat.S_IMODE(info.st_mode) & 0o022 or info.st_size > RADIO_ID_MAX_BYTES):
+            return ""
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                fields = line.strip().replace(";", " ").replace(",", " ").split()
+                if len(fields) < 2 or not fields[0].isdecimal() or int(fields[0]) != source_id:
+                    continue
+                callsign = fields[1].upper()
+                if re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}", callsign):
+                    if len(_radio_id_cache) > 4096:
+                        _radio_id_cache.clear()
+                    _radio_id_cache[source_id] = callsign
+                    return callsign
+                break
+    except OSError:
+        pass
+    return ""
+
+
 def clean_caller(value: str, limit: int = 120) -> str:
     caller = re.sub(r"\s+", " ", str(value or "")).strip()
     return caller[:limit] if caller and caller != "-" else ""
@@ -242,6 +282,8 @@ def apply_activity_line(
     if source is not None:
         caller_group = 4 if mode == "dmr" else 3
         caller = clean_caller(source.group(caller_group), 20 if mode == "ysf" else 120)
+        if mode == "dmr" and caller.isdecimal():
+            caller = radio_id_callsign(caller) or caller
         if mode == "nxdn" and caller.isdecimal():
             # Resolve NXDN radio IDs before publishing the shared ASR identity.
             try:
