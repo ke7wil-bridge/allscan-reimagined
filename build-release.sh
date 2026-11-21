@@ -63,6 +63,9 @@ COMPAT_MANIFEST=$(
       printf 'allscan-%s/lookup/network-graph.php\n' "$compat_version"
       printf 'allscan-%s/lookup/node-info.php\n' "$compat_version"
     fi
+    if [ "$compat_version" = "v1.06" ]; then
+      printf '%s\n' 'allscan-v1.06/_tools/runSchedule.php' 'allscan-v1.06/include/scheduleUtils.php'
+    fi
   done | LC_ALL=C sort
 )
 ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
@@ -318,6 +321,12 @@ install -m 755 scripts/asr-loopback-validate.py "$STAGE/payload/scripts/asr-loop
 install -m 755 scripts/asr-loopback-validate-integration-self-test.py "$STAGE/payload/scripts/asr-loopback-validate-integration-self-test.py"
 install -m 755 scripts/asr-stock-allscan.py "$STAGE/payload/scripts/asr-stock-allscan.py"
 install -m 755 scripts/asr-allscan-v106-migrate.py "$STAGE/payload/scripts/asr-allscan-v106-migrate.py"
+install -m 755 scripts/asr-systemd-timers.py "$STAGE/payload/scripts/asr-systemd-timers.py"
+install -m 755 scripts/asr-systemd-timers-self-test.py "$STAGE/payload/scripts/asr-systemd-timers-self-test.py"
+install -m 755 scripts/asr-timer-control.py "$STAGE/payload/scripts/asr-timer-control.py"
+install -m 755 scripts/asr-timer-control-self-test.py "$STAGE/payload/scripts/asr-timer-control-self-test.py"
+install -m 755 scripts/asr-schedule-safety-self-test.py "$STAGE/payload/scripts/asr-schedule-safety-self-test.py"
+install -m 755 scripts/asr-schedule-integration-self-test.php "$STAGE/payload/scripts/asr-schedule-integration-self-test.php"
 install -m 755 scripts/asr-favorites-discovery-self-test.php "$STAGE/payload/scripts/asr-favorites-discovery-self-test.php"
 install -m 755 scripts/asr-installer-prompts-self-test.py "$STAGE/payload/scripts/asr-installer-prompts-self-test.py"
 install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr-instructions-self-test.py"
@@ -347,6 +356,7 @@ install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
+install -m 644 docs/issue-200-admin-scheduling.md "$STAGE/docs/issue-200-admin-scheduling.md"
 python3 - "$STAGE" "$ROOT/install.sh" <<'PY'
 from pathlib import Path
 import re
@@ -407,6 +417,10 @@ if command -v php >/dev/null 2>&1; then
       php -l "$STAGE/payload/compat/allscan-$compat_version/$compat_file" >/dev/null
     done
   done
+  php -l "$STAGE/payload/compat/allscan-v1.06/asr-settings/settings-controller.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.06/include/scheduleUtils.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.06/_tools/runSchedule.php" >/dev/null
+  php "$STAGE/payload/scripts/asr-schedule-integration-self-test.php"
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-settings-bridge-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
@@ -427,6 +441,9 @@ python3 "$STAGE/payload/scripts/asr-echolink-module-health-self-test.py"
 python3 "$STAGE/payload/scripts/asr-post-reboot-health-self-test.py"
 python3 "$STAGE/payload/scripts/asr-version-drift-self-test.py"
 python3 "$STAGE/payload/scripts/asr-config-export-self-test.py"
+python3 "$STAGE/payload/scripts/asr-systemd-timers-self-test.py"
+python3 "$STAGE/payload/scripts/asr-timer-control-self-test.py"
+python3 "$STAGE/payload/scripts/asr-schedule-safety-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +
