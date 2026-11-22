@@ -41,7 +41,9 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
     const prior = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     element.showModal()
-    const closed = () => onCloseRef.current()
+    // StrictMode can queue a close event during effect cleanup, then reopen the dialog.
+    // Ignore that stale event rather than dismissing the newly opened chart.
+    const closed = () => { if (!element.open) onCloseRef.current() }
     element.addEventListener('close', closed)
     return () => {
       element.removeEventListener('close', closed)
@@ -138,6 +140,6 @@ export default function AllStarBubbleDialog({ node, onClose }: { node: string; o
       {!verified ? <div className="asr-bubble-details" role="status">Topology unavailable — no verified network map to display.</div> : null}
       {selected ? <aside className="asr-bubble-details"><button type="button" aria-label="Close node details" onClick={() => setSelected(null)}>×</button><strong>Node {selected}</strong><p>{details}</p></aside> : null}
     </div>
-    <footer className="asr-bubble-footer"><span role="status">{status}</span><a href={`https://stats.allstarlink.org/stats/${encodeURIComponent(node)}/networkMap`} target="_blank" rel="noopener noreferrer">Open AllStarLink full map ↗</a></footer>
+    <footer className="asr-bubble-footer"><span role="status">{status}</span><div className="asr-bubble-footer-actions"><a href={`https://stats.allstarlink.org/stats/${encodeURIComponent(node)}/networkMap`} target="_blank" rel="noopener noreferrer">External AllStarLink map ↗</a><button type="button" onClick={() => dialog.current?.close()}>Return to ASR</button></div></footer>
   </dialog>, document.body)
 }

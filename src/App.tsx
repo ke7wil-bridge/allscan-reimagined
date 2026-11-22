@@ -662,6 +662,10 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteColorPosition, setFavoriteColorPosition] = useState<{ top: number; left: number } | null>(null)
   const [favoriteColorHue, setFavoriteColorHue] = useState(200)
   const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
+  const favoriteDragPointerRef = useRef({ x: 0, y: 0 })
+  const favoriteDragScrollFrameRef = useRef<number | null>(null)
+  const favoriteDragActiveRef = useRef(false)
+  const favoriteDragUpdateRef = useRef<((y: number) => void) | null>(null)
   const [favoriteStatus, setFavoriteStatus] = useState('')
   const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
   const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
@@ -1323,6 +1327,31 @@ function App({ config }: { config: RuntimeConfig }) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => () => {
+    if (favoriteDragScrollFrameRef.current !== null) window.cancelAnimationFrame(favoriteDragScrollFrameRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!favoriteDragNode) return
+    const track = (event: DragEvent) => {
+      if (favoriteDragActiveRef.current) {
+        event.preventDefault()
+        favoriteDragUpdateRef.current?.(event.clientY)
+      }
+    }
+    const stop = () => stopFavoriteDragScroll()
+    window.addEventListener('dragover', track, { capture: true })
+    window.addEventListener('drop', stop, { capture: true })
+    window.addEventListener('dragend', stop, { capture: true })
+    window.addEventListener('blur', stop)
+    return () => {
+      window.removeEventListener('dragover', track, { capture: true })
+      window.removeEventListener('drop', stop, { capture: true })
+      window.removeEventListener('dragend', stop, { capture: true })
+      window.removeEventListener('blur', stop)
+    }
+  }, [favoriteDragNode])
 
   useEffect(() => () => {
     if (dashboardDragScrollFrameRef.current !== null) {
@@ -2285,6 +2314,40 @@ function App({ config }: { config: RuntimeConfig }) {
     } finally { setBusy(false) }
   }
 
+  function stopFavoriteDragScroll() {
+    favoriteDragActiveRef.current = false
+    if (favoriteDragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(favoriteDragScrollFrameRef.current)
+      favoriteDragScrollFrameRef.current = null
+    }
+  }
+
+  function runFavoriteDragScroll() {
+    favoriteDragScrollFrameRef.current = null
+    if (!favoriteDragActiveRef.current) return
+    const y = favoriteDragPointerRef.current.y
+    const edge = Math.min(120, Math.max(70, window.innerHeight * .14))
+    const delta = y < edge ? -Math.min(26, Math.max(4, Math.ceil((edge - y) / 5)))
+      : y > window.innerHeight - edge ? Math.min(26, Math.max(4, Math.ceil((y - (window.innerHeight - edge)) / 5))) : 0
+    if (delta) {
+      const before = window.scrollY
+      window.scrollBy(0, delta)
+      if (window.scrollY !== before) {
+        favoriteDragScrollFrameRef.current = window.requestAnimationFrame(runFavoriteDragScroll)
+      }
+    }
+  }
+
+  function updateFavoriteDragPointer(y: number) {
+    if (!favoriteDragActiveRef.current) return
+    favoriteDragPointerRef.current.y = y
+    if (favoriteDragScrollFrameRef.current === null) {
+      favoriteDragScrollFrameRef.current = window.requestAnimationFrame(runFavoriteDragScroll)
+    }
+  }
+
+  favoriteDragUpdateRef.current = updateFavoriteDragPointer
+
   async function reorderFavorite(sourceNode: string, targetNode: string) {
     if (sourceNode === targetNode) return
     const order = favorites.map((favorite) => favorite.node)
@@ -3024,7 +3087,7 @@ function App({ config }: { config: RuntimeConfig }) {
         </div> : null}
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
 
-        <div className="allscan-favorites-table-wrap">
+        <div className="allscan-favorites-table-wrap" onDragOver={(event) => { if (favoriteDragActiveRef.current) { event.preventDefault(); updateFavoriteDragPointer(event.clientY) } }} onDrop={() => stopFavoriteDragScroll()}>
         <table className="allscan-favorites-table">
           <thead>
             <tr>
@@ -3092,8 +3155,9 @@ function App({ config }: { config: RuntimeConfig }) {
               <tr
                 key={favorite.node}
                 draggable={false}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => { event.preventDefault(); updateFavoriteDragPointer(event.clientY) }}
                 onDrop={(event) => {
+                  stopFavoriteDragScroll()
                   event.preventDefault()
                   const sourceNode = event.dataTransfer.getData('text/plain') || favoriteDragNode
                   if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
@@ -3106,6 +3170,8 @@ function App({ config }: { config: RuntimeConfig }) {
                     onDragStart={(event) => {
                       event.stopPropagation()
                       setFavoriteDragNode(favorite.node)
+                      favoriteDragActiveRef.current = true
+                      updateFavoriteDragPointer(event.clientY)
                       event.dataTransfer.effectAllowed = 'move'
                       event.dataTransfer.setData('text/plain', favorite.node)
                       const row = event.currentTarget.closest('tr')
@@ -3119,7 +3185,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         requestAnimationFrame(() => ghost.remove())
                       }
                     }}
-                    onDragEnd={() => setFavoriteDragNode(null)}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
+                    onDragEnd={() => { stopFavoriteDragScroll(); setFavoriteDragNode(null) }}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -3295,7 +3361,7 @@ function App({ config }: { config: RuntimeConfig }) {
       <div className="w-full px-0 pb-6">
         <header className="allscan-header">
           <div className="allscan-brand">
-            <a className="allscan-brand-main" href={asrPath()} aria-label="Return to main AllScan page">
+            <a className="allscan-brand-main" href={asrPath()} aria-label="Return to main ASR dashboard">
               <div className="allscan-wordmark">
                 <strong className="allscan-wordmark-mark">
                   <span className="allscan-wordmark-silver allscan-wordmark-all">All</span>
@@ -3981,7 +4047,7 @@ function App({ config }: { config: RuntimeConfig }) {
                                 {canViewNetworkMap ? (
                                   <a
                                     className="allscan-connection-network-map-link"
-                                    href={asrPath('lookup/')}
+                                    href={asrPath()}
                                     onClick={(event) => { event.preventDefault(); setBubbleNode(row.node) }}
                                     title={`View network bubble chart for AllStar node ${row.node}`}
                                     aria-label={`View network bubble chart for AllStar node ${row.node}${row.info ? `: ${row.info}` : ''}`}
