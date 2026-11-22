@@ -2327,8 +2327,10 @@ function App({ config }: { config: RuntimeConfig }) {
     if (!favoriteDragActiveRef.current) return
     const y = favoriteDragPointerRef.current.y
     const edge = Math.min(120, Math.max(70, window.innerHeight * .14))
-    const delta = y < edge ? -Math.min(26, Math.max(4, Math.ceil((edge - y) / 5)))
-      : y > window.innerHeight - edge ? Math.min(26, Math.max(4, Math.ceil((y - (window.innerHeight - edge)) / 5))) : 0
+    // Native HTML drag events often stop near the browser's top chrome, so the
+    // upward pointer cannot reach the same edge depth as the downward pointer.
+    // Apply equal full-speed scrolling within the edge bands in either direction.
+    const delta = y < edge ? -26 : y > window.innerHeight - edge ? 26 : 0
     if (delta) {
       const before = window.scrollY
       window.scrollBy(0, delta)
@@ -4561,7 +4563,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog initialView={updateDialogView} onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
-      {bubbleNode ? <AllStarBubbleDialog node={bubbleNode} onClose={() => setBubbleNode(null)} /> : null}
+      {bubbleNode ? <AllStarBubbleDialog node={bubbleNode} localNode={config.node} onClose={() => setBubbleNode(null)} /> : null}
 
       {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
       {donateAsrOpen ? <SupportAsrDialog onClose={() => setDonateAsrOpen(false)} /> : null}

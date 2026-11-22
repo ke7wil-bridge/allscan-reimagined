@@ -38,6 +38,22 @@ const authStatus = {
   isAdmin: true,
 }
 
+const mockNetworkLinks: Record<string, string[]> = {
+  '100000': ['123456', '234567', '345678'],
+  '234567': ['100000', '456789'],
+  '345678': ['100000', '567890'],
+  '456789': ['234567'],
+  '567890': ['345678'],
+}
+
+const mockStationInfo: Record<string, { callsign: string; description: string; location: string }> = {
+  '123456': { callsign: 'N0TEST', description: 'Johnny2 topology test root', location: 'Phoenix, Arizona' },
+  '234567': { callsign: 'W7ALP', description: 'Alpha repeater', location: 'Mesa, Arizona' },
+  '345678': { callsign: 'K7BRV', description: 'Bravo repeater', location: 'Tempe, Arizona' },
+  '456789': { callsign: 'N7CHR', description: 'Charlie repeater', location: 'Glendale, Arizona' },
+  '567890': { callsign: 'W7DLT', description: 'Delta repeater', location: 'Scottsdale, Arizona' },
+}
+
 const releaseStatus = {
   ok: true,
   status: 'update_available',
@@ -845,6 +861,25 @@ export function allscanMockPlugin(): Plugin {
 
         if (requestPath === `${ASR_BASE}/bridge-live.json`) {
           return serveText(res, bridgeLive(bridgeControlState), 'application/json; charset=utf-8')
+        }
+
+        if (requestPath === `${ASR_BASE}/lookup/network-graph.php`) {
+          const node = url.searchParams.get('node') || ''
+          return serveText(res, jsonResponse({
+            node,
+            reported: Object.hasOwn(mockNetworkLinks, node),
+            status: Object.hasOwn(mockNetworkLinks, node) ? 'live' : 'unavailable',
+            links: mockNetworkLinks[node] || [],
+          }), 'application/json; charset=utf-8')
+        }
+
+        if (requestPath === `${ASR_BASE}/lookup/node-info.php`) {
+          const node = url.searchParams.get('node') || ''
+          return serveText(res, jsonResponse({
+            ...(mockStationInfo[node] || {}),
+            node,
+            links: mockNetworkLinks[node] || [],
+          }), 'application/json; charset=utf-8')
         }
 
         if (requestPath === `${ASR_BASE}/connected-clients.json`) {
