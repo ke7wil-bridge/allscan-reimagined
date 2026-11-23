@@ -303,8 +303,12 @@ class EventPublisher:
         self.config = config
         self.condition = threading.Condition()
         self.pending = False
-        self.enabled = config.get("eventPublishMode", "outbound") == "outbound"
-        if config.get("eventPublishMode", "outbound") not in {"outbound", "masterhub-pull"}:
+        # A split watcher config intentionally has no hub/SSH identity. It is
+        # local-only and must never acquire an outbound publisher by default.
+        default_mode = "outbound" if config.get("hub") else "masterhub-pull"
+        mode = config.get("eventPublishMode", default_mode)
+        self.enabled = mode == "outbound"
+        if mode not in {"outbound", "masterhub-pull"}:
             raise ValueError("invalid eventPublishMode")
         if self.enabled:
             threading.Thread(target=self.run, name="asrplus-event-publisher", daemon=True).start()

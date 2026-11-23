@@ -11,9 +11,10 @@ agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    cfg = {'node': '674980', 'talkerStatus': str(root / 'talkers.json'),
-           'talkerEvent': str(root / 'talker-event'), 'eventPublishMode': 'masterhub-pull',
-           'talkerHeartbeatSeconds': 1}
+    staged = json.loads((Path(__file__).resolve().parents[1] / 'ops' / 'asrplus' /
+                         'staging' / 'ky2' / 'asrplus-ky.json').read_text())
+    cfg = staged | {'talkerStatus': str(root / 'talkers.json'),
+                    'talkerEvent': str(root / 'talker-event')}
     with patch.object(agent, 'node_metadata', return_value={}), \
          patch.object(agent, 'labels', return_value={}), \
          patch.object(agent.threading, 'Thread') as thread:

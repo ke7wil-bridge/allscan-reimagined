@@ -6,6 +6,23 @@ Candidate: `b1f9e96` plus the reviewed runbook/drop-in follow-up commit
 
 State: **PREPARED — PRODUCTION MUTATION NOT YET APPROVED**
 
+## First activation attempt and rollback
+
+The approved first attempt stopped during KY2 agent-first activation. The
+reviewed agent treated the intentionally minimal watcher config (which has no
+`hub` or `eventPublishMode`) as outbound by default and logged
+`event publication failed: 'hub'`. Asterisk and links were unaffected. KY2's
+original executable and control config were immediately restored from the
+timestamped backup, and the original watcher was restarted successfully. The
+distributed signing key, protected empty ledger directory, installed inactive
+module, logs, backups and staging evidence were preserved.
+
+The corrected candidate defaults a config without a hub identity to
+`masterhub-pull`, and the KY2 watcher regression now loads the exact staged
+keyless watcher config. All nine suites pass. Resuming production installation
+requires explicit approval of the corrected commit; the earlier approval does
+not silently authorize changed executable bytes.
+
 ## Scope and identities
 
 | Node | Host route | Protocol identity | Runtime mode for this window |
