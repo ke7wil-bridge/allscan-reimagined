@@ -1242,7 +1242,7 @@ function asrSettingsRenderAccount($userModel, &$user) {
 			</form>
 		</main>
 	</div>
-	<script src="<?php echo asrSettingsH(asrSettingsWebPath('js/asr-settings-modern.js')); ?>"></script>
+	<script src="<?php echo asrSettingsH(asrSettingsWebPath('js/asr-settings-modern.js') . '?v=' . rawurlencode(ASR_REIMAGINED_VERSION_LABEL)); ?>"></script>
 	<?php
 	asExit();
 }
@@ -4070,6 +4070,7 @@ if($asrTimerIsManaged) {
 			rollbackConfirm.disabled = true;
 			rollbackConfirm.textContent = 'Starting Rollback…';
 			if(rollbackReview) rollbackReview.disabled = true;
+			window.removeEventListener('beforeunload', protectRollbackNavigation);
 			HTMLFormElement.prototype.submit.call(rollbackForm);
 		});
 	}
@@ -4081,11 +4082,12 @@ if($asrTimerIsManaged) {
 			window.location.assign(asrBase + '/');
 		});
 	}
-	window.addEventListener('beforeunload', function (event) {
+	function protectRollbackNavigation(event) {
 		if(!rollbackInProgress) return;
 		event.preventDefault();
 		event.returnValue = '';
-	});
+	}
+	window.addEventListener('beforeunload', protectRollbackNavigation);
 	document.addEventListener('input', function (event) {
 		if(event.target && (event.target.name === 'bridgeTitle[]' || event.target.name === 'bridgeNode[]')) {
 			var row = event.target.closest('.asr-bridge-settings-row');
@@ -4539,7 +4541,7 @@ if($asrTimerIsManaged) {
 })();
 </script>
 <?php if($modernSettings): ?>
-<script src="<?php echo asrSettingsH(asrSettingsWebPath('js/asr-settings-modern.js')); ?>"></script>
+<script src="<?php echo asrSettingsH(asrSettingsWebPath('js/asr-settings-modern.js') . '?v=' . rawurlencode(ASR_REIMAGINED_VERSION_LABEL)); ?>"></script>
 <?php endif; ?>
 <?php
 asExit();
