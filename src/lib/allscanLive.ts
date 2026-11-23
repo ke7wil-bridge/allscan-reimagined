@@ -350,16 +350,21 @@ export async function kickZelloClient(callsign: string): Promise<{ verified: boo
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
-export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+export type TgifKickResult = { ok: boolean; error?: string; talkgroup?: string; seconds?: number; released?: boolean }
+
+export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number; tgif?: TgifKickResult }> {
   const body = new URLSearchParams({ bridgeId, callsign, clientId })
   const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number; tgif?: TgifKickResult }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Standalone bridge client Kick failed.')
-  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  const tgif = payload.tgif && typeof payload.tgif === 'object'
+    ? { ok: payload.tgif.ok === true, error: String(payload.tgif.error || ''), talkgroup: String(payload.tgif.talkgroup || ''), seconds: Number(payload.tgif.seconds || 0), released: payload.tgif.released === true }
+    : undefined
+  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)), tgif }
   if (!result.verified || result.removed < 1) throw new Error('DMR Kick was not verified by the active media relay.')
   return result
 }
@@ -1628,7 +1633,7 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
         key: `${mode}-${label}-${id || index}`,
         label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
         meta: age ? `Last TX ${age}` : 'No recent TX',
-        clientId: mode === 'dmr' && /^\d{1,8}$/.test(id) ? id : undefined,
+        clientId: mode === 'dmr' && /^\d{1,9}$/.test(id) ? id : undefined,
       }
     })
 
@@ -1681,7 +1686,8 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
       if (!label || label === '-') return
       const event = String(record.event || '').toLowerCase()
-      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
+      // Recent Activity labels (#134): CON = connected, DIS = disconnected, TX = transmitted.
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CON' : event === 'disconnect' ? 'DIS' : '') : 'TX'
       if (!action) return
       if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
       const duration = Number(record.duration_seconds)

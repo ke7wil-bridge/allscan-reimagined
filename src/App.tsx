@@ -48,6 +48,7 @@ import {
   updateGlobalBan,
   kickZelloClient,
   kickStandaloneClient,
+  type TgifKickResult,
   provisionedNetBridgeModes,
   restartAsteriskCommand,
   repairStandardBridge,
@@ -662,6 +663,10 @@ function App({ config }: { config: RuntimeConfig }) {
   const [favoriteColorPosition, setFavoriteColorPosition] = useState<{ top: number; left: number } | null>(null)
   const [favoriteColorHue, setFavoriteColorHue] = useState(200)
   const [favoriteDragNode, setFavoriteDragNode] = useState<string | null>(null)
+  const favoriteDragPointerRef = useRef({ x: 0, y: 0 })
+  const favoriteDragScrollFrameRef = useRef<number | null>(null)
+  const favoriteDragActiveRef = useRef(false)
+  const favoriteDragUpdateRef = useRef<((y: number) => void) | null>(null)
   const [favoriteStatus, setFavoriteStatus] = useState('')
   const [dashboardModuleOrder, setDashboardModuleOrder] = useState<DashboardModuleKey[]>(readDashboardModuleOrder)
   const [dashboardModuleDragging, setDashboardModuleDragging] = useState<DashboardModuleKey | null>(null)
@@ -1340,6 +1345,31 @@ function App({ config }: { config: RuntimeConfig }) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  useEffect(() => () => {
+    if (favoriteDragScrollFrameRef.current !== null) window.cancelAnimationFrame(favoriteDragScrollFrameRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!favoriteDragNode) return
+    const track = (event: DragEvent) => {
+      if (favoriteDragActiveRef.current) {
+        event.preventDefault()
+        favoriteDragUpdateRef.current?.(event.clientY)
+      }
+    }
+    const stop = () => stopFavoriteDragScroll()
+    window.addEventListener('dragover', track, { capture: true })
+    window.addEventListener('drop', stop, { capture: true })
+    window.addEventListener('dragend', stop, { capture: true })
+    window.addEventListener('blur', stop)
+    return () => {
+      window.removeEventListener('dragover', track, { capture: true })
+      window.removeEventListener('drop', stop, { capture: true })
+      window.removeEventListener('dragend', stop, { capture: true })
+      window.removeEventListener('blur', stop)
+    }
+  }, [favoriteDragNode])
 
   useEffect(() => () => {
     if (dashboardDragScrollFrameRef.current !== null) {
@@ -2302,6 +2332,42 @@ function App({ config }: { config: RuntimeConfig }) {
     } finally { setBusy(false) }
   }
 
+  function stopFavoriteDragScroll() {
+    favoriteDragActiveRef.current = false
+    if (favoriteDragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(favoriteDragScrollFrameRef.current)
+      favoriteDragScrollFrameRef.current = null
+    }
+  }
+
+  function runFavoriteDragScroll() {
+    favoriteDragScrollFrameRef.current = null
+    if (!favoriteDragActiveRef.current) return
+    const y = favoriteDragPointerRef.current.y
+    const edge = Math.min(120, Math.max(70, window.innerHeight * .14))
+    // Native HTML drag events often stop near the browser's top chrome, so the
+    // upward pointer cannot reach the same edge depth as the downward pointer.
+    // Apply equal full-speed scrolling within the edge bands in either direction.
+    const delta = y < edge ? -26 : y > window.innerHeight - edge ? 26 : 0
+    if (delta) {
+      const before = window.scrollY
+      window.scrollBy(0, delta)
+      if (window.scrollY !== before) {
+        favoriteDragScrollFrameRef.current = window.requestAnimationFrame(runFavoriteDragScroll)
+      }
+    }
+  }
+
+  function updateFavoriteDragPointer(y: number) {
+    if (!favoriteDragActiveRef.current) return
+    favoriteDragPointerRef.current.y = y
+    if (favoriteDragScrollFrameRef.current === null) {
+      favoriteDragScrollFrameRef.current = window.requestAnimationFrame(runFavoriteDragScroll)
+    }
+  }
+
+  favoriteDragUpdateRef.current = updateFavoriteDragPointer
+
   async function reorderFavorite(sourceNode: string, targetNode: string) {
     if (sourceNode === targetNode) return
     const order = favorites.map((favorite) => favorite.node)
@@ -2941,11 +3007,21 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanAdminBusy(true)
       setBanAdminStatus(`Kicking ${callsign} from ${mode.toUpperCase()}…`)
-      const result = mode.toUpperCase() === 'ZELLO'
+      const result: { verified: boolean; removed: number; tgif?: TgifKickResult } = mode.toUpperCase() === 'ZELLO'
         ? await kickZelloClient(callsign)
         : await kickStandaloneClient(bridgeId, callsign, clientId)
       if (!result.verified || result.removed < 1) throw new Error('Kick was not verified by the active backend.')
-      setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      const tgif = result.tgif
+      if (tgif?.ok) {
+        // #134: DMR Kick also disconnects the station from the TGIF talkgroup.
+        // It is not a ban: the station may reconnect at once.
+        const blocked = !tgif.released && tgif.seconds ? ` TGIF still holds it out for up to ${Math.max(1, Math.round(tgif.seconds / 60))} minutes.` : ' It can reconnect right away.'
+        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''}.${blocked}`)
+      } else if (tgif) {
+        setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
+      } else {
+        setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      }
     } catch (error) {
       setBanAdminStatus(error instanceof Error ? error.message : 'Bridge client Kick failed.')
     } finally { setBanAdminBusy(false) }
@@ -3041,7 +3117,7 @@ function App({ config }: { config: RuntimeConfig }) {
         </div> : null}
         {favoriteStatus ? <p className="allscan-favorites-status" role="status">{favoriteStatus}</p> : null}
 
-        <div className="allscan-favorites-table-wrap">
+        <div className="allscan-favorites-table-wrap" onDragOver={(event) => { if (favoriteDragActiveRef.current) { event.preventDefault(); updateFavoriteDragPointer(event.clientY) } }} onDrop={() => stopFavoriteDragScroll()}>
         <table className="allscan-favorites-table">
           <thead>
             <tr>
@@ -3109,8 +3185,9 @@ function App({ config }: { config: RuntimeConfig }) {
               <tr
                 key={favorite.node}
                 draggable={false}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => { event.preventDefault(); updateFavoriteDragPointer(event.clientY) }}
                 onDrop={(event) => {
+                  stopFavoriteDragScroll()
                   event.preventDefault()
                   const sourceNode = event.dataTransfer.getData('text/plain') || favoriteDragNode
                   if (sourceNode) void reorderFavorite(sourceNode, favorite.node)
@@ -3123,6 +3200,8 @@ function App({ config }: { config: RuntimeConfig }) {
                     onDragStart={(event) => {
                       event.stopPropagation()
                       setFavoriteDragNode(favorite.node)
+                      favoriteDragActiveRef.current = true
+                      updateFavoriteDragPointer(event.clientY)
                       event.dataTransfer.effectAllowed = 'move'
                       event.dataTransfer.setData('text/plain', favorite.node)
                       const row = event.currentTarget.closest('tr')
@@ -3136,7 +3215,7 @@ function App({ config }: { config: RuntimeConfig }) {
                         requestAnimationFrame(() => ghost.remove())
                       }
                     }}
-                    onDragEnd={() => setFavoriteDragNode(null)}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
+                    onDragEnd={() => { stopFavoriteDragScroll(); setFavoriteDragNode(null) }}><span className="allscan-grip-dots" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span></button>
                 </td>
                 <td
                   className={nodeCellClass}
@@ -3169,7 +3248,14 @@ function App({ config }: { config: RuntimeConfig }) {
                     <span className="allscan-favorite-details">
                       <span className="allscan-favorite-description" title={favorite.description || favorite.name || 'No description'}>
                         {favorite.href ? (
-                          <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.description || favorite.name || <em>No description</em>}</a>
+                          <a href={favorite.href} target="_blank" rel="noreferrer" onClick={(event) => {
+                            // Favorites supplied by AllScan may link to an external node-status
+                            // page. Open the same native bubble chart as Connection Status.
+                            if (/^https?:\/\/stats\.allstarlink\.org\/stats\/\d+(?:[/?#]|$)/i.test(favorite.href) && /^\d{3,7}$/.test(favorite.node)) {
+                              event.preventDefault()
+                              setBubbleNode(favorite.node)
+                            }
+                          }}>{favorite.description || favorite.name || <em>No description</em>}</a>
                         ) : (favorite.description || favorite.name || <em>No description</em>)}
                       </span>
                       <span className="allscan-favorite-meta">
@@ -3312,7 +3398,7 @@ function App({ config }: { config: RuntimeConfig }) {
       <div className="w-full px-0 pb-6">
         <header className="allscan-header">
           <div className="allscan-brand">
-            <a className="allscan-brand-main" href={asrPath()} aria-label="Return to main AllScan page">
+            <a className="allscan-brand-main" href={asrPath()} aria-label="Return to main ASR dashboard">
               <div className="allscan-wordmark">
                 <strong className="allscan-wordmark-mark">
                   <span className="allscan-wordmark-silver allscan-wordmark-all">All</span>
@@ -3998,7 +4084,7 @@ function App({ config }: { config: RuntimeConfig }) {
                                 {canViewNetworkMap ? (
                                   <a
                                     className="allscan-connection-network-map-link"
-                                    href={asrPath('lookup/')}
+                                    href={asrPath()}
                                     onClick={(event) => { event.preventDefault(); setBubbleNode(row.node) }}
                                     title={`View network bubble chart for AllStar node ${row.node}`}
                                     aria-label={`View network bubble chart for AllStar node ${row.node}${row.info ? `: ${row.info}` : ''}`}
@@ -4092,7 +4178,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
                   <div className="allscan-ban-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!banClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-bridge-client-admin-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setBanAdminOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{isBannableConnection(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setBanAdminOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
                   <div className="allscan-ban-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.filter((managedCard) => managedCard.mode.toUpperCase() !== 'ZELLO').flatMap((managedCard) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === managedCard.id); const clientAdmin = bridgeConfig?.adminCapabilities?.clientAdmin || []; const canKick = clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan })) }).filter((detail) => !banClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = globalBanRules.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{detail.canKick ? <button type="button" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode, detail.clientId)}>Kick</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign) : null}</span></span> })}</div>
-                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Suppress this talker’s current or next Zello transmission for up to five minutes" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
+                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Mute this Zello talker on this bridge for one minute" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
                   </> : <div className="allscan-management-bans">
                     <button type="button" className="allscan-action-button" onClick={() => { setBanAdminOpen(false); openParticipantBan() }}>Add ban…</button>
                     {aslEnforcementStatus ? <p role="status">{aslEnforcementStatus}</p> : null}
@@ -4401,7 +4487,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
                             {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Mute this station on this bridge for five minutes' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Disconnect this station and refuse it for five minutes')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Mute this Zello talker on this bridge for one minute' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}
@@ -4512,7 +4598,7 @@ function App({ config }: { config: RuntimeConfig }) {
 
       {updateDialogOpen && authStatus.isAdmin ? <UpdateAsrDialog initialView={updateDialogView} onClose={() => setUpdateDialogOpen(false)} initialUpdate={releaseStatus ? { ok: true, installedVersion: releaseStatus.installedVersion, availableVersion: releaseStatus.availableVersion, updateAvailable: releaseStatus.updateAvailable } : null} /> : null}
 
-      {bubbleNode ? <AllStarBubbleDialog node={bubbleNode} onClose={() => setBubbleNode(null)} /> : null}
+      {bubbleNode ? <AllStarBubbleDialog node={bubbleNode} localNode={config.node} onClose={() => setBubbleNode(null)} /> : null}
 
       {supportFeedbackOpen ? <SupportFeedbackDialog config={config} isAdmin={authStatus.isAdmin} onClose={() => setSupportFeedbackOpen(false)} /> : null}
       {donateAsrOpen ? <SupportAsrDialog onClose={() => setDonateAsrOpen(false)} /> : null}
