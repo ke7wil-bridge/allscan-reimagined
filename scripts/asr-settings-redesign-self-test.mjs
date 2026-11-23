@@ -81,6 +81,8 @@ check(modernJs.includes("setInterval(loadPerformance,4000)") && modernJs.include
 check(performanceContract.includes('fmod($seconds') && api.includes('asrPerformancePayloadValid($performancePayload)'), 'Performance Stats does not enforce a warning-free response contract.')
 check(!api.includes('$seconds % 86400') && modernJs.includes('expected response'), 'Performance Stats regression fix is incomplete.')
 check(settings.includes("'X-ASR-Requested-With':'asr-update-control'"), 'Interrupted-update recovery is missing the required header.')
+check(modernJs.includes("event.target.closest('.asr-rollback-section')"), 'Rollback selection still marks ordinary Settings as unsaved.')
+check(settings.includes("asr-settings-modern.js') . '?v=' . rawurlencode(ASR_REIMAGINED_VERSION_LABEL)"), 'Settings controller asset is not release-version cache busted.')
 check(api.includes('HTTP_X_ASR_REQUESTED_WITH') && api.includes("'asr-update-control'"), 'Update API no longer enforces its control header.')
 
 check(account.includes('/asr-settings/?section=account') && account.includes("? 307 : 302"), 'Legacy My Account URL does not preserve requests into canonical Settings.')

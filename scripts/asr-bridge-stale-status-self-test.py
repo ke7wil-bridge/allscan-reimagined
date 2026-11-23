@@ -578,6 +578,38 @@ def test_standard_payload_and_ambiguity() -> None:
             assert entry["last_user"] == "-" and entry["tx_events"] == []
 
 
+
+def test_stuck_tx_safety_window() -> None:
+    # A missing EOT must not pin any card in TX/RELAY forever. Genuine
+    # two-minute QSOs remain active; expiry must never invent activity.
+    config = {"node": "123456", "bridges": [
+        {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+        {"id": "ysf", "mode": "ysf", "cardType": "standard", "node": "2222"},
+    ]}
+    with tempfile.TemporaryDirectory(prefix="asr-stuck-tx-") as raw:
+        root = Path(raw)
+        start = 1_800_000_000
+        for bridge_id, role in (("dmr", "source"), ("ysf", "relay")):
+            states: dict[str, dict] = {}
+            state = status.initial_activity_state()
+            state.update({"role": role,
+                          "current_user": "N0CALL" if role == "source" else "",
+                          "active_start_epoch": start, "source_observed_at": start,
+                          "observed": True})
+            states[bridge_id] = state
+            for elapsed in (120, status.ACTIVE_STATE_MAX_AGE_SECONDS):
+                result = status.standard_live_payload(config, states, [], start + elapsed, root)
+                assert result["bridges"][bridge_id]["role"] == role
+                assert result["bridges"][bridge_id]["current_user"] == ("N0CALL" if role == "source" else "")
+            result = status.standard_live_payload(
+                config, states, [], start + status.ACTIVE_STATE_MAX_AGE_SECONDS + 1, root
+            )
+            assert result["bridges"][bridge_id]["role"] == "idle"
+            assert result["bridges"][bridge_id]["current_user"] == ""
+            assert result["bridges"][bridge_id]["active_start_epoch"] == 0
+            assert result["bridges"][bridge_id]["tx_events"] == []
+
+
 def test_log_follower_safety() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-mmdvm-logs-") as raw:
         log_dir = Path(raw)
@@ -890,6 +922,7 @@ def main() -> None:
     test_november_8_standard_activity_pipeline()
     test_simultaneous_relay_identity_and_connection_recovery()
     test_standard_payload_and_ambiguity()
+    test_stuck_tx_safety_window()
     test_direct_service_discovery()
     test_log_follower_safety()
     test_standard_net_log_isolation()

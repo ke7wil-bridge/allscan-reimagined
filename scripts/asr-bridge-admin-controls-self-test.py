@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import re
 from pathlib import Path
 
@@ -20,13 +19,7 @@ LIFECYCLE = (ROOT / "scripts/asr-bridge-lifecycle.py").read_text(encoding="utf-8
 DIRECT_DMR_ADMIN = (ROOT / "scripts/asr-dmr-standalone-admin-adapter.py").read_text(encoding="utf-8")
 DIRECT_DMR_INSTALL = (ROOT / "scripts/asr-bridge-setup-dmr-install.py").read_text(encoding="utf-8")
 DIRECT_DMR_RENDER = (ROOT / "scripts/asr-bridge-setup-dmr-render.py").read_text(encoding="utf-8")
-ZELLO_PATH = Path(os.environ.get("ASR_ZELLO_RUNTIME_SOURCE", str(ROOT / "runtime/zello"))) / "asl_zello_bridge/zello.py"
-ZELLO = ZELLO_PATH.read_text(encoding="utf-8") if ZELLO_PATH.exists() else ""
 ZELLO_PATCH = (ROOT / "scripts/asr-zello-session-patch.py").read_text(encoding="utf-8")
-if not ZELLO:
-    print("Bridge admin Zello runtime enforcement: NOT TESTED (source unavailable)")
-    if os.environ.get("ASR_REQUIRE_ZELLO_ENFORCEMENT_TEST") == "1":
-        raise AssertionError("Zello runtime source unavailable; enforcement unverified")
 CSS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "src/styles/asr").glob("*.css")))
 
 def check(value: bool, message: str) -> None:

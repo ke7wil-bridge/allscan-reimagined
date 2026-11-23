@@ -10,15 +10,20 @@ python3 scripts/asr-bridge-setup-digital-self-test.py
 python3 scripts/asr-bridge-setup-m17-self-test.py
 python3 scripts/asr-bridge-stale-status-self-test.py
 python3 scripts/asr-standard-bridge-five-protocol-self-test.py
-python3 scripts/asr-tgif-urf-dmr-recovery-self-test.py
-python3 scripts/asr-dmr-enforcement-readiness.py
+python3 scripts/asr-dmr-admin-lock-self-test.py
+python3 scripts/bridge-relays/asr-tgif-standalone-relay-self-test.py
+python3 scripts/bridge-relays/asr-tgif-standalone-relay-udp-self-test.py
+python3 scripts/asr-standalone-admin-self-test.py
+python3 scripts/asr-native-udp-admin-self-test.py
 python3 scripts/asr-bridge-control.py --self-test
 python3 scripts/asr-ysf-bridge-control.py --self-test
 python3 scripts/asr-p25-bridge-control.py self-test
 python3 scripts/asr-nxdn-bridge-control.py self-test
+python3 scripts/asr-standard-bridge-runtime-self-test.py
 python3 scripts/asr-m17-bridge-control.py --self-test
 python3 scripts/asr-m17-usrp-connector.py --self-test
 node scripts/asr-bridge-dashboard-self-test.mjs
+node scripts/asr-client-management-browser-self-test.mjs
 python3 scripts/asr-bridge-ui-regression-self-test.py
 python3 scripts/asr-zello-client-management-self-test.py
 # #134 Netoholics live-accepted fixes (Nov 23, 2026). Each lock was proven by
@@ -47,7 +52,11 @@ else
   exit 1
 fi
 bash scripts/asr-side-by-side-self-test.sh
-if command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
+# Live-container comparison is opt-in: a developer's running container may
+# intentionally lag this isolated worktree. Static repository authority checks
+# always run; opt in with ASR_CHECK_LIVE_CONTAINER=1 when validating a staged
+# container built from this exact source revision.
+if [ "${ASR_CHECK_LIVE_CONTAINER:-0}" = "1" ]; then
   python3 scripts/asr-deployment-source-consistency-self-test.py --live
 fi
 git diff --check

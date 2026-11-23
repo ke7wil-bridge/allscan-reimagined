@@ -348,7 +348,8 @@ def main() -> int:
         'id="asrRollbackCompleteTitle">Rollback Completed',
         'id="asrRollbackCompleteOk"',
         "showRollbackCompleteDialog();",
-        "window.addEventListener('beforeunload'",
+        "window.removeEventListener('beforeunload', protectRollbackNavigation);",
+        "window.addEventListener('beforeunload', protectRollbackNavigation);",
         "window.location.assign(asrBase + '/');",
     ]
     for requirement in rollback_requirements:
