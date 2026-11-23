@@ -29,6 +29,7 @@ const ASR_REFLECTOR_LOG_TAIL_BYTES = 2097152;
 const ASR_REFLECTOR_LOG_TAIL_LINES = 12000;
 const ASR_STANDALONE_ADMIN_DIR = '/run/asr-standalone-admin';
 const ASR_STANDALONE_MANIFEST_MAX_AGE = 30;
+const ASR_TGIF_ROSTER_PATH = '/run/allscan-reimagined/tgif-users/snapshots/node.json';
 const ASR_DMR_CONFIG_GLOBS = [
 	'/opt/MMDVM_Bridge*/MMDVM_Bridge.ini',
 	'/etc/MMDVM_Bridge*.ini',
@@ -157,8 +158,19 @@ function asrManagedBridges(array $bridges): array {
 		$autoDetectedSimpleSource = in_array($mode, ['ysf', 'zello'], true)
 			&& in_array($source, ['auto', 'disabled'], true)
 			&& $url === '';
-		return $explicitSource || $builtInOwnedReflector || $autoDetectedSimpleSource;
+		$builtInTgifRoster = $mode === 'dmr'
+			&& (string) ($bridge['cardType'] ?? 'standard') === 'standard'
+			&& $source === 'auto'
+			&& $url === '';
+		return $explicitSource || $builtInOwnedReflector || $autoDetectedSimpleSource || $builtInTgifRoster;
 	}));
+}
+
+function asrUsesBuiltinTgifRoster(array $bridge): bool {
+	return (string) ($bridge['cardType'] ?? 'standard') === 'standard'
+		&& asrBridgeMode($bridge) === 'dmr'
+		&& (string) ($bridge['clientSource'] ?? 'auto') === 'auto'
+		&& trim((string) ($bridge['clientUrl'] ?? '')) === '';
 }
 
 function asrUsesBuiltinOwnedReflector(array $bridge): bool {
@@ -320,7 +332,8 @@ function asrSelfTest(): void {
 		'Absolute ASR config source path was unexpectedly rewritten.'
 	);
 	$bridges = [
-		['id' => 'dmr', 'clientSource' => 'disabled', 'clientUrl' => ''],
+		['id' => 'dmr', 'mode' => 'dmr', 'cardType' => 'standard'],
+		['id' => 'dmr_disabled', 'mode' => 'dmr', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
 		['id' => 'ysf', 'clientSource' => 'local_json', 'clientUrl' => ''],
 		['id' => 'zello', 'clientSource' => 'local_json', 'clientUrl' => '/var/www/html/allscan/zello-talkers.json'],
 		['id' => 'p25', 'mode' => 'p25', 'cardType' => 'standard', 'clientSource' => 'disabled', 'clientUrl' => ''],
@@ -329,13 +342,51 @@ function asrSelfTest(): void {
 	];
 	$managed = asrManagedBridges($bridges);
 	$ids = array_column($managed, 'id');
-	asrAssertSelfTest($ids === ['zello', 'p25', 'm17'], 'Managed-source selection or Net/unsupported-mode exclusion self-test failed.');
+	asrAssertSelfTest($ids === ['dmr', 'zello', 'p25', 'm17'], 'Managed-source selection or Net/unsupported-mode exclusion self-test failed.');
+	asrAssertSelfTest(asrUsesBuiltinTgifRoster($managed[0]), 'Built-in TGIF roster eligibility self-test failed.');
 	asrAssertSelfTest(
-		asrUsesBuiltinOwnedReflector($managed[1])
-			&& asrUsesBuiltinOwnedReflector($managed[2])
-			&& !asrUsesBuiltinOwnedReflector($managed[0]),
+		asrUsesBuiltinOwnedReflector($managed[2])
+			&& asrUsesBuiltinOwnedReflector($managed[3])
+			&& !asrUsesBuiltinOwnedReflector($managed[1]),
 		'Built-in owned-reflector eligibility self-test failed.'
 	);
+	$tgifKind = '';
+	$tgifRows = asrClientRowsFromPayload(['clients' => [
+		['callsign' => 'N0LOCAL', 'dmrid' => '1000001', 'last_seen_epoch' => time()],
+		['callsign' => 'K1REMOTE', 'dmrid' => '2000002', 'last_seen_epoch' => time()],
+	]], 'dmr', [], $tgifKind);
+	$tgifRows = asrRemoveOneLocalBridgeSession(
+		asrSanitizeClientRows($tgifRows, 'dmr', $tgifKind === 'current'),
+		'N0LOCAL'
+	);
+	asrAssertSelfTest(
+		$tgifKind === 'current' && count($tgifRows) === 1
+			&& ($tgifRows[0]['callsign'] ?? '') === 'K1REMOTE'
+			&& ($tgifRows[0]['dmrid'] ?? '') === '2000002',
+		'Built-in TGIF roster did not preserve the exact remote client identity.'
+	);
+	$trustRoot = sys_get_temp_dir() . '/asr-tgif-roster-trust-' . getmypid() . '-' . bin2hex(random_bytes(4));
+	$trustRoster = $trustRoot . '/tgif-users/snapshots/node.json';
+	mkdir(dirname($trustRoster), 0700, true);
+	chmod($trustRoot, 01770);
+	chmod($trustRoot . '/tgif-users', 0700);
+	chmod($trustRoot . '/tgif-users/snapshots', 0700);
+	file_put_contents($trustRoster, '{"clients":[]}');
+	chmod($trustRoster, 0600);
+	$trustUid = (int) fileowner($trustRoster);
+	try {
+		asrAssertSelfTest(
+			asrTrustedTgifRosterPath($trustRoster, $trustRoot, $trustUid) === $trustRoster,
+			'Exact private TGIF roster path was rejected.'
+		);
+		chmod($trustRoot . '/tgif-users/snapshots', 0770);
+		asrAssertSelfTest(
+			asrTrustedTgifRosterPath($trustRoster, $trustRoot, $trustUid) === '',
+			'Group-writable TGIF snapshot directory was trusted.'
+		);
+	} finally {
+		asrRemoveSelfTestTree($trustRoot);
+	}
 
 	$now = time();
 	$proxyManifest = [
@@ -675,6 +726,29 @@ INI);
 		'Latest proxied YSF snapshot did not preserve current remote clients or subtract one local bridge session.'
 	);
 
+	// A station that links and unlinks between two full lists still shows
+	// while linked, and is gone once the reflector logs its removal.
+	$ysfEvents = [
+		'M: 2026-08-11 20:02:00.000 Currently linked repeaters/gateways:',
+		'M: 2026-08-11 20:02:00.000     KN4EWT    : 127.0.0.1:10001 1/60',
+		'M: 2026-08-11 20:02:00.000     N9BO      : 127.0.0.1:10005 5/60',
+		'M: 2026-08-11 20:02:10.000 Adding KF8DRJ     (127.0.0.1:10728)',
+		'M: 2026-08-11 20:02:15.000 Received data from KF8DRJ     to ALL        at KF8DRJ    ',
+		'M: 2026-08-11 20:02:20.000 Adding W2GLD      (127.0.0.1:10217)',
+		'M: 2026-08-11 20:02:25.000 Removing W2GLD      (127.0.0.1:10217) unlinked',
+	];
+	$ysfRows = asrYsfRowsFromLogLines($ysfEvents, (int) $logNow, $ysfAvailable, true, 'KN4EWT');
+	asrAssertSelfTest(
+		$ysfAvailable && array_column($ysfRows, 'callsign') === ['KF8DRJ', 'N9BO'],
+		'A YSF station linked since the last full list was not shown, or an unlinked one stayed.'
+	);
+	$ysfEvents[] = 'M: 2026-08-11 20:02:40.000 Removing KF8DRJ     (127.0.0.1:10728) unlinked';
+	$ysfRows = asrYsfRowsFromLogLines($ysfEvents, (int) $logNow, $ysfAvailable, true, 'KN4EWT');
+	asrAssertSelfTest(
+		$ysfAvailable && array_column($ysfRows, 'callsign') === ['N9BO'],
+		'A YSF station that unlinked since the last full list was still shown.'
+	);
+
 	echo "bridge-client source, freshness, owned-reflector, sorting, port, and redaction self-test: ok" . PHP_EOL;
 }
 
@@ -704,7 +778,7 @@ function asrReadFreshJson(string $path, int $maxAge = ASR_CLIENT_MAX_SEEN_AGE): 
 	if(!is_readable($path))
 		return [];
 	$mtime = (int) @filemtime($path);
-	if($mtime <= 0 || time() - $mtime > $maxAge)
+	if($mtime <= 0 || $mtime > time() + ASR_CLOCK_FUTURE_TOLERANCE || time() - $mtime > $maxAge)
 		return [];
 	return asrReadJson($path);
 }
@@ -1051,6 +1125,47 @@ function asrDedupeAndSortClientRows(array $rows): array {
 	return $clean;
 }
 
+function asrTrustedTgifRosterPath(
+	string $path = ASR_TGIF_ROSTER_PATH,
+	string $runtimeRoot = '/run/allscan-reimagined',
+	int $requiredUid = 0
+): string {
+	$runtimeRoot = rtrim($runtimeRoot, '/');
+	$expected = $runtimeRoot . '/tgif-users/snapshots/node.json';
+	if($path !== $expected || is_link($runtimeRoot) || is_link(dirname(dirname($path)))
+		|| is_link(dirname($path)) || is_link($path))
+		return '';
+	$resolvedRoot = realpath($runtimeRoot);
+	$resolved = realpath($path);
+	if($resolvedRoot !== $runtimeRoot || $resolved !== $path)
+		return '';
+	$rootStat = @lstat($runtimeRoot);
+	if(!is_array($rootStat)
+		|| (($rootStat['mode'] ?? 0) & 0170000) !== 0040000
+		|| (int) ($rootStat['uid'] ?? -1) !== $requiredUid
+		|| (($rootStat['mode'] ?? 0) & 0002) !== 0
+		|| (($rootStat['mode'] ?? 0) & 01000) === 0)
+		return '';
+	foreach([dirname(dirname($path)), dirname($path)] as $privateDirectory) {
+		$stat = @lstat($privateDirectory);
+		if(!is_array($stat)
+			|| (($stat['mode'] ?? 0) & 0170000) !== 0040000
+			|| (int) ($stat['uid'] ?? -1) !== $requiredUid
+			|| (($stat['mode'] ?? 0) & 0077) !== 0)
+			return '';
+	}
+	$stat = @lstat($path);
+	if(!is_array($stat)
+		|| (($stat['mode'] ?? 0) & 0170000) !== 0100000
+		|| (int) ($stat['uid'] ?? -1) !== $requiredUid
+		|| (int) ($stat['nlink'] ?? 0) !== 1
+		|| (($stat['mode'] ?? 0) & 0077) !== 0
+		|| (int) ($stat['size'] ?? 0) < 2
+		|| (int) ($stat['size'] ?? 0) > 2 * 1024 * 1024)
+		return '';
+	return $path;
+}
+
 function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): string {
 	if($path === '' || strpos($path, "\0") !== false || $path[0] !== '/' || is_link($path))
 		return '';
@@ -1081,7 +1196,7 @@ function asrTrustedReadableFile(string $path, bool $requireRootOwner = false): s
 }
 
 function asrRunningReflectorConfig(string $binaryName): string {
-	if(!preg_match('/^(?:P25Reflector|NXDNReflector|mrefd)$/D', $binaryName))
+	if(!preg_match('/^(?:P25Reflector|NXDNReflector|YSFReflector|mrefd)$/D', $binaryName))
 		return '';
 	$configs = [];
 	foreach(glob('/proc/[0-9]*/cmdline') ?: [] as $cmdlinePath) {
@@ -1092,7 +1207,7 @@ function asrRunningReflectorConfig(string $binaryName): string {
 		if($arguments === [] || basename($arguments[0]) !== $binaryName)
 			continue;
 		foreach(array_slice($arguments, 1) as $argument) {
-			if(!is_string($argument) || !preg_match('#^/[^\0]+\.(?:ini|cfg|conf)$#iD', $argument))
+			if(!is_string($argument) || !preg_match('#^/[^\0]+\.(?:ini|cfg|conf)(?:\.staged)?$#iD', $argument))
 				continue;
 			$trusted = asrTrustedReadableFile($argument, true);
 			if($trusted !== '')
@@ -1430,6 +1545,12 @@ function asrBuiltinZelloRows(): array {
 
 function asrLatestYsfLog(): string {
 	$files = [];
+	// A reflector may log outside the stock directories; follow the running
+	// YSFReflector's own [Log] settings first (Beta 8.5.1 YSF roster empty).
+	$configPath = asrRunningReflectorConfig('YSFReflector');
+	$configured = $configPath === '' ? '' : asrReflectorLogPathFromConfig($configPath);
+	if($configured !== '' && is_readable($configured))
+		$files[] = $configured;
 	foreach(ASR_YSF_LOG_DIRS as $directory) {
 		$today = $directory . '/YSFReflector-' . gmdate('Y-m-d') . '.log';
 		if(is_readable($today))
@@ -1583,7 +1704,19 @@ function asrYsfRowsFromLogLines(
 		if($message === 'No repeaters linked' || $message === 'No repeaters/gateways linked') {
 			$latestEpoch = $epoch;
 			$latestRows = [];
+			continue;
 		}
+		// YSFReflector prints the full list only every two minutes. Apply the
+		// link/unlink events logged since, so a short session (Doug's 31 s
+		// test on Nov 18) is on the card while it is linked (#134).
+		if(preg_match('/^Adding\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/D', $message, $event)) {
+			$callsign = asrSafeClientCallsign($event[1]);
+			if($callsign !== '')
+				$latestRows[trim($event[2])] = $callsign;
+			continue;
+		}
+		if(preg_match('/^Removing\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/', $message, $event))
+			unset($latestRows[trim($event[2])]);
 	}
 	$finishPending();
 	if($latestEpoch <= 0
@@ -1743,7 +1876,13 @@ foreach($bridges as $bridge) {
 	$rows = [];
 	$feedKind = '';
 	$usedBuiltIn = false;
-	if($source === 'local_json') {
+	$usedTgifRoster = false;
+	if(asrUsesBuiltinTgifRoster($bridge) && $dmrBridgeCount === 1) {
+		$usedTgifRoster = true;
+		$path = asrTrustedTgifRosterPath();
+		if($path !== '')
+			$payload = asrReadFreshJson($path);
+	} elseif($source === 'local_json') {
 		$path = asrSafeLocalJsonPath((string) ($bridge['clientUrl'] ?? ''));
 		if($path !== '')
 			$payload = asrReadFreshJson($path);
@@ -1764,6 +1903,8 @@ foreach($bridges as $bridge) {
 	if(!$usedBuiltIn) {
 		$payloadRows = asrClientRowsFromPayload($payload, $id, $ports, $feedKind);
 		$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
+		if($usedTgifRoster)
+			$rows = asrRemoveOneLocalBridgeSession($rows, $localCallsign);
 	}
 	if($rows === [] && $mode === 'zello') {
 		$rows = asrBuiltinZelloRows();

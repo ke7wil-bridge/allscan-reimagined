@@ -31,7 +31,7 @@ def expected_units(record: dict) -> list[str]:
     if not isinstance(bridge_id, str) or not BRIDGE_ID.fullmatch(bridge_id):
         return []
     if bridge_type == "dmr":
-        expected = [f"allscan-reimagined-urf-tgif-{bridge_id}.service"]
+        expected = [f"asr-dmr-{part}-{bridge_id}.service" for part in ("vocoder", "mmdvm", "analog", "admin")]
     elif bridge_type == "m17":
         if record.get("qualificationRequired") is True:
             return []

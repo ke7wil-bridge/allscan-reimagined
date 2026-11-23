@@ -6,13 +6,16 @@ $dir = sys_get_temp_dir() . '/asr-link-state-' . getmypid();
 if (!mkdir($dir, 0700) && !is_dir($dir)) throw new RuntimeException('Could not create test directory.');
 $path = $dir . '/astapi-641890.json';
 $payload = ['updated'=>1000.0,'current'=>['641890'=>['remote_nodes'=>[
-    ['node'=>'1001','link'=>'Established','lnodes'=>[]],
-    ['node'=>1,'link'=>'','lnodes'=>['1002','1003']],
+    ['node'=>'1001','link'=>'Established','direction'=>'OUT','lnodes'=>[]],
+    ['node'=>'1004','link'=>'Established','direction'=>'IN','lnodes'=>[]],
+    ['node'=>1,'link'=>'','lnodes'=>['1002','1003','1005','1006']],
 ]]]];
 file_put_contents($path, json_encode($payload));
 $state = asrLinkStateSnapshot('641890', $dir, null, 1005.0);
 assert($state['available'] === true && $state['source'] === 'live-status-cache');
-assert(isset($state['nodes']['1001'], $state['nodes']['1002'], $state['nodes']['1003']));
+foreach (['1001','1002','1003','1004','1005','1006'] as $bridgeNode) {
+    assert(isset($state['nodes'][$bridgeNode]), "Missing established bridge transport $bridgeNode");
+}
 $unknown = asrLinkStateSnapshot('641890', $dir, null, 1040.0);
 assert($unknown['available'] === false);
 $fallback = asrLinkStateSnapshot('641890', $dir, static fn() => [[

@@ -18,8 +18,10 @@ assert "trap 'asr_install_exit_status=$?; if [ \"$asr_install_exit_status\" -ne 
 assert script.index('asr_diagnostic preflight-passed') < script.index('DEBIAN_FRONTEND=noninteractive apt-get update', script.index('asr_diagnostic preflight-passed'))
 # Fresh stock installs cannot enforce login-only without a stock administrator.
 # This guard must execute before the access-policy update and provide guidance.
-admin_guard = 'Stock AllScan login-only mode requires an existing stock administrator account.'
+admin_guard = 'Stock AllScan requires an administrator before mandatory login.'
 assert admin_guard in script
 assert script.index(admin_guard) < script.index('The stock /allscan access policy could not be updated.')
 assert 'count($admins) > 0 ? 0 : 1' in script
+assert 'asr-stock-admin-bootstrap.php' in script
+assert 'No password prompts in browser updates or noninteractive sessions.' in script
 print('ASR installer diagnostic logging safety contract: PASS')

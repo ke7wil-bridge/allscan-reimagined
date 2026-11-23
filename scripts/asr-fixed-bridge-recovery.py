@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recover opted-in fixed ASR bridge links without managing Net Bridges."""
+"""Recover opted-in fixed bridges and required AllStar links safely."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -18,6 +19,7 @@ from typing import Callable, Iterable
 DEFAULT_CONFIG = Path("/etc/allscan-reimagined/config.json")
 DEFAULT_RPT_CONFIG = Path("/etc/asterisk/rpt.conf")
 MIGRATION_QUIESCE_STATE = Path("/var/lib/allscan-reimagined/bridge-setup/migration-quiesced.json")
+DEFAULT_STATE = Path("/run/allscan-reimagined-fixed-bridge-recovery/state.json")
 ASTERISK = Path("/usr/sbin/asterisk")
 RUNUSER = Path("/usr/sbin/runuser")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
@@ -84,16 +86,19 @@ def native_permanent_nodes(text: str, main_node: str) -> set[str]:
     expanded = startup
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", startup):
         expanded = named_macro_value(text, startup)
-    return set(
+    nodes = set(
         re.findall(
             r"(?i)(?:^|[\s*])(?:COP\s*,\s*6\s*,\s*[0-9]+\s*,\s*)?"
             r"ilink\s*,\s*13\s*,\s*([0-9]{3,10})(?=$|[\s*])",
             expanded,
         )
     )
+    # app_rpt DTMF function 813 is the native permanent-connect command.
+    nodes.update(re.findall(r"\*813([0-9]{3,10})(?=$|[\s*])", expanded))
+    return nodes
 
 
-def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> tuple[str, list[dict]]:
+def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> tuple[str, list[dict], list[dict]]:
     quiesced_nodes = quiesced_nodes or set()
     main_node = str(config.get("node", "")).strip()
     if not NODE_RE.fullmatch(main_node):
@@ -117,11 +122,24 @@ def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> 
             "id": bridge_id or "bridge",
             "node": node,
         })
-    return main_node, targets
+    required_links: list[dict] = []
+    seen = {main_node, *(target["node"] for target in targets)}
+    rows = config.get("requiredAllStarLinks", [])
+    if not isinstance(rows, list):
+        raise RecoveryError("requiredAllStarLinks must be a list.")
+    if len(rows) > 4:
+        raise RecoveryError("requiredAllStarLinks supports at most four nodes.")
+    for row in rows:
+        node = str(row.get("node", "") if isinstance(row, dict) else row).strip()
+        if not NODE_RE.fullmatch(node) or node in seen:
+            raise RecoveryError("requiredAllStarLinks contains an invalid or duplicate node.")
+        seen.add(node)
+        required_links.append({"id": "allstar", "node": node})
+    return main_node, targets, required_links
 
 
 def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None = None) -> dict:
-    main_node, targets = configured_targets(config, quiesced_nodes)
+    main_node, targets, required_links = configured_targets(config, quiesced_nodes)
     native = native_permanent_nodes(rpt_text, main_node)
     # A native Asterisk permanent link can defeat a manual hold even when
     # ASR's fallback timer is suppressed. Report it; never rewrite rpt.conf.
@@ -133,12 +151,15 @@ def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None =
     }
     native_conflicts = sorted(held_nodes & native)
     fallback = [target for target in targets if target["node"] not in native]
+    required_fallback = [target for target in required_links if target["node"] not in native]
     return {
         "mainNode": main_node,
         "configured": targets,
         "nativePermanent": [target for target in targets if target["node"] in native],
         "nativeManualHoldConflicts": native_conflicts,
         "fallback": fallback,
+        "requiredLinks": required_fallback,
+        "nativeRequiredLinks": [target for target in required_links if target["node"] in native],
     }
 
 
@@ -183,28 +204,150 @@ def established_nodes(output: str) -> set[str]:
     return established
 
 
-def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asterisk) -> dict:
+def autopatch_up(output: str) -> bool:
+    return re.search(r"(?im)^\s*RPT_AUTOPATCHUP\s*=\s*1\s*$", output) is not None
+
+
+def clear_bridge_autopatch(node: str, runner: Callable[[Iterable[str]], str]) -> bool:
+    """Clear impossible autopatch state only on an opted-in transport bridge."""
+    if not autopatch_up(runner(["rpt", "show", "variables", node])):
+        return False
+    runner(["rpt", "cmd", node, "cop", "9"])
+    try:
+        runner(["rpt", "cmd", node, "autopatchdn"])
+    finally:
+        runner(["rpt", "cmd", node, "cop", "10"])
+    if autopatch_up(runner(["rpt", "show", "variables", node])):
+        raise RecoveryError(f"Bridge node {node} remained in autopatch state after guarded cleanup.")
+    return True
+
+
+def read_retry_state(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_retry_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".state.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def retry_due(state: dict, node: str, now: int) -> bool:
+    entry = state.get(node)
+    try:
+        next_attempt = int(entry.get("next", 0) or 0) if isinstance(entry, dict) else 0
+    except (TypeError, ValueError):
+        next_attempt = 0
+    return next_attempt <= now
+
+
+def record_retry(state: dict, node: str, now: int) -> None:
+    prior = state.get(node) if isinstance(state.get(node), dict) else {}
+    try:
+        failures = max(0, int(prior.get("failures", 0) or 0)) + 1
+    except (TypeError, ValueError):
+        failures = 1
+    delays = (30, 60, 300)
+    state[node] = {"failures": failures, "next": now + delays[min(failures - 1, len(delays) - 1)]}
+
+
+def wait_for_link(main_node: str, node: str, runner: Callable[[Iterable[str]], str],
+                  sleeper: Callable[[float], None], attempts: int = 6,
+                  interval: float = 0.25) -> bool:
+    for attempt in range(attempts):
+        if node in established_nodes(runner(["rpt", "lstats", main_node])):
+            return True
+        if attempt + 1 < attempts:
+            sleeper(interval)
+    return False
+
+
+def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asterisk,
+                 sleeper: Callable[[float], None] = time.sleep,
+                 retry_state: dict | None = None, now: int | None = None) -> dict:
     fallback = plan.get("fallback", [])
-    if not fallback:
-        return {"checked": 0, "reconnected": [], "unavailable": []}
+    required_links = plan.get("requiredLinks", [])
+    retry_state = retry_state if retry_state is not None else {}
+    now = int(time.time()) if now is None else now
+    if not fallback and not required_links:
+        return {"checked": 0, "reconnected": [], "reverseFallback": [], "failed": [],
+                "unavailable": [], "autopatchCleared": [], "backingOff": []}
     main_node = str(plan["mainNode"])
+    required_nodes = {str(target["node"]) for target in required_links}
+    for stale_node in set(retry_state) - required_nodes:
+        retry_state.pop(stale_node, None)
     local_nodes = listed_local_nodes(runner(["rpt", "localnodes"]))
+    if main_node not in local_nodes:
+        raise RecoveryError(f"Main node {main_node} is not ready locally.")
     established = established_nodes(runner(["rpt", "lstats", main_node]))
     reconnected: list[str] = []
+    reverse_fallback: list[str] = []
+    failed: list[str] = []
     unavailable: list[str] = []
+    autopatch_cleared: list[str] = []
+    backing_off: list[str] = []
     for target in fallback:
         node = str(target["node"])
         if node not in local_nodes:
             unavailable.append(node)
             continue
+        if clear_bridge_autopatch(node, runner):
+            autopatch_cleared.append(node)
         if node in established:
             continue
-        runner(["rpt", "fun", main_node, f"*3{node}"])
-        reconnected.append(node)
+        runner(["rpt", "cmd", main_node, "ilink", "3", node])
+        if wait_for_link(main_node, node, runner, sleeper):
+            reconnected.append(node)
+            continue
+        # Some local app_rpt doorway nodes accept the main-node command but do
+        # not originate its IAX call. The equivalent doorway-side command is a
+        # valid permanent link and must be verified before reporting success.
+        runner(["rpt", "cmd", node, "ilink", "3", main_node])
+        if wait_for_link(main_node, node, runner, sleeper):
+            reconnected.append(node)
+            reverse_fallback.append(node)
+        else:
+            failed.append(node)
+    for target in required_links:
+        node = str(target["node"])
+        if node in established:
+            retry_state.pop(node, None)
+            continue
+        if not retry_due(retry_state, node, now):
+            backing_off.append(node)
+            continue
+        runner(["rpt", "cmd", main_node, "ilink", "3", node])
+        if wait_for_link(main_node, node, runner, sleeper, attempts=10, interval=0.5):
+            reconnected.append(node)
+            retry_state.pop(node, None)
+            established.add(node)
+        else:
+            failed.append(node)
+            record_retry(retry_state, node, now)
     return {
-        "checked": len(fallback),
+        "checked": len(fallback) + len(required_links),
         "reconnected": reconnected,
+        "reverseFallback": reverse_fallback,
+        "failed": failed,
         "unavailable": unavailable,
+        "autopatchCleared": autopatch_cleared,
+        "backingOff": backing_off,
     }
 
 
@@ -240,6 +383,7 @@ def self_test() -> None:
             {"id": "zello", "node": "1203", "cardType": "standard", "fixedBridgeRecovery": False},
             {"id": "ysf_net", "node": "1204", "cardType": "ysf_net", "fixedBridgeRecovery": True},
         ],
+        "requiredAllStarLinks": ["578990"],
     }
     rpt_text = """
 [600000](node-main)
@@ -251,6 +395,11 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
     plan = recovery_plan(config, rpt_text)
     assert [item["node"] for item in plan["nativePermanent"]] == ["1201"]
     assert [item["node"] for item in plan["fallback"]] == ["1202", "1205"]
+    native_required = recovery_plan(
+        config, rpt_text.replace("*COP,6,12345,ilink,13,1203", "*813578990*COP,6,12345,ilink,13,1203")
+    )
+    assert native_required["requiredLinks"] == []
+    assert [item["node"] for item in native_required["nativeRequiredLinks"]] == ["578990"]
     # Manual disconnect is scoped to one bridge; other configured links recover.
     held_config = {**config, "bridges": [
         {**bridge, "manualDisconnect": bridge["id"] == "ysf"}
@@ -276,31 +425,64 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
 
     calls: list[tuple[str, ...]] = []
 
+    connected = {"1201"}
+    patch_up = {"1202"}
+
     def runner(arguments: Iterable[str]) -> str:
         command = tuple(arguments)
         calls.append(command)
         if command == ("rpt", "localnodes"):
             return "Local nodes: 1201 1202 1203 1205 600000\n"
         if command == ("rpt", "lstats", "600000"):
-            return "NODE PEER STATE\n1201 127.0.0.1 ESTABLISHED\n"
-        if command in {("rpt", "fun", "600000", "*31202"), ("rpt", "fun", "600000", "*31205")}:
+            rows = "".join(f"{node} 127.0.0.1 ESTABLISHED\n" for node in sorted(connected))
+            return "NODE PEER STATE\n" + rows
+        if command[:4] == ("rpt", "show", "variables", "1202"):
+            return "   RPT_AUTOPATCHUP=1\n" if "1202" in patch_up else "   RPT_AUTOPATCHUP=0\n"
+        if command[:4] == ("rpt", "show", "variables", "1205"):
+            return "RPT_AUTOPATCHUP=0\n"
+        if command == ("rpt", "cmd", "1202", "cop", "9"):
+            return ""
+        if command == ("rpt", "cmd", "1202", "autopatchdn"):
+            patch_up.discard("1202")
+            return ""
+        if command == ("rpt", "cmd", "1202", "cop", "10"):
+            return ""
+        if command == ("rpt", "cmd", "600000", "ilink", "3", "1202"):
+            connected.add("1202")
+            return ""
+        if command == ("rpt", "cmd", "600000", "ilink", "3", "1205"):
+            return ""
+        if command == ("rpt", "cmd", "1205", "ilink", "3", "600000"):
+            connected.add("1205")
+            return ""
+        if command == ("rpt", "cmd", "600000", "ilink", "3", "578990"):
             return ""
         raise AssertionError(command)
 
-    result = recover_once(plan, runner)
-    assert result == {"checked": 2, "reconnected": ["1202", "1205"], "unavailable": []}
-    assert ("rpt", "fun", "600000", "*31202") in calls
-    assert ("rpt", "fun", "600000", "*31205") in calls
+    retry: dict = {}
+    result = recover_once(plan, runner, lambda _: None, retry, 1000)
+    assert result == {"checked": 3, "reconnected": ["1202", "1205"],
+                      "reverseFallback": ["1205"], "failed": ["578990"], "unavailable": [],
+                      "autopatchCleared": ["1202"], "backingOff": []}
+    assert retry == {"578990": {"failures": 1, "next": 1030}}
+    assert ("rpt", "cmd", "600000", "ilink", "3", "1202") in calls
+    assert ("rpt", "cmd", "600000", "ilink", "3", "1205") in calls
+    assert ("rpt", "cmd", "1205", "ilink", "3", "600000") in calls
+    backed_off = recover_once(plan, runner, lambda _: None, retry, 1015)
+    assert backed_off["backingOff"] == ["578990"] and "578990" not in backed_off["failed"]
 
-    unavailable_plan = {**plan, "fallback": [{"id": "p25", "node": "1299"}]}
-    result = recover_once(unavailable_plan, runner)
-    assert result == {"checked": 1, "reconnected": [], "unavailable": ["1299"]}
+    unavailable_plan = {**plan, "fallback": [{"id": "p25", "node": "1299"}],
+                        "requiredLinks": []}
+    result = recover_once(unavailable_plan, runner, lambda _: None)
+    assert result == {"checked": 1, "reconnected": [], "reverseFallback": [],
+                      "failed": [], "unavailable": ["1299"], "autopatchCleared": [],
+                      "backingOff": []}
 
     direct = native_permanent_nodes(
-        "[600001]\nstartup_macro = ilink,13,1301 *3 1302\n",
+        "[600001]\nstartup_macro = ilink,13,1301 *3 1302 *8131006*813578990\n",
         "600001",
     )
-    assert direct == {"1301"}
+    assert direct == {"1301", "1006", "578990"}
 
     with tempfile.TemporaryDirectory(prefix="asr-fixed-bridge-recovery-test-") as temporary:
         root = Path(temporary)
@@ -325,9 +507,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--rpt-config", type=Path, default=DEFAULT_RPT_CONFIG)
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--once", action="store_true", help="Recover missing opted-in fixed bridge links")
-    action.add_argument("--has-fallback-targets", action="store_true", help="Exit successfully when fallback recovery is required")
+    action.add_argument("--has-fallback-targets", action="store_true", help="Exit successfully when link recovery is required")
     action.add_argument("--plan-json", action="store_true", help="Print the sanitized recovery plan as JSON")
     action.add_argument("--self-test", action="store_true", help="Run temp-only tests")
     args = parser.parse_args()
@@ -337,16 +520,28 @@ def main() -> int:
     try:
         plan = load_plan(args.config, args.rpt_config)
         if args.has_fallback_targets:
-            return 0 if plan["fallback"] else 1
+            return 0 if plan["fallback"] or plan["requiredLinks"] else 1
         if args.plan_json:
             print(json.dumps(plan, indent=2, sort_keys=True))
             return 0
-        result = recover_once(plan)
+        retry_state = read_retry_state(args.state)
+        result = recover_once(plan, retry_state=retry_state)
+        write_retry_state(args.state, retry_state)
         if result["reconnected"]:
             print("Restored configured fixed bridge link(s): " + ", ".join(result["reconnected"]))
+        if result["reverseFallback"]:
+            print("Used doorway-side recovery for bridge link(s): " + ", ".join(result["reverseFallback"]))
+        if result["autopatchCleared"]:
+            print("Cleared invalid autopatch state on bridge link(s): " + ", ".join(result["autopatchCleared"]))
+        required_nodes = {str(target["node"]) for target in plan["requiredLinks"]}
+        for node in result["failed"]:
+            if node in required_nodes:
+                print(f"Required AllStar node {node} did not establish; bounded retry backoff is active.", file=sys.stderr)
+            else:
+                print(f"Configured fixed bridge node {node} did not establish after both recovery directions.", file=sys.stderr)
         for node in result["unavailable"]:
             print(f"Configured fixed bridge node {node} is not available locally; not reconnecting.", file=sys.stderr)
-        return 0
+        return 1 if result["failed"] else 0
     except RecoveryError as exc:
         print(f"Fixed-bridge recovery failed: {exc}", file=sys.stderr)
         return 1

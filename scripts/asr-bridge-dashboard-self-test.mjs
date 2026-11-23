@@ -20,11 +20,18 @@ const server = await createServer({
 })
 
 try {
+  const activitySource = readFileSync('src/lib/allscanLive.ts', 'utf8')
+  const bridgeCss = readFileSync('src/styles/asr/04-bridge-cards.css', 'utf8')
+  assert(activitySource.includes("String(record.direction || '').toLowerCase() !== 'incoming'"), 'Recent Activity must exclude outgoing and unknown-direction relay events')
+  assert(bridgeCss.includes('.allscan-bridge-grid .allscan-bridge-recent > .allscan-bridge-detail-box') && bridgeCss.includes('max-height: min(360px, 45vh)') && bridgeCss.includes('overflow-y: auto'), 'Recent Activity panels must scroll without stretching bridge grid')
+
   const {
     bridgeConnectionIdentities,
+    fetchBridgeCards,
     bridgeProtocolCardTitle,
     configuredUnifiedNetBridgeRow,
     bridgeCardShowsClientDetails,
+    bridgeDashboardStatusLabel,
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
     bridgeTalkerFeed,
@@ -32,14 +39,65 @@ try {
     normalizedBridgeMode,
     netBridgeTalkerDestinationLabel,
     orderedVisibleBridgeCards,
-    isUrfReflectorBridge,
-    urfReflectorDisplayName,
     provisionedNetBridgeModes,
     resolveBridgeLastCaller,
     summarizeBridgeClientCounts,
     summarizeConnectionTotal,
     talkerInfoParts,
   } = await server.ssrLoadModule('/src/lib/allscanLive.ts')
+
+  // VU values must originate in backend audio telemetry, never PTT/role.
+  // The same schema applies to every bridge type, including future backends.
+  const priorFetch = globalThis.fetch
+  try {
+    const testBridges = ['dmr', 'p25', 'nxdn', 'ysf', 'm17', 'zello'].map((mode) => ({
+      id: `vu_${mode}`, mode, node: '1999', title: mode, detailTitle: 'Clients', cardType: 'standard',
+    }))
+    globalThis.fetch = async () => ({
+      json: async () => ({ bridge: Object.fromEntries(testBridges.map((b) => [b.id, {
+        role: 'source',
+        ...(b.mode === 'ysf' ? {} : { audio_meter: {
+          inboundpeak: 0.8, inboundrms: 0.25, outboundpeak: 1.5, outboundrms: -2,
+        } }),
+      }])) }),
+    })
+    const { cards } = await fetchBridgeCards({ node: '1999', bridges: testBridges })
+    for (const card of cards) {
+      if (card.mode === 'ysf') {
+        assert(card.status === 'Source/TX' && card.audioMeter === null,
+          'PTT activity incorrectly synthesized a VU meter')
+      } else {
+        assert(card.audioMeter?.inboundPeak === 0.8 && card.audioMeter?.inboundRms === 0.25
+          && card.audioMeter?.outboundPeak === 1 && card.audioMeter?.outboundRms === 0,
+        `${card.mode} audio telemetry was not normalized or was suppressed`)
+      }
+    }
+    // Invalid backend values, silence and independently missing directions
+    // cannot produce nonzero bars or affect the other direction.
+    globalThis.fetch = async () => ({ json: async () => ({ bridge: {
+      vu_m17: { role: 'relay', audio_meter: {
+        inboundpeak: Number.NaN, inboundrms: Infinity,
+        outboundpeak: 0.125, outboundrms: 0.0625,
+      } },
+    } }) })
+    const malformed = await fetchBridgeCards({ node: '1999', bridges: [testBridges[4]] })
+    assert(malformed.cards[0].audioMeter?.inboundPeak === 0
+      && malformed.cards[0].audioMeter?.inboundRms === 0
+      && malformed.cards[0].audioMeter?.outboundPeak === 0.125
+      && malformed.cards[0].audioMeter?.outboundRms === 0.0625,
+      'invalid inbound telemetry corrupted the independently valid outbound meter')
+    globalThis.fetch = async () => ({ json: async () => ({ bridge: {
+      vu_m17: { role: 'relay', audio_meter: {
+        inboundpeak: 0, inboundrms: 0, outboundpeak: 0, outboundrms: 0,
+      } },
+    } }) })
+    const silent = await fetchBridgeCards({ node: '1999', bridges: [testBridges[4]] })
+    assert(silent.cards[0].status === 'Relay'
+      && Object.values(silent.cards[0].audioMeter ?? {}).every((value) => value === 0),
+      'PTT activity incorrectly generated audio while backend samples were silent')
+  } finally {
+    globalThis.fetch = priorFetch
+  }
 
   assert(isNodeMessageAuthNotice('Login required.'), 'plain login notice was not recognized')
   assert(isNodeMessageAuthNotice('ERROR: Error: Insufficient user permission to retrieve data.'), 'ASTAPI permission notice was not recognized')
@@ -135,42 +193,27 @@ try {
     savedStandardLast.join(',') === 'ysf_net,zello',
     'an explicit v2 Net Bridge-before-Zello order was not preserved',
   )
-  const hiddenReflector = { id: 'urf', node: '1001', cardType: 'standard', mode: 'urf', urfReflector: true }
-  assert(
-    !orderedVisibleBridgeCards([...orderConfig, hiddenReflector], [...orderCards, hiddenReflector], 'ysf')
-      .some((card) => card.id === 'urf'),
-    'the shared URF reflector leaked into the dashboard bridge-card fallback pass',
-  )
-  const urfGroup = ['dmr', 'ysf', 'p25', 'nxdn', 'm17'].map((mode) => ({
-    id: `urf_${mode}`, mode, node: '1001', title: `${mode.toUpperCase()} Bridge`,
-    detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: true,
-    urfGroupId: 'urfnet', urfName: 'URFNET',
-  }))
-  for (const bridge of urfGroup) {
-    assert(bridgeProtocolCardTitle({ ...bridge, title: 'DMR Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
-      `URF ${bridge.mode} inherited an incorrect DMR protocol label`)
-    assert(bridgeProtocolCardTitle({ ...bridge, title: 'Generic Bridge' }) === `${bridge.mode.toUpperCase()} Bridge`,
-      `URF ${bridge.mode} did not use its configured protocol identity`)
-  }
   const standaloneZello = {
     id: 'zello', mode: 'zello', node: '1002', title: 'Zello Bridge',
-    detailTitle: 'Connected Clients', cardType: 'standard', urfReflector: false,
+    detailTitle: 'Connected Clients', cardType: 'standard',
   }
-  assert(urfGroup.every(isUrfReflectorBridge), 'expanded URF protocol cards were not recognized as URF group members')
   assert(bridgeProtocolCardTitle(standaloneZello) === 'Zello Bridge', 'standalone Zello title changed')
-  assert(!isUrfReflectorBridge(standaloneZello), 'standalone Zello was incorrectly classified as an URF card')
-  assert(urfReflectorDisplayName(urfGroup) === 'URFNET Bridge', 'URF group heading did not use the configured reflector name')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: '' }))) === 'URF Bridge', 'legacy URFWIL default leaked into a different reflector dashboard')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073', urfName: '' }))) === 'URF073 Bridge', 'explicit URF073 label was not honored')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URF073' }))) === 'URF073 Bridge', 'legacy label did not yield to an authoritative URF073 reflector identity')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URFWIL Multi-Mode Bridge', urfName: 'URFWIL' }))) === 'URFWIL Bridge', 'actual URFWIL reflector identity was incorrectly suppressed')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, friendlyName: 'URF073' }))) === 'URF073 Bridge', 'operator URF display name did not override the runtime identity')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading duplicated a configured Multi-Mode Bridge suffix')
-  assert(urfReflectorDisplayName(urfGroup.map((bridge) => ({ ...bridge, urfName: 'Desert Link Bridge' }))) === 'Desert Link Bridge', 'URF group heading duplicated a configured Bridge suffix')
-  assert(urfReflectorDisplayName(urfGroup.map(({ urfName, ...bridge }) => ({ ...bridge, friendlyName: 'URFNET Multi-Mode Bridge' }))) === 'URFNET Bridge', 'URF group heading did not derive the reflector name from its friendly name')
-  const dashboardCards = [...urfGroup, standaloneZello]
-  const dashboardOrder = orderedVisibleBridgeCards(dashboardCards, dashboardCards, 'dmr')
-  assert(dashboardOrder.length === 1 && dashboardOrder[0].id === 'zello', 'URF cards leaked into the standalone grid or Zello was hidden')
+  const kentuckyCards = ['dmr', 'ysf', 'p25', 'm17', 'nxdn', 'zello'].map((mode, index) => ({
+    id: mode === 'ysf' ? 'ysf_net' : mode,
+    mode,
+    node: String(1001 + index),
+    title: `${mode.toUpperCase()} Bridge`,
+    detailTitle: 'Recent Talkers',
+    cardType: 'standard',
+    backendMode: mode === 'ysf' ? 'managed' : 'display_only',
+  }))
+  assert(
+    orderedVisibleBridgeCards(kentuckyCards, kentuckyCards, 'ysf', 2).map((card) => card.id).join(',')
+      === 'dmr,ysf_net,p25,m17,nxdn,zello',
+    'six standalone bridge cards were split into a special group or reordered',
+  )
+  const dashboardOrder = orderedVisibleBridgeCards([standaloneZello], [standaloneZello], 'dmr')
+  assert(dashboardOrder.length === 1 && dashboardOrder[0].id === 'zello', 'standalone Zello was hidden')
 
   const sharedTransports = ['p25', 'ysf'].map((mode) => ({
     ...netBridges[0], id: `${mode}_net`, mode, node: '1999', cardType: `${mode}_net`,
@@ -289,6 +332,63 @@ try {
     'collector-persisted last activity was not consumed by the production UI path',
   )
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
+  for (const runtimeOnline of [null, true, false]) {
+    assert(
+      bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Idle', runtimeOnline }) === 'IDLE',
+      'Beta 8.2 idle presentation was replaced by a protocol connectivity label',
+    )
+  }
+  assert(
+    bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Source/TX', runtimeOnline: null }) === 'TX ACTIVE'
+      && bridgeDashboardStatusLabel({ cardType: 'standard', status: 'Relay', runtimeOnline: null }) === 'RELAY',
+    'active voice state did not take precedence over idle connectivity',
+  )
+  assert(
+    bridgeDashboardStatusLabel({ cardType: 'dmr_net', status: 'Idle', runtimeOnline: null }) === 'IDLE',
+    'Net Bridge idle status was changed by Standard Bridge connectivity handling',
+  )
+  const standardModes = ['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'zello']
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => ({
+      json: async () => ({
+        bridge: Object.fromEntries(standardModes.map((mode) => [
+          `${mode}_johnny2`,
+          { role: 'idle', online: mode === 'm17' ? true : mode === 'zello' ? false : null },
+        ])),
+        controls: Object.fromEntries(standardModes.map((mode) => [
+          `${mode}_johnny2`, { allstarLinked: true },
+        ])),
+      }),
+    })
+    const liveCards = (await fetchBridgeCards({
+      node: '623123',
+      bridges: standardModes.map((mode, index) => ({
+        id: `${mode}_johnny2`, mode, node: String(1001 + index), cardType: 'standard',
+        title: `${mode.toUpperCase()} Bridge`, detailTitle: 'Connected Clients',
+      })),
+    })).cards
+    assert(liveCards.length === 6, 'the API/frontend handoff dropped one of the six Standard Bridge cards')
+    assert(
+      liveCards.filter((card) => !['m17', 'zello'].includes(card.mode)).every((card) => card.runtimeOnline === null),
+      'unknown Standard Bridge connectivity was coerced during frontend normalization',
+    )
+    assert(
+      liveCards.every((card) => card.allstarLinked === true),
+      'established AllStar transport state did not reach all six bridge cards',
+    )
+    assert(
+      liveCards.find((card) => card.mode === 'zello')?.runtimeOnline === false,
+      'external Zello connectivity was conflated with its established AllStar transport',
+    )
+    const m17Card = liveCards.find((card) => card.mode === 'm17')
+    assert(
+      m17Card?.runtimeOnline === true && bridgeDashboardStatusLabel(m17Card) === 'IDLE',
+      'M17 connectivity evidence was lost or replaced the Beta 8.2 idle activity label',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
   assert(!bridgeCardShowsClientDetails('dmr_net'), 'DMR Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('ysf_net'), 'YSF Net Bridge client details were shown')
   assert(!bridgeCardShowsClientDetails('p25_net'), 'P25 Net Bridge client details were shown')
@@ -322,6 +422,32 @@ try {
     'bridge-only DMR caller was not promoted into the main Talkers feed',
   )
   assert(dmrTalkers.recentTalkers.length === 0, 'active DMR caller was duplicated in Talkers history')
+  // A transport-side AllStar/EchoLink event matching a digital outgoing relay
+  // must not replace the originating digital callsign in dashboard talkers.
+  const relayEpochs = [2_000_000_467]
+  const allstarRelayEcho = { source: 'AllStar', eventEpoch: 2_000_000_467 }
+  const genuineAllstarTalker = { source: 'AllStar', eventEpoch: 2_000_000_480 }
+  const isRelayEcho = (entry) => entry.source.toUpperCase() === 'ALLSTAR'
+    && relayEpochs.some((epoch) => Math.abs(epoch - entry.eventEpoch) <= 3)
+  assert(isRelayEcho(allstarRelayEcho), 'digital relay echo was not recognized')
+  assert(!isRelayEcho(genuineAllstarTalker), 'unrelated genuine AllStar talker was suppressed')
+  // Relay edges come from digital-originated (incoming) bridge events only;
+  // AllStar audio relayed out to the bridges is "outgoing" and must not hide
+  // the AllStar talker who sent it (#168).
+  {
+    const live = readFileSync(new URL('../src/lib/allscanLive.ts', import.meta.url), 'utf8')
+    const relayBlock = live.slice(live.indexOf('relayEventEpochs: (Array.isArray'), live.indexOf('relayEventEpochs: (Array.isArray') + 200)
+    assert(relayBlock.includes('=== "incoming"') && !relayBlock.includes('"outgoing"'),
+      'relay echo edges must come from incoming digital transmissions only')
+    const talkersBlock = live.slice(live.indexOf('recentTalkers: (Array.isArray(entry?.tx_events)'), live.indexOf('recentRows: formatBridgeRecentRows(entry, mode)'))
+    assert(talkersBlock.indexOf('Boolean(record.callsign)') < talkersBlock.indexOf('.slice(0, 4)')
+      && talkersBlock.includes('.sort((left, right) => right.eventEpoch - left.eventEpoch)'),
+      'callsign-less relay events can push digital talkers out of the Talkers panel')
+    const appText = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    assert(appText.includes("serverSource !== '' && serverSource !== 'ALLSTAR'")
+      && appText.indexOf('const serverCallsign') < appText.indexOf("if (!identity && transportNode === '1001')"),
+      'bridge talker history must use the server-resolved identity after a page refresh')
+  }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
     id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',
@@ -426,21 +552,6 @@ try {
       && asrApiSource.includes(". ' is not active.'"),
     'authoritative P25, NXDN, or M17 readiness failures are not exposed as card health',
   )
-  assert(
-    asrApiSource.includes('function asr_standard_urf_runtime_paths()')
-      && asrApiSource.includes("'/opt/allscan-reimagined-bridges/urf/' . $id . '/data'"),
-    'managed Standard URF cards still depend on the legacy global runtime path',
-  )
-  assert(
-    asrApiSource.includes("is_readable($nativeUnit) && is_readable($legacy . '/asr-live-events.jsonl')")
-      && asrApiSource.includes("'events' => $eventBase . '/asr-live-events.jsonl'"),
-    'native managed URF TX events are not read from their systemd runtime directory',
-  )
-  assert(
-    asrApiSource.includes("$mode === 'USRP' || $mode === 'DMR'")
-      && asrApiSource.includes("$mode === 'M17' && preg_match('/\\s+N$/D'"),
-    'proxied M17/YSF/P25/NXDN clients are still hidden as loopback transport legs',
-  )
   const dmrControls = appSource.match(
     /\{card\.cardType === 'dmr_net' && authStatus\.canModify[\s\S]+?\{card\.cardType !== 'standard'/,
   )?.[0] || ''
@@ -473,8 +584,15 @@ try {
     'a disconnected DMR Net Bridge can still inherit false Relay state from node 1999',
   )
   assert(
-    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: card\.controlLinked \|\| rows\.some/),
-    'DMR Net Bridge controls still treat the permanent node 1999 transport as a digital connection',
+    appSource.match(/const bridgeLinked = card\.cardType !== 'standard'\s*\? card\.controlLinked\s*: allstarTransportLinked/)
+      && appSource.includes("const allstarTransportLinked = card.cardType === 'standard'")
+      && appSource.includes('card.allstarLinked || rows.some('),
+    'Net Bridge and Standard Bridge transport linkage are not independently modeled',
+  )
+  const bridgeLinkedSource = appSource.slice(appSource.indexOf('const allstarTransportLinked ='), appSource.indexOf('const standardLinkMissing ='))
+  assert(
+    bridgeLinkedSource.includes("row.state !== 'message'") && !bridgeLinkedSource.includes("row.direction.toUpperCase() === 'OUT'"),
+    'standard bridge link detection rejects an established inbound private-node link',
   )
   assert(!dmrControls.includes('<select id={`dmr-net-tg-${card.id}`}'), 'DMR Net talkgroup regressed to a dropdown')
   assert(!dmrControls.includes('approvedDestinations.length'), 'DMR Net input still depends on an approved list')
@@ -548,8 +666,8 @@ try {
   )
   for (const api of ['asr-api.php', 'server/asr-api.php']) {
     const apiSource = readFileSync(new URL(`../${api}`, import.meta.url), 'utf8')
-    assert(apiSource.includes('asrExpandUrfProtocolBridges($storedBridges)'),
-      `${api} displays unchecked URF protocols`)
+    assert(apiSource.includes('!asr_is_retired_reflector_bridge($bridge)'),
+      `${api} displays retired URF reflector cards`)
   }
   assert(
     appSource.includes('allscan-controls-lower-row')
@@ -647,16 +765,20 @@ try {
   assert(
     allscanLiveSource.includes("bridgeConfig.id === 'zello' ? liveZelloRecentTalkers(bridge.zello) : []")
       && allscanLiveSource.includes("detailAvailable")
-      && allscanLiveSource.includes("clientMeta"),
+      && allscanLiveSource.includes("clientMeta")
+      && allscanLiveSource.includes("detailKind === 'current' ? 'Connected Clients'")
+      && allscanLiveSource.includes("record.identity_available === false ? 'Unidentified talker'"),
     'bridge detail semantics do not preserve Zello talker history and roster provenance',
   )
   assert(
-    appSource.includes('allscan-urf-mini-card')
-      && appSource.includes('allscan-urf-mini-grid')
-      && appSource.includes('<span>Connected Clients</span>')
-      && appSource.includes('<span>Recent Activity</span>')
-      && appSource.includes('<span>Last Talker</span>'),
-    'URF modes are not rendered as compact standard bridge cards',
+    allscanLiveSource.includes('const BRIDGE_RECENT_ACTIVITY_MAX_AGE = 24 * 60 * 60'),
+    'frontend Recent Activity retention no longer matches the 24-hour backend contract',
+  )
+  assert(
+    !appSource.includes('allscan-urf-')
+      && appSource.includes('Recent Activity<'),
+    'URF card markup remains or bridge activity section is missing',
+
   )
   assert(
     appSource.includes('allscan-controls-lower-row')
@@ -719,9 +841,15 @@ try {
     'Zello relay must use the fast producer when present and retain legacy Asterisk fallback when absent',
   )
   assert(
-    appSource.includes('Never promote that node-wide bit into')
+    appSource.includes("const activeRelaySource = activeTalkerNode !== '' && connectionRowsRef.current.some")
+      && appSource.includes("const activeTalkerNode = currentTalkerRef.current?.node || ''")
+      && appSource.includes('candidate.node !== config.node')
+      && appSource.includes('candidate.node === activeTalkerNode')
+      && appSource.includes('if (row && activeRelaySource)')
+      && appSource.includes("return withStatus(card, 'Relay')")
+      && appSource.includes('Never promote that node-wide bit into')
       && appSource.includes("if (row) {\n          // A pseudo hub can report RPT_TXKEYED continuously"),
-    'ordinary bridge cards must not derive Relay from the pseudo hub RPT_TXKEYED bit',
+    'ordinary bridge cards must use concrete remote activity for Relay without trusting the pseudo hub bit',
   )
   assert(
     appSource.includes('const wasReady = zelloFastRelayReadyRef.current')
@@ -766,14 +894,14 @@ try {
   )
   assert(
     appSource.includes('const FAST_ACTIVITY_POLL_MS = 250')
-      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5
+      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4
       && !appSource.includes('window.setInterval(tick, 100)'),
     'Every fast activity feed must remain single-flight at the bounded shared cadence',
   )
   assert(
     !appSource.includes('window.setInterval(tick, 100)')
-      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 5,
-    'all five fast bridge feeds must remain single-flight and back off while the page is hidden',
+      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4,
+    'all four fast bridge feeds must remain single-flight and back off while the page is hidden',
   )
   assert(
     asrApiSource.includes("function asr_m17_runtime_status(string $bridgeId): array")

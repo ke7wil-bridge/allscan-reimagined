@@ -8,6 +8,7 @@ import ctypes.util
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -47,6 +48,8 @@ class M17Settings:
     title: str = "M17 Bridge"
     main_node: int | None = None
     bridge_node: int | None = None
+    digital_to_asl_gain_db: float = 0.0
+    asl_to_digital_gain_db: float = 0.0
 
 
 def load_core():
@@ -108,6 +111,10 @@ def validate_settings(settings: M17Settings) -> M17Settings:
         raise InstallError("invalid reflector host")
     if not 1 <= int(settings.port) <= 65535:
         raise InstallError("invalid reflector port")
+    for direction, gain in (("Digital-to-ASL", settings.digital_to_asl_gain_db),
+                            ("ASL-to-digital", settings.asl_to_digital_gain_db)):
+        if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not math.isfinite(gain) or not -20 <= gain <= 12:
+            raise InstallError(f"{direction} gain must be between -20 and +12 dB")
     return M17Settings(**{**asdict(settings), "callsign": callsign,
                            "reflector": reflector, "module": module, "host": host})
 
@@ -235,6 +242,8 @@ def bridge_entry(settings: M17Settings, node: int, ports: tuple[int, int, int]) 
         "id": settings.bridge_id, "mode": "m17", "cardType": settings.card_type,
         "node": str(node), "title": settings.title, "backendMode": "managed",
         "bridgePermission": "self_owned", "m17Callsign": settings.callsign,
+        "digitalToAslGainDb": settings.digital_to_asl_gain_db,
+        "aslToDigitalGainDb": settings.asl_to_digital_gain_db,
         # M17 signaling/audio must reach both local and external reflectors.
         # USRP remains loopback-only below; this wildcard applies only to the
         # ephemeral client UDP socket and does not expose the AllStar audio bus.
@@ -351,19 +360,15 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
     ports = core.derived_m17_ports(settings.bridge_id)
     if settings.card_type == "m17_net":
         ports = (ports[0], *core.unified_net_usrp_ports())
-    occupied = set(facts.listening_udp_ports)
-    for bridge in config.get("bridges", []):
-        if not isinstance(bridge, dict) or bridge.get("id") == settings.bridge_id:
-            continue
-        for key in ("m17BindPort", "m17UsrpRxPort"):
-            try:
-                occupied.add(int(bridge[key]))
-            except (KeyError, TypeError, ValueError):
-                pass
-    if settings.card_type == "m17_net" and (shared_net_node or existing is not None):
-        occupied -= set(core.unified_net_usrp_ports())
-    if ports[0] in occupied or ports[1] in occupied:
-        raise InstallError("derived M17 receive port is already in use")
+    endpoint_guard = load_module("asr_bridge_endpoint_guard_m17", "asr-bridge-endpoint-collisions.py")
+    try:
+        endpoint_guard.check_candidate(
+            root, config, settings.bridge_id, "m17",
+            {"m17": ports[0], "usrpRx": ports[1], "usrpTx": ports[2]},
+            role="net" if settings.card_type == "m17_net" else "standard",
+        )
+    except ValueError as exc:
+        raise InstallError(str(exc)) from exc
     errors = dependency_errors(root)
     if errors:
         raise InstallError("; ".join(errors))

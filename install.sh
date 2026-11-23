@@ -10,7 +10,20 @@ umask 022
 # Keep bootstrap, preflight, subprocesses, and the official AllScan installer
 # on one operator-selected temporary filesystem. ASR_STAGE_DIR takes priority;
 # TMPDIR is the standard fallback for direct installer runs.
+# Automatically recover from small/noexec default staging without overriding
+# an explicit operator-selected directory. The preflight still verifies the
+# combined disk budget before any package changes.
 requested_stage=${ASR_STAGE_DIR:-${TMPDIR:-/var/tmp}}
+if [ -z "${ASR_STAGE_DIR:-}" ] && [ -z "${TMPDIR:-}" ]; then
+  stage_free=$(df -Pk /var/tmp 2>/dev/null | awk 'NR==2 {print $4}')
+  stage_options=$(findmnt -n -T /var/tmp -o OPTIONS 2>/dev/null || true)
+  if [ -z "$stage_free" ] || [ "$stage_free" -lt 131072 ] || [[ ",$stage_options," == *,noexec,* ]]; then
+    if [ -d /opt ] && [ -w /opt ] && [ -x /opt ]; then
+      requested_stage=/opt
+      echo "ASR staging: /var/tmp unsuitable; trying /opt (preflight will verify capacity)."
+    fi
+  fi
+fi
 case "$requested_stage" in
   /*) ;;
   *) echo "ERROR: ASR_STAGE_DIR/TMPDIR must be an existing absolute directory." >&2; exit 1 ;;
@@ -105,7 +118,7 @@ restore_runtime_backup() {
 }
 
 restore_shared_backup() {
-  local restore_stock_shared=1
+  local restore_stock_shared=1 scheduler_tmp
   [ -d "$BACKUP_DIR/runtime" ] || return 0
   if [ "$OFFICIAL_INSTALL_ATTEMPTED" -eq 1 ] \
     && [ "$OFFICIAL_SHARED_BASELINE_CAPTURED" -eq 0 ]; then
@@ -140,6 +153,24 @@ restore_shared_backup() {
     elif [ -f "$BACKUP_DIR/allscan.db.absent" ]; then
       rm -f /etc/allscan/allscan.db
     fi
+    for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log schedule.pending.json schedule.state.json schedule.history.jsonl; do
+      if [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ]; then
+        install -d -o root -g "$WEB_GROUP" -m 775 /etc/allscan
+        [ ! -L "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ] || continue
+        scheduler_tmp=$(mktemp "/etc/allscan/.${scheduler_file}.rollback.XXXXXX")
+        cp -p "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" "$scheduler_tmp"
+        mv -fT "$scheduler_tmp" "/etc/allscan/$scheduler_file"
+      elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file.absent" ]; then
+        rm -f "/etc/allscan/$scheduler_file"
+      fi
+    done
+    if command -v crontab >/dev/null 2>&1; then
+      if [ -f "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab" ]; then
+        crontab -u "$WEB_USER" "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab"
+      elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/web.crontab.absent" ]; then
+        crontab -u "$WEB_USER" -r 2>/dev/null || true
+      fi
+    fi
   fi
   # Settings writes config.json atomically as the web-server user. Keep the
   # directory writable by that group when restoring an installation backup.
@@ -154,6 +185,66 @@ restore_shared_backup() {
   systemctl daemon-reload 2>/dev/null || true
 }
 
+backup_scheduler_state() {
+  local scheduler_dir="$BACKUP_DIR/runtime/allscan-scheduler" scheduler_file cron_status
+  install -d -o root -g root -m 700 "$scheduler_dir"
+  for scheduler_file in schedule.json schedule.activity schedule.heartbeat schedule.log schedule.pending.json schedule.state.json schedule.history.jsonl; do
+    if [ -L "/etc/allscan/$scheduler_file" ]; then
+      fail "Refusing to back up unsafe AllScan scheduler state: $scheduler_file"
+    elif [ -f "/etc/allscan/$scheduler_file" ]; then
+      cp -p "/etc/allscan/$scheduler_file" "$scheduler_dir/$scheduler_file"
+    else
+      : > "$scheduler_dir/$scheduler_file.absent"
+    fi
+  done
+  if command -v crontab >/dev/null 2>&1; then
+    if crontab -u "$WEB_USER" -l > "$scheduler_dir/web.crontab.tmp" 2>/dev/null; then
+      mv "$scheduler_dir/web.crontab.tmp" "$scheduler_dir/web.crontab"
+    else
+      cron_status=$?
+      if [ "$cron_status" -eq 1 ] && [ ! -s "$scheduler_dir/web.crontab.tmp" ]; then
+        rm -f "$scheduler_dir/web.crontab.tmp"
+        : > "$scheduler_dir/web.crontab.absent"
+      else
+        rm -f "$scheduler_dir/web.crontab.tmp"
+        fail "Unable to back up the web account crontab."
+      fi
+    fi
+  else
+    : > "$scheduler_dir/web.crontab.unavailable"
+  fi
+  chmod -R go-rwx "$scheduler_dir"
+}
+
+reconcile_scheduler_crontab() {
+  local mode="$1" before after cron_status
+  command -v crontab >/dev/null 2>&1 || return 0
+  before=$(mktemp)
+  after=$(mktemp)
+  if crontab -u "$WEB_USER" -l > "$before" 2>/dev/null; then
+    :
+  else
+    cron_status=$?
+    if [ "$cron_status" -eq 1 ] && [ ! -s "$before" ]; then
+      rm -f "$before" "$after"
+      return 0
+    fi
+    rm -f "$before" "$after"
+    fail "Unable to inspect the AllScan scheduler crontab."
+  fi
+  if [ "$mode" = "disable" ]; then
+    awk '!(/runSchedule\.php/ && $0 !~ /^[[:space:]]*#/)' "$before" > "$after"
+  else
+    awk '/runSchedule\.php/ && $0 !~ /^[[:space:]]*#/ { if (seen++) next } { print }' \
+      "$before" > "$after"
+  fi
+  if ! cmp -s "$before" "$after"; then
+    crontab -u "$WEB_USER" "$after" \
+      || { rm -f "$before" "$after"; fail "Unable to reconcile the AllScan scheduler crontab."; }
+  fi
+  rm -f "$before" "$after"
+}
+
 capture_official_shared_baseline() {
   local stage="$BACKUP_DIR/.official-shared-baseline.new.$$"
   rm -rf "$stage"
@@ -163,9 +254,9 @@ capture_official_shared_baseline() {
   else
     : > "$stage/runtime/etc-favorites.ini.absent"
   fi
-  if [ -f /etc/allscan/allscan.db ]; then
+  if [ "$latest_version" != "v1.06" ] && [ -f /etc/allscan/allscan.db ]; then
     install -m 600 /etc/allscan/allscan.db "$stage/allscan.db"
-  else
+  elif [ "$latest_version" != "v1.06" ]; then
     : > "$stage/allscan.db.absent"
   fi
 
@@ -174,9 +265,10 @@ capture_official_shared_baseline() {
   rm -f "$BACKUP_DIR/manifest.json"
   rm -f \
     "$BACKUP_DIR/runtime/etc-favorites.ini" \
-    "$BACKUP_DIR/runtime/etc-favorites.ini.absent" \
-    "$BACKUP_DIR/allscan.db" \
-    "$BACKUP_DIR/allscan.db.absent"
+    "$BACKUP_DIR/runtime/etc-favorites.ini.absent"
+  if [ "$latest_version" != "v1.06" ]; then
+    rm -f "$BACKUP_DIR/allscan.db" "$BACKUP_DIR/allscan.db.absent"
+  fi
   cp -a "$stage/runtime/." "$BACKUP_DIR/runtime/"
   find "$stage" -mindepth 1 -maxdepth 1 -type f -exec cp -p {} "$BACKUP_DIR/" \;
   rm -rf "$stage"
@@ -197,6 +289,7 @@ restore_prior_reapply_units() {
     allscan-reimagined-startup-bridge-summary.service \
     allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-standard-bridge-status.service \
+    allscan-reimagined-bridge-audio-telemetry.service \
     allscan-reimagined-m17-bridge@.service; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
@@ -267,6 +360,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-release-check.timer \
     allscan-reimagined-standard-bridge-status.service \
+    allscan-reimagined-bridge-audio-telemetry.service \
     allscan-reimagined-dmr-net-live.service \
     allscan-reimagined-ysf-net-live.service \
     allscan-reimagined-p25-bridge-status.service \
@@ -397,6 +491,11 @@ rollback_on_error() {
         echo "WARNING: The previous ASR persistence wiring could not be fully reapplied." >&2
         printf '%s\n' "$prior_reapply_output" >&2
       fi
+      if [ -f "$BACKUP_DIR/asr-webroot.tar.gz" ] \
+        && ! python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" restore-webroot-links \
+          "$BACKUP_DIR/asr-webroot.tar.gz" "$ASR_WEB_DIR" >/dev/null; then
+        echo "WARNING: Preserved webroot links could not be fully restored." >&2
+      fi
     fi
     for helper_spec in \
       "scripts/asr-release-check.py:/usr/local/sbin/allscan-reimagined-release-check" \
@@ -410,6 +509,7 @@ rollback_on_error() {
       "scripts/asr-nxdn-bridge-control.py:/usr/local/sbin/allscan-reimagined-nxdn-bridge-control" \
       "scripts/asr-m17-bridge-control.py:/usr/local/sbin/allscan-reimagined-m17-bridge-control" \
       "scripts/asr-m17-usrp-connector.py:/usr/local/sbin/allscan-reimagined-m17-usrp-connector" \
+      "scripts/asr-bridge-audio-telemetry.py:/usr/local/sbin/allscan-reimagined-bridge-audio-telemetry" \
       "scripts/asr-fixed-bridge-recovery.py:/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery" \
       "scripts/asr-bridge-lifecycle.py:/usr/local/sbin/allscan-reimagined-bridge-lifecycle" \
       "scripts/asr-startup-bridge-summary.py:/usr/local/sbin/allscan-reimagined-startup-bridge-summary" \
@@ -667,6 +767,8 @@ WEB_GROUP="www-data"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="apache"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || WEB_GROUP="http"
 getent group "$WEB_GROUP" >/dev/null 2>&1 || fail "A supported web-server group was not found."
+WEB_USER="$WEB_GROUP"
+getent passwd "$WEB_USER" >/dev/null 2>&1 || fail "A supported web-server user was not found."
 
 if systemctl is-enabled --quiet allscan-reimagined-reapply.path 2>/dev/null; then
   REAPPLY_PATH_WAS_ENABLED=1
@@ -761,6 +863,7 @@ for unit in \
   allscan-reimagined-startup-bridge-summary.service \
   allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service \
+  allscan-reimagined-bridge-audio-telemetry.service \
   allscan-reimagined-m17-bridge@.service; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
@@ -781,6 +884,7 @@ if [ -f /etc/allscan/favorites.ini ]; then
 else
   : > "$BACKUP_DIR/runtime/etc-favorites.ini.absent"
 fi
+backup_scheduler_state
 if [ -d "$WEB_ROOT/allscan-old" ]; then
   ALLSCAN_OLD_BACKUP="$BACKUP_DIR/preserved-allscan-old"
   mv "$WEB_ROOT/allscan-old" "$ALLSCAN_OLD_BACKUP"
@@ -884,6 +988,18 @@ python3 "$PAYLOAD_DIR/scripts/asr-rollback.py" \
 CHANGES_STARTED=1
 if [ "$BROWSER_UPDATE" -eq 1 ]; then
   /usr/local/sbin/allscan-reimagined-updater internal-progress "$ASR_UPDATE_JOB_ID" installing >/dev/null
+fi
+
+if [ "$latest_version" = "v1.06" ] \
+  && [ "$current_version" != "v1.06" ] \
+  && [ -f /etc/allscan/allscan.db ]; then
+  echo "Migrating the ASR command-button setting away from AllScan v1.06 scheduler key 14..."
+  python3 "$PAYLOAD_DIR/scripts/asr-allscan-v106-migrate.py" migrate \
+    --database /etc/allscan/allscan.db --from-version "$current_version" \
+    || fail "The AllScan v1.06 configuration migration could not be completed safely."
+  reconcile_scheduler_crontab disable
+elif [ "$latest_version" = "v1.06" ] && [ "$current_version" = "v1.06" ]; then
+  reconcile_scheduler_crontab deduplicate
 fi
 systemctl stop \
   allscan-reimagined-reapply.path \
@@ -993,7 +1109,9 @@ cp -a "$PAYLOAD_DIR/." "$RELEASE_STAGE/"
 chown -R root:root "$RELEASE_STAGE"
 find "$RELEASE_STAGE" -type d -exec chmod 755 {} +
 find "$RELEASE_STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-tgif-urf-dmr-bridge.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-updater.py" "$RELEASE_STAGE/scripts/asr-stock-allscan.py" "$RELEASE_STAGE/bin/"*.sh "$RELEASE_STAGE/scripts/"*.sh "$RELEASE_STAGE/scripts/asr-apache-listeners.py" "$RELEASE_STAGE/scripts/asr-friendly-names.php" "$RELEASE_STAGE/scripts/asr-bridge-clients.php" "$RELEASE_STAGE/scripts/asr-settings-bridge-self-test.php" "$RELEASE_STAGE/scripts/asr-echolink-self-test.php" "$RELEASE_STAGE/scripts/asr-manager-perms.sh" "$RELEASE_STAGE/scripts/asr-patch-connected-clients.py" "$RELEASE_STAGE/scripts/asr-migrate-tgif-environment.py" "$RELEASE_STAGE/scripts/asr-tgif-user-session.py" "$RELEASE_STAGE/scripts/asr-standard-bridge-repair.py" "$RELEASE_STAGE/scripts/asr-patch-allscan-index.py" "$RELEASE_STAGE/scripts/asr-release-check.py" "$RELEASE_STAGE/scripts/asr-rollback.py" "$RELEASE_STAGE/scripts/asr-bridge-control.py"  "$RELEASE_STAGE/scripts/asr-managed-dmr-net-control.py" "$RELEASE_STAGE/scripts/asr-bridge-stale-status-self-test.py" "$RELEASE_STAGE/scripts/asr-ysf-bridge-control.py" "$RELEASE_STAGE/scripts/asr-p25-bridge-control.py" "$RELEASE_STAGE/scripts/asr-nxdn-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-bridge-control.py" "$RELEASE_STAGE/scripts/asr-m17-usrp-connector.py" "$RELEASE_STAGE/scripts/asr-bridge-audio-telemetry.py" "$RELEASE_STAGE/scripts/asr-fixed-bridge-recovery.py" "$RELEASE_STAGE/scripts/asr-bridge-lifecycle.py" "$RELEASE_STAGE/scripts/asr-startup-bridge-summary.py" "$RELEASE_STAGE/scripts/asr-protected-config-metadata.py" "$RELEASE_STAGE/scripts/asr-favorites-update.py" "$RELEASE_STAGE/scripts/asr-favorites-manager.py" "$RELEASE_STAGE/scripts/asr-favorites-source.py" "$RELEASE_STAGE/scripts/asr-loopback-validate.py" "$RELEASE_STAGE/scripts/asr-stock-count-helper.py" "$RELEASE_STAGE/scripts/asr-lookup-map-self-test.php" "$RELEASE_STAGE/scripts/asr-lookup-map-browser-self-test.mjs" "$RELEASE_STAGE/scripts/asr-access-policy-self-test.php"
+chmod 755 "$RELEASE_STAGE/scripts/asr-allscan-v106-migrate.py"
+chmod 755 "$RELEASE_STAGE/scripts/asr-systemd-timers.py" "$RELEASE_STAGE/scripts/asr-timer-control.py"
 RELEASE_PREVIOUS="${RELEASE_DIR}.previous.$$"
 rm -rf "$RELEASE_PREVIOUS"
 if [ -d "$RELEASE_DIR" ]; then
@@ -1050,6 +1168,10 @@ if [ "$BROWSER_UPDATE" -eq 1 ]; then
 fi
 ASR_INSTALL_LOCK_HELD=1 STOCK_ALLSCAN_DIR="$STOCK_ALLSCAN_DIR" ASR_WEB_DIR="$ASR_WEB_DIR" \
   "$RELEASE_DIR/scripts/asr-reapply.sh"
+if [ -f "$BACKUP_DIR/asr-webroot.tar.gz" ]; then
+  python3 "$RELEASE_DIR/scripts/asr-rollback.py" restore-webroot-links \
+    "$BACKUP_DIR/asr-webroot.tar.gz" "$ASR_WEB_DIR" >/dev/null
+fi
 
 echo
 echo "LOGIN AND PUBLIC MONITORING"
@@ -1141,10 +1263,9 @@ elif [ "$current_stock_permission" -ne 0 ] \
 else
   requested_stock_permission=2
 fi
-if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
-  # An empty fresh stock AllScan database cannot be locked to login-only
-  # before an administrator account exists. Fail with an actionable message
-  # rather than a generic database-policy failure and rollback surprise.
+if [ "$requested_stock_permission" -ne "$current_stock_permission" ] || [ "$requested_stock_permission" -eq 0 ]; then
+  # Bootstrap an initial administrator only with explicit terminal consent.
+  # Never silently relax the requested mandatory-login policy.
   if [ "$requested_stock_permission" -eq 0 ]; then
     php -r '
       $_SERVER["DOCUMENT_ROOT"] = $argv[1];
@@ -1158,8 +1279,33 @@ if [ "$requested_stock_permission" -ne "$current_stock_permission" ]; then
       $users = new UserModel($db);
       $admins = $users->getUsers(null, null, PERMISSION_ADMIN);
       exit(is_array($admins) && count($admins) > 0 ? 0 : 1);
-    ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" \
-      || fail "Stock AllScan login-only mode requires an existing stock administrator account. Create the stock AllScan administrator first, then rerun the installer; no access policy was changed."
+    ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" || {
+      # No password prompts in browser updates or noninteractive sessions.
+      if [ "$BROWSER_UPDATE" -eq 1 ] || ! [ -r /dev/tty ] || ! [ -w /dev/tty ] || ! has_interactive_tty; then
+        fail "Stock AllScan requires an administrator before mandatory login. Rerun interactively from a terminal to create one; policy remains unchanged."
+      fi
+      echo "Stock AllScan has no administrator. An initial administrator is required."
+      if ! ask "Create a stock AllScan administrator now? [y/N]" n; then
+        fail "Administrator setup declined; stock login policy unchanged."
+      fi
+      printf 'Administrator name (2-24 letters/numbers/spaces/.-): ' > /dev/tty
+      IFS= read -r bootstrap_admin_name < /dev/tty || fail "Administrator setup interrupted."
+      printf 'Password (6-16 supported ASCII characters): ' > /dev/tty
+      IFS= read -r -s bootstrap_admin_password < /dev/tty || fail "Administrator setup interrupted."
+      printf '\nConfirm password: ' > /dev/tty
+      IFS= read -r -s bootstrap_admin_confirm < /dev/tty || fail "Administrator setup interrupted."
+      printf '\n' > /dev/tty
+      if [ "$bootstrap_admin_password" != "$bootstrap_admin_confirm" ]; then
+        unset bootstrap_admin_password bootstrap_admin_confirm
+        fail "Passwords did not match; no account created."
+      fi
+      if ! printf '%s\n%s\n' "$bootstrap_admin_name" "$bootstrap_admin_password" \
+        | php "$PAYLOAD_DIR/scripts/asr-stock-admin-bootstrap.php" "$WEB_ROOT" "$STOCK_ALLSCAN_DIR"; then
+        unset bootstrap_admin_password bootstrap_admin_confirm
+        fail "Stock administrator bootstrap failed; no access policy changed."
+      fi
+      unset bootstrap_admin_password bootstrap_admin_confirm bootstrap_admin_name
+    }
   fi
   php -r '
     $_SERVER["DOCUMENT_ROOT"] = $argv[1];
@@ -1314,7 +1460,7 @@ validate_command "rollback helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-rollback.py" self-test >/dev/null
 validate_command "bridge-control helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-control.py" --self-test >/dev/null
-validate_command "DMR/YSF stale Talking status self-test" \
+validate_command "Standard Bridge stale/activity status self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-stale-status-self-test.py" >/dev/null
 validate_command "bridge Settings self-test" \
   php "$RELEASE_DIR/scripts/asr-settings-bridge-self-test.php" >/dev/null
@@ -1344,10 +1490,12 @@ validate_command "DMR connected-client roster stability self-test" \
   python3 "$RELEASE_DIR/scripts/asr-dmr-roster-stability-self-test.py" >/dev/null
 validate_command "node-wide TGIF session helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-tgif-user-session.py" self-test >/dev/null
-validate_command "TGIF/URFWIL DMR adapter self-test" \
-  python3 "$RELEASE_DIR/scripts/asr-tgif-urf-dmr-bridge.py" --self-test >/dev/null
+validate_command "direct DMR TGIF proxy self-test" \
+  python3 "$RELEASE_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" --self-test >/dev/null
 validate_command "managed direct DMR installer self-test" \
   python3 "$RELEASE_DIR/scripts/asr-bridge-setup-dmr-self-test.py" >/dev/null
+validate_command "bridge real-PCM telemetry self-test" \
+  python3 "$RELEASE_DIR/scripts/asr-bridge-audio-telemetry.py" --self-test >/dev/null
 validate_command "Favorites update helper self-test" \
   python3 "$RELEASE_DIR/scripts/asr-favorites-update.py" --self-test >/dev/null
   python3 "$RELEASE_DIR/scripts/asr-favorites-manager.py" --self-test >/dev/null
@@ -1423,13 +1571,13 @@ raise SystemExit(
         and re.sub(
             r"[^a-z0-9]", "",
             str(item.get("mode", item.get("id", ""))).lower(),
-        ).startswith(("dmr", "ysf"))
+        ).startswith(("dmr", "ysf", "p25", "nxdn", "m17"))
         for item in payload.get("bridges", [])
     ) else 1
 )
 PY
 then
-  validate_command "configured Standard DMR/YSF status service is active" \
+  validate_command "configured Standard Bridge status service is active" \
     systemctl is-active --quiet allscan-reimagined-standard-bridge-status.service
 fi
 if python3 - /etc/allscan-reimagined/config.json <<'PY'

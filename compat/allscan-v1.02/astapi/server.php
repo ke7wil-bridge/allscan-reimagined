@@ -107,10 +107,9 @@ $saved = [];
 $nodeTime = [];
 $talkerHistoryPath = $sharedDir . '/talkers-' . $node . '.json';
 $asrTalkerHistory = loadTalkerHistory($talkerHistoryPath);
-$urfTalkerEvents = asrUrfTalkerEvents();
 $bridgeTalkerEvidence = asrBridgeTalkerEvidence();
 $enrichedTalkerHistory = asrEnrichAllStarTalkers($asrTalkerHistory, $astdb);
-$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
+$enrichedTalkerHistory = asrEnrichBridgeTalkers($enrichedTalkerHistory, [], '/var/lib/asterisk/astdb.txt', $bridgeTalkerEvidence);
 if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	$asrTalkerHistory = $enrichedTalkerHistory;
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
@@ -167,8 +166,7 @@ while(!empty($fp[$node])) {
 		$current[$node]['remote_nodes'], $node, $info, $astdb
 	);
 	if($nextCurrentTalker !== null) {
-		$urfTalkerEvents = asrUrfTalkerEvents();
-		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, $urfTalkerEvents, '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
 	// History is transmission-event history, not unique-station history.
 	// If the same node keys three separate times, keep all three events.
@@ -373,11 +371,11 @@ function loadTalkerHistory($path) {
 	if(!is_array($rows)) return [];
 	return array_slice(array_values(array_filter($rows, static function($row) {
 		return is_array($row) && trim((string)($row['node'] ?? '')) !== '';
-	})), 0, 4);
+	})), 0, ASR_TALKER_HISTORY_LIMIT);
 }
 
 function writeTalkerHistory($path, $rows) {
-	$payload = json_encode(['updated_epoch' => time(), 'last_talkers' => array_slice(array_values($rows), 0, 4)]);
+	$payload = json_encode(['updated_epoch' => time(), 'last_talkers' => array_slice(array_values($rows), 0, ASR_TALKER_HISTORY_LIMIT)]);
 	if($payload === false) return;
 	$tmp = $path . '.' . getmypid() . '.tmp';
 	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
@@ -424,7 +422,7 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		$cacheChanged = $updated !== '' && $updated !== $lastUpdate;
 		$guardOpened = $lastGuarded === false && $guarded;
 		if($cacheChanged || ($guardOpened && $updated !== '')) {
-			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], asrUrfTalkerEvents(), '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
+			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $guarded);
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {

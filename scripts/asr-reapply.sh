@@ -62,34 +62,89 @@ repair_protected_config_metadata() {
 
 repair_protected_config_metadata
 
-# Global Ban state must survive native-node reboots. Docker nodes provide the
-# same contract as a bind mount at /run/urf-wil-config, while native nodes keep
-# the canonical files under /var/lib and recreate the runtime link at boot.
+# URF reflector support was retired in Beta 8.5.1 (#177). Move any saved URF
+# reflector cards (the aggregate record and its per-mode digital cards) out
+# of config.json into retired-urf-bridges.json after a full backup. Zello cards
+# that carried the old grouping flag stay. No runtime data or credential is
+# deleted; installed URF services are left exactly as they are.
+if [ "$WEB_ONLY" != "1" ] && [ -f /etc/allscan-reimagined/config.json ]; then
+  python3 -I - /etc/allscan-reimagined/config.json <<'PY_RETIRE_URF' || { echo "URF card retirement failed; config.json was not changed." >&2; exit 1; }
+import json, os, sys, tempfile, time
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    config = json.load(handle)
+bridges = config.get("bridges") if isinstance(config, dict) else None
+if not isinstance(bridges, list):
+    raise SystemExit(0)
+def retired(bridge):
+    if not isinstance(bridge, dict):
+        return False
+    mode = str(bridge.get("mode") or "").lower()
+    return mode == "urf" or (bool(bridge.get("urfReflector")) and mode in {"dmr", "ysf", "p25", "nxdn", "m17"}
+                             and str(bridge.get("cardType") or "standard") == "standard")
+gone = [bridge for bridge in bridges if retired(bridge)]
+if not gone:
+    raise SystemExit(0)
+stamp = time.strftime("%Y%m%d-%H%M%S")
+directory = os.path.dirname(path)
+info = os.stat(path)
+with open(path, "rb") as source, open(os.path.join(directory, f"config.json.pre-urf-retirement-{stamp}"), "wb") as backup:
+    backup.write(source.read())
+retired_path = os.path.join(directory, "retired-urf-bridges.json")
+try:
+    with open(retired_path, encoding="utf-8") as handle:
+        previous = json.load(handle)
+except (OSError, ValueError):
+    previous = {"schema": 1, "retired": []}
+previous.setdefault("retired", []).append({"retiredAt": stamp, "bridges": gone})
+config["bridges"] = [bridge for bridge in bridges if not retired(bridge)]
+for target, payload, mode in ((retired_path, previous, 0o600), (path, config, info.st_mode & 0o777)):
+    descriptor, temporary = tempfile.mkstemp(prefix=".asr-urf-retire.", dir=directory)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.chmod(temporary, mode)
+    if target == path:
+        os.chown(temporary, info.st_uid, info.st_gid)
+    os.replace(temporary, target)
+print(f"Retired {len(gone)} URF reflector card(s); backup config.json.pre-urf-retirement-{stamp}")
+PY_RETIRE_URF
+fi
+
+# Global Ban state lives under /var/lib/allscan-reimagined/admin and must
+# survive reboots. Beta 8.5.1 renamed the policy list from the retired URF
+# reflector's urfd.blacklist to global-bans.list; existing bans migrate here.
 if [ "$WEB_ONLY" != "1" ] && [ ! -e /.dockerenv ]; then
   GLOBAL_BAN_DIR="$DATA_DIR/admin"
   install -d -o root -g root -m 755 "$GLOBAL_BAN_DIR"
   for legacy_dir in /run/urf-wil-config "$DATA_DIR/global-ban"; do
     [ -d "$legacy_dir" ] || continue
     [ "$(readlink -f "$legacy_dir")" = "$GLOBAL_BAN_DIR" ] && continue
-    for state_file in urfd.blacklist asr-timed-bans.json asr-admin-audit.jsonl asr-asl-bans.json; do
+    for state_file in asr-timed-bans.json asr-admin-audit.jsonl asr-asl-bans.json; do
       [ -f "$legacy_dir/$state_file" ] && [ ! -e "$GLOBAL_BAN_DIR/$state_file" ] && cp -p "$legacy_dir/$state_file" "$GLOBAL_BAN_DIR/$state_file"
     done
+    [ -f "$legacy_dir/urfd.blacklist" ] && [ ! -e "$GLOBAL_BAN_DIR/global-bans.list" ] && \
+      cp -p "$legacy_dir/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"
   done
-  [ -e "$GLOBAL_BAN_DIR/urfd.blacklist" ] || printf '%s\n' '# Managed by AllScan Reimagined URF Administration' > "$GLOBAL_BAN_DIR/urfd.blacklist"
+  if [ -f "$GLOBAL_BAN_DIR/urfd.blacklist" ] && [ ! -L "$GLOBAL_BAN_DIR/urfd.blacklist" ]; then
+    [ -e "$GLOBAL_BAN_DIR/global-bans.list" ] || cp -p "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/global-bans.list"
+    mv "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/.urfd.blacklist.migrated-$(date +%s)"
+  fi
+  [ -e "$GLOBAL_BAN_DIR/global-bans.list" ] || printf '%s\n' '# Managed by AllScan Reimagined Global Ban' > "$GLOBAL_BAN_DIR/global-bans.list"
   [ -e "$GLOBAL_BAN_DIR/asr-timed-bans.json" ] || printf '%s\n' '{}' > "$GLOBAL_BAN_DIR/asr-timed-bans.json"
   [ -e "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl" ] || : > "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
-  chown root:root "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json" "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
-  chmod 644 "$GLOBAL_BAN_DIR/urfd.blacklist" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
+  chown root:root "$GLOBAL_BAN_DIR/global-bans.list" "$GLOBAL_BAN_DIR/asr-timed-bans.json" "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  chmod 644 "$GLOBAL_BAN_DIR/global-bans.list" "$GLOBAL_BAN_DIR/asr-timed-bans.json"
   chmod 640 "$GLOBAL_BAN_DIR/asr-admin-audit.jsonl"
+  # Legacy read-only aliases for software outside ASR that predates the rename
+  # (for example a hand-patched Zello bridge reading
+  # /run/urf-wil-config/urfd.blacklist). ASR itself uses only the paths above.
+  ln -sfn global-bans.list "$GLOBAL_BAN_DIR/urfd.blacklist"
   if [ -d /run/urf-wil-config ] && [ ! -L /run/urf-wil-config ]; then
     mv /run/urf-wil-config "/run/urf-wil-config.pre-asr-$(date +%s)"
   fi
   printf '%s\n' 'L+ /run/urf-wil-config - - - - /var/lib/allscan-reimagined/admin' > /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
   systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined-global-ban.conf
-  [ -L /run/urf-wil-config ] && [ "$(readlink -f /run/urf-wil-config)" = "$GLOBAL_BAN_DIR" ] || {
-    echo "Native Global Ban runtime link could not be created." >&2
-    exit 1
-  }
 fi
 
 safe_chown_files() {
@@ -224,7 +279,9 @@ stage_asr_web() {
     while IFS= read -r -d '' source; do
       relative=${source#"$compat_dir/"}
       install -d -m 755 "$(dirname "$stage/$relative")"
-      install -m 644 "$source" "$stage/$relative"
+      compat_mode=644
+      [ "$relative" = "_tools/runSchedule.php" ] && compat_mode=755
+      install -m "$compat_mode" "$source" "$stage/$relative"
     done < <(find "$compat_dir" -type f -print0)
   else
     echo "No exact ASR compatibility layer exists for AllScan ${backend_version:-unknown}; keeping the current /asr tree." >&2
@@ -276,9 +333,37 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /u
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-apache-listeners.py" /usr/local/sbin/allscan-reimagined-apache-listeners
 [ -f "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" /usr/local/sbin/allscan-reimagined-standard-bridge-repair
-install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-urf-admin.py" /usr/local/sbin/allscan-reimagined-urf-admin
+install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-global-ban.py" /usr/local/sbin/allscan-reimagined-global-ban
+rm -f /usr/local/sbin/allscan-reimagined-urf-admin
+# Native UDP reflector administration proxy (YSF/P25/NXDN/M17 public-port
+# Kick/Ban). Instances run only where /etc/allscan-reimagined/native-udp-admin
+# holds their environment; reinstalling updates running instances in place.
+if [ -f "$MASTER_DIR/scripts/asr-native-udp-admin.py" ] && [ ! -e /.dockerenv ]; then
+  # Restart running proxies only when the proxy or its unit actually changed.
+  # A restart briefly relinks every YSF/P25/NXDN/M17 client and drops active
+  # Kick holds, and full reapplies run whenever the web tree is repaired (#134).
+  native_admin_changed=0
+  cmp -s "$MASTER_DIR/scripts/asr-native-udp-admin.py" /usr/local/sbin/allscan-reimagined-native-udp-admin || native_admin_changed=1
+  cmp -s "$MASTER_DIR/ops/native-udp-admin/allscan-reimagined-native-admin@.service" \
+    /etc/systemd/system/allscan-reimagined-native-admin@.service || native_admin_changed=1
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-native-udp-admin.py" /usr/local/sbin/allscan-reimagined-native-udp-admin
+  install -o root -g root -m 644 "$MASTER_DIR/ops/native-udp-admin/allscan-reimagined-native-admin@.service" \
+    /etc/systemd/system/allscan-reimagined-native-admin@.service
+  if [ "$native_admin_changed" -eq 1 ]; then
+    systemctl daemon-reload
+    for unit in $(systemctl list-units --plain --no-legend --state=active 'allscan-reimagined-native-admin@*.service' | awk '{print $1}'); do
+      systemctl try-restart "$unit" || true
+    done
+  fi
+fi
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
+[ -f "$MASTER_DIR/scripts/asr-zello-session-patch.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-zello-session-patch.py" /usr/local/sbin/allscan-reimagined-zello-session-patch
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
+[ -f "$MASTER_DIR/scripts/asr-systemd-timers.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-systemd-timers.py" /usr/local/sbin/allscan-reimagined-systemd-timers
+[ -f "$MASTER_DIR/scripts/asr-timer-control.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-timer-control.py" /usr/local/sbin/allscan-reimagined-timer-control
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
 [ -f "$MASTER_DIR/scripts/asr-bridge-control.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-control.py" /usr/local/sbin/allscan-reimagined-bridge-control
@@ -299,6 +384,8 @@ install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-control
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-bridge-control.py" /usr/local/sbin/allscan-reimagined-m17-bridge-control
 [ -f "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-m17-usrp-connector.py" /usr/local/sbin/allscan-reimagined-m17-usrp-connector
+[ -f "$MASTER_DIR/scripts/asr-bridge-audio-telemetry.py" ] && \
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-bridge-audio-telemetry.py" /usr/local/sbin/allscan-reimagined-bridge-audio-telemetry
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
 if ! getent passwd asr-bridge >/dev/null 2>&1; then
   if getent group asr-bridge >/dev/null 2>&1; then
@@ -307,22 +394,54 @@ if ! getent passwd asr-bridge >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
   fi
 fi
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
-if [ -f "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" ]; then
-  install -o root -g root -m 755 "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" \
-    /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
+# Running DMR admin adapters keep the code they started with, so an upgrade
+# that changes the adapter must refresh every installed copy and restart the
+# services using it; otherwise the dashboard keeps reading the old capability
+# manifest (Beta 8.5.1: DMR Kick missing after upgrade).
+DMR_ADAPTER_SRC="$MASTER_DIR/scripts/asr-dmr-standalone-admin-adapter.py"
+if [ -f "$DMR_ADAPTER_SRC" ]; then
+  dmr_adapter_changed=0
+  for adapter_copy in /opt/allscan-reimagined-bridges/*/admin/asr-dmr-standalone-admin-adapter.py; do
+    [ -f "$adapter_copy" ] || continue
+    if ! cmp -s "$DMR_ADAPTER_SRC" "$adapter_copy"; then
+      install -m 750 -o "$(stat -c %u "$adapter_copy")" -g "$(stat -c %g "$adapter_copy")" "$DMR_ADAPTER_SRC" "$adapter_copy"
+      dmr_adapter_changed=1
+    fi
+  done
+  adapter_sum=$(sha256sum "$DMR_ADAPTER_SRC" | cut -d' ' -f1)
+  for unit in $(systemctl list-units --plain --no-legend --state=active --type=service | awk '{print $1}'); do
+    exec_line=$(systemctl show -p ExecStart --value "$unit" 2>/dev/null)
+    case "$exec_line" in *asr-dmr-standalone-admin-adapter.py*) ;; *) continue ;; esac
+    started=$(systemctl show -p ExecMainStartTimestampMonotonic --value "$unit" 2>/dev/null)
+    marker="/run/allscan-reimagined/dmr-adapter-$unit.sha256"
+    if [ "$dmr_adapter_changed" = "1" ] || [ "$(cat "$marker" 2>/dev/null)" != "$adapter_sum:$started" ]; then
+      systemctl try-restart "$unit" >/dev/null 2>&1 || true
+      install -d -m 755 /run/allscan-reimagined
+      printf '%s:%s\n' "$adapter_sum" "$(systemctl show -p ExecMainStartTimestampMonotonic --value "$unit" 2>/dev/null)" > "$marker"
+    fi
+  done
 fi
-if [ -d "$MASTER_DIR/runtime/urf" ]; then
-  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf.new
-  cp -a "$MASTER_DIR/runtime/urf" /usr/local/share/allscan-reimagined/runtime/urf.new
-  chown -R root:root /usr/local/share/allscan-reimagined/runtime/urf.new
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf
-  mv /usr/local/share/allscan-reimagined/runtime/urf.new /usr/local/share/allscan-reimagined/runtime/urf
+if [ -f "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" ]; then
+  install -o root -g root -m 755 "$MASTER_DIR/runtime/dmr/asr-tgif-dmr-proxy.py" \
+    /usr/local/libexec/allscan-reimagined/asr-tgif-dmr-proxy.py
 fi
+# The direct DMR installer stages the standalone TGIF relay from beside itself.
+if [ -f "$MASTER_DIR/scripts/bridge-relays/asr-tgif-standalone-relay.py" ]; then
+  install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined/bridge-relays
+  install -o root -g root -m 755 "$MASTER_DIR/scripts/bridge-relays/asr-tgif-standalone-relay.py" \
+    /usr/local/libexec/allscan-reimagined/bridge-relays/asr-tgif-standalone-relay.py
+fi
+# URF reflector support was retired in Beta 8.5.1 (#177). Remove only the
+# ASR-shipped program copies; installed bridges, data and credentials stay.
+rm -rf /usr/local/share/allscan-reimagined/runtime/urf
+rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-urf.py \
+  /usr/local/libexec/allscan-reimagined/asr-bridge-setup-urf-install.py \
+  /usr/local/libexec/allscan-reimagined/asr-bridge-urf-native-runtime.py \
+  /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
 if [ -d "$MASTER_DIR/runtime/zello" ]; then
   install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
   rm -rf /usr/local/share/allscan-reimagined/runtime/zello.new
@@ -347,6 +466,7 @@ install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-ysf-bridge-co
 install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-p25-bridge-control
 install -d -o root -g "$WEB_GROUP" -m 2750 /run/allscan-reimagined-nxdn-bridge-control
 install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
+install -d -o root -g root -m 755 /run/allscan-reimagined-bridge-audio
 install -d -o root -g root -m 755 /var/lib/allscan-reimagined/ysf-hosts
 install -d -o root -g root -m 750 /var/log/allscan-reimagined
 install -d -o root -g root -m 700 /var/lib/allscan-reimagined/bridge-ownership
@@ -375,6 +495,7 @@ d /run/allscan-reimagined 1775 root $WEB_GROUP -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
+d /run/allscan-reimagined-bridge-audio 0755 root root -
 d /run/allscan-reimagined-bridge-control 0755 root root -
 d /run/allscan-reimagined-m17 0755 root root -
 EOF
@@ -396,7 +517,7 @@ if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
 fi
 cat > /etc/systemd/system/allscan-reimagined-standard-bridge-status.service <<'EOF'
 [Unit]
-Description=Reconcile live activity for configured Standard DMR and YSF bridges
+Description=Reconcile live activity for configured Standard Bridges
 After=network.target asterisk.service
 
 [Service]
@@ -421,6 +542,42 @@ ReadWritePaths=/run/allscan-reimagined-standard-bridge-status
 [Install]
 WantedBy=multi-user.target
 EOF
+cat > /etc/systemd/system/allscan-reimagined-bridge-audio-telemetry.service <<'EOF'
+[Unit]
+Description=Measure real PCM levels for managed ASR bridges
+After=network.target asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-bridge-audio-telemetry
+Restart=on-failure
+RestartSec=2s
+Nice=10
+MemoryMax=48M
+TasksMax=8
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+LockPersonality=true
+RestrictAddressFamilies=AF_PACKET
+RestrictSUIDSGID=true
+ReadWritePaths=/run/allscan-reimagined-bridge-audio
+
+[Install]
+WantedBy=multi-user.target
+EOF
+if [ -x /usr/local/sbin/allscan-reimagined-bridge-audio-telemetry ]; then
+  systemctl daemon-reload
+  systemctl enable allscan-reimagined-bridge-audio-telemetry.service >/dev/null
+  systemctl restart allscan-reimagined-bridge-audio-telemetry.service
+else
+  systemctl disable --now allscan-reimagined-bridge-audio-telemetry.service >/dev/null 2>&1 || true
+  rm -f /run/allscan-reimagined-bridge-audio/levels.json
+fi
 if [ -x /usr/local/sbin/allscan-reimagined-standard-bridge-status ] \
   && python3 - "$CONFIG_DIR/config.json" <<'PY'
 import json
@@ -433,7 +590,7 @@ except (OSError, ValueError):
 raise SystemExit(0 if any(
     isinstance(item, dict)
     and item.get("cardType", "standard") == "standard"
-    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf"))
+    and re.sub(r"[^a-z0-9]", "", str(item.get("mode", item.get("id", ""))).lower()).startswith(("dmr", "ysf", "p25", "nxdn", "m17"))
     for item in payload.get("bridges", [])
 ) else 1)
 PY
@@ -675,7 +832,8 @@ fi
 cat > /etc/systemd/system/allscan-reimagined-fixed-bridge-recovery.service <<EOF
 [Unit]
 Description=Restore opted-in fixed ASR bridge links
-After=asterisk.service
+After=network-online.target asterisk.service
+Wants=network-online.target
 ConditionPathExists=/etc/allscan-reimagined/config.json
 ConditionPathExists=/etc/asterisk/rpt.conf
 
@@ -685,6 +843,8 @@ User=asterisk
 Group=asterisk
 SupplementaryGroups=$WEB_GROUP
 ExecStart=/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --once
+RuntimeDirectory=allscan-reimagined-fixed-bridge-recovery
+RuntimeDirectoryMode=0700
 Nice=10
 TimeoutStartSec=30s
 NoNewPrivileges=true
@@ -1110,14 +1270,17 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/bin/allscan_wt_clients.sh
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin capabilities
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin list --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
-$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-urf-admin kick [A-Z0-9_./-]* DMRMMDVM --dmr-id [0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban list --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban ban [A-Za-z0-9_./*-]* [A-Za-z0-9]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban unban [A-Za-z0-9_./*-]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-global-ban kick [A-Z0-9_./-]* ZELLO --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban list
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban sync
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban ban *
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asl-ban unban *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standalone-admin kick [a-z0-9_-]* [A-Z0-9_./-]* --actor [A-Za-z0-9_.@+-]* --client-id [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-timer-control *
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session status node
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-tgif-user-session login node [A-Z0-9]* --talkgroup [0-9]* --captcha [a-z0-9]*
@@ -1175,6 +1338,7 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --pre
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --diagnostic-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standard-bridge-repair [a-z]*
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined
@@ -1183,6 +1347,9 @@ visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null
 find "$ALLSCAN_DIR" ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chown root:root "$file" 2>/dev/null || true; done' sh {} +
 find "$ALLSCAN_DIR" -type d -exec chmod 755 {} + || true
 find "$ALLSCAN_DIR" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 644 "$file" 2>/dev/null || true; done' sh {} +
+# The native scheduler runner is executed directly from the web user's
+# crontab and must stay executable after the blanket 644 above (#200).
+[ -f "$ALLSCAN_DIR/_tools/runSchedule.php" ] && chmod 755 "$ALLSCAN_DIR/_tools/runSchedule.php"
 install -d -o root -g "$WEB_GROUP" -m 775 "$ALLSCAN_DIR/asr-user-content"
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'owner="$1"; shift; for file; do [ -e "$file" ] && chown "$owner" "$file" 2>/dev/null || true; done' sh "root:$WEB_GROUP" {} +
 find "$ALLSCAN_DIR/asr-user-content" -type f ! -name '*.tmp' -exec sh -c 'for file; do [ -e "$file" ] && chmod 664 "$file" 2>/dev/null || true; done' sh {} +
@@ -1268,8 +1435,31 @@ EOF
 OOMScoreAdjust=-750
 Nice=-5
 EOF
+  # Timed Global Bans must lift on time even when nobody has the dashboard
+  # open (#179); the dashboard poll was the only host-side expiry trigger.
+  cat > /etc/systemd/system/allscan-reimagined-global-ban-expire.service <<'EOF'
+[Unit]
+Description=Expire timed AllScan Reimagined Global Bans
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/allscan-reimagined-global-ban expire --actor system
+Nice=10
+EOF
+  cat > /etc/systemd/system/allscan-reimagined-global-ban-expire.timer <<'EOF'
+[Unit]
+Description=Expire timed ASR Global Bans every minute
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
   systemctl daemon-reload
   systemctl enable --now allscan-reimagined-node-diagnostics.timer >/dev/null 2>&1 || true
+  systemctl enable --now allscan-reimagined-global-ban-expire.timer >/dev/null 2>&1 || true
 fi
 
 if command -v apache2ctl >/dev/null 2>&1; then

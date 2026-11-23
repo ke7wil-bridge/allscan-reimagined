@@ -21,7 +21,7 @@ grep -Fqx "$TERMINAL_UPDATE_COMMAND" "$RELEASE_NOTES" || {
   exit 1
 }
 
-COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05"
+COMPAT_VERSIONS="v1.02 v1.03 v1.04 v1.05 v1.06"
 COMPAT_FILES=$(cat <<'EOF'
 LICENSE
 asr-instructions/index.php
@@ -59,7 +59,14 @@ COMPAT_MANIFEST=$(
     while IFS= read -r compat_file; do
       printf 'allscan-%s/%s\n' "$compat_version" "$compat_file"
     done <<< "$COMPAT_FILES"
-  done
+    if [ "$compat_version" = "v1.05" ] || [ "$compat_version" = "v1.06" ]; then
+      printf 'allscan-%s/lookup/network-graph.php\n' "$compat_version"
+      printf 'allscan-%s/lookup/node-info.php\n' "$compat_version"
+    fi
+    if [ "$compat_version" = "v1.06" ]; then
+      printf '%s\n' 'allscan-v1.06/_tools/runSchedule.php' 'allscan-v1.06/include/scheduleUtils.php'
+    fi
+  done | LC_ALL=C sort
 )
 ACTUAL_COMPAT_MANIFEST=$(cd "$ROOT/compat" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
 [ -z "$(find "$ROOT/compat" -type l -print -quit)" ] || {
@@ -76,7 +83,8 @@ for file in asr-api.php src/lib/allscanLive.ts \
   compat/allscan-v1.02/include/common.php \
   compat/allscan-v1.03/include/common.php \
   compat/allscan-v1.04/include/common.php \
-  compat/allscan-v1.05/include/common.php; do
+  compat/allscan-v1.05/include/common.php \
+  compat/allscan-v1.06/include/common.php; do
   if ! grep -Fq "$VERSION_LABEL" "$ROOT/$file"; then
     echo "$file does not contain expected version label: $VERSION_LABEL" >&2
     exit 1
@@ -112,18 +120,35 @@ done
 pnpm lint
 python3 "$ROOT/scripts/asr-bootstrap-self-test.py"
 python3 "$ROOT/scripts/asr-updater-self-test.py"
+python3 "$ROOT/scripts/asr-updater-api-self-test.py"
 python3 "$ROOT/scripts/asr-stock-allscan.py" self-test
+python3 "$ROOT/scripts/asr-allscan-v106-migrate.py" self-test
 python3 "$ROOT/scripts/asr-rollback.py" self-test
 python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-endpoint-collisions-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
+python3 "$ROOT/scripts/asr-retired-reflector-absence-self-test.py"
+python3 "$ROOT/scripts/asr-urf-absence-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-global-ban-storage-self-test.py"
+python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"
+python3 "$ROOT/scripts/asr-native-udp-admin-self-test.py"
+python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
+python3 "$ROOT/scripts/asr-m17-relay-loopback-self-test.py"
+python3 "$ROOT/scripts/asr-dmr-kick-tgif-self-test.py"
+python3 "$ROOT/scripts/asr-tgif-user-session.py" self-test
+python3 "$ROOT/scripts/bridge-relays/asr-tgif-standalone-relay.py" --self-test
+python3 "$ROOT/scripts/asr-dmr-admin-lock-self-test.py"
+python3 "$ROOT/scripts/asr-zello-kick-mute-self-test.py"
+python3 "$ROOT/scripts/asr-bridge-recent-activity-labels-self-test.py"
 python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
 python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
@@ -135,12 +160,16 @@ python3 "$ROOT/scripts/asr-reapply-m17-selection-self-test.py"
 python3 "$ROOT/scripts/asr-reapply-apache-self-test.py"
 python3 "$ROOT/scripts/asr-node-diagnostics.py" --self-test
 python3 "$ROOT/scripts/asr-asterisk-queue-self-test.py"
+python3 "$ROOT/scripts/asr-alert-state-self-test.py"
+python3 "$ROOT/scripts/asr-broadcastify-health-self-test.py"
+python3 "$ROOT/scripts/asr-echolink-module-health-self-test.py"
+python3 "$ROOT/scripts/asr-version-drift-self-test.py"
+python3 "$ROOT/scripts/asr-config-export-self-test.py"
 python3 "$ROOT/scripts/asr-apache-listeners.py" self-test
 python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
 TMPDIR=$(python3 -c 'import os; print(os.path.realpath("/tmp"))') \
   python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
-python3 "$ROOT/scripts/asr-bridge-setup-urf-native-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
@@ -149,6 +178,7 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-bridge-recent-activity-self-test.mjs"
 if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
   node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
 else
@@ -163,6 +193,7 @@ bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
+node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
 python3 "$ROOT/scripts/asr-favorites-update.py" --self-test
@@ -171,7 +202,10 @@ python3 "$ROOT/scripts/asr-favorites-order-self-test.py"
 python3 "$ROOT/scripts/asr-favorites-source.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate.py" --self-test
 python3 "$ROOT/scripts/asr-loopback-validate-integration-self-test.py"
-python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
+# Exercises asr-configure.sh, which needs PHP like the PHP self-tests above.
+if command -v php >/dev/null 2>&1; then
+  python3 "$ROOT/scripts/asr-installer-prompts-self-test.py"
+fi
 python3 "$ROOT/scripts/asr-instructions-self-test.py"
 python3 "$ROOT/scripts/asr-stock-count-helper.py" --self-test
 node "$ROOT/scripts/asr-lookup-map-browser-self-test.mjs"
@@ -219,19 +253,32 @@ find "$STAGE/payload/web" -maxdepth 1 -type f \
 install -m 644 asr-api.php "$STAGE/payload/server/asr-api.php"
 install -m 755 allscan_wt_clients.sh "$STAGE/payload/bin/allscan_wt_clients.sh"
 install -m 755 scripts/asr-configure.sh "$STAGE/payload/scripts/asr-configure.sh"
+install -m 755 scripts/asr-stock-admin-bootstrap.php "$STAGE/payload/scripts/asr-stock-admin-bootstrap.php"
 install -m 755 scripts/asr-reapply.sh "$STAGE/payload/scripts/asr-reapply.sh"
 install -m 755 scripts/asr-node-diagnostics.py "$STAGE/payload/scripts/asr-node-diagnostics.py"
+for diagnostic_script in \
+  asr-alert-state.py asr-alert-state-self-test.py \
+  asr-broadcastify-health.py asr-broadcastify-health-self-test.py \
+  asr-echolink-module-health.py asr-echolink-module-health-self-test.py \
+  asr-post-reboot-health.py asr-post-reboot-health-self-test.py \
+  asr-version-drift.py asr-version-drift-self-test.py \
+  asr-config-export.py asr-config-export-self-test.py; do
+  install -m 755 "scripts/$diagnostic_script" "$STAGE/payload/scripts/$diagnostic_script"
+done
 install -m 755 scripts/asr-integrity-check.sh "$STAGE/payload/scripts/asr-integrity-check.sh"
 install -m 755 scripts/asr-protected-config-metadata.py "$STAGE/payload/scripts/asr-protected-config-metadata.py"
 install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk-read.sh"
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
-install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
 install -m 755 scripts/asr-apache-listeners.py "$STAGE/payload/scripts/asr-apache-listeners.py"
 install -m 755 scripts/asr-standard-bridge-repair.py "$STAGE/payload/scripts/asr-standard-bridge-repair.py"
-install -m 755 scripts/asr-urf-admin.py "$STAGE/payload/scripts/asr-urf-admin.py"
+install -m 755 scripts/asr-global-ban.py "$STAGE/payload/scripts/asr-global-ban.py"
+install -m 755 scripts/asr-native-udp-admin.py "$STAGE/payload/scripts/asr-native-udp-admin.py"
+mkdir -p "$STAGE/payload/ops/native-udp-admin"
+install -m 644 ops/native-udp-admin/allscan-reimagined-native-admin@.service "$STAGE/payload/ops/native-udp-admin/allscan-reimagined-native-admin@.service"
 install -m 755 scripts/asr-asl-ban.py "$STAGE/payload/scripts/asr-asl-ban.py"
+install -m 755 scripts/asr-zello-session-patch.py "$STAGE/payload/scripts/asr-zello-session-patch.py"
 install -m 755 scripts/asr-standalone-admin.py "$STAGE/payload/scripts/asr-standalone-admin.py"
 install -m 755 scripts/asr-manager-perms.sh "$STAGE/payload/scripts/asr-manager-perms.sh"
 install -m 755 scripts/asr-favorites-permissions.sh "$STAGE/payload/scripts/asr-favorites-permissions.sh"
@@ -247,7 +294,7 @@ install -m 755 scripts/asr-installer-rollback-self-test.py "$STAGE/payload/scrip
 install -m 755 scripts/asr-reapply-apache-self-test.py "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 install -m 755 scripts/asr-bridge-control.py "$STAGE/payload/scripts/asr-bridge-control.py"
 install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/asr-managed-dmr-net-control.py"
-for setup_script in asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-bridge-setup-dmr-net-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
 for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
@@ -255,7 +302,7 @@ for container_script in asr-provisioning-detect.py asr-container-host-client.py 
 done
 install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"
 mkdir -p "$STAGE/payload/runtime"
-cp -a runtime/urf "$STAGE/payload/runtime/urf"
+cp -a runtime/dmr "$STAGE/payload/runtime/dmr"
 install -m 755 scripts/asr-ysf-bridge-control.py "$STAGE/payload/scripts/asr-ysf-bridge-control.py"
 install -m 644 scripts/asr_bridge_status.py "$STAGE/payload/scripts/asr_bridge_status.py"
 install -m 755 scripts/asr-bridge-stale-status-self-test.py "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
@@ -267,6 +314,7 @@ install -m 755 scripts/asr-p25-bridge-control.py "$STAGE/payload/scripts/asr-p25
 install -m 755 scripts/asr-nxdn-bridge-control.py "$STAGE/payload/scripts/asr-nxdn-bridge-control.py"
 install -m 755 scripts/asr-m17-bridge-control.py "$STAGE/payload/scripts/asr-m17-bridge-control.py"
 install -m 755 scripts/asr-m17-usrp-connector.py "$STAGE/payload/scripts/asr-m17-usrp-connector.py"
+install -m 755 scripts/asr-bridge-audio-telemetry.py "$STAGE/payload/scripts/asr-bridge-audio-telemetry.py"
 install -m 755 scripts/asr-fixed-bridge-recovery.py "$STAGE/payload/scripts/asr-fixed-bridge-recovery.py"
 install -m 755 scripts/asr-bridge-lifecycle.py "$STAGE/payload/scripts/asr-bridge-lifecycle.py"
 install -m 755 scripts/asr-startup-bridge-summary.py "$STAGE/payload/scripts/asr-startup-bridge-summary.py"
@@ -282,6 +330,13 @@ install -m 755 scripts/asr-favorites-source.py "$STAGE/payload/scripts/asr-favor
 install -m 755 scripts/asr-loopback-validate.py "$STAGE/payload/scripts/asr-loopback-validate.py"
 install -m 755 scripts/asr-loopback-validate-integration-self-test.py "$STAGE/payload/scripts/asr-loopback-validate-integration-self-test.py"
 install -m 755 scripts/asr-stock-allscan.py "$STAGE/payload/scripts/asr-stock-allscan.py"
+install -m 755 scripts/asr-allscan-v106-migrate.py "$STAGE/payload/scripts/asr-allscan-v106-migrate.py"
+install -m 755 scripts/asr-systemd-timers.py "$STAGE/payload/scripts/asr-systemd-timers.py"
+install -m 755 scripts/asr-systemd-timers-self-test.py "$STAGE/payload/scripts/asr-systemd-timers-self-test.py"
+install -m 755 scripts/asr-timer-control.py "$STAGE/payload/scripts/asr-timer-control.py"
+install -m 755 scripts/asr-timer-control-self-test.py "$STAGE/payload/scripts/asr-timer-control-self-test.py"
+install -m 755 scripts/asr-schedule-safety-self-test.py "$STAGE/payload/scripts/asr-schedule-safety-self-test.py"
+install -m 755 scripts/asr-schedule-integration-self-test.php "$STAGE/payload/scripts/asr-schedule-integration-self-test.php"
 install -m 755 scripts/asr-favorites-discovery-self-test.php "$STAGE/payload/scripts/asr-favorites-discovery-self-test.php"
 install -m 755 scripts/asr-installer-prompts-self-test.py "$STAGE/payload/scripts/asr-installer-prompts-self-test.py"
 install -m 755 scripts/asr-instructions-self-test.py "$STAGE/payload/scripts/asr-instructions-self-test.py"
@@ -304,11 +359,14 @@ bash -n "$STAGE/install.sh"
 bash -n "$STAGE/bootstrap.sh"
 install -m 644 package.json "$STAGE/package.json"
 install -m 644 stock-allscan.json "$STAGE/payload/stock-allscan.json"
+mkdir -p "$STAGE/payload/scripts/bridge-relays"
+install -m 755 scripts/bridge-relays/asr-tgif-standalone-relay.py "$STAGE/payload/scripts/bridge-relays/asr-tgif-standalone-relay.py"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"
 install -m 644 docs/lookup-map.md "$STAGE/docs/lookup-map.md"
+install -m 644 docs/issue-200-admin-scheduling.md "$STAGE/docs/issue-200-admin-scheduling.md"
 python3 - "$STAGE" "$ROOT/install.sh" <<'PY'
 from pathlib import Path
 import re
@@ -327,6 +385,16 @@ import sys
 scripts = Path(sys.argv[1])
 if not (scripts / "asr-asl-ban.py").is_file():
     raise SystemExit("Native Global Ban helper is missing from the release archive")
+# Prevent a release that builds successfully but fails the DMR installer
+# self-test on the target machine due to missing nested relay sources.
+for required in (
+    "bridge-relays/asr-tgif-standalone-relay.py",
+    "asr-dmr-standalone-admin-adapter.py",
+    "asr-bridge-setup-dmr-install.py",
+    "asr-bridge-setup-dmr-self-test.py",
+):
+    if not (scripts / required).is_file():
+        raise SystemExit(f"Managed DMR runtime source missing from release archive: {required}")
 installer_path = scripts / "asr-container-host-install.py"
 tree = ast.parse(installer_path.read_text(encoding="utf-8"), filename=str(installer_path))
 required_groups = {"HOST_FILES", "CONTROL_FILES", "SUPPORT_FILES"}
@@ -359,6 +427,10 @@ if command -v php >/dev/null 2>&1; then
       php -l "$STAGE/payload/compat/allscan-$compat_version/$compat_file" >/dev/null
     done
   done
+  php -l "$STAGE/payload/compat/allscan-v1.06/asr-settings/settings-controller.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.06/include/scheduleUtils.php" >/dev/null
+  php -l "$STAGE/payload/compat/allscan-v1.06/_tools/runSchedule.php" >/dev/null
+  php "$STAGE/payload/scripts/asr-schedule-integration-self-test.php"
   php "$STAGE/payload/scripts/asr-bridge-status-privacy-self-test.php"
   php "$STAGE/payload/scripts/asr-settings-bridge-self-test.php"
   php "$STAGE/payload/scripts/asr-echolink-self-test.php"
@@ -373,6 +445,15 @@ python3 "$STAGE/payload/scripts/asr-reapply-apache-self-test.py"
 python3 "$STAGE/payload/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$STAGE/payload/scripts/asr-install-preflight-self-test.py"
 python3 "$STAGE/payload/scripts/asr-install-diagnostics-self-test.py"
+python3 "$STAGE/payload/scripts/asr-alert-state-self-test.py"
+python3 "$STAGE/payload/scripts/asr-broadcastify-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-echolink-module-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-post-reboot-health-self-test.py"
+python3 "$STAGE/payload/scripts/asr-version-drift-self-test.py"
+python3 "$STAGE/payload/scripts/asr-config-export-self-test.py"
+python3 "$STAGE/payload/scripts/asr-systemd-timers-self-test.py"
+python3 "$STAGE/payload/scripts/asr-timer-control-self-test.py"
+python3 "$STAGE/payload/scripts/asr-schedule-safety-self-test.py"
 
 find "$STAGE" \( -name '._*' -o -name '.DS_Store' \) -delete
 find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf -- {} +

@@ -706,35 +706,14 @@ html[data-asr-theme="matrix"] .allscan-favorites-table thead th {
     text-transform: uppercase;
   }
 
-  html[data-asr-theme="lcars-frame"] .allscan-urf-group {
-    left: auto;
-    width: 100%;
-    max-width: none;
-    margin-left: 0;
-    background: #070507;
-    border-color: rgba(255,255,255,.16);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-urf-group-title {
-    background: #998866 !important;
-    color: #170b04 !important;
-    border-bottom-color: rgba(255,255,255,.16) !important;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-urf-group > .allscan-urf-access-panel {
+  html[data-asr-theme="lcars-frame"] .allscan-ban-admin-scope {
     background: #09080a;
     color: #f5eadc;
     border-color: rgba(255,255,255,.16);
   }
 
-  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-scope {
-    background: #09080a;
-    color: #f5eadc;
-    border-color: rgba(255,255,255,.16);
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-tools input,
-  html[data-asr-theme="lcars-frame"] .allscan-urf-admin-clients > span {
+  html[data-asr-theme="lcars-frame"] .allscan-ban-admin-tools input,
+  html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span {
     background: #09080a;
     color: #f5eadc;
     border-color: rgba(255,255,255,.16);

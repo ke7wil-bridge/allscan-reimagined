@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.4.3 supports the current official AllScan v1.05
+Gleason's AllScan. Beta 8.6 supports the current official AllScan v1.05
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -11,11 +11,11 @@ AllScan Reimagined is customized by KE7WIL.
 
 If you're using AllScan Reimagined, I'd appreciate a quick email letting me know you're running it. It helps me understand how ASR is being used and support its continued development. [Email KE7WIL](mailto:ke7wil@gmail.com).
 
-This archive is **Beta 8.4.3**, a release candidate.
+This archive is **Beta 8.6**, the bridge integration and digital talker parity release (URF reflector support removed).
 
-Beta 8.4.3 restores updater recovery, improves client administration, and fixes small /tmp installer staging,
-retains the previous bridge status improvements and modularized CSS with
-visual regression coverage.
+Beta 8.5 improves installer recovery, Favorites management, Support and
+Feedback, read-only diagnostics, and release-note accessibility. It preserves
+the published Beta 8.4.3 bridge configuration, services, transports, and APIs.
 
 Beta 8.4 introduced end-to-end URF installation request correlation, helper
 lifecycle auditing, bounded read-only runtime diagnostics, and persistent
@@ -198,6 +198,15 @@ Node-specific settings are stored outside the web root:
 
 ```text
 /etc/allscan-reimagined/config.json
+```
+
+Nodes that must reconnect automatically can be placed in the optional
+`requiredAllStarLinks` list. ASR uses structured app_rpt commands and bounded
+30-second, 60-second, then five-minute retry backoff; do not also place those
+nodes in `startup_macro`.
+
+```json
+"requiredAllStarLinks": ["578990"]
 ```
 
 Uploaded logos are stored in:

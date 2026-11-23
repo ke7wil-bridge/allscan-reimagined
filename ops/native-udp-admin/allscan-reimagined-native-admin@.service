@@ -1,0 +1,33 @@
+[Unit]
+Description=AllScan Reimagined native %i reflector administration proxy
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/allscan-reimagined/native-udp-admin/%i.env
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/allscan-reimagined/native-udp-admin/%i.env
+ExecStart=/usr/local/sbin/allscan-reimagined-native-udp-admin
+Restart=on-failure
+RestartSec=2s
+MemoryMax=64M
+TasksMax=32
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+ReadOnlyPaths=/var/lib/allscan-reimagined/admin
+# systemd creates the per-bridge runtime directory (also after a reboot clears
+# /run) and makes it the only writable path. The instance name must equal the
+# bridge card ID in config.json, e.g. allscan-reimagined-native-admin@ysf_net.
+RuntimeDirectory=asr-standalone-admin/%i
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=restart
+
+[Install]
+WantedBy=multi-user.target

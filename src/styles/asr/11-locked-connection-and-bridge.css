@@ -36,7 +36,6 @@
 
 /* Beta 8 locked tablet-portrait bridge layout: equal standard cards, centered partial rows, wider Net Bridge. */
 @media (min-width: 701px) and (max-width: 1199px) and (orientation: portrait) {
-  .allscan-urf-mini-grid,
   .allscan-bridge-grid {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -45,7 +44,6 @@
     gap: 6px !important;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card,
   .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
     flex: 0 0 calc((100% - 18px) / 4) !important;
     width: calc((100% - 18px) / 4) !important;
@@ -377,8 +375,7 @@
 
 /* Beta 8 locked tablet bridge presentation: accepted portrait and landscape bridge geometry/typography. */
 @media (min-width: 701px) and (max-width: 1199px) {
-  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row,
-  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row {
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row {
     transform: translateX(-6px) !important;
   }
 }
@@ -415,10 +412,8 @@
   }
   .allscan-connection-table tbody tr:not(.allscan-connection-row-local) > td:first-child { font-size: 13.5px !important; }
 
-  .allscan-bridge-grid .allscan-bridge-head-title,
-  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
-  .allscan-bridge-grid .allscan-bridge-status,
-  .allscan-urf-mini-card .allscan-bridge-status { font-size: 12px !important; }
+  .allscan-bridge-grid .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status { font-size: 12px !important; }
   .allscan-bridge-grid .allscan-bridge-row,
   .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > span:first-child,
   .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
@@ -427,16 +422,12 @@
   .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
   .allscan-bridge-grid .allscan-bridge-client-meta,
   .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
-  .allscan-urf-group-title { font-size: 14px !important; }
 
-  .allscan-bridge-card .allscan-bridge-detail-toggle > b,
-  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b { transform: translateX(3px) !important; }
+  .allscan-bridge-card .allscan-bridge-detail-toggle > b { transform: translateX(3px) !important; }
 
-  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child,
-  .allscan-urf-mini-card .allscan-bridge-row > b:last-child { left: calc(50% + 12px) !important; }
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row > b:last-child { left: calc(50% + 12px) !important; }
 
-  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
-  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
     transform: translateX(10px) !important;
   }
 }
@@ -450,31 +441,17 @@
     margin-right: auto !important;
   }
 
-  .allscan-bridge-section .allscan-urf-group {
-    box-sizing: border-box !important;
-    left: auto !important;
-    width: calc(100% - 16px) !important;
-    max-width: calc(100% - 16px) !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-  }
-
-  .allscan-bridge-card .allscan-bridge-detail-toggle,
-  .allscan-urf-mini-card .allscan-bridge-detail-toggle { transform: translateX(-9px) !important; }
+  .allscan-bridge-card .allscan-bridge-detail-toggle { transform: translateX(-9px) !important; }
 
   .allscan-bridge-card .allscan-bridge-detail-toggle > b,
-  .allscan-bridge-card .allscan-bridge-detail-toggle > svg,
-  .allscan-urf-mini-card .allscan-bridge-detail-toggle > b,
-  .allscan-urf-mini-card .allscan-bridge-detail-toggle > svg { transform: translateX(11px) !important; }
+  .allscan-bridge-card .allscan-bridge-detail-toggle > svg { transform: translateX(11px) !important; }
 
-  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child,
-  .allscan-urf-mini-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
+  .allscan-bridge-card .allscan-bridge-body .allscan-bridge-row.allscan-bridge-status-row > b:last-child {
     transform: translateX(11px) !important;
   }
 }
 
 @media (min-width: 901px) and (max-width: 1199px) and (orientation: landscape) {
-  .allscan-urf-mini-grid,
   .allscan-bridge-grid {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -483,7 +460,6 @@
     gap: 6px !important;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card,
   .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
     flex: 0 0 calc((100% - 24px) / 5) !important;
     width: calc((100% - 24px) / 5) !important;
@@ -500,10 +476,8 @@
     margin: 0 !important;
   }
 
-  .allscan-bridge-grid .allscan-bridge-head-title,
-  .allscan-urf-mini-card .allscan-bridge-head-title { font-size: 15px !important; }
-  .allscan-bridge-grid .allscan-bridge-status,
-  .allscan-urf-mini-card .allscan-bridge-status {
+  .allscan-bridge-grid .allscan-bridge-head-title { font-size: 15px !important; }
+  .allscan-bridge-grid .allscan-bridge-status {
     min-width: 64px !important;
     height: 24px !important;
     min-height: 24px !important;
@@ -518,5 +492,13 @@
   .allscan-bridge-card .allscan-bridge-detail-toggle { font-size: 13px !important; }
   .allscan-bridge-grid .allscan-bridge-client-meta,
   .allscan-bridge-card .allscan-bridge-detail-toggle > b { font-size: 12px !important; }
-  .allscan-urf-group-title { font-size: 14px !important; }
 }
+
+/* Audio-driven bridge VU display. Kept within the existing card geometry. */
+.asr-audio-meters { display: grid; gap: 5px; padding: 7px 12px; min-width: 0; }
+.asr-audio-meter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(72px, 1.4fr); align-items: center; gap: 8px; font-size: 11px; }
+.asr-audio-meter > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asr-audio-meter-track { position: relative; height: 9px; border: 1px solid currentColor; border-radius: 3px; overflow: hidden; opacity: .9; }
+.asr-audio-meter-rms { display: block; height: 100%; background: currentColor; opacity: .65; transition: width 160ms linear; }
+.asr-audio-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor; }
+@media (prefers-reduced-motion: reduce) { .asr-audio-meter-rms { transition: none; } }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  asrPath, checkAsrUpdate, fetchAsrUpdateJob, queueAsrUpdate,
+  asrPath, checkAsrUpdate, fetchAsrUpdateJob, queueAsrUpdate, updateJobReportUrl,
   type UpdateCheck, type UpdateJob,
 } from '../lib/allscanLive'
 import { ASR_WHATS_NEW } from '../config/whatsNew'
@@ -52,6 +52,7 @@ export default function UpdateAsrDialog({
         setConnectionMessage('')
         if (next.state === 'complete' || next.state === 'failed') {
           window.localStorage.removeItem(STORED_JOB)
+          setJobId('')
         }
       } catch (cause) {
         if (cancelled) return
@@ -117,7 +118,7 @@ export default function UpdateAsrDialog({
     <div className="asr-update-overlay" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
     }}>
-      <section className="asr-update-dialog" role="dialog" aria-modal="true" aria-labelledby="asr-update-title">
+      <section className={`asr-update-dialog${view === 'whats-new' ? ' asr-update-dialog--whats-new' : ''}`} role="dialog" aria-modal="true" aria-labelledby="asr-update-title">
         <header className="asr-update-head">
           <h2 id="asr-update-title">Update ASR</h2>
           <button type="button" aria-label="Close Update ASR" onClick={onClose}>×</button>
@@ -127,23 +128,42 @@ export default function UpdateAsrDialog({
           <button type="button" role="tab" aria-selected={view === 'whats-new'} onClick={() => setView('whats-new')}>What’s New</button>
         </div>
         {view === 'whats-new' ? (
-          <section className="asr-whats-new" role="tabpanel" aria-label={`What’s New in ${ASR_WHATS_NEW.label}`}>
+          <section className="asr-whats-new" role="tabpanel" tabIndex={0} aria-label={`All ${ASR_WHATS_NEW.categories.reduce((total, category) => total + category.items.length, 0)} changes in ${ASR_WHATS_NEW.label}; scroll for the full list`}>
             <h3>What’s New in {ASR_WHATS_NEW.label}</h3>
             <p>{ASR_WHATS_NEW.summary}</p>
-            <ul>{ASR_WHATS_NEW.items.map((item) => <li key={item}>{item}</li>)}</ul>
+            {ASR_WHATS_NEW.categories.map((category) => <div key={category.title} className="asr-whats-new-category"><h4>{category.title}</h4><ul>{category.items.map((item, index) => <li key={index}>{item}</li>)}</ul></div>)}
+            <aside className="asr-contributors-callout" aria-label="Contribute to ASR">
+              <h4>🚀 Developers &amp; Vibe Coders Wanted!</h4>
+              <p>We're looking for additional developers and AI-assisted coders to help accelerate AllScan Reimagined (ASR). Whether you're an experienced developer or a vibe coder using Codex or Claude Code, we'd welcome your help!</p>
+              <p>We're especially interested in PHP, JavaScript, Python, Linux, digital bridges, dashboards, and testing.</p>
+              <p><strong>Interested in contributing?</strong> <a href="https://github.com/ke7wil-bridge/allscan-reimagined" target="_blank" rel="noopener noreferrer">Visit our GitHub project</a> and get involved!</p>
+              <p>Together, we can make ASR better, faster, and more reliable.</p>
+            </aside>
             <p>If you’re using AllScan Reimagined, Josh (KE7WIL) would appreciate a quick email letting him know you’re running it. <a href="mailto:ke7wil@gmail.com">ke7wil@gmail.com</a>.</p>
           </section>
         ) : <>
         <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
-          {job.message && job.state !== 'complete' ? <p>{job.message}</p> : null}
+          {job.message && job.state !== 'complete' && job.state !== 'failed' ? <p>{job.message}</p> : null}
           {running ? <p>Please do not close this window while the update is in progress.</p> : null}
           {job.state === 'complete' ? <>
             <p><strong>ASR {job.availableVersion || 'update'} is installed successfully.</strong></p>
             <button type="button" onClick={() => window.location.reload()}>Reload ASR</button>
           </> : null}
-          {job.state === 'failed' ? <p><strong>Update not installed.</strong> {job.message || 'The safety checks or installation did not complete.'} Open Backups &amp; Rollback if recovery needs attention.</p> : null}
+          {job.state === 'failed' ? <>
+            <p><strong>Update not installed.</strong></p>
+            <p><strong>Failure:</strong> {job.failureReason || 'The safety checks or installation did not complete.'}</p>
+            <p><strong>Restoration:</strong> {job.restoration === 'succeeded'
+              ? 'The previous installation was restored successfully.'
+              : job.restoration === 'failed'
+                ? 'Automatic restoration did not complete.'
+                : 'No restoration was required.'}</p>
+            <p>{job.manualInterventionRequired
+              ? 'Manual intervention is required. Open System & Recovery before retrying.'
+              : 'Manual intervention is not required.'}</p>
+            <button type="button" onClick={() => { window.location.href = updateJobReportUrl(job.jobId) }}>Download Error Log</button>
+          </> : null}
           {connectionMessage ? <p>{connectionMessage}</p> : null}
         </div> : null}
         {!job && !running ? <>

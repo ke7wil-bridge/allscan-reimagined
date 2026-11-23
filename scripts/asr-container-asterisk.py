@@ -109,7 +109,7 @@ def authorize_command(command: str, profile, loader=safe_root_json,
         bridge_id, node = str(bridge.get("id", "")), str(bridge.get("node", ""))
         if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id) or not re.fullmatch(r"[0-9]{3,10}", node):
             continue
-        expected_target = f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target"
+        expected_target = f"/opt/allscan-reimagined-bridges/{bridge_id}/tgif-run/net-target"
         card_type = str(bridge.get("cardType", ""))
         if card_type in {"ysf_net", "p25_net", "nxdn_net", "m17_net"}:
             pending.add(node)

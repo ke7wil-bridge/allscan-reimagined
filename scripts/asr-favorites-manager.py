@@ -200,15 +200,28 @@ def preview_import(favorites: Path, source: Path) -> dict[str, Any]:
 def upstream_order_preview(favorites: Path, state: dict[str, Any]) -> dict[str, Any]:
     """Preview a conflict-safe import of physical favorites.ini ordering."""
     raw = favorites.read_bytes()
-    upstream = [row["node"] for row in parse_allscan(raw.decode("utf-8"))]
+    content = raw.decode("utf-8")
+    # Stock AllScan includes a blank-command "=== SELECT ===" menu selector,
+    # which is not a Favorites node. Validate every pair before ignoring it.
+    labels = []
+    commands = []
+    for line in content.splitlines():
+        match = ASSIGNMENT.match(line)
+        if match:
+            (labels if match.group(1).lower() == "label" else commands).append(decode_ini_value(match.group(2)))
+    if len(labels) != len(commands):
+        raise ValueError("Favorites file contains unmatched label/cmd records; review manually.")
+    upstream = []
+    for label, command in zip(labels, commands):
+        node = command_node(command) or label_node(label)
+        if NODE_VALUE.fullmatch(node):
+            upstream.append(node)
+        elif command == "" and re.fullmatch(r"[-=*\s]*SELECT[-=*\s]*", label, re.I):
+            continue
+        else:
+            raise ValueError("Favorites file contains unrecognized records; review manually.")
     if not upstream or len(upstream) != len(set(upstream)):
         raise ValueError("Upstream Favorites order is empty or contains duplicate nodes.")
-    # A raw parser can skip malformed/unpaired entries. Refuse to import
-    # ambiguous physical ordering rather than silently dropping a Favorite.
-    label_count = len(re.findall(r"(?im)^\s*label\[\]\s*=", raw.decode("utf-8")))
-    cmd_count = len(re.findall(r"(?im)^\s*cmd\[\]\s*=", raw.decode("utf-8")))
-    if label_count != len(upstream) or cmd_count != len(upstream):
-        raise ValueError("Favorites file contains unmatched or unrecognized records; review manually.")
     entry = state.get("files", {}).get(favorites.name, {})
     custom = entry.get("order")
     if custom is not None and (not isinstance(custom, list) or not all(isinstance(node, str) for node in custom)
@@ -240,8 +253,13 @@ def upstream_export_preview(favorites: Path, state: dict[str, Any]) -> dict[str,
             cmd = ASSIGNMENT.match(lines[index + 1].rstrip("\r\n"))
             if not cmd or cmd.group(1).lower() != "cmd":
                 raise ValueError("Nonadjacent label/cmd entries; export aborted to preserve file layout.")
-            node = command_node(decode_ini_value(cmd.group(2))) or label_node(decode_ini_value(label.group(2)))
+            label_value = decode_ini_value(label.group(2))
+            command_value = decode_ini_value(cmd.group(2))
+            node = command_node(command_value) or label_node(label_value)
             if not NODE_VALUE.fullmatch(node):
+                if not records and command_value == "" and re.fullmatch(r"[-=*\s]*SELECT[-=*\s]*", label_value, re.I):
+                    index += 2  # Preserve the stock selector outside the reorderable span.
+                    continue
                 raise ValueError("Unrecognized Favorites node; export aborted.")
             records.append((node, "".join(lines[index:index + 2])))
             starts.append(index)
@@ -406,8 +424,23 @@ def manage(args: argparse.Namespace) -> dict[str, Any]:
         order = json.loads(args.value)
         if not isinstance(order, list) or sorted(map(str, order)) != sorted(row_nodes):
             raise ValueError("Reorder list must contain every current Favorite exactly once.")
+        # One shared ordering source: update AllScan's file and ASR metadata
+        # together under the existing exclusive Favorites lock.
         entry["order"] = list(map(str, order))
+        preview = upstream_export_preview(favorites, state)
+        if preview["different"]:
+            original = favorites.read_bytes()
+            import datetime
+            backup = favorites.with_name(favorites.name + ".asr-backup-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
+            with open(backup, "xb") as handle:
+                handle.write(original)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if favorites.read_bytes() != original:
+                raise ValueError("Favorites changed during reorder; backup retained, write cancelled.")
+            atomic_write(favorites, preview["content"], favorites.stat())
     elif args.action == "reset-order":
+        # The shared AllScan file is authoritative after a reset.
         entry.pop("order", None)
     elif args.action == "reset-favorite":
         nodes.pop(args.node, None)
@@ -482,6 +515,34 @@ def self_test() -> None:
         rendered = render(merged)
         assert "W7XYZ Phoenix, Arizona 12345" in rendered
         assert 'Quoted, \\"Description\\" 67890' in rendered
+        # #138: order synchronization must be preview-only until explicitly applied.
+        second = ('label[] = "N0ABC 54321"\n'
+                  'cmd[] = "rpt cmd %node% ilink 3 54321"\n')
+        favorites.write_text(sample + second, encoding="utf-8")
+        order_state = {"files": {"favorites.ini": {"order": ["54321", "12345"]}}}
+        before = favorites.read_bytes()
+        imported_order = upstream_order_preview(favorites, order_state)
+        assert imported_order["upstreamOrder"] == ["12345", "54321"]
+        assert imported_order["different"] is True
+        exported_order = upstream_export_preview(favorites, order_state)
+        assert exported_order["different"] is True
+        assert exported_order["content"].index("54321") < exported_order["content"].index("12345")
+        assert favorites.read_bytes() == before
+        assert upstream_export_preview(favorites, order_state)["token"] == exported_order["token"]
+        for invalid in (["54321", "99999"], ["12345", "12345"]):
+            try:
+                upstream_export_preview(favorites, {"files": {"favorites.ini": {"order": invalid}}})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Ambiguous Favorites membership was accepted")
+        favorites.write_text(sample + "# preserve comment\n" + second, encoding="utf-8")
+        try:
+            upstream_export_preview(favorites, order_state)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Inter-record comment was silently reordered")
     print("Favorites metadata and Supermon import self-test: ok")
 def main() -> int:
     parser = argparse.ArgumentParser()

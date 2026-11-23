@@ -32,6 +32,31 @@ class FavoritesOrderTests(unittest.TestCase):
         self.file.write_bytes(content.encode())
         return content
 
+    def test_stock_select_placeholder_is_not_a_favorite(self):
+        original = ('; keep this header\n'
+                    'label[] = "=== SELECT ==="\n'
+                    'cmd[] = ""\n'
+                    'label[] = "First 11111"\n'
+                    'cmd[] = "rpt cmd %node% ilink 3 11111"\n'
+                    'label[] = "Second 22222"\n'
+                    'cmd[] = "rpt cmd %node% ilink 3 22222"\n')
+        self.file.write_text(original)
+        preview = manager.upstream_order_preview(self.file, self.state)
+        self.assertEqual(preview['upstreamOrder'], ['11111', '22222'])
+        self.assertTrue(preview['different'])
+        exported = manager.upstream_export_preview(self.file, self.state)['content']
+        self.assertTrue(exported.startswith('; keep this header\nlabel[] = "=== SELECT ==="\ncmd[] = ""\n'))
+        self.assertEqual([row['node'] for row in manager.parse_allscan(exported)], ['22222', '11111'])
+        self.assertEqual(self.file.read_text(), original)
+        self.assertEqual(self.state['files'][self.file.name]['nodes']['11111']['description'], 'Keep my description')
+
+    def test_unrecognized_records_abort_sync_without_modification(self):
+        original = self.fixture() + '\nlabel[] = "Other entry"\ncmd[] = "unknown action"\n'
+        self.file.write_text(original)
+        with self.assertRaisesRegex(ValueError, 'unrecognized'):
+            manager.upstream_order_preview(self.file, self.state)
+        self.assertEqual(self.file.read_text(), original)
+
     def test_unterminated_last_command_does_not_merge_with_next_label(self):
         for newline in ('\n', '\r\n'):
             for terminated in (False, True):

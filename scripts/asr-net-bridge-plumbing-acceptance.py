@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -279,9 +280,11 @@ def validate_exclusive(args, selected: str) -> None:
 
 def verify_protocol_receipt(args, mode: str, since_epoch: int) -> None:
     if mode == "dmr":
-        output = run_combined(["docker", "logs", "--since", str(since_epoch),
-                               f"asr-urf-reflector-{MODES[mode]['id']}"])
-        required = ("Opening stream on module A", "by user KE7WIL", "Closing stream of module A")
+        # Direct DVSwitch/TGIF runtime: MMDVM_Bridge reports TGIF network
+        # voice on its journal (DisplayLevel=1).
+        output = run_combined(["journalctl", "--no-pager", "-o", "cat", "--since", f"@{since_epoch}",
+                               "-u", f"asr-dmr-mmdvm-{MODES[mode]['id']}.service"])
+        required = ("received network voice header", "received network end of voice transmission")
     else:
         if args.skip_remote_evidence:
             return
@@ -392,6 +395,9 @@ def self_test() -> None:
     api = Path(__file__).parents[1].joinpath("server/asr-api.php").read_text()
     assert "ASR_ACCEPTANCE_READ_ONLY" in api and "persistedActivityEpoch" in api
     assert "zelloConfigured" in api and "activity_epoch' => $activityEpoch" in api
+    source = Path(__file__).read_text()
+    backup_hub = ".".join(("45", "76", "255", "39"))
+    assert backup_hub not in source, "the live backup hub must not be a default remote host"
     print("PASS: production-path plumbing acceptance self-test")
 
 
@@ -403,7 +409,9 @@ def main() -> int:
     parser.add_argument("--web-container", default="allscan-reimagined-layered-allscan-1")
     parser.add_argument("--asterisk-container", default="allstarlink3")
     parser.add_argument("--zello-node", default="1002")
-    parser.add_argument("--remote-host", default="root@45.76.255.39")
+    # No default: the reflector evidence host must be named explicitly so the
+    # harness never SSHes to the live backup hub or production by accident.
+    parser.add_argument("--remote-host", default=os.environ.get("ASR_ACCEPTANCE_REMOTE_HOST", ""))
     parser.add_argument("--skip-remote-evidence", action="store_true")
     parser.add_argument("--duration", type=float, default=3.0)
     parser.add_argument("--final-mode", choices=tuple(MODES), default="p25")
@@ -413,6 +421,8 @@ def main() -> int:
         if not args.self_test: parser.error("use --run or --self-test")
         return 0
     if not 1.5 <= args.duration <= 10: parser.error("duration must be 1.5-10 seconds")
+    if not args.skip_remote_evidence and not args.remote_host.strip():
+        parser.error("--remote-host (or ASR_ACCEPTANCE_REMOTE_HOST) is required unless --skip-remote-evidence is set")
     try:
         for mode in args.modes:
             qualify_zello(args) if mode == "zello" else qualify_mode(args, mode)

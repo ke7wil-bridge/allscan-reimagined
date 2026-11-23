@@ -22,8 +22,7 @@ from asr_bridge_status import astapi_key_states, reconcile_keyed_source, watchdo
 
 CONFIG_PATH = Path("/etc/allscan-reimagined/config.json")
 RUN_DIR = Path("/run/allscan-reimagined-bridge-control")
-MANAGED_DMR_ROOT = Path("/opt/allscan-reimagined-bridges/urf")
-NATIVE_URF_EVENT_PATH = Path("/run/urf-wil/asr-live-events.jsonl")
+MANAGED_DMR_ROOT = Path("/opt/allscan-reimagined-bridges")
 NATIVE_UNIT_DIR = Path("/etc/systemd/system")
 LIVE_STATUS_PATH = RUN_DIR / "bridge-live.json"
 AUDIT_LOG = Path("/var/log/allscan-reimagined-bridge-control.log")
@@ -40,7 +39,6 @@ DISCONNECT_TG = 4000
 MAX_ABINFO_BYTES = 64 * 1024
 LIVE_STATUS_INTERVAL = 0.75
 LIVE_STATUS_INITIAL_TAIL_BYTES = 262_144
-URF_EVENT_MAX_LINE_BYTES = 4096
 
 
 class ControlError(RuntimeError):
@@ -192,7 +190,7 @@ def managed_target_tg(
     if not BRIDGE_ID_RE.fullmatch(bridge_id):
         return None
     logical = (
-        Path("/opt/allscan-reimagined-bridges/urf") / bridge_id
+        MANAGED_DMR_ROOT / bridge_id
         / "tgif-run" / "net-target"
     )
     if Path(str(bridge.get("managedTargetFile") or logical)) != logical:
@@ -262,10 +260,11 @@ def mmdvm_log_stem(bridge: dict) -> str:
     if bridge.get("managedNetControl") is True:
         target = str(bridge.get("managedTargetFile", ""))
         bridge_id = str(bridge.get("id", ""))
-        expected = f"/opt/allscan-reimagined-bridges/urf/{bridge_id}/tgif-run/net-target"
-        if target != expected:
+        expected = f"{MANAGED_DMR_ROOT}/{bridge_id}/tgif-run/net-target"
+        if target != expected or not BRIDGE_ID_RE.fullmatch(bridge_id):
             raise ControlError("Configured managed DMR Net Bridge target path is invalid.")
-        return "MMDVM_Bridge"
+        # The direct DVSwitch/TGIF runtime logs as MMDVM_Bridge_<bridge id>.
+        return f"MMDVM_Bridge_{bridge_id}"
     validate_paths(bridge)
     stem = Path(str(bridge["dvswitchScript"])).parent.name
     if not re.fullmatch(r"MMDVM_Bridge[A-Za-z0-9_-]+", stem):
@@ -325,98 +324,7 @@ def initial_live_state() -> dict:
         "last_event_epoch": 0,
         "source_slot": 0,
         "source_observed_at": 0.0,
-        "urf_path": "",
-        "urf_inode": 0,
-        "urf_offset": 0,
     }
-
-
-def apply_urf_activity_event(state: dict, event: dict, now: int) -> None:
-    """Apply URFWIL's authoritative protocol lifecycle to DMR card activity."""
-    event_name = str(event.get("event", "")).lower()
-    mode = str(event.get("mode", "")).upper()
-    if event_name not in {"tx_start", "tx_stop"} or mode not in {"USRP", "DMRMMDVM"}:
-        return
-    try:
-        epoch = int(event.get("epoch", 0))
-    except (TypeError, ValueError):
-        return
-    if epoch <= 0 or epoch > now + 300 or epoch < int(state.get("last_event_epoch", 0) or 0):
-        return
-    role = "relay" if mode == "USRP" else "source"
-    if event_name == "tx_start":
-        caller = clean_live_caller(str(event.get("callsign", ""))) if role == "source" else ""
-        state["role"] = role
-        state["current_user"] = caller
-        if caller:
-            state["last_user"] = caller
-            state["last_source_user"] = caller
-            state["last_source_epoch"] = epoch
-        state["active_start_epoch"] = epoch
-    elif state.get("role") == role:
-        state["role"] = "idle"
-        state["current_user"] = ""
-        state["active_start_epoch"] = 0
-        if role == "source" and state.get("last_source_user"):
-            state["last_source_epoch"] = epoch
-    state["activity_epoch"] = epoch
-    state["last_event_epoch"] = epoch
-
-
-def refresh_urf_activity(
-    bridge: dict,
-    state: dict,
-    now: int,
-    managed_root: Path = MANAGED_DMR_ROOT,
-    expected_uid: int = 0,
-    native_event_path: Path | None = None,
-) -> dict:
-    bridge_id = str(bridge.get("id", ""))
-    if not BRIDGE_ID_RE.fullmatch(bridge_id) or bridge.get("backendMode") != "managed":
-        return state
-    paths = [(managed_root / bridge_id / "data/asr-live-events.jsonl", {expected_uid})]
-    native_unit = NATIVE_UNIT_DIR / f"allscan-reimagined-urfd-{bridge_id}.service"
-    if native_event_path is None and managed_root == MANAGED_DMR_ROOT and native_unit.is_file():
-        native_event_path = NATIVE_URF_EVENT_PATH
-    if native_event_path is not None:
-        try:
-            parent = native_event_path.parent
-            parent_details = parent.stat()
-            if (parent.is_dir() and not parent.is_symlink()
-                    and not parent_details.st_mode & 0o022):
-                paths.append((native_event_path, {parent_details.st_uid}))
-        except OSError:
-            pass
-    for path, accepted_uids in paths:
-        try:
-            details = path.stat()
-            if (not path.is_file() or path.is_symlink() or details.st_nlink != 1
-                    or details.st_uid not in accepted_uids or details.st_mode & 0o022):
-                continue
-            changed = (str(path) != str(state.get("urf_path", ""))
-                       or details.st_ino != int(state.get("urf_inode", 0) or 0)
-                       or details.st_size < int(state.get("urf_offset", 0) or 0))
-            offset = max(0, details.st_size - LIVE_STATUS_INITIAL_TAIL_BYTES) if changed else int(state.get("urf_offset", 0) or 0)
-            with path.open("r", encoding="utf-8", errors="replace") as handle:
-                handle.seek(offset)
-                if changed and offset > 0:
-                    handle.readline()
-                for line in handle:
-                    if len(line) > URF_EVENT_MAX_LINE_BYTES:
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(event, dict):
-                        apply_urf_activity_event(state, event, now)
-                state["urf_offset"] = handle.tell()
-            state["urf_path"] = str(path)
-            state["urf_inode"] = details.st_ino
-            break
-        except OSError:
-            continue
-    return state
 
 
 def apply_mmdvm_activity_line(state: dict, line: str, now: int) -> None:
@@ -577,7 +485,6 @@ def dmr_net_live_payload(
             now,
             log_dir,
         )
-        state = refresh_urf_activity(bridge, state, now)
         # MMDVM network voice header/end events are authoritative for Net Bridge
         # inbound direction.  The Asterisk transport can stop reporting keyed
         # before a network transmission ends, so do not clear SOURCE from its
@@ -1267,7 +1174,7 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
             backendMode="managed",
             managedNetControl=True,
             managedTargetFile=(
-                "/opt/allscan-reimagined-bridges/urf/"
+                "/opt/allscan-reimagined-bridges/"
                 "dmr_net/tgif-run/net-target"
             ),
         )
@@ -1335,44 +1242,6 @@ NODE      PEER                RECONNECTS  DIRECTION  CONNECT TIME        CONNECT
         assert activity["role"] == "idle"
         assert activity["last_user"] == "N0CALL"
         assert activity["last_source_user"] == "N0CALL"
-        event_path = managed_root / "dmr_net/data/asr-live-events.jsonl"
-        event_path.parent.mkdir(parents=True, exist_ok=True)
-        event_path.write_text(
-            json.dumps({"event": "tx_start", "mode": "USRP", "callsign": "N0CALL", "epoch": 1_784_835_090}) + "\n",
-            encoding="utf-8",
-        )
-        event_path.chmod(0o644)
-        activity = refresh_urf_activity(
-            managed, activity, 1_784_835_091, managed_root, os.geteuid()
-        )
-        assert activity["role"] == "relay"
-        with event_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"event": "tx_stop", "mode": "USRP", "callsign": "N0CALL", "epoch": 1_784_835_093}) + "\n")
-        activity = refresh_urf_activity(
-            managed, activity, 1_784_835_094, managed_root, os.geteuid()
-        )
-        assert activity["role"] == "idle"
-        native_root = Path(directory) / "native-managed"
-        native_root.mkdir()
-        native_run = Path(directory) / "native-run"
-        native_run.mkdir(mode=0o755)
-        native_event = native_run / "asr-live-events.jsonl"
-        native_event.write_text(
-            json.dumps({"event": "tx_start", "mode": "USRP", "callsign": "N0CALL", "epoch": 1_784_835_100}) + "\n",
-            encoding="utf-8",
-        )
-        native_event.chmod(0o644)
-        native_activity = refresh_urf_activity(
-            managed, initial_live_state(), 1_784_835_101,
-            native_root, os.geteuid(), native_event,
-        )
-        assert native_activity["role"] == "relay"
-        native_run.chmod(0o777)
-        rejected = refresh_urf_activity(
-            managed, initial_live_state(), 1_784_835_101,
-            native_root, os.geteuid(), native_event,
-        )
-        assert rejected["role"] == "idle"
     print("DMR Net Bridge control self-test: ok")
 
 

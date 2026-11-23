@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -50,6 +54,51 @@ def main() -> int:
         '$_SERVER["SCRIPT_NAME"] = "/allscan/index.php";' in configure,
         "CLI stock detection must initialize the canonical allscan.db path",
     )
+    require(
+        '"urfReflector"' not in configure.split('if [ -s "$CONFIG_FILE" ] && [ "$FORCE" -eq 0 ]; then', 1)[1].split('exit 0', 1)[0],
+        "maintenance configuration still reclassifies existing Standard bridges as URF",
+    )
+
+    # Exercise the real existing-config path with the Kentucky YSF shape. An
+    # upgrade must preserve every bridge field and must not manufacture URF
+    # identity from self-owned/managed metadata.
+    with tempfile.TemporaryDirectory(prefix="asr-config-preserve-") as raw:
+        config_dir = Path(raw) / "etc"
+        config_dir.mkdir()
+        config_path = config_dir / "config.json"
+        fixture = {
+            "node": "674982",
+            "requireLogin": True,
+            "bridges": [{
+                "id": "ysf_net", "mode": "ysf", "node": "1002",
+                "cardType": "standard", "backendMode": "managed",
+                "bridgePermission": "self_owned",
+                "ysfGatewayService": "netoholics-native-ysf-gateway.service",
+                "mmdvmService": "netoholics-native-ysf-mmdvm.service",
+                "analogBridgeService": "netoholics-native-ysf-analog.service",
+                "emulatorService": "netoholics-native-ysf-vocoder.service",
+            }],
+        }
+        original = json.dumps(fixture, indent=2) + "\n"
+        config_path.write_text(original, encoding="utf-8")
+        test_script = Path(raw) / "asr-configure.sh"
+        test_source = configure.replace(
+            'CONFIG_DIR="/etc/allscan-reimagined"', f'CONFIG_DIR="{config_dir}"', 1,
+        ).replace(
+            '[ "${EUID:-$(id -u)}" -eq 0 ] || { echo "Run this setup as root." >&2; exit 1; }',
+            ': # Root guard covered separately; this fixture writes only below its temporary directory.',
+            1,
+        )
+        test_script.write_text(test_source, encoding="utf-8")
+        test_script.chmod(0o755)
+        result = subprocess.run(
+            [str(test_script), "--non-interactive"],
+            text=True,
+            capture_output=True,
+            env={**os.environ, "STOCK_ALLSCAN_DIR": str(Path(raw) / "unused-stock")},
+        )
+        require(result.returncode == 0, f"existing-config preservation path failed: {result.stderr}")
+        require(config_path.read_text(encoding="utf-8") == original, "upgrade changed existing bridge configuration")
     require(
         "apt-get install -y unzip" in installer,
         "installer must provision the upstream AllScan unzip dependency on clean nodes",

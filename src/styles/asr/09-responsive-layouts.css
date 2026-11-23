@@ -477,13 +477,11 @@
 
   .allscan-favorites-panel .allscan-favorites-inner,
   .allscan-talkers-section .allscan-talker-cards,
-  .allscan-bridge-section .allscan-urf-group,
   .allscan-bridge-section .allscan-bridge-grid {
     width: 100% !important;
     max-width: 100% !important;
   }
 
-  .allscan-bridge-section .allscan-urf-group,
   .allscan-bridge-section .allscan-bridge-grid {
     left: auto;
     right: auto;
@@ -491,7 +489,6 @@
     margin-right: 0 !important;
   }
 
-  .allscan-urf-mini-grid,
   .allscan-bridge-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -499,7 +496,6 @@
     align-items: start;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card,
   .allscan-bridge-grid > .allscan-bridge-card {
     grid-column: auto;
     box-sizing: border-box;
@@ -508,7 +504,6 @@
     min-width: 0;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(odd),
   .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(odd) {
     grid-column: 1 / -1;
     width: calc((100% - 6px) / 2);
@@ -522,21 +517,18 @@
   }
 
   .allscan-bridge-grid .allscan-bridge-head,
-  .allscan-urf-mini-card .allscan-bridge-head,
   .allscan-bridge-card.is-detail-expanded .allscan-bridge-head {
     min-height: 24px;
     padding: 2px 5px;
     gap: 3px;
   }
 
-  .allscan-bridge-grid .allscan-bridge-head-title,
-  .allscan-urf-mini-card .allscan-bridge-head-title {
+  .allscan-bridge-grid .allscan-bridge-head-title {
     font-size: 13px;
     line-height: 1;
   }
 
-  .allscan-bridge-grid .allscan-bridge-status,
-  .allscan-urf-mini-card .allscan-bridge-status {
+  .allscan-bridge-grid .allscan-bridge-status {
     min-width: 54px;
     height: 20px;
     min-height: 20px;
@@ -611,16 +603,6 @@
 
   .allscan-bridge-card .allscan-bridge-detail-toggle > svg {
     justify-self: end;
-  }
-
-  /* Expanded bridge details intentionally inherit desktop geometry on phones:
-     the dropdown opens inside the card without widening or reflowing the card. */
-
-  .allscan-urf-group-title {
-    min-height: 24px;
-    padding: 3px 8px;
-    font-size: 12px !important;
-    line-height: 1.05;
   }
 
   .allscan-bridge-grid > .allscan-net-bridge-card {
@@ -958,7 +940,6 @@
    sizing on all non-desktop layouts without changing the locked portrait block. */
 @media (min-width: 701px) and (max-width: 1199px),
        (max-width: 700px) and (orientation: landscape) {
-  .allscan-urf-mini-grid,
   .allscan-bridge-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -966,7 +947,6 @@
     align-items: start;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card,
   .allscan-bridge-grid > .allscan-bridge-card {
     grid-column: auto;
     box-sizing: border-box;
@@ -975,7 +955,6 @@
     min-width: 0;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card:last-child:nth-child(odd),
   .allscan-bridge-grid > .allscan-bridge-card:last-child:nth-child(odd) {
     grid-column: 1 / -1;
     width: calc((100% - 6px) / 2);
@@ -989,21 +968,18 @@
   }
 
   .allscan-bridge-grid .allscan-bridge-head,
-  .allscan-urf-mini-card .allscan-bridge-head,
   .allscan-bridge-card.is-detail-expanded .allscan-bridge-head {
     min-height: 24px;
     padding: 2px 5px;
     gap: 3px;
   }
 
-  .allscan-bridge-grid .allscan-bridge-head-title,
-  .allscan-urf-mini-card .allscan-bridge-head-title {
+  .allscan-bridge-grid .allscan-bridge-head-title {
     font-size: 13px;
     line-height: 1;
   }
 
-  .allscan-bridge-grid .allscan-bridge-status,
-  .allscan-urf-mini-card .allscan-bridge-status {
+  .allscan-bridge-grid .allscan-bridge-status {
     min-width: 54px;
     height: 20px;
     min-height: 20px;
@@ -1080,16 +1056,6 @@
     justify-self: end;
   }
 
-  /* Expanded bridge details intentionally inherit desktop geometry on phones:
-     the dropdown opens inside the card without widening or reflowing the card. */
-
-  .allscan-urf-group-title {
-    min-height: 24px;
-    padding: 3px 8px;
-    font-size: 12px !important;
-    line-height: 1.05;
-  }
-
   .allscan-bridge-grid > .allscan-net-bridge-card {
     grid-column: 1 / -1;
     width: min(92%, 340px);
@@ -1133,7 +1099,6 @@
 /* Beta 8 locked bridge acceptance: phone-landscape bridge rows are content-sized and
    centered as a group. Card order/count may change without position-specific rules. */
 @media (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
-  .allscan-urf-mini-grid,
   .allscan-bridge-grid {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -1142,7 +1107,6 @@
     gap: 6px !important;
   }
 
-  .allscan-urf-mini-grid > .allscan-urf-mini-card,
   .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
     flex: 0 0 calc((100% - 18px) / 4) !important;
     width: calc((100% - 18px) / 4) !important;
@@ -1190,3 +1154,88 @@
     padding-bottom: 1px;
   }
 }
+
+/* #190: consistent Favorites action grid and distinct read-only source preview. */
+.allscan-favorites-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+  gap: 6px;
+  align-items: stretch;
+}
+.allscan-favorites-tools > button,
+.allscan-favorites-tools > a {
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  height: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid rgba(148, 190, 212, .34);
+  border-radius: 6px;
+  background: rgba(74, 163, 223, .13);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+.allscan-favorites-tools > a:hover { text-decoration: underline; }
+.allscan-favorites-tools > :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.allscan-favorites-file-preview,
+.allscan-favorites-file-editor {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 440px;
+  min-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(148, 190, 212, .34);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .26);
+  color: inherit;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1000px) {
+  .allscan-favorites-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 360px) {
+  .allscan-favorites-tools { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* #190 compact controls and readable file details, including theme overrides. */
+.allscan-favorites-options { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 10px; }
+.allscan-favorites-tools { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 5px; width: auto; max-width: 100%; }
+.allscan-favorites-tools > button, .allscan-favorites-tools > a { flex: 0 0 auto; width: auto; min-width: 0; min-height: 28px; height: 28px; padding: 4px 10px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.allscan-favorites-tools > button svg { width: 12px; height: 12px; }
+.allscan-favorites-source-view { width: 100%; max-width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid rgba(148,190,212,.25); border-radius: 7px; }
+.allscan-favorites-source-view p { margin: 6px 0; font-size: 12px; }
+.allscan-favorites-detail-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.allscan-favorites-detail-heading button, .allscan-favorites-inventory-list button { padding: 3px 9px; font-size: 11px; border: 1px solid rgba(148,190,212,.4); border-radius: 5px; }
+.allscan-favorites-inventory-list { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.allscan-favorites-inventory-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 7px; background: rgba(255,255,255,.035); border-radius: 5px; font-size: 11px; }
+.allscan-favorites-inventory-list code { overflow-wrap: anywhere; flex: 1 1 250px; font-size: 11px; }
+@media (max-width: 600px) { .allscan-favorites-tools > button, .allscan-favorites-tools > a { height: 30px; min-height: 30px; } }
+
+/* #190: download behaves visually like a button, and Edit is visibly a button. */
+.allscan-favorites-tools > a:hover, .allscan-favorites-tools > a:focus, .allscan-favorites-tools > a:active { text-decoration: none !important; }
+.allscan-favorites-source-view .allscan-favorites-edit-button { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 5px 12px; border: 1px solid rgba(148,190,212,.55); border-radius: 6px; background: rgba(74,163,223,.22); color: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.allscan-favorites-source-view .allscan-favorites-edit-button:hover { background: rgba(74,163,223,.35); }
+
+.allscan-favorites-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.allscan-favorites-editor-actions > button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 12px; border: 1px solid rgba(148,190,212,.55); border-radius: 6px; background: rgba(74,163,223,.2); color: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.allscan-favorites-editor-actions > button:hover:not(:disabled) { background: rgba(74,163,223,.35); }
+.allscan-favorites-editor-actions > button:disabled { opacity: .5; cursor: not-allowed; }

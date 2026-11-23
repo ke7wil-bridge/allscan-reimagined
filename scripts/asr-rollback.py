@@ -11,6 +11,8 @@ import inspect
 import json
 import os
 from pathlib import Path, PurePosixPath
+import posixpath
+import pwd
 import re
 import secrets
 import shutil
@@ -39,6 +41,15 @@ RUNTIME_FILES = (
 )
 RUNTIME_DIRS = ("img", "asr-user-content")
 STABLE_WEB_FILES = ("asr-settings/rollback-status.php",)
+SCHEDULER_FILES = (
+    "schedule.json",
+    "schedule.activity",
+    "schedule.heartbeat",
+    "schedule.log",
+    "schedule.pending.json",
+    "schedule.state.json",
+    "schedule.history.jsonl",
+)
 REQUIRED_RELEASE_FILES = (
     "web/index.html",
     "server/asr-api.php",
@@ -118,6 +129,31 @@ def safe_member_name(name: str) -> PurePosixPath:
     return path
 
 
+def allowed_webroot_symlink(
+    archive_kind: str,
+    member_path: PurePosixPath,
+    normalized: str,
+    linkname: str,
+    expected_root: str,
+) -> bool:
+    """Accept contained links plus exact, established external integrations."""
+    if archive_kind not in {"webroot", "legacy-webroot", "stock"}:
+        return False
+    external_links = {
+        ("webroot", "asr/favorites.ini"): "/etc/allscan/favorites.ini",
+        ("webroot", "asr/asrplus"): "/var/www/html/asrplus",
+        ("legacy-webroot", "allscan/favorites.ini"): "/etc/allscan/favorites.ini",
+        ("stock", "allscan/astdb.txt"): "/var/lib/asterisk/astdb.txt",
+    }
+    if external_links.get((archive_kind, normalized)) == linkname:
+        return True
+    if not linkname or PurePosixPath(linkname).is_absolute():
+        return False
+    resolved = PurePosixPath(posixpath.normpath(str(member_path.parent / linkname)))
+    parts = tuple(part for part in resolved.parts if part != ".")
+    return bool(parts) and parts[0] == expected_root and ".." not in parts
+
+
 def validate_archive(path: Path, archive_kind: str) -> None:
     if not path.is_file() or path.stat().st_size == 0:
         raise RollbackError(f"Missing or empty {archive_kind} archive")
@@ -158,15 +194,13 @@ def validate_archive(path: Path, archive_kind: str) -> None:
                 if member.islnk():
                     raise RollbackError(f"Hard link in {archive_kind} archive")
                 if member.issym():
-                    allowed = (
-                        normalized == f"{expected_root}/favorites.ini"
-                        and member.linkname == "/etc/allscan/favorites.ini"
-                    ) or (
-                        archive_kind == "stock"
-                        and normalized == "allscan/astdb.txt"
-                        and member.linkname == "/var/lib/asterisk/astdb.txt"
-                    )
-                    if not allowed:
+                    if not allowed_webroot_symlink(
+                        archive_kind,
+                        member_path,
+                        normalized,
+                        member.linkname,
+                        expected_root,
+                    ):
                         raise RollbackError(f"Unexpected link in {archive_kind} archive")
                     link_names.add(normalized)
             for link_name in link_names:
@@ -595,6 +629,7 @@ def create_safety_backup(web_root: Path) -> Path:
             ["-czf", str(stock_archive), "-C", str(web_root), "allscan"],
             stock_archive,
         )
+        capture_shared_state(backup_dir)
         version = detect_version(master / "server/asr-api.php")
         manifest = write_manifest(backup_dir, version)
         if manifest["rollback_eligible"] is not True:
@@ -603,6 +638,138 @@ def create_safety_backup(web_root: Path) -> Path:
     except Exception:
         shutil.rmtree(backup_dir, ignore_errors=True)
         raise
+
+
+def web_account() -> str | None:
+    for name in ("www-data", "apache", "http"):
+        try:
+            pwd.getpwnam(name)
+        except KeyError:
+            continue
+        return name
+    return None
+
+
+def capture_shared_state(
+    backup_dir: Path,
+    *,
+    etc_dir: Path = Path("/etc/allscan"),
+    account: str | None = None,
+) -> None:
+    scheduler_dir = backup_dir / "runtime/allscan-scheduler"
+    scheduler_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for name in SCHEDULER_FILES:
+        source = etc_dir / name
+        if source.is_file() and not source.is_symlink():
+            shutil.copy2(source, scheduler_dir / name)
+        elif not source.exists():
+            (scheduler_dir / f"{name}.absent").touch(mode=0o600)
+        else:
+            raise RollbackError(f"Unsafe AllScan scheduler state: {source}")
+    database = etc_dir / "allscan.db"
+    if database.is_file() and not database.is_symlink():
+        shutil.copy2(database, backup_dir / "allscan.db")
+    elif not database.exists():
+        (backup_dir / "allscan.db.absent").touch(mode=0o600)
+    else:
+        raise RollbackError("Unsafe shared AllScan database")
+
+    account = web_account() if account is None else account
+    if not account or shutil.which("crontab") is None:
+        (scheduler_dir / "web.crontab.unavailable").touch(mode=0o600)
+    else:
+        result = subprocess.run(
+            ["crontab", "-u", account, "-l"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            (scheduler_dir / "web.crontab").write_text(
+                result.stdout, encoding="utf-8"
+            )
+        elif result.returncode == 1 and not result.stdout.strip():
+            (scheduler_dir / "web.crontab.absent").touch(mode=0o600)
+        else:
+            raise RollbackError("Unable to capture the web account crontab")
+    for path in scheduler_dir.iterdir():
+        os.chmod(path, 0o600)
+
+
+def restore_shared_state(
+    backup_dir: Path,
+    *,
+    etc_dir: Path = Path("/etc/allscan"),
+    account: str | None = None,
+    restore_crontab: bool = True,
+) -> None:
+    scheduler_dir = backup_dir / "runtime/allscan-scheduler"
+    etc_dir.mkdir(mode=0o775, parents=True, exist_ok=True)
+    resolved_account = web_account() if account is None else account
+
+    def restore_file(source: Path, destination: Path) -> None:
+        temporary = destination.with_name(f".{destination.name}.rollback-{os.getpid()}")
+        try:
+            shutil.copy2(source, temporary, follow_symlinks=False)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    database = backup_dir / "allscan.db"
+    if database.is_file() and not database.is_symlink():
+        restore_file(database, etc_dir / "allscan.db")
+        if resolved_account:
+            identity = pwd.getpwnam(resolved_account)
+            os.chown(etc_dir / "allscan.db", identity.pw_uid, identity.pw_gid)
+            os.chmod(etc_dir / "allscan.db", 0o660)
+    elif database.exists() or database.is_symlink():
+        raise RollbackError("Unsafe shared AllScan database backup")
+    elif (backup_dir / "allscan.db.absent").is_file() and not (
+        backup_dir / "allscan.db.absent"
+    ).is_symlink():
+        (etc_dir / "allscan.db").unlink(missing_ok=True)
+
+    if scheduler_dir.is_dir() and not scheduler_dir.is_symlink():
+        for name in SCHEDULER_FILES:
+            source = scheduler_dir / name
+            if source.is_file() and not source.is_symlink():
+                restore_file(source, etc_dir / name)
+            elif source.exists() or source.is_symlink():
+                raise RollbackError(f"Unsafe AllScan scheduler backup: {source}")
+            elif (scheduler_dir / f"{name}.absent").is_file() and not (
+                scheduler_dir / f"{name}.absent"
+            ).is_symlink():
+                (etc_dir / name).unlink(missing_ok=True)
+            else:
+                raise RollbackError(f"Incomplete AllScan scheduler backup: {name}")
+
+        if restore_crontab:
+            account = resolved_account
+            if account and shutil.which("crontab") is not None:
+                crontab = scheduler_dir / "web.crontab"
+                if crontab.is_file() and not crontab.is_symlink():
+                    result = subprocess.run(
+                        ["crontab", "-u", account, "-"],
+                        input=crontab.read_text(encoding="utf-8"),
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        raise RollbackError("Unable to restore the web account crontab")
+                elif (scheduler_dir / "web.crontab.absent").is_file() and not (
+                    scheduler_dir / "web.crontab.absent"
+                ).is_symlink():
+                    result = subprocess.run(
+                        ["crontab", "-u", account, "-r"],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    if result.returncode not in (0, 1):
+                        raise RollbackError("Unable to remove the web account crontab")
+                elif crontab.exists() or crontab.is_symlink():
+                    raise RollbackError("Unsafe web account crontab backup")
 
 
 def copy_preserved_runtime(active: Path, staged: Path) -> None:
@@ -642,6 +809,30 @@ def extract_archive(archive_path: Path, destination: Path, kind: str) -> None:
         if "filter" in inspect.signature(archive.extractall).parameters:
             options["filter"] = "fully_trusted"
         archive.extractall(destination, **options)
+
+
+def restore_webroot_symlinks(archive_path: Path, destination: Path) -> list[str]:
+    """Restore validated user/integration links without replacing release files."""
+    validate_archive(archive_path, "webroot")
+    destination_root = destination.resolve(strict=True)
+    restored: list[str] = []
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            if not member.issym():
+                continue
+            member_path = safe_member_name(member.name)
+            parts = tuple(part for part in member_path.parts if part != ".")
+            if len(parts) < 2 or parts[0] != "asr":
+                continue
+            target = destination.joinpath(*parts[1:])
+            if target.exists() or target.is_symlink() or not target.parent.is_dir():
+                continue
+            parent = target.parent.resolve(strict=True)
+            if parent != destination_root and destination_root not in parent.parents:
+                continue
+            target.symlink_to(member.linkname)
+            restored.append(str(PurePosixPath(*parts[1:])))
+    return restored
 
 
 def run_checked(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -1226,11 +1417,16 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             web_swapped = True
             shutil.rmtree(web_stage_parent, ignore_errors=True)
 
+            restore_shared_state(backup_dir)
+
             if schema in {2, 3}:
                 environment = rollback_reapply_environment(
                     stable_protected_config_helper
                 )
                 run_checked(["bash", str(stable_reapply)], env=environment)
+                restore_webroot_symlinks(
+                    backup_dir / webroot_filename, active_web
+                )
             else:
                 environment = rollback_reapply_environment()
                 run_checked(
@@ -1298,6 +1494,10 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
                 os.replace(link_temp, CURRENT_LINK)
             if release_installed:
                 shutil.rmtree(release_target, ignore_errors=True)
+            try:
+                restore_shared_state(safety_backup)
+            except (RollbackError, OSError):
+                pass
             if stable_reapply.is_file():
                 environment = rollback_reapply_environment(
                     stable_protected_config_helper
@@ -1353,6 +1553,26 @@ def self_test() -> None:
 
     with tempfile.TemporaryDirectory(prefix="asr-rollback-self-test-") as temporary:
         root = Path(temporary)
+        shared = root / "shared"
+        shared.mkdir()
+        (shared / "allscan.db").write_bytes(b"original database")
+        (shared / "schedule.json").write_text('[{"node":"1234"}]\n', encoding="utf-8")
+        (shared / "schedule.activity").write_text("original activity\n", encoding="utf-8")
+        shared_backup = root / "shared-backup"
+        shared_backup.mkdir()
+        capture_shared_state(shared_backup, etc_dir=shared, account="")
+        (shared / "allscan.db").write_bytes(b"changed database")
+        (shared / "schedule.json").write_text("[]\n", encoding="utf-8")
+        (shared / "schedule.activity").unlink()
+        (shared / "schedule.heartbeat").write_text("unexpected\n", encoding="utf-8")
+        restore_shared_state(
+            shared_backup, etc_dir=shared, account="", restore_crontab=False
+        )
+        assert (shared / "allscan.db").read_bytes() == b"original database"
+        assert (shared / "schedule.json").read_text(encoding="utf-8") == '[{"node":"1234"}]\n'
+        assert (shared / "schedule.activity").read_text(encoding="utf-8") == "original activity\n"
+        assert not (shared / "schedule.heartbeat").exists()
+        assert not (shared / "schedule.log").exists()
         stable_helper = root / "stable-protected-config-helper.py"
         rollback_environment = rollback_reapply_environment(stable_helper)
         assert rollback_environment["ASR_ROLLBACK_MODE"] == "1"
@@ -1606,7 +1826,7 @@ def self_test() -> None:
         )
         linked_release = root / "linked-release.tar.gz"
         with tarfile.open(linked_release, "w:gz") as archive:
-            link = tarfile.TarInfo("web/link")
+            link = tarfile.TarInfo("asr/link")
             link.type = tarfile.SYMTYPE
             link.linkname = "index.html"
             archive.addfile(link)
@@ -1672,6 +1892,64 @@ def self_test() -> None:
             archive.addfile(favorite)
         validate_archive(favorites_webroot, "webroot")
 
+        safe_links_webroot = root / "safe-links-webroot.tar.gz"
+        with tarfile.open(safe_links_webroot, "w:gz") as archive:
+            directory = tarfile.TarInfo("asr")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            for name, target in (
+                ("asr/current-theme", "themes/operator"),
+                ("asr/broken-theme", "themes/not-installed"),
+                ("asr/asrplus", "/var/www/html/asrplus"),
+            ):
+                link = tarfile.TarInfo(name)
+                link.type = tarfile.SYMTYPE
+                link.linkname = target
+                archive.addfile(link)
+        validate_archive(safe_links_webroot, "webroot")
+        safe_links_extract = root / "safe-links-extract"
+        extract_archive(safe_links_webroot, safe_links_extract, "webroot")
+        assert (safe_links_extract / "asr/current-theme").is_symlink()
+        assert (
+            os.readlink(safe_links_extract / "asr/current-theme")
+            == "themes/operator"
+        )
+        assert (safe_links_extract / "asr/broken-theme").is_symlink()
+        assert not (safe_links_extract / "asr/broken-theme").exists()
+        assert (
+            os.readlink(safe_links_extract / "asr/asrplus")
+            == "/var/www/html/asrplus"
+        )
+
+        restored_webroot = root / "restored-webroot"
+        restored_webroot.mkdir()
+        (restored_webroot / "current-theme").write_text(
+            "release-owned\n", encoding="utf-8"
+        )
+        restored = restore_webroot_symlinks(safe_links_webroot, restored_webroot)
+        assert restored == ["broken-theme", "asrplus"]
+        assert (restored_webroot / "current-theme").read_text(encoding="utf-8") == (
+            "release-owned\n"
+        )
+        assert (restored_webroot / "broken-theme").is_symlink()
+        assert os.readlink(restored_webroot / "asrplus") == "/var/www/html/asrplus"
+
+        escaping_link_webroot = root / "escaping-link-webroot.tar.gz"
+        with tarfile.open(escaping_link_webroot, "w:gz") as archive:
+            directory = tarfile.TarInfo("asr")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            link = tarfile.TarInfo("asr/escape")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../etc/passwd"
+            archive.addfile(link)
+        expect_rollback_error(
+            lambda: validate_archive(escaping_link_webroot, "webroot"),
+            "webroot symbolic-link traversal was accepted",
+        )
+
         safety_source_root = root / "safety-source"
         safety_source = safety_source_root / "asr"
         safety_source.mkdir(parents=True)
@@ -1679,6 +1957,7 @@ def self_test() -> None:
         (safety_source / "favorites.ini").symlink_to(
             "/etc/allscan/favorites.ini"
         )
+        (safety_source / "asrplus").symlink_to("/var/www/html/asrplus")
         for name in (
             "astdb.txt",
             "astdb.txt.before-local-labels",
@@ -1714,6 +1993,7 @@ def self_test() -> None:
                 for member in archive.getmembers()
             }
         assert "asr/favorites.ini" in generated_names
+        assert "asr/asrplus" in generated_names
         assert not any(
             name == "asr/astdb.txt" or name.startswith("asr/astdb.txt.")
             for name in generated_names
@@ -1865,6 +2145,11 @@ def main() -> int:
     finalize_parser.add_argument("version")
     detect_parser = subparsers.add_parser("detect-version", help=argparse.SUPPRESS)
     detect_parser.add_argument("api_file")
+    restore_links_parser = subparsers.add_parser(
+        "restore-webroot-links", help=argparse.SUPPRESS
+    )
+    restore_links_parser.add_argument("archive")
+    restore_links_parser.add_argument("destination")
     subparsers.add_parser("self-test", help="Run non-mutating internal tests")
     args = parser.parse_args()
 
@@ -1897,6 +2182,14 @@ def main() -> int:
             return 0
         if args.command == "detect-version":
             print(detect_version(Path(args.api_file)))
+            return 0
+        if args.command == "restore-webroot-links":
+            if os.geteuid() != 0:
+                raise RollbackError("Webroot link restoration must run as root")
+            restored = restore_webroot_symlinks(
+                Path(args.archive), Path(args.destination)
+            )
+            print(json.dumps({"ok": True, "restored": restored}))
             return 0
         if args.command == "rollback":
             result = rollback(

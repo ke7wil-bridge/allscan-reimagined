@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-const source = await readFile(join(root, 'compat/allscan-v1.05/asr-settings/settings-controller.php'), 'utf8')
+const source = await readFile(join(root, 'compat/allscan-v1.06/asr-settings/settings-controller.php'), 'utf8')
 const match = source.match(/<script>\s*(\(function \(\) \{[\s\S]*?\}\)\(\);)\s*<\/script>/)
 if (!match) throw new Error('Settings browser controller was not found.')
 const controller = match[1]
@@ -98,10 +98,10 @@ const temporary = await mkdtemp(join(tmpdir(), 'asr-browser-install-'))
 try {
   const fixture = join(temporary, 'fixture.html')
   await writeFile(fixture, html, { mode: 0o600 })
-  const run = spawnSync('/usr/bin/google-chrome', [
+  const run = spawnSync(process.env.ASR_CHROME_BIN || '/usr/bin/google-chrome', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-network',
     '--virtual-time-budget=2000', '--dump-dom', `file://${fixture}`,
-  ], { encoding: 'utf8', timeout: 15000 })
+  ], { encoding: 'utf8', timeout: 45000 })
   if (run.error) throw run.error
   if (run.status !== 0) throw new Error(run.stderr.trim() || `Chrome exited ${run.status}`)
   const result = run.stdout.match(/<pre id="result">([^<]+)<\/pre>/)?.[1] || 'missing result'

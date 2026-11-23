@@ -2,8 +2,11 @@
 """Offline direct-DMR planning, rendering, rollback, and edit tests."""
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +39,7 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     settings = install.planner.DmrSettings(
         "dmr_johnny2", "N1YKT", 3205161, 42450, bridge_node=1001,
         tgif_essid=3, timeslot=2, color_code=1, dmr_to_asl_gain_db=5,
+        asl_to_dmr_gain_db=-4,
         title="TGIF DMR 42450",
     )
     # Collision with an inactive managed DMR bridge must fail before apply.
@@ -60,6 +64,28 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert plan["ports"]["emulator"] == 23170
     assert len(set(plan["ports"].values())) == len(plan["ports"])
     assert abs(plan["gains"]["dmrToAsl"] - 1.7783) < 0.0001
+    assert abs(plan["gains"]["aslToDmr"] - 10 ** (-4 / 20)) < 0.0001
+    for invalid in (True, False, float('nan'), float('inf'), -20.01, 12.01):
+        for key in ('dmr_to_asl_gain_db', 'asl_to_dmr_gain_db'):
+            try:
+                install.planner.validate(install.planner.DmrSettings(**{
+                    **settings.__dict__, key: invalid}))
+                raise AssertionError(f'invalid DMR gain {key}={invalid!r} accepted')
+            except install.planner.PlanError:
+                pass
+    # Validate 25 independent asymmetrical settings against the actual
+    # Analog_Bridge renderer while keeping Johnny2's +5 dB fixture intact.
+    for i in range(25):
+        incoming, outgoing = -20 + i * 1.25, 12 - i * 1.25
+        gain_settings = install.planner.DmrSettings(**{
+            **settings.__dict__, 'dmr_to_asl_gain_db': incoming,
+            'asl_to_dmr_gain_db': outgoing})
+        gain_plan = install.planner.plan(root, gain_settings)
+        gain_ini = install.renderer.analog_ini(gain_plan)
+        assert f'usrpGain={10 ** (incoming / 20):.4f}\n' in gain_ini
+        assert f'tlvGain={10 ** (outgoing / 20):.4f}\n' in gain_ini
+        assert 'usrpAudio=AUDIO_USE_GAIN' in gain_ini
+        assert 'tlvAudio=AUDIO_USE_GAIN' in gain_ini
     rendered = install.renderer.mmdvm_template(plan)
     assert "Address=127.0.0.1" in rendered and "Slot2=1" in rendered
     assert "Port=23164" in rendered and "Local=23165" in rendered
@@ -77,13 +103,29 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     bridge = config["bridges"][0]
     assert bridge["backendMode"] == "managed" and bridge["architecture"] == "direct-dvswitch"
     assert bridge["dmrTimeslot"] == 2 and bridge["dmrToAslGainDb"] == 5.0
+    assert bridge["aslToDmrGainDb"] == -4.0
     assert "test-hotspot-key" not in json.dumps(config)
     installed_proxy = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-dmr-proxy.py"
-    assert "URF_ENABLED" in installed_proxy.read_text() and "banned_callsigns" in installed_proxy.read_text()
+    active_source = installed_proxy.read_text()
+    assert all(token in active_source for token in
+               ("TGIF_TARGET_FILE", "banned_callsigns", "dmr-local-media-v1", "admin_media_allowed"))
+    subprocess.run([sys.executable, str(installed_proxy), "--self-test"],
+                   check=True, capture_output=True, text=True)
+    staged_relay = root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/asr-tgif-standalone-relay.py"
+    assert staged_relay.is_file() and "dmr-local-media-v1" in staged_relay.read_text()
+    assert "asr-tgif-dmr-proxy.py" in (root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/run-mmdvm.sh").read_text()
+    run_script = (root / "opt/allscan-reimagined-bridges/dmr_johnny2/mmdvm/run-mmdvm.sh").read_text()
+    assert "asr-tgif-dmr-proxy.py" in run_script
+    assert "DMR_EVIDENCE_FILE" in run_script
+    admin_unit = (root / "etc/systemd/system/asr-dmr-admin-dmr_johnny2.service").read_text()
+    assert "Group=asr-bridge" in admin_unit
     changed = install.planner.DmrSettings(**{**settings.__dict__, "dmr_to_asl_gain_db": 3.0})
     edit_plan = install.planner.plan(root, changed)
     edited = install.install(root, changed, stage, "replacement-key", expected_digest=edit_plan["digest"])
     assert edited["changedFiles"] > 0
+    updated_config = json.loads((root / install.planner.CONFIG.lstrip("/")).read_text())
+    assert updated_config["bridges"][0]["dmrToAslGainDb"] == 3.0
+    assert updated_config["bridges"][0]["aslToDmrGainDb"] == -4.0
     secret = root / "opt/allscan-reimagined-bridges/dmr_johnny2/secrets/master-password"
     assert secret.read_text() == "replacement-key\n"
     assert secret.stat().st_mode & 0o777 == 0o640
@@ -96,26 +138,101 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     admin_runtime = root / "admin-runtime"; admin_runtime.mkdir()
     roster = admin_runtime / "dmr-clients.json"
     control = admin_runtime / "dmr-admin.json"
-    roster.write_text(json.dumps({"urf_dmr": [
+    enforcement = admin_runtime / "dmr-admin-enforcement.json"
+    roster.write_text(json.dumps({"clients": [
         {"dmrid": "3205161", "callsign": "N1YKT"},
         {"dmrid": "314133", "callsign": "W7ABC"},
     ]}) + "\n")
-    capabilities = admin.capability("dmr_johnny2", "0" * 64)
+    control.write_text(json.dumps({"policy_digest": "0" * 64, "banned_ids": [],
+        "banned_callsigns": [], "banned_prefixes": [], "banned_clients": {},
+        "kicked_ids": {}, "kick_tokens": {}}) + "\n")
+    capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["listClients"] is True
+    assert capabilities["kickClient"] is False
+    enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
+        "heartbeatEpoch": int(time.time()) - 6, "appliedPolicyDigest": "0" * 64}) + "\n")
+    capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
+    assert capabilities["healthy"] is False and capabilities["kickClient"] is False
+    enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
+        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64,
+        "kickHoldSeconds": 300, "appliedKicks": {}}) + "\n")
+    capabilities = admin.capability("dmr_johnny2", "0" * 64, enforcement)
     assert capabilities["kickClient"] is True
-    assert capabilities["kickContract"] == "disconnect-until-reconnect"
+    assert capabilities["kickContract"] == "disconnect-hold-v1"
+    assert capabilities["kickHoldSeconds"] == 300 and capabilities["kickAllowsImmediateReconnect"] is False
     assert capabilities["banClient"] is True and capabilities["unbanClient"] is True
     assert capabilities["banContract"] == "global-timed-v1"
-    assert admin.kick("N1YKT", roster, control) == 1
+    active = admin.active_policy_rules({"rules": [], "timedBans": {
+        "N1YKT": {"expiresAt": int(time.time()) - 1},
+        "W7ABC": {"expiresAt": int(time.time()) + 60},
+    }})
+    assert active == ["W7ABC"], "expired timed Ban remained in active DMR policy"
+    stop = threading.Event()
+    def relay_evidence():
+        while not stop.is_set():
+            payload = json.loads(control.read_text()) if control.is_file() else {}
+            tokens = payload.get("kick_tokens", {})
+            digest = payload.get("policy_digest", "")
+            proof = {"schema": 1, "contract": "dmr-local-media-v1",
+                     "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": digest,
+                     "kickHoldSeconds": 300, "appliedKicks": dict(tokens)}
+            enforcement.write_text(json.dumps(proof) + "\n")
+            time.sleep(.01)
+    worker = threading.Thread(target=relay_evidence, daemon=True); worker.start()
+    assert admin.kick("N1YKT", "3205161", roster, control, enforcement, "a" * 32) == 1
     control_payload = json.loads(control.read_text())
     assert "3205161" in control_payload["kicked_ids"]
-    assert [row["callsign"] for row in admin.current_rows(roster)] == ["W7ABC"]
+    assert [row["callsign"] for row in admin.current_rows(roster)] == ["N1YKT", "W7ABC"]
+    try:
+        admin.kick("N1YKT", "3205161", roster, control, enforcement, "b" * 32)
+    finally:
+        pass
+    for wrong_identity, wrong_id in (("N1YKT", "314133"), ("W7ABC", "3205161"), ("N1YKT", "")):
+        try:
+            admin.kick(wrong_identity, wrong_id, roster, control, enforcement, "c" * 32)
+            raise AssertionError("mismatched DMR Kick identity was accepted")
+        except ValueError:
+            pass
     policy_digest = "1" * 64
     assert admin.apply_policy(control, {"digest": policy_digest,
-        "rules": ["314133", "BADGUY", "SPAM*"]}) == policy_digest
+        "rules": ["314133", "N1YKT", "BADGUY", "SPAM*"]}, enforcement, roster) == policy_digest
+    stop.set(); worker.join(timeout=1)
     control_payload = json.loads(control.read_text())
-    assert control_payload["banned_ids"] == [314133]
-    assert control_payload["banned_callsigns"] == ["BADGUY"]
+    assert control_payload["banned_ids"] == [314133, 3205161]
+    assert control_payload["banned_clients"] == {"3205161": "N1YKT"}
+    assert control_payload["banned_callsigns"] == ["BADGUY", "N1YKT"]
     assert control_payload["banned_prefixes"] == ["SPAM"]
+
+    # Upgrade a pre-evidence control file without losing active enforcement.
+    control.write_text(json.dumps({"banned_ids": [314133],
+        "kicked_ids": {"3205161": int(time.time())}}) + "\n")
+    enforcement.write_text(json.dumps({"schema": 1, "contract": "dmr-local-media-v1",
+        "heartbeatEpoch": int(time.time()), "appliedPolicyDigest": "0" * 64}) + "\n")
+    manifest_runtime = admin_runtime / "manifest"
+    class StopAdapterLoop(Exception):
+        pass
+    original_sleep = admin.time.sleep
+    def stop_adapter_loop(_seconds):
+        raise StopAdapterLoop()
+    admin.time.sleep = stop_adapter_loop
+    try:
+        try:
+            admin.run("dmr_johnny2", roster, control, manifest_runtime, "2" * 32)
+        except StopAdapterLoop:
+            pass
+    finally:
+        admin.time.sleep = original_sleep
+    capability_path = manifest_runtime / "capabilities.json"
+    assert capability_path.is_file()
+    assert manifest_runtime.stat().st_mode & 0o777 == 0o755
+    assert capability_path.stat().st_mode & 0o777 == 0o644
+    upgraded_caps = json.loads(capability_path.read_text())
+    # A relay that predates the Kick hold keeps Ban but must not offer Kick.
+    assert upgraded_caps["banClient"] is True and upgraded_caps["kickClient"] is False
+    upgraded_control = json.loads(control.read_text())
+    assert upgraded_control["banned_ids"] == [314133]
+    assert "3205161" in upgraded_control["kicked_ids"]
+    assert upgraded_control["policy_digest"] == "0" * 64
+    assert upgraded_control["kick_tokens"] == {} and upgraded_control["banned_clients"] == {}
 
 print("direct DMR managed install/edit/rollback/Kick/Ban: PASS")

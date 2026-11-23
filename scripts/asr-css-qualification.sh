@@ -42,6 +42,8 @@ run maintenance-regression node scripts/asr-maintenance-regression-self-test.mjs
 run settings-redesign node scripts/asr-settings-redesign-self-test.mjs
 run settings-tabs-unit node scripts/asr-settings-tabs-self-test.mjs
 run update-dialog node scripts/asr-update-dialog-self-test.mjs
+run release-notes node scripts/asr-release-notes-self-test.mjs
+run release-notes-browser node scripts/asr-release-notes-browser-self-test.mjs
 run cpu-temperature node scripts/asr-cpu-temperature-consumers-self-test.mjs
 run mobile-layout node scripts/asr-mobile-layout-browser-self-test.mjs
 run support node scripts/asr-support-self-test.mjs
@@ -50,7 +52,6 @@ run support node scripts/asr-support-self-test.mjs
 run support-browser bash -c 'set -e; ASR_MOCK=1 ./node_modules/.bin/vite --host 127.0.0.1 --port 4197 --strictPort > "$1/support-vite.log" 2>&1 & server=$!; trap "kill $server 2>/dev/null || true" EXIT; for i in $(seq 1 60); do if curl -fsS http://127.0.0.1:4197/asr/ >/dev/null 2>&1; then break; fi; sleep .1; done; ASR_SUPPORT_TEST_URL=http://127.0.0.1:4197/asr/ ASR_SUPPORT_SCREENSHOT_DIR="$1/support-screenshots" node scripts/asr-support-browser-self-test.mjs' bash "$OUT"
 run bridge-install-browser node scripts/asr-bridge-install-browser-self-test.mjs
 run settings-tabs-browser bash scripts/asr-settings-tabs-browser-self-test.sh
-run urf-client-browser node scripts/asr-urf-client-management-browser-self-test.mjs
 run lookup-map-browser node scripts/asr-lookup-map-browser-self-test.mjs
 # Visual comparisons use 20 deterministic mock screenshots, five themes x four sizes.
 # The baseline directory must be an explicitly approved known-good capture.

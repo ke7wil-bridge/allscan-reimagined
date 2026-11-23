@@ -44,14 +44,39 @@ def static_checks() -> None:
     for version in ("v1.04", "v1.05"):
         compat = ROOT / f"compat/allscan-{version}"
         compat_files = {path.relative_to(compat) for path in compat.rglob("*") if path.is_file()}
-        if v103_files != compat_files:
+        # v1.05 carries the authenticated network lookup endpoints and its
+        # matching Lookup page. The shared baseline remains byte-identical.
+        lookup_additions = {Path("lookup/network-graph.php"), Path("lookup/node-info.php")} if version == "v1.05" else set()
+        if v103_files != compat_files - lookup_additions:
             raise RuntimeError(f"AllScan {version} compatibility layer file set diverges from v1.03")
-        for relative in v103_files - {Path("include/common.php")}:
+        allowed_variants = {Path("include/common.php")}
+        if version == "v1.05":
+            allowed_variants.add(Path("lookup/index.php"))
+        for relative in v103_files - allowed_variants:
             require_equal(v103 / relative, compat / relative)
         common = (compat / "include/common.php").read_text()
         if common.replace(f'$AllScanVersion = "{version}";', '$AllScanVersion = "v1.03";', 1) \
                 != (v103 / "include/common.php").read_text():
             raise RuntimeError(f"AllScan {version} common.php differs beyond the qualified backend version")
+    v106 = ROOT / "compat/allscan-v1.06"
+    v106_files = {path.relative_to(v106) for path in v106.rglob("*") if path.is_file()}
+    lookup_additions = {Path("lookup/network-graph.php"), Path("lookup/node-info.php")}
+    v106_scheduler_files = {Path("include/scheduleUtils.php"), Path("_tools/runSchedule.php")}
+    if v103_files != v106_files - lookup_additions - v106_scheduler_files or not v106_scheduler_files <= v106_files:
+        raise RuntimeError("AllScan v1.06 compatibility layer file set diverges from v1.03")
+    for relative in v103_files - {
+        Path("include/common.php"), Path("include/CfgModel.php"), Path("astapi/server.php"),
+        Path("lookup/index.php"), Path("asr-settings/settings-controller.php"),
+    }:
+        require_equal(ROOT / "compat/allscan-v1.05" / relative, v106 / relative)
+    for relative in lookup_additions | {Path("lookup/index.php")} :
+        require_equal(ROOT / "compat/allscan-v1.05" / relative, v106 / relative)
+    v106_cfg = (v106 / "include/CfgModel.php").read_text()
+    v106_server = (v106 / "astapi/server.php").read_text()
+    if "define('schedulerEnabled', 14);" not in v106_cfg or "define('showcmdbuttons', 15);" not in v106_cfg:
+        raise RuntimeError("AllScan v1.06 config IDs are not isolated")
+    if "checkScheduleActivity();" not in v106_server or "scheduleUtils.php" not in v106_server:
+        raise RuntimeError("AllScan v1.06 native scheduler SSE is not integrated")
     for relative in CRITICAL_COMPAT:
         for version in ("v1.03", "v1.04", "v1.05"):
             require_equal(ROOT / "compat/allscan-v1.02" / relative,
@@ -71,7 +96,7 @@ def static_checks() -> None:
             raise RuntimeError(f"layered recreation can delete persistent runtime state: {runtime_name}")
     if 'compat_dir="$MASTER_DIR/compat/allscan-${backend_version:-unknown}"' not in reapply:
         raise RuntimeError("native reapply does not select an exact detected compatibility version")
-    for version in ("v1.02", "v1.03", "v1.04", "v1.05"):
+    for version in ("v1.02", "v1.03", "v1.04", "v1.05", "v1.06"):
         source = ROOT / f"compat/allscan-{version}/astapi/server.php"
         text = source.read_text()
         if "asrSanitizeTalkerFeed($payload['current']" not in text:

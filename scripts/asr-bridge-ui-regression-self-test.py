@@ -9,8 +9,8 @@ live = (root / "src/lib/allscanLive.ts").read_text()
 errors = []
 
 recent_starts = [m.start() for m in re.finditer(r"card\.recentRows\.map", app)]
-if len(recent_starts) < 2:
-    errors.append("expected both Recent Activity rendering paths")
+if not recent_starts:
+    errors.append("Recent Activity rendering path missing")
 for start in recent_starts:
     chunk = app[start:start + 1400]
     if any(token in chunk for token in ("Kick</button>", "globalBanDurationSelect(", "openBridgeBan(")):
@@ -19,8 +19,17 @@ for start in recent_starts:
 client_starts = [m.start() for m in re.finditer(r"card\.detailRows\.map", app)]
 if not client_starts:
     errors.append("Connected Clients rendering path missing")
-elif not any("'Disconnect' : 'Kick'" in app[start:start + 2600] for start in client_starts):
-    errors.append("Connected Clients lost capability-gated Disconnect/Kick")
+elif not any("supportsKick ?" in app[start:start + 2600]
+             and ">Kick</button>" in app[start:start + 2600]
+             for start in client_starts):
+    errors.append("Connected Clients lost capability-gated Kick")
+
+link_status_start = app.find("const allstarTransportLinked")
+link_status = app[link_status_start:app.find("const dashboardStatusLabel", link_status_start)]
+if "card.allstarLinked" not in link_status or "row.state !== 'message'" not in link_status:
+    errors.append("standard cards no longer use explicit AllStar transport evidence")
+if "row.direction.toUpperCase() === 'OUT'" in link_status:
+    errors.append("inbound established AllStar transports are incorrectly treated as disconnected")
 
 managed_clients = app[app.find('<b>Digital bridge clients</b>'):app.find('Recent Zello Talkers')]
 if ("clientAdmin.includes('kickClient')" not in managed_clients
@@ -39,8 +48,6 @@ mapping_chunks = [app[m.start():m.start()+450] for m in re.finditer(r"byNode:\s*
 if len(mapping_chunks) < 2:
     errors.append("bridge friendly-name/state maps missing")
 for chunk in mapping_chunks[:2]:
-    if "!bridge.urfReflector" in chunk:
-        errors.append("URF bridge nodes are excluded from friendly-name/state mapping")
     if "!bridge.linkAlias" not in chunk:
         errors.append("bridge node mapping no longer excludes explicit link aliases")
 
@@ -58,8 +65,8 @@ if "liveMatchesTransmission" not in talker_enrichment or "Math.abs(fast.eventEpo
     errors.append("live P25/NXDN identity can leak across transmissions")
 if "isCurrentTalker && sourceCard && sourceCard.cardType !== 'p25_net' && sourceCard.cardType !== 'nxdn_net'" not in talker_enrichment:
     errors.append("generic node metadata can overwrite authoritative P25/NXDN identity")
-if "persistedUrfIdentity" not in talker_enrichment or "talker.source" not in talker_enrichment or "node: 'URFWIL'" not in talker_enrichment:
-    errors.append("persisted URFWIL caller identity/provenance is not rendered after refresh")
+if "URFWIL" in talker_enrichment or "persistedUrfIdentity" in talker_enrichment:
+    errors.append("retired URF transport identity is still used by Talker Cards")
 if "transportNode !== '1001' && transportNode !== '1999'" not in talker_enrichment:
     errors.append("Talker Cards no longer guard both private transport nodes 1001 and 1999")
 if "bridgeTalkerFeed(bridgeState.cards)" not in talker_composition or "bridgeTalkers.currentTalker" not in talker_composition:
@@ -67,7 +74,7 @@ if "bridgeTalkerFeed(bridgeState.cards)" not in talker_composition or "bridgeTal
 if "String(entry.description || '').trim() || parts.description" not in live or "String(entry.location || '').trim() || parts.location" not in live:
     errors.append("persisted Talker Card description/location metadata is discarded")
 if "if (!isCurrentTalker) return null" not in talker_enrichment or "info: 'Identifying…'" not in talker_enrichment:
-    errors.append("generic URFWIL transport identity can masquerade as the caller")
+    errors.append("generic transport identity can masquerade as the caller")
 if "modeCard?.cardType === 'm17_net'" not in talker_enrichment or "modeCard.recentTalkers" not in talker_enrichment:
     errors.append("completed M17 talkers do not retain event-scoped identity")
 if "selected Talkgroup ${canonicalId}." not in app:
