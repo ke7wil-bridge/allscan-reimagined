@@ -56,15 +56,15 @@ check("$id === $mode . '_net'" in API
       and "$capabilities = asr_runtime_client_admin($mode, $mode);" in API,
       "historical mode_net cards cannot resolve their protocol capability adapter")
 check("dstar" not in GLOBAL_BAN.lower(), "D-Star administration remains in the Global Ban helper")
-check("write_zello_kick" in GLOBAL_BAN and 'enforcement="current-or-next-zello-stream"' in GLOBAL_BAN
-      and "expiresSeconds=300" in GLOBAL_BAN,
-      "ASR-managed current-or-next-stream Zello Kick is missing")
+check("write_zello_kick" in GLOBAL_BAN and 'enforcement="zello-mute-hold-v1"' in GLOBAL_BAN
+      and "expiresSeconds=60" in GLOBAL_BAN,
+      "ASR-managed one-minute Zello Kick mute is missing")
 check("[A-Z0-9_.\\/-]" in API and "[A-Z0-9_./-]" in GLOBAL_BAN, "Zello underscore identity support missing")
 check("_ke7wil_zello_is_kicked" in ZELLO_PATCH and "_ke7wil_zello_clear_kick" in ZELLO_PATCH,
       "Zello runtime Kick enforcement or stream-stop cleanup is missing")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP, "Zello Manage Clients UI missing")
-check("current or next Zello transmission for up to five minutes" in APP and "mode.toUpperCase() === 'ZELLO'" in APP,
-      "Zello one-shot Kick UI/API route is missing")
+check("Mute this Zello talker on this bridge for one minute" in APP and "mode.toUpperCase() === 'ZELLO'" in APP,
+      "Zello one-minute Kick UI/API route is missing")
 check('payload.get("clients"' in DIRECT_DMR_ADMIN,
       "native DMR Kick does not read the node-wide TGIF client snapshot")
 capability = re.search(r"\$bridgeControl\s*=.*?;", API, re.DOTALL)
