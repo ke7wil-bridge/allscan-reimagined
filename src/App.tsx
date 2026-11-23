@@ -48,6 +48,7 @@ import {
   updateGlobalBan,
   kickZelloClient,
   kickStandaloneClient,
+  type TgifKickResult,
   provisionedNetBridgeModes,
   restartAsteriskCommand,
   repairStandardBridge,
@@ -2989,11 +2990,21 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanAdminBusy(true)
       setBanAdminStatus(`Kicking ${callsign} from ${mode.toUpperCase()}…`)
-      const result = mode.toUpperCase() === 'ZELLO'
+      const result: { verified: boolean; removed: number; tgif?: TgifKickResult } = mode.toUpperCase() === 'ZELLO'
         ? await kickZelloClient(callsign)
         : await kickStandaloneClient(bridgeId, callsign, clientId)
       if (!result.verified || result.removed < 1) throw new Error('Kick was not verified by the active backend.')
-      setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      const tgif = result.tgif
+      if (tgif?.ok) {
+        // #134: DMR Kick also disconnects the station from the TGIF talkgroup.
+        // It is not a ban: the station may reconnect at once.
+        const blocked = !tgif.released && tgif.seconds ? ` TGIF still holds it out for up to ${Math.max(1, Math.round(tgif.seconds / 60))} minutes.` : ' It can reconnect right away.'
+        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''}.${blocked}`)
+      } else if (tgif) {
+        setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
+      } else {
+        setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      }
     } catch (error) {
       setBanAdminStatus(error instanceof Error ? error.message : 'Bridge client Kick failed.')
     } finally { setBanAdminBusy(false) }
@@ -4459,7 +4470,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
                             {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Mute this station on this bridge for five minutes' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Disconnect this station and refuse it for five minutes')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}

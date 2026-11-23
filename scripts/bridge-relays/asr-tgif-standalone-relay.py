@@ -23,9 +23,9 @@ ROSTER_MAX_AGE = 30
 def _kick_hold_seconds():
     """A Kick refuses the station's media for a bounded hold (disconnect-hold-v1)."""
     try:
-        value = int(os.environ.get("DMR_KICK_HOLD_SECONDS", "300"))
+        value = int(os.environ.get("DMR_KICK_HOLD_SECONDS", "60"))
     except ValueError:
-        value = 300
+        value = 60
     return min(3600, max(30, value))
 
 
