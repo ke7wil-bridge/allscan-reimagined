@@ -978,6 +978,23 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
     return units, issues
 
 
+def bridge_autopatch_active(node: str) -> bool | None:
+    """Return confirmed bridge autopatch state; command failure is unknown."""
+    if not NODE_RE.fullmatch(node):
+        return None
+    try:
+        result = subprocess.run(
+            ["/usr/sbin/asterisk", "-rx", f"rpt show variables {node}"],
+            cwd="/", text=True, capture_output=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    match = re.search(r"(?im)^\s*RPT_AUTOPATCHUP\s*=\s*([01])\s*$", result.stdout)
+    return match.group(1) == "1" if match else None
+
+
 def confirmed_m17_state(bridge: dict[str, Any], now: int, runtime_dir: Path = Path("/run/allscan-reimagined-m17")) -> dict[str, Any]:
     """Use fresh authoritative M17 runtime evidence, never infer from systemd."""
     bridge_id = str(bridge.get("id", ""))
@@ -1020,7 +1037,9 @@ def public_entry(bridge: dict[str, Any], state: dict[str, Any], units: list[str]
     online = state.get("online")
     linked = state.get("linked")
     units = units or []
-    service_issues = service_issues or []
+    service_issues = list(service_issues or [])
+    if state.get("invalid_autopatch") is True:
+        service_issues.append("Bridge autopatch state is invalid; transport TX is suppressed.")
     warning = service_issues[0] if service_issues else ""
     health_severity = "offline" if service_issues else None
     health_issues: list[str] = service_issues
@@ -1215,6 +1234,17 @@ def standard_live_payload(
         # formerly connected bridge remains online.
         state["online"] = connected.get(node) if isinstance(connected.get(node), bool) else None
         keyed = keys.get(node) if node_counts[node] == 1 else None
+        if keyed is True and now - int(state.get("autopatch_checked_epoch", 0) or 0) >= 2:
+            confirmed_autopatch = bridge_autopatch_active(node)
+            state["autopatch_checked_epoch"] = now
+            if isinstance(confirmed_autopatch, bool):
+                state["invalid_autopatch"] = confirmed_autopatch
+        elif keyed is False:
+            state["invalid_autopatch"] = False
+        if state.get("invalid_autopatch") is True:
+            keyed = False
+            state.update({"role": "idle", "current_user": "", "active_start_epoch": 0,
+                          "source_slot": 0, "network_relay": False, "relay_user": ""})
         if keyed is True and state.get("role") == "idle" and str(bridge.get("mode", "")).lower() != "m17":
             # A fresh, explicit keyed sample is proof of transport TX;
             # do not invent a caller or a network-side RELAY event.

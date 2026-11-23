@@ -832,7 +832,8 @@ fi
 cat > /etc/systemd/system/allscan-reimagined-fixed-bridge-recovery.service <<EOF
 [Unit]
 Description=Restore opted-in fixed ASR bridge links
-After=asterisk.service
+After=network-online.target asterisk.service
+Wants=network-online.target
 ConditionPathExists=/etc/allscan-reimagined/config.json
 ConditionPathExists=/etc/asterisk/rpt.conf
 
@@ -842,6 +843,8 @@ User=asterisk
 Group=asterisk
 SupplementaryGroups=$WEB_GROUP
 ExecStart=/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --once
+RuntimeDirectory=allscan-reimagined-fixed-bridge-recovery
+RuntimeDirectoryMode=0700
 Nice=10
 TimeoutStartSec=30s
 NoNewPrivileges=true

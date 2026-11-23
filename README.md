@@ -200,6 +200,15 @@ Node-specific settings are stored outside the web root:
 /etc/allscan-reimagined/config.json
 ```
 
+Nodes that must reconnect automatically can be placed in the optional
+`requiredAllStarLinks` list. ASR uses structured app_rpt commands and bounded
+30-second, 60-second, then five-minute retry backoff; do not also place those
+nodes in `startup_macro`.
+
+```json
+"requiredAllStarLinks": ["578990"]
+```
+
 Uploaded logos are stored in:
 
 ```text
