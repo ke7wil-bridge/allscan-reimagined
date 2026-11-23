@@ -578,6 +578,35 @@ def test_standard_payload_and_ambiguity() -> None:
             assert entry["last_user"] == "-" and entry["tx_events"] == []
 
 
+
+def test_stuck_tx_safety_window() -> None:
+    # Missing EOT must not leave a card transmitting forever, but a valid
+    # two-minute QSO must not be cut off by an arbitrary short timeout.
+    config = {"node": "123456", "bridges": [
+        {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+    ]}
+    with tempfile.TemporaryDirectory(prefix="asr-stuck-tx-") as raw:
+        states: dict[str, dict] = {}
+        root = Path(raw)
+        start = 1_800_000_000
+        source = status.initial_activity_state()
+        source.update({"role": "source", "current_user": "N0CALL",
+                       "active_start_epoch": start, "source_observed_at": start,
+                       "observed": True})
+        states["dmr"] = source
+        for elapsed in (120, status.ACTIVE_STATE_MAX_AGE_SECONDS):
+            result = status.standard_live_payload(config, states, [], start + elapsed, root)
+            assert result["bridges"]["dmr"]["role"] == "source"
+            assert result["bridges"]["dmr"]["current_user"] == "N0CALL"
+        result = status.standard_live_payload(
+            config, states, [], start + status.ACTIVE_STATE_MAX_AGE_SECONDS + 1, root
+        )
+        assert result["bridges"]["dmr"]["role"] == "idle"
+        assert result["bridges"]["dmr"]["current_user"] == ""
+        assert result["bridges"]["dmr"]["active_start_epoch"] == 0
+        assert result["bridges"]["dmr"]["tx_events"] == []
+
+
 def test_log_follower_safety() -> None:
     with tempfile.TemporaryDirectory(prefix="asr-mmdvm-logs-") as raw:
         log_dir = Path(raw)
@@ -890,6 +919,7 @@ def main() -> None:
     test_november_8_standard_activity_pipeline()
     test_simultaneous_relay_identity_and_connection_recovery()
     test_standard_payload_and_ambiguity()
+    test_stuck_tx_safety_window()
     test_direct_service_discovery()
     test_log_follower_safety()
     test_standard_net_log_isolation()
