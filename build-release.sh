@@ -223,6 +223,9 @@ node "$ROOT/scripts/asr-update-dialog-self-test.mjs"
 node "$ROOT/scripts/asr-custom-command-buttons-self-test.mjs"
 node "$ROOT/scripts/asr-maintenance-regression-self-test.mjs"
 python3 "$ROOT/scripts/asr-deployment-source-consistency-self-test.py"
+# Unified bridge gate: includes Thomas's protocol, roster, Kick/Ban,
+# relay identity, Recent Activity and real-dashboard behavioral blockers.
+sh "$ROOT/scripts/asr-beta8-bridge-regression-self-test.sh"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
 		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do
