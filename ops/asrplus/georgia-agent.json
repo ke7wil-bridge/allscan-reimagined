@@ -1,6 +1,8 @@
 {
   "hub": "georgia",
   "node": "674980",
+  "eventPublishMode": "masterhub-pull",
+  "talkerHeartbeatSeconds": 1,
   "server": "root@44.30.157.21",
   "key": "/root/.ssh/asl3_kentucky_state_pull",
   "knownHosts": "/root/.ssh/known_hosts_asl3_kentucky",

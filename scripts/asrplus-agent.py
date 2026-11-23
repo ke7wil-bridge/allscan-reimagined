@@ -213,6 +213,9 @@ class TalkerState:
         self.started: dict[str, int] = {}
         self.history: list[dict] = []
         self.last_write = 0
+        self.heartbeat_seconds = int(config.get("talkerHeartbeatSeconds", TALKER_HEARTBEAT_SECONDS))
+        if not 1 <= self.heartbeat_seconds <= 60:
+            raise ValueError("talkerHeartbeatSeconds must be 1..60")
         self.sequence = 0
         self.healthy = False
         self.watcher_instance = uuid.uuid4().hex
@@ -278,7 +281,7 @@ class TalkerState:
         current = self.entry(active[0], self.started.get(active[0], now)) if active else {}
         if current:
             current["last_keyed"] = f"{(now - current['keyed_started_epoch']) // 60:02d}:{(now - current['keyed_started_epoch']) % 60:02d}"
-        if changed or now - self.last_write >= TALKER_HEARTBEAT_SECONDS:
+        if changed or now - self.last_write >= self.heartbeat_seconds:
             self.publish({"current_talker": current, "last_talkers": self.history}, changed, now)
         return changed
 
@@ -300,9 +303,15 @@ class EventPublisher:
         self.config = config
         self.condition = threading.Condition()
         self.pending = False
-        threading.Thread(target=self.run, name="asrplus-event-publisher", daemon=True).start()
+        self.enabled = config.get("eventPublishMode", "outbound") == "outbound"
+        if config.get("eventPublishMode", "outbound") not in {"outbound", "masterhub-pull"}:
+            raise ValueError("invalid eventPublishMode")
+        if self.enabled:
+            threading.Thread(target=self.run, name="asrplus-event-publisher", daemon=True).start()
 
     def trigger(self) -> None:
+        if not self.enabled:
+            return
         with self.condition:
             self.pending = True
             self.condition.notify()
