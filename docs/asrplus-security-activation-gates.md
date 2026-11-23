@@ -18,6 +18,7 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 - [ ] Prepare Phoenix merged config: `eventPublishMode=outbound`, heartbeat 5, signing config and persistent ledger.
 - [ ] Prepare KY2 control config: `eventPublishMode=masterhub-pull`, heartbeat 1, signing config and persistent ledger. Keep watcher config separate and watcher-only.
 - [ ] Validate module import paths, root-only key access, ledger persistence, and systemd write allowances.
+- [ ] **Import blocker:** all new Python entrypoints import `asrplus_command_integrity`, but the existing deployed entrypoints live in `/usr/local/sbin`; explicitly install the shared module beside each entrypoint (or configure a verified import path) on MasterHub, Phoenix and KY2. Repo scan found no installation instruction for this module. Test imports using the deployed interpreter and service environment before replacement.
 
 ## Gate 3 — approved coordinated activation
 
