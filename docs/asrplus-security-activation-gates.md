@@ -7,8 +7,8 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 - [x] Offline token, command-integrity and agent-mode self-tests pass.
 - [x] Phoenix 641894, KY2 674980 and MasterHub 674982 staged with backups; no activation.
 - [ ] Verify live-vs-unified agent parity for both hubs, including KY2's split control/watcher configs and `masterhub-pull` telemetry.
-- [ ] Validate all current MasterHub forced-command SSH mappings, `asrplus-sync`, `asrplus-poll`, `asrplus-ack`, status and command queues using offline copies.
-- [ ] Verify current queued/inflight commands and ledger semantics; do not switch code while commands are pending.
+- [ ] Validate all current MasterHub forced-command SSH mappings, `asrplus-sync`, `asrplus-poll`, `asrplus-ack`, status and command queues using offline copies. Read-only audit confirms a KY2 `georgia` forced-command entry restricted to `44.30.157.22`, **but also an older `georgia` entry restricted to `45.76.255.39`**. Verify whether the older credential remains in use and plan revocation separately; do not change it during staging.
+- [ ] Verify current queued/inflight commands and ledger semantics; do not switch code while commands are pending. Initial read-only queue scan returned no pending `.json` or `.inflight` files; repeat immediately before cutover.
 - [ ] Verify current systemd sandbox paths and all required existing Asterisk admin writes.
 
 ## Gate 2 — secrets and staged configs
