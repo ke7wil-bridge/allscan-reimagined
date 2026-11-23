@@ -10,6 +10,11 @@
 
 All hubs start in `optional` compatibility mode. This is a migration setting, not the final security posture. Do not switch to `required` until both agents have verified the signed read-only qualification and queues are drained.
 
+Run `sha256sum -c SHA256SUMS` from this directory before copying any file and
+again against each remote staging directory. The older entrypoints already
+staged on MasterHub, Phoenix, and KY2 predate reviewed fixes and must not be
+activated. The reviewed hashes are recorded in the manifest.
+
 ## Key provisioning still required
 
 Generate **two independent random 256-bit keys**, one Phoenix and one KY2. The same per-hub key must be installed on MasterHub and its matching remote hub, with owner `root:root`, mode `0600`, under `/etc/asrplus/command-keys/`. Never put key bytes in this repository, command-line arguments, shell history, chat, logs, or issue comments. Do not reuse one hub's key for another. No keys have been generated or installed by this staging step.

@@ -8,7 +8,18 @@ Read-only inspection only. No live files, services, queues, keys, or configurati
 | Phoenix 641894 | `/usr/local/sbin/asrplus-agent` present, `0755 root:root` | **Missing** beside deployed entrypoint | Existing `/etc/asrplus-agent.json`; signing config not staged/verified | `asrplus-agent.timer`, `asrplus-agent.path`, `asrplus-talker-watcher.service` active |
 | KY2 674980 | `/usr/local/sbin/asrplus-ky-agent` present, `0755 root:root` | **Missing** beside deployed entrypoint | Existing `/etc/asrplus-ky-control.json` and `/etc/asrplus-ky.json`; signing config not staged/verified | `asrplus-ky-control.timer`, `asrplus-ky-watcher.service` active |
 
-All three hosts' existing Asterisk service was previously confirmed active. The three remote command queues were previously inspected and had zero pending `.json`/`.inflight` entries. Eight offline regression suites pass and the local worktree is clean.
+All three hosts' existing Asterisk service was reconfirmed active. The Phoenix
+and KY2 queues were inspected and had zero pending `.json`/`.inflight` entries.
+Nine offline regression suites pass at `b1f9e96`.
+
+Phoenix was reached through the Mac's existing `az` alias
+(`node64189.ddns.net`) with strict host-key checking. The direct dynamic address
+is not an approved deployment route. All three hosts have stale staged
+entrypoints: Phoenix and KY2 have agent hash `f4874d...` instead of reviewed
+`7e4c41...`; MasterHub has control/endpoint hashes `098144...`/`324630...`
+instead of `ba857f...`/`4ef829...`. They must be restaged and reverified before
+activation. The staged integrity-module hash matches the reviewed bundle on all
+three hosts.
 
 ## Consequence
 

@@ -4,9 +4,13 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 
 ## Gate 1 — compatibility
 
-- [x] Offline token, command-integrity, agent-mode, KY2 watcher, post-command status and directory-permission self-tests pass.
+- [x] All nine offline token, command-integrity, agent-mode, moderation-result,
+  import-layout, KY2 watcher, post-command status, staging-config and
+  directory-permission self-tests pass at `b1f9e96`.
 - [x] Phoenix 641894, KY2 674980 and MasterHub 674982 staged with backups; no activation.
-- [ ] Verify live-vs-unified agent parity for both hubs, including KY2's split control/watcher configs and `masterhub-pull` telemetry.
+- [x] Verify live-vs-unified configuration and unit contracts for both hubs,
+  including Phoenix's existing drop-ins and KY2's split control/watcher configs,
+  keyless watcher and `masterhub-pull` telemetry.
 - [ ] Validate all current MasterHub forced-command SSH mappings, `asrplus-sync`, `asrplus-poll`, `asrplus-ack`, status and command queues using offline copies. Read-only audit confirms a KY2 `georgia` forced-command entry restricted to `44.30.157.22`, **but also an older `georgia` entry restricted to `45.76.255.39`**. Verify whether the older credential remains in use and plan revocation separately; do not change it during staging.
 - [ ] Verify current queued/inflight commands and ledger semantics; do not switch code while commands are pending. Initial read-only queue scan returned no pending `.json` or `.inflight` files; repeat immediately before cutover.
 - [ ] Verify current systemd sandbox paths and all required existing Asterisk admin writes.
@@ -19,6 +23,9 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 - [ ] Prepare KY2 control config: `eventPublishMode=masterhub-pull`, heartbeat 1, signing config and persistent ledger. Keep watcher config separate and watcher-only.
 - [x] Validate staged module/config pairing, hub IDs, optional mode, KY2 keyless watcher config, and expected existing SSH/control paths offline.
 - [ ] Validate deployed module import paths, root-only key access, ledger persistence, and systemd write allowances on each host.
+- [ ] Replace all stale staged entrypoints: Phoenix/KY2 agent (`f4874d...` ->
+  `7e4c41...`) and MasterHub control/endpoint (`098144...`/`324630...` ->
+  `ba857f...`/`4ef829...`). Verify repository manifest hashes on all hosts.
 - [ ] **Import blocker:** all new Python entrypoints import `asrplus_command_integrity`, but the existing deployed entrypoints live in `/usr/local/sbin`; explicitly install the shared module beside each entrypoint (or configure a verified import path) on MasterHub, Phoenix and KY2. Repo scan found no installation instruction for this module. Test imports using the deployed interpreter and service environment before replacement.
 
 ## Gate 3 — approved coordinated activation

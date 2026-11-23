@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate staged per-hub config/module bundles without production secrets."""
 import json
+import hashlib
 from pathlib import Path
 
 root=Path(__file__).resolve().parents[1]/'ops'/'asrplus'/'staging'
@@ -26,4 +27,17 @@ assert ky['eventPublishMode']=='masterhub-pull' and ky['talkerHeartbeatSeconds']
 assert ky['controlPath'] and ky['key'] and ky['knownHosts']
 assert set(watch)=={'node','talkerEvent','talkerStatus'}
 assert 'commandIntegrity' not in watch and 'commandLedger' not in watch
+dropin=(root/'phoenix/asrplus-agent.service.d/command-integrity.conf').read_text()
+assert dropin.startswith('[Service]\n')
+assert 'ReadWritePaths=/var/lib/asrplus-agent' in dropin
+manifest={}
+for line in (root/'SHA256SUMS').read_text().splitlines():
+    digest, relative=line.split('  ', 1)
+    path=root/relative.removeprefix('./')
+    assert path.is_file() and path.is_relative_to(root)
+    assert hashlib.sha256(path.read_bytes()).hexdigest()==digest
+    manifest[path.relative_to(root).as_posix()]=digest
+expected={path.relative_to(root).as_posix() for path in root.rglob('*')
+          if path.is_file() and path.name!='SHA256SUMS' and '__pycache__' not in path.parts}
+assert set(manifest)==expected
 print('ASR Plus staged hub config/module bundle: PASS')
