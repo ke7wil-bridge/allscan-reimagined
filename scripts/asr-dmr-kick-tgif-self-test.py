@@ -58,4 +58,29 @@ check("TGIF did not disconnect the station" in ui and "was disconnected from TGI
 # the dashboard must send it, or the API refuses the Kick.
 live = (ROOT / "src/lib/allscanLive.ts").read_text(encoding="utf-8")
 check("clientId: mode === 'dmr' && /^\\d{1,9}$/.test(id) ? id : undefined" in live, "9-digit DMR client IDs are not sent")
+# --- Regression locks for the #134 Kick behavior (Nov 23, 2026) --------------
+# Kick is a short disconnect, not a ban: one minute by default on every mode
+# that holds a station off, and the TGIF block is lifted once the station drops.
+import importlib.util as _util
+
+
+def _load(name: str, path: str):
+    loader_spec = _util.spec_from_file_location(name, ROOT / path)
+    module = _util.module_from_spec(loader_spec)
+    loader_spec.loader.exec_module(module)
+    return module
+
+
+for variable in ("DMR_KICK_HOLD_SECONDS", "ASR_KICK_HOLD_SECONDS"):
+    os.environ.pop(variable, None)
+relay = _load("asr_tgif_relay_lock", "scripts/bridge-relays/asr-tgif-standalone-relay.py")
+check(relay.KICK_HOLD_SECONDS == 60, f"DMR relay Kick hold is {relay.KICK_HOLD_SECONDS}s, not 60s")
+udp = _load("asr_native_udp_lock", "scripts/asr-native-udp-admin.py")
+check(udp.KICK_HOLD_SECONDS == 60, f"YSF/P25/NXDN/M17 Kick hold is {udp.KICK_HOLD_SECONDS}s, not 60s")
+adapter = _load("asr_dmr_adapter_lock", "scripts/asr-dmr-standalone-admin-adapter.py")
+check(adapter.capability("dmr", "0" * 64)["kickHoldSeconds"] == 60, "DMR adapter falls back to a hold other than 60s")
+helper = _load("asr_tgif_helper_lock", "scripts/asr-tgif-user-session.py")
+helper.tgif_kick_self_test()  # Kick lifts its TGIF block; never blocks the node's own IDs.
+check(ui.count("for one minute") >= 2 and "on this bridge for five minutes" not in ui
+      and "refuse it for five minutes" not in ui, "Kick hover text does not say one minute")
 print("DMR Kick TGIF self-test: ok")
