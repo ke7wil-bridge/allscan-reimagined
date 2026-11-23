@@ -249,7 +249,8 @@ def tgif_kick(client_id: str, identity: str) -> dict[str, Any]:
     """Disconnect the station from the signed-in TGIF talkgroup (#134).
 
     The relay hold only refuses the station's audio on this node; TGIF itself
-    keeps the session until the talkgroup owner removes it.
+    keeps the session until the talkgroup owner removes it. This is a Kick, not
+    a ban: the station may reconnect to TGIF at once.
     """
     import subprocess
     if not os.path.isfile(TGIF_SESSION_HELPER) or not os.access(TGIF_SESSION_HELPER, os.X_OK):
@@ -265,7 +266,7 @@ def tgif_kick(client_id: str, identity: str) -> dict[str, Any]:
         return {"ok": False, "error": "TGIF Kick returned no result."}
     if not isinstance(result, dict):
         return {"ok": False, "error": "TGIF Kick returned no result."}
-    keep = ("ok", "configured", "error", "talkgroup", "seconds", "expiresAt")
+    keep = ("ok", "configured", "error", "talkgroup", "disconnected", "released", "seconds", "expiresAt")
     return {key: result[key] for key in keep if key in result}
 
 

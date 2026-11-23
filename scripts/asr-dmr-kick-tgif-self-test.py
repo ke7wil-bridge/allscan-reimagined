@@ -33,10 +33,10 @@ with tempfile.TemporaryDirectory() as tmp:
         os.chmod(helper, 0o755)
 
     admin.TGIF_SESSION_HELPER = str(helper)
-    fake(json.dumps({"ok": True, "talkgroup": "67498", "entryId": 7, "ids": ["3228850"],
-                     "seconds": 900, "expiresAt": 2_000_900, "cookies": "must-not-leak"}))
+    fake(json.dumps({"ok": True, "talkgroup": "67498", "entryId": 7, "ids": ["3228850"], "disconnected": True, "released": True,
+                     "seconds": 0, "expiresAt": 0, "cookies": "must-not-leak"}))
     done = admin.tgif_kick("3228850", "KF8DRJ")
-    check(done == {"ok": True, "talkgroup": "67498", "seconds": 900, "expiresAt": 2_000_900}, f"unexpected result {done}")
+    check(done == {"ok": True, "talkgroup": "67498", "disconnected": True, "released": True, "seconds": 0, "expiresAt": 0}, f"unexpected result {done}")
     check(calls.read_text().split() == ["kick", "node", "3228850", "KF8DRJ"], calls.read_text())
 
     fake(json.dumps({"ok": False, "error": "TGIF session was rejected; sign in to TGIF again in ASR Settings"}), 1)

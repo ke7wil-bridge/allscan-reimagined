@@ -2996,9 +2996,10 @@ function App({ config }: { config: RuntimeConfig }) {
       if (!result.verified || result.removed < 1) throw new Error('Kick was not verified by the active backend.')
       const tgif = result.tgif
       if (tgif?.ok) {
-        // #134: DMR Kick also removes the station from the TGIF talkgroup.
-        const minutes = Math.max(1, Math.round((tgif.seconds || 900) / 60))
-        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''} for ${minutes} minutes and its audio is blocked on this node.`)
+        // #134: DMR Kick also disconnects the station from the TGIF talkgroup.
+        // It is not a ban: the station may reconnect at once.
+        const blocked = !tgif.released && tgif.seconds ? ` TGIF still holds it out for up to ${Math.max(1, Math.round(tgif.seconds / 60))} minutes.` : ' It can reconnect right away.'
+        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''}.${blocked}`)
       } else if (tgif) {
         setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
       } else {
