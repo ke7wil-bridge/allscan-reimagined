@@ -1,0 +1,17 @@
+{
+  "hub": "phoenix",
+  "node": "641894",
+  "eventPublishMode": "outbound",
+  "talkerHeartbeatSeconds": 5,
+  "server": "root@44.30.157.21",
+  "key": "/root/.ssh/asl3_kentucky_state_pull",
+  "knownHosts": "/root/.ssh/known_hosts_asl3_kentucky",
+  "commandIntegrity": {
+    "mode": "optional",
+    "keyId": "phoenix-2026-01",
+    "keyFile": "/etc/asrplus/command.key"
+  },
+  "commandLedger": "/var/lib/asrplus-agent/executed-commands.json",
+  "astdb": "/var/lib/asterisk/astdb.txt",
+  "publicStatus": "/var/www/html/allscan/public-status.json"
+}
