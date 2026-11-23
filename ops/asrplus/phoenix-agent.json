@@ -9,7 +9,7 @@
   "commandIntegrity": {
     "mode": "optional",
     "keyId": "phoenix-2026-01",
-    "keyFile": "/etc/asrplus/command.key"
+    "keyFile": "/etc/asrplus/command-keys/phoenix.key"
   },
   "commandLedger": "/var/lib/asrplus-agent/executed-commands.json",
   "astdb": "/var/lib/asterisk/astdb.txt",

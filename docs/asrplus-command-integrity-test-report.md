@@ -1,74 +1,62 @@
-# ASR Plus command-integrity security test report
+# ASR Plus security test report
 
 Date: 2026-11-23 (America/Phoenix)
 
-Scope: local development branch `security/252-254-texas-hub`, draft PR #255.
-No production command, deployment, restart, credential, queue, or radio link
-was used by these tests.
+Scope: local worktree only. No production command, queue injection, deployment,
+restart, credential, radio link, firewall or Texas host was used.
 
-## Implemented security contract
+## Result
 
-- Per-hub HMAC-SHA-256 keys with owner-only file permission validation.
-- Canonical signed command content, key ID, 128-bit nonce, SHA-256 digest,
-  issue time, and bounded expiry (120-second default; 300-second maximum).
-- Verification at Kentucky before leasing and again at the remote agent.
-- Signed acknowledgment bound to hub, command ID, command digest, key ID,
-  completion time, result content, and independent nonce.
-- Root-only `0700` queue/result/archive/ledger directories and atomic `0600`
-  command, result, and ledger files.
-- One inflight lease per hub, safe redelivery after a Kentucky connection loss,
-  expiry/quarantine, and queue saturation rejection.
-- Durable agent execute-once ledger. Completed acknowledgments are resent
-  exactly; an interrupted execution is reported uncertain and never repeated.
-- Optional legacy mode solely for staged Phoenix/Georgia migration. Legacy
-  queue entries are bounded to five minutes. Required mode rejects all unsigned
-  commands and is mandatory for Texas from first installation.
-- Strict SSH host-key checking, dedicated known-hosts file, forced-command hub
-  identity, and systemd filesystem/network sandboxing remain enforced.
-
-## Automated cases
-
-| Area | Positive cases | Negative/failure cases |
-| --- | --- | --- |
-| Command envelope | Valid hub command verifies | Modified action/node, wrong hub, wrong key, invalid signature, expiry |
-| Acknowledgment | Correct result verifies and stores | Modified result/signature, wrong digest/hub, conflicting duplicate |
-| Replay/duplicate | Exact retry returns cached acknowledgment | Same ID with changed content; interrupted prior execution refuses repeat |
-| Queue | Signed command leases and acknowledges | Invalid file, tampering, stale command, full queue, unsigned required-mode command |
-| Recovery | Expired lease safely redelivers; exact ACK retry is idempotent | Fresh inflight blocks concurrent lease; expired work is archived |
-| Agent | Authorized action executes once | Wrong hub, expired/unsigned command, Kentucky outage; no execution on failed sync |
-| Telemetry compatibility | Existing talker key/unkey history and bounded status sanitation pass | Stale/invalid identity rules remain in the existing collectors |
-| Compatibility | Optional endpoint and agent accept/deduplicate bounded legacy commands | Required mode rejects legacy command and acknowledgment |
-| API token | Valid scoped read/control grants | Altered, expired, revoked, cross-node, HTTP, missing-permission requests |
-| SSH/config | Strict host-key and dedicated known-hosts options asserted | Georgia host-key mismatch remains an external verification blocker |
-
-## Commands and results
+All 12 ASR Plus self-test entrypoints passed on the completion branch:
 
 ```text
-python3 scripts/asrplus-command-integrity-self-test.py
-ASR Plus scoped token security contract: PASS
-ASR Plus command-integrity security lifecycle: PASS
-
-python3 -m py_compile [ASR Plus security Python sources]
-PASS
-
-php -l ops/asrplus/api.php
-No syntax errors detected
+asrplus-agent-mode-self-test.py                    PASS
+asrplus-ban-result-self-test.py                    PASS
+asrplus-command-integrity-self-test.py             PASS
+asrplus-directory-permissions-self-test.py         PASS
+asrplus-import-layout-self-test.py                  PASS
+asrplus-ky2-identity-migration-self-test.py         PASS
+asrplus-ky2-watcher-self-test.py                    PASS
+asrplus-post-command-status-self-test.py            PASS
+asrplus-required-mode-readiness-self-test.py        PASS
+asrplus-staging-config-self-test.py                 PASS
+asrplus-texas-agent-config-self-test.py             PASS
+asrplus-token-self-test.py                          PASS
 ```
 
-`systemd-analyze verify` accepted the unit syntax. The development machine
-reported expected environment warnings because `/usr/local/sbin/asrplus-agent`
-and `asterisk.service` are not installed there; no unit was started.
+Python compilation passed for the agent, control helper, endpoint, token
+helper, integrity module and KY2 migration utility. `php -l` reported no syntax
+errors in `ops/asrplus/api.php`. The staged manifest and inspection-evidence
+JSON validated. `systemd-analyze verify` accepted the KY2 control drop-in when
+composed with the repository agent unit and a harmless local `/bin/true`
+ExecStart substitute; the development machine emitted only unrelated removed
+`CPUAccounting` warnings from vendor units. No unit was started.
 
-## Compatibility result
+## Security coverage
 
-The upgraded agent accepts the existing unsigned format only when explicitly
-configured `optional`, applies the same hub/node/action validation, and records
-it in the execute-once ledger. Signed commands always require a valid signature
-even in optional mode. The Kentucky endpoint accepts an unsigned acknowledgment
-only for an unsigned legacy inflight command. This permits agent-first rollout
-without allowing downgrade of a signed command.
+| Area | Positive cases | Negative and recovery cases |
+| --- | --- | --- |
+| Command envelope | Valid signed command verifies | Modified action/node, wrong hub/key, invalid signature, future/expired window |
+| Key handling | Root-only regular 256-bit key loads | Missing, short, group-readable and symlink keys fail closed |
+| Acknowledgment | Bound signed result stores | Forged result/signature, wrong digest/hub and conflicting duplicate rejected |
+| Replay | Exact retry returns cached acknowledgment | Changed-content ID and interrupted execution refuse repeat |
+| Queue | Signed lease/ack and exact recovery | Invalid/stale work quarantined; fresh inflight blocks concurrency; full queue rejected |
+| Agent outage | Normal sync reaches execution | Kentucky connection failure never reaches execution |
+| Required mode | Signed Phoenix/KY2/Texas config parity and reversible mode-only plan | Unsigned command/ack rejected; key ID/path drift detected |
+| SSH | Strict host key, dedicated known-hosts, no forwarding/TTY asserted | No host-key bypass path |
+| API token | Scoped read/control authentication | Altered, expired, revoked, HTTP, cross-node and missing-permission denied |
+| Hub compatibility | Phoenix outbound and KY2 masterhub-pull modes preserved | Invalid heartbeat/publish mode rejected; KY2 watcher remains keyless |
+| Texas | Endpoint, node, required mode, HMAC/SSH separation and central parity | No production contact or installation |
 
-The existing production agents themselves were not modified or restarted.
-Georgia could not be inspected because its changed host key was not bypassed.
-Live compatibility remains a staged deployment acceptance test, not a result
-claimed from local simulation.
+## Compatibility conclusion
+
+Existing Phoenix and KY2 optional-mode behavior remains intact. Signed work is
+always verified even in optional mode, and unsigned compatibility work remains
+bounded and deduplicated. The prepared required-mode change alters only mode
+fields and preserves key IDs and paths; rollback restores the exact optional
+configuration. KY2's staged systemd hardening does not override ExecStart,
+timer, watcher, node, SSH, Asterisk or routing configuration.
+
+Production optional-mode health was inspected separately and is not inferred
+from these local tests. Required-mode activation, token installation and Texas
+qualification remain separate approval gates.

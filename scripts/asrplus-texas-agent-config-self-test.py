@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""Validate Texas agent example against central signed-command configuration."""
+"""Validate all agent examples against central signed-command configuration."""
 from pathlib import Path
 import json
 
 ROOT = Path(__file__).resolve().parents[1]
-agent = json.loads((ROOT / "ops/asrplus/texas-agent.json").read_text())
 central = json.loads((ROOT / "ops/asrplus/command-integrity.example.json").read_text())
+agents = {
+    hub: json.loads((ROOT / "ops/asrplus" / f"{hub}-agent.json").read_text())
+    for hub in ("phoenix", "ky2", "texas")
+}
+for hub, agent in agents.items():
+    signing = central["hubs"][hub]
+    assert agent["hub"] == hub
+    assert agent["commandIntegrity"] == signing
+    assert signing["keyFile"] == f"/etc/asrplus/command-keys/{hub}.key"
+
+agent = agents["texas"]
 texas = central["hubs"]["texas"]
 assert agent["hub"] == "texas" and agent["node"] == "674984"
 assert agent["server"] == "root@44.30.157.21"  # Kentucky MasterHub forced-command endpoint
