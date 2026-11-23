@@ -185,6 +185,7 @@ bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
+python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
