@@ -151,11 +151,11 @@ commands until both existing remote agents can verify them.
    the ASR Plus agent/watcher after an action-time approval. Verify telemetry,
    strict Kentucky host-key pinning, legacy compatibility, ledger permissions,
    and no radio-link change.
-3. **KY2 agent second, only after independent host-key verification.** The
-   currently changed KY2 host key is a hard blocker. Once the KY2 host operator verifies
-   it through the provider console or another independent channel, repeat the
-   Phoenix procedure with a distinct KY2 key. Never use
-   `StrictHostKeyChecking=no` or accept a key interactively without comparison.
+3. **KY2 agent second.** KY2 at `44.30.157.22` has a verified host key
+   (`SHA256:a5I8wvynj6X5DMOCsXUVnM0MbdpZpJhoBXfyuC17fJs`). Preserve its
+   split control/watcher services, `masterhub-pull` mode and one-second talker
+   heartbeat. Use a distinct KY2 signing key. Do not confuse KY2 with the
+   unrelated `45.76.255.39` legacy Georgia endpoint.
 4. **Kentucky central components.** With both agents in optional mode, install
    the shared module, signed control helper, verifying forced-command endpoint,
    central per-hub key configuration, API/token files, and log rotation. Back
@@ -183,7 +183,7 @@ commands until both existing remote agents can verify them.
 | --- | --- | --- |
 | Kentucky 674982 | Shared integrity module, signing control helper, verifying SSH endpoint, central API/token files, per-hub key config, audit rotation, Texas forced-command entry when approved | `optional` for Phoenix/KY2 only during drain; then `required` |
 | Phoenix 641894 | Shared module, execute-once agent, Phoenix-only key/config, hardened agent and watcher units | Install `optional` first; change to `required` after Kentucky verification |
-| KY2 674980 (legacy `georgia` identifier) | Same as Phoenix with a distinct KY2 key | Blocked until independent SSH host-key verification; then `optional` to `required` |
+| KY2 674980 (legacy `georgia` identifier) | Same as Phoenix with a distinct KY2 key | Host key verified; split-service compatibility gate remains; `optional` to `required` |
 | Texas 674984 | Full telemetry agent, Texas-only HMAC and SSH keys, required-mode config/ledger/units, central queue/status/result/config and forced-command identity | `required` from first installation; telemetry-only initially |
 
 Dashboard API tokens exist only on Kentucky. Phoenix, KY2, and Texas never

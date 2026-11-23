@@ -15,13 +15,14 @@ read file metadata/hashes, sudo authorization, systemd unit definitions,
 redacted authorized-key options, and non-secret program source. It did not
 invoke a control, read a private key, change a queue, or restart a service.
 
-Kentucky 2 (KY2, node 674980; legacy internal identifier `georgia`, endpoint `45.76.255.39`) was not inspected because its presented ED25519 host
-key no longer matches the pinned local record (presented fingerprint
-`SHA256:EsXcsZT1fxZcEm/olVjPgPmQxLXZFXZmq003akXO3iA`; offending saved entry is
-an ECDSA key). This is not proof of compromise, but it is a hard verification
-gate. KJ5IRQ must verify the new key through an independent console/provider
-channel before the saved key is replaced. Host-key checking must not be
-bypassed.
+Kentucky 2 (KY2, node 674980; legacy internal identifier `georgia`) is at
+`44.30.157.22`, hostname `NTH-SERV-P02`. Its ED25519 SSH host key was
+independently checked by the operator on KY2 and matches the pinned key:
+`SHA256:a5I8wvynj6X5DMOCsXUVnM0MbdpZpJhoBXfyuC17fJs`. Strict host-key
+checking succeeds. The previously inspected `45.76.255.39` is **not KY2**;
+its host-key mismatch must not be attributed to KY2 or used to block KY2.
+The MasterHub still contains a separate legacy `georgia` forced-command SSH
+entry restricted to `45.76.255.39`; its use and revocation need review.
 
 `origin/main` is the development baseline. It contained only the ASR Plus
 browser JavaScript before this work. The deployed API, root control helper,
