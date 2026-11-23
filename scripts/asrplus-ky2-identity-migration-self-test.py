@@ -120,6 +120,7 @@ with tempfile.TemporaryDirectory() as directory:
     keys.write_text(
         'restrict,from="44.30.157.22",command="/usr/local/sbin/asrplus-remote-endpoint georgia" ssh-ed25519 KY2\n'
         'restrict,from="45.76.255.39",command="/usr/local/sbin/asrplus-remote-endpoint georgia" ssh-ed25519 RETIRED\n'
+        'restrict,from="45.76.255.39",command="/opt/asl3-geo-monitor/georgia_telemetry_receiver.py" ssh-ed25519 OLD asl3-georgia-telemetry\n'
         'restrict,from="72.222.219.41",command="/usr/local/sbin/asrplus-remote-endpoint phoenix" ssh-ed25519 PHX\n')
     os.chmod(keys, 0o600)
     keys_new = root / "authorized_keys.new"
@@ -128,6 +129,12 @@ with tempfile.TemporaryDirectory() as directory:
     changed = keys_new.read_text()
     assert '44.30.157.22' in changed and 'endpoint ky2' in changed
     assert '45.76.255.39' in changed and 'endpoint retired' in changed
+    assert 'retired_telemetry_receiver.py' in changed
     assert 'endpoint phoenix' in changed and 'georgia' not in changed.lower()
+    keys_restored = root / "authorized_keys.restored"
+    subprocess.run([sys.executable, str(tool), "authorized-keys", "--input", str(keys_new),
+                    "--output", str(keys_restored), "--reverse"],
+                   check=True, capture_output=True, text=True)
+    assert keys_restored.read_text() == keys.read_text()
 
 print("ASR Plus KY2 identity migration: PASS")

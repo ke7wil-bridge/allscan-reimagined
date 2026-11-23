@@ -26,7 +26,10 @@ Phoenix change.
 - The source-restricted KY2 forced command changes to endpoint identity `ky2`.
   The retained retired-host credential changes to the unsupported identity
   `retired`, so it remains present for separate review but cannot acquire KY2
-  authority and no active forced-command line retains the old identifier.
+  authority. Its separate telemetry forced command is likewise retargeted to a
+  deliberately unsupported `retired_telemetry_receiver.py` name. No active
+  forced-command line retains the old identifier, and neither retired path is
+  contacted during this migration.
 
 Run `scripts/asrplus-ky2-identity-migration.py build` into a new empty staging
 directory to generate the coordinated MasterHub/KY2 candidate. The builder

@@ -159,11 +159,13 @@ def transform_authorized_keys(source: Path, destination: Path, reverse: bool) ->
         changes = (
             ('from="44.30.157.22"', 'asrplus-remote-endpoint ky2', 'asrplus-remote-endpoint georgia'),
             ('from="45.76.255.39"', 'asrplus-remote-endpoint retired', 'asrplus-remote-endpoint georgia'),
+            ('from="45.76.255.39"', 'retired_telemetry_receiver.py', 'georgia_telemetry_receiver.py'),
         )
     else:
         changes = (
             ('from="44.30.157.22"', 'asrplus-remote-endpoint georgia', 'asrplus-remote-endpoint ky2'),
             ('from="45.76.255.39"', 'asrplus-remote-endpoint georgia', 'asrplus-remote-endpoint retired'),
+            ('from="45.76.255.39"', 'georgia_telemetry_receiver.py', 'retired_telemetry_receiver.py'),
         )
     lines = text.splitlines(keepends=True)
     for source_option, old_command, new_command in changes:
@@ -175,6 +177,10 @@ def transform_authorized_keys(source: Path, destination: Path, reverse: bool) ->
         if lines[index].count(old_command) != 1:
             raise RuntimeError("forced-command mapping is ambiguous")
         lines[index] = lines[index].replace(old_command, new_command)
+        if source_option == 'from="45.76.255.39"':
+            lines[index] = lines[index].replace(
+                "retired" if reverse else "georgia",
+                "georgia" if reverse else "retired")
     write_text(destination, "".join(lines), source.stat().st_mode & 0o777)
 
 
