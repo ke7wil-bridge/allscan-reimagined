@@ -270,7 +270,6 @@ install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-tgif-user-session.py" /u
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-apache-listeners.py" /usr/local/sbin/allscan-reimagined-apache-listeners
 [ -f "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" ] && \
   install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standard-bridge-repair.py" /usr/local/sbin/allscan-reimagined-standard-bridge-repair
-install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-urf-admin.py" /usr/local/sbin/allscan-reimagined-urf-admin
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asl-ban.py" /usr/local/sbin/allscan-reimagined-asl-ban
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-standalone-admin.py" /usr/local/sbin/allscan-reimagined-standalone-admin
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-patch-allscan-index.py" /usr/local/sbin/allscan-reimagined-patch-allscan-index
@@ -301,22 +300,15 @@ if ! getent passwd asr-bridge >/dev/null 2>&1; then
     useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin asr-bridge
   fi
 fi
-for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-urf-native-runtime.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-urf.py asr-bridge-setup-urf-install.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
+for setup_script in asr-bridge-setup-core.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-lifecycle.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   [ -f "$MASTER_DIR/scripts/$setup_script" ] && \
     install -o root -g root -m 755 "$MASTER_DIR/scripts/$setup_script" "/usr/local/libexec/allscan-reimagined/$setup_script"
 done
-if [ -f "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" ]; then
-  install -o root -g root -m 755 "$MASTER_DIR/runtime/urf/tgif/asr-tgif-urf-dmr-bridge.py" \
-    /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
-fi
-if [ -d "$MASTER_DIR/runtime/urf" ]; then
-  install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf.new
-  cp -a "$MASTER_DIR/runtime/urf" /usr/local/share/allscan-reimagined/runtime/urf.new
-  chown -R root:root /usr/local/share/allscan-reimagined/runtime/urf.new
-  rm -rf /usr/local/share/allscan-reimagined/runtime/urf
-  mv /usr/local/share/allscan-reimagined/runtime/urf.new /usr/local/share/allscan-reimagined/runtime/urf
-fi
+# URF retirement (#134): remove legacy installed runtime on reapply.
+rm -f /usr/local/sbin/allscan-reimagined-urf-admin
+rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-{setup-urf,setup-urf-install,urf-native-runtime}.py
+rm -f /usr/local/libexec/allscan-reimagined/asr-tgif-urf-dmr-bridge.py
+rm -rf /usr/local/share/allscan-reimagined/runtime/urf
 if [ -d "$MASTER_DIR/runtime/zello" ]; then
   install -d -o root -g root -m 755 /usr/local/share/allscan-reimagined/runtime
   rm -rf /usr/local/share/allscan-reimagined/runtime/zello.new
