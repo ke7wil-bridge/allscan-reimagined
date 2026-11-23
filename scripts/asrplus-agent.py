@@ -578,6 +578,20 @@ def sync_once(config: dict) -> int:
     if isinstance(command, dict):
         outcome = execute_once(config, command)
         acknowledged = run_ssh(config, f"asrplus-ack {command['id']}", json.dumps(outcome))
+        # Preserve live hub behavior: publish confirmed link transitions
+        # promptly, without treating a queued command as confirmed state.
+        if outcome.get("ok") and command.get("action") in {"connect", "disconnect"}:
+            for attempt in range(12):
+                snapshot = stamped_status(config)
+                present = any(str(row.get("node")) == str(command.get("node"))
+                              for row in snapshot.get("connections", []))
+                if present == (command["action"] == "connect"):
+                    pushed = run_ssh(config, "asrplus-status", json.dumps(snapshot))
+                    if pushed.returncode != 0:
+                        raise RuntimeError("post-command status push failed")
+                    break
+                if attempt < 11:
+                    time.sleep(0.2)
         if acknowledged.returncode != 0:
             raise SystemExit("command acknowledgement failed")
         ack_response = json.loads(acknowledged.stdout or "{}")
