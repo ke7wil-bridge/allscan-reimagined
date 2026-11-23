@@ -39,6 +39,21 @@ with tempfile.TemporaryDirectory() as directory:
                     str(output / "ky2/asrplus_command_integrity.py")], check=True)
     subprocess.run(["php", "-l", str(output / "masterhub/api.php")],
                    check=True, capture_output=True, text=True)
+    # The committed source and staging bundle are canonical already; the builder must copy, not rewrite, identity at build time.
+    source_control = (repo / "scripts/asrplus-control.py").read_text()
+    source_endpoint = (repo / "scripts/asrplus-remote-endpoint.py").read_text()
+    source_tokens = (repo / "scripts/asrplus-token.py").read_text()
+    source_api = (repo / "ops/asrplus/api.php").read_text()
+    assert '"ky2": "674980"' in source_control and '"georgia"' not in source_control
+    assert '"674980": "ky2"' in source_control and 'remote_hub == "ky2"' in source_control
+    assert '"ky2": "674980"' in source_endpoint and '"georgia"' not in source_endpoint
+    assert '"ky2": "674980"' in source_tokens and '"georgia"' not in source_tokens
+    assert "'kentucky-hub' => 'ky2', 'ky2' => 'ky2'" in source_api and "'georgia'" not in source_api
+    committed_central = json.loads((repo / "ops/asrplus/staging/masterhub/command-integrity.json").read_text())
+    committed_agent = json.loads((repo / "ops/asrplus/staging/ky2/asrplus-ky-control.json").read_text())
+    assert set(committed_central["hubs"]) == {"phoenix", "ky2"}
+    assert committed_central["hubs"]["ky2"]["keyId"] == committed_agent["commandIntegrity"]["keyId"] == "ky2-2026-01"
+    assert committed_agent["hub"] == "ky2" and committed_agent["node"] == "674980"
     sys.path.insert(0, str(output / "masterhub"))
     try:
         for name in ("asrplus-control", "asrplus-remote-endpoint", "asrplus-token"):

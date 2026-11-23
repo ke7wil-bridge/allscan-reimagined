@@ -10,7 +10,7 @@ spec = importlib.util.spec_from_file_location("asrplus_agent", root / "asrplus-a
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 
-for name, mode, heartbeat in (("phoenix", "outbound", 5), ("georgia", "masterhub-pull", 1)):
+for name, mode, heartbeat in (("phoenix", "outbound", 5), ("ky2", "masterhub-pull", 1)):
     cfg = json.loads((root.parent / "ops/asrplus" / f"{name}-agent.json").read_text())
     assert cfg["eventPublishMode"] == mode
     assert cfg["talkerHeartbeatSeconds"] == heartbeat

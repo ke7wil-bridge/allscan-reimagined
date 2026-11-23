@@ -5,10 +5,10 @@
       "keyId": "phoenix-2026-01",
       "keyFile": "/etc/asrplus/command-keys/phoenix.key"
     },
-    "georgia": {
+    "ky2": {
       "mode": "optional",
-      "keyId": "georgia-2026-01",
-      "keyFile": "/etc/asrplus/command-keys/georgia.key"
+      "keyId": "ky2-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/ky2.key"
     }
   }
 }

@@ -59,7 +59,7 @@ function asrplus_canonical_hub(string $hub): string {
     $aliases = [
         'masterhub' => 'kentucky', 'kentucky' => 'kentucky',
         'arizona-hub' => 'phoenix', 'phoenix' => 'phoenix',
-        'kentucky-hub' => 'georgia', 'georgia' => 'georgia',
+        'kentucky-hub' => 'ky2', 'ky2' => 'ky2',
         'texas-hub' => 'texas', 'texas' => 'texas',
     ];
     return $aliases[strtolower($hub)] ?? '';

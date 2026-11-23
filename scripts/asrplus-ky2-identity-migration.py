@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and offline-test the future ASR Plus georgia-to-ky2 identity cutover."""
+"""Build and offline-test the already-canonical ASR Plus KY2 identity bundle."""
 
 from __future__ import annotations
 
@@ -25,15 +25,6 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def replace_exact(text: str, replacements: tuple[tuple[str, str], ...], source: Path) -> str:
-    for old, new in replacements:
-        count = text.count(old)
-        if count != 1:
-            raise RuntimeError(f"{source}: expected one occurrence of {old!r}, found {count}")
-        text = text.replace(old, new)
-    return text
-
-
 def write_text(destination: Path, text: str, mode: int) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.new")
@@ -52,31 +43,11 @@ def build(repo: Path, output: Path) -> None:
         "masterhub/api.php": repo / "ops/asrplus/api.php",
         "masterhub/asrplus-token.py": repo / "scripts/asrplus-token.py",
     }
-    replacements = {
-        "masterhub/asrplus-control.py": (
-            ('        "georgia": "674980", "texas": "674984"}',
-             '        "ky2": "674980", "texas": "674984"}'),
-            ('REMOTE_HUBS = {"641894": "phoenix", "674980": "georgia", "674984": "texas"}',
-             'REMOTE_HUBS = {"641894": "phoenix", "674980": "ky2", "674984": "texas"}'),
-            ('if remote_hub == "georgia":', 'if remote_hub == "ky2":'),
-        ),
-        "masterhub/asrplus-remote-endpoint.py": (
-            ('HUB_NODES = {"phoenix": "641894", "georgia": "674980", "texas": "674984"}',
-             'HUB_NODES = {"phoenix": "641894", "ky2": "674980", "texas": "674984"}'),
-        ),
-        "masterhub/api.php": (
-            ("'kentucky-hub' => 'georgia', 'georgia' => 'georgia',",
-             "'kentucky-hub' => 'ky2', 'ky2' => 'ky2',"),
-        ),
-        "masterhub/asrplus-token.py": (
-            ('    "georgia": "674980",', '    "ky2": "674980",'),
-        ),
-    }
     manifest = {}
     for relative, source in sources.items():
-        text = replace_exact(source.read_text(encoding="utf-8"), replacements[relative], source)
         destination = output / relative
-        write_text(destination, text, 0o755 if source.suffix in {".py", ".php"} else 0o644)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
         manifest[relative] = sha256(destination)
 
     unchanged = {
@@ -84,30 +55,14 @@ def build(repo: Path, output: Path) -> None:
         "ky2/asrplus-ky-agent": repo / "ops/asrplus/staging/ky2/asrplus-ky-agent",
         "ky2/asrplus_command_integrity.py": repo / "scripts/asrplus_command_integrity.py",
         "ky2/asrplus-ky.json": repo / "ops/asrplus/staging/ky2/asrplus-ky.json",
+        "masterhub/command-integrity.json": repo / "ops/asrplus/staging/masterhub/command-integrity.json",
+        "ky2/asrplus-ky-control.json": repo / "ops/asrplus/staging/ky2/asrplus-ky-control.json",
     }
     for relative, source in unchanged.items():
         destination = output / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         manifest[relative] = sha256(destination)
-
-    central_source = repo / "ops/asrplus/staging/masterhub/command-integrity.json"
-    central = json.loads(central_source.read_text(encoding="utf-8"))
-    definition = central["hubs"].pop("georgia")
-    definition.update({"keyId": "ky2-2026-01", "keyFile": "/etc/asrplus/command-keys/ky2.key"})
-    central["hubs"]["ky2"] = definition
-    central_path = output / "masterhub/command-integrity.json"
-    write_text(central_path, json.dumps(central, indent=2) + "\n", 0o644)
-    manifest["masterhub/command-integrity.json"] = sha256(central_path)
-
-    agent_source = repo / "ops/asrplus/staging/ky2/asrplus-ky-control.json"
-    agent = json.loads(agent_source.read_text(encoding="utf-8"))
-    agent["hub"] = "ky2"
-    agent["commandIntegrity"].update(
-        {"keyId": "ky2-2026-01", "keyFile": "/etc/asrplus/command-keys/ky2.key"})
-    agent_path = output / "ky2/asrplus-ky-control.json"
-    write_text(agent_path, json.dumps(agent, indent=2) + "\n", 0o644)
-    manifest["ky2/asrplus-ky-control.json"] = sha256(agent_path)
 
     manifest["phoenixSourceAgentSha256"] = sha256(repo / "ops/asrplus/staging/phoenix/asrplus-agent")
     manifest["phoenixSourceConfigSha256"] = sha256(repo / "ops/asrplus/staging/phoenix/asrplus-agent.json")

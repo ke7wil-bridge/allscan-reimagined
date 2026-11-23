@@ -43,6 +43,8 @@ def authenticate(module, request: dict) -> tuple[bool, dict]:
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     token = load_module(root)
+    assert token.KNOWN_NODES["ky2"] == "674980" and "georgia" not in token.KNOWN_NODES
+    assert "ky2" in token.parse_csv("ky2") and "georgia" not in token.KNOWN_NODES
     created = token.create(SimpleNamespace(
         label="KJ5IRQ review", nodes="texas", permissions="status:read", expires_in=3600
     ))

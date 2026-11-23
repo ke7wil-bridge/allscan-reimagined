@@ -4,7 +4,7 @@
 
 ## Bundle map
 
-- `masterhub/`: central control helper, remote endpoint, shared integrity module, and central config for Phoenix (`phoenix`) and KY2's legacy internal identity (`georgia`).
+- `masterhub/`: central control helper, remote endpoint, shared integrity module, and central config for Phoenix (`phoenix`) and KY2's canonical internal identity (`ky2`).
 - `phoenix/`: unified agent, shared module, and merged `/etc/asrplus-agent.json` based on the live config, retaining SSH server/key/known-hosts, astdb, and public-status paths.
 - `ky2/`: unified agent under its live executable name, shared module, merged control config retaining `controlPath` and SSH identity, and unchanged watcher config. The watcher intentionally receives no signing-key reference.
 

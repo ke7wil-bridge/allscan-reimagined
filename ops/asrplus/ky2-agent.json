@@ -1,5 +1,5 @@
 {
-  "hub": "georgia",
+  "hub": "ky2",
   "node": "674980",
   "eventPublishMode": "masterhub-pull",
   "talkerHeartbeatSeconds": 1,
@@ -8,8 +8,8 @@
   "knownHosts": "/root/.ssh/known_hosts_asl3_kentucky",
   "commandIntegrity": {
     "mode": "optional",
-    "keyId": "georgia-2026-01",
-    "keyFile": "/etc/asrplus/command.key"
+    "keyId": "ky2-2026-01",
+    "keyFile": "/etc/asrplus/command-keys/ky2.key"
   },
   "commandLedger": "/var/lib/asrplus-agent/executed-commands.json",
   "astdb": "/var/lib/asterisk/astdb.txt",

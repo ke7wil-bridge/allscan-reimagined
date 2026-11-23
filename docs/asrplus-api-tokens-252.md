@@ -20,7 +20,7 @@ Permissions are:
 - `control:ban`
 - `control:unban`
 
-Known hub scopes are `kentucky` (674982), `phoenix` (641894), `georgia`
+Known hub scopes are `kentucky` (674982), `phoenix` (641894), `ky2`
 (674980), and `texas` (674984). The token API does not expose ban-list/result
 queue operations; those remain human-session functions pending queue-integrity
 hardening. A token cannot modify configuration, restart services, update

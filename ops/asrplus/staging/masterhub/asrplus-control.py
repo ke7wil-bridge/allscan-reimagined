@@ -19,8 +19,8 @@ from asrplus_command_integrity import load_central_hub, sign_command, verify_com
 
 HUBS = {"masterhub": "674982", "arizona-hub": "641894", "kentucky-hub": "674980",
         "texas-hub": "674984", "kentucky": "674982", "phoenix": "641894",
-        "georgia": "674980", "texas": "674984"}
-REMOTE_HUBS = {"641894": "phoenix", "674980": "georgia", "674984": "texas"}
+        "ky2": "674980", "texas": "674984"}
+REMOTE_HUBS = {"641894": "phoenix", "674980": "ky2", "674984": "texas"}
 QUEUE_ROOT = Path("/var/lib/asrplus/queue")
 AUDIT_PATH = Path("/var/log/asrplus-control.jsonl")
 INTEGRITY_CONFIG = Path(os.environ.get(
@@ -175,7 +175,7 @@ def main() -> int:
                 atomic_json(queue / f"{command_id}.json", command)
             # Notify Kentucky immediately; the existing timer remains a
             # fallback if the restricted SSH notification is unavailable.
-            if remote_hub == "georgia":
+            if remote_hub == "ky2":
                 try:
                     subprocess.Popen(
                         ["/usr/bin/ssh", "-i", "/root/.ssh/asrplus-notify-ky2",

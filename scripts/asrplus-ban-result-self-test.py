@@ -22,16 +22,16 @@ def invoke(request, exists=False, record=None):
     return code, json.loads(output.getvalue())
 
 identifier = 'a' * 32
-for hub in ('phoenix', 'arizona-hub', 'georgia', 'kentucky-hub', 'texas', 'texas-hub'):
+for hub in ('phoenix', 'arizona-hub', 'ky2', 'kentucky-hub', 'texas', 'texas-hub'):
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier})
     assert code == 0 and response == {'ok': True, 'pending': True}, (hub, response)
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier}, True,
-                            {'id': identifier, 'hub': 'phoenix' if hub in ('phoenix', 'arizona-hub') else 'georgia' if hub in ('georgia', 'kentucky-hub') else 'texas', 'localNode': control.HUBS[hub], 'action': 'ban-list', 'remoteResult': {'ok': True}})
+                            {'id': identifier, 'hub': 'phoenix' if hub in ('phoenix', 'arizona-hub') else 'ky2' if hub in ('ky2', 'kentucky-hub') else 'texas', 'localNode': control.HUBS[hub], 'action': 'ban-list', 'remoteResult': {'ok': True}})
     assert code == 0 and response['result'] == {'ok': True}, (hub, response)
 for identifier_bad in ('', '../x', 'A' * 32, 'z' * 32, 'a' * 31, 'a' * 33):
     code, response = invoke({'hub': 'phoenix', 'action': 'ban-result', 'id': identifier_bad})
     assert code != 0 and response.get('ok') is False, (identifier_bad, response)
-for hub in ('masterhub', 'kentucky'):
+for hub in ('masterhub', 'kentucky', 'georgia'):
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier})
     assert code != 0 and response.get('ok') is False, (hub, response)
 code, response = invoke({'hub': 'phoenix', 'action': 'ban-result', 'id': identifier}, True,

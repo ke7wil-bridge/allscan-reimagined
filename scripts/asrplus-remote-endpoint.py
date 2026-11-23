@@ -20,7 +20,7 @@ from asrplus_command_integrity import (
 )
 
 
-HUB_NODES = {"phoenix": "641894", "georgia": "674980", "texas": "674984"}
+HUB_NODES = {"phoenix": "641894", "ky2": "674980", "texas": "674984"}
 QUEUE_ROOT = Path("/var/lib/asrplus/queue")
 STATUS_ROOT = Path("/var/lib/asrplus/remote-status")
 RESULT_ROOT = Path("/var/lib/asrplus/results")

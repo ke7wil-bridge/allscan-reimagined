@@ -24,7 +24,7 @@ LOCK_PATH = Path(os.environ.get("ASRPLUS_TOKEN_LOCK", "/run/lock/asrplus-token.l
 KNOWN_NODES = {
     "kentucky": "674982",
     "phoenix": "641894",
-    "georgia": "674980",
+    "ky2": "674980",
     "texas": "674984",
 }
 PERMISSIONS = {
