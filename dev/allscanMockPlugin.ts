@@ -20,9 +20,12 @@ const runtimeConfig = {
   bridges: [
     { id: 'dmr', mode: 'dmr', node: '100001', title: 'DMR Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Home Bridge', cardType: 'standard', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
     { id: 'dmr_net', mode: 'dmr', node: '100004', title: 'DMR Net Bridge', detailTitle: 'Connected Clients', friendlyName: 'DMR Net Bridge', cardType: 'dmr_net' },
-    { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'YSF Rooms' },
+    { id: 'ysf', mode: 'ysf', node: '100002', title: 'YSF Bridge', detailTitle: 'Connected Clients', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
     { id: 'ysf_net', mode: 'ysf', node: '100005', title: 'YSF Net Bridge', detailTitle: 'Recent YSF Stations', friendlyName: 'YSF Net Bridge', cardType: 'ysf_net' },
-    { id: 'zello', mode: 'zello', node: '100003', title: 'Zello Bridge', detailTitle: 'Zello Clients' },
+    { id: 'p25', mode: 'p25', node: '100006', title: 'P25 Bridge', detailTitle: 'Connected Clients', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
+    { id: 'nxdn', mode: 'nxdn', node: '100007', title: 'NXDN Bridge', detailTitle: 'Connected Clients', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
+    { id: 'm17', mode: 'm17', node: '100008', title: 'M17 Bridge', detailTitle: 'Connected Clients', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
+    { id: 'zello', mode: 'zello', node: '100003', title: 'Zello Bridge', detailTitle: 'Recent Talkers', adminCapabilities: { bridgeControl: [], clientAdmin: ['listClients', 'kickClient', 'banClient', 'unbanClient', 'listBans'], activity: [], lifecycle: [], managementScope: 'asr-global', clientAuthority: 'asr-global-ban', banScopeLabel: 'GLOBAL' } },
   ],
 }
 
@@ -588,22 +591,43 @@ function bridgeLive(state?: MockBridgeControlState) {
     ysf_net: state?.ysfNetLinked
       ? { active: true, role: 'source', state: 'Source/TX', caller: 'N2TEST', current_user: 'N2TEST', recent_users: [{ name: 'N2TEST' }] }
       : { active: false, role: 'idle', state: 'Idle', caller: '', warning: '', recent_users: [] },
-    zello: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
+    p25: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
+    nxdn: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
+    m17: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [] },
+    zello: { active: false, role: 'idle', state: 'Idle', caller: '', recent_users: [{ name: 'K6ZELLO', last_tx_epoch: Math.floor(Date.now() / 1000) }] },
   })
 }
 
-const defaultDmrClients = [
-  { callsign: 'N0TEST', dmrid: '3100001', room: 'TG 3100', connected: '00:12:04' },
-  { callsign: 'N1TEST', dmrid: '3100002', room: 'TG 3100', connected: '00:08:12' },
-  { callsign: 'N2TEST', dmrid: '3100003', room: 'TG 3100', connected: '00:05:19' },
-  { callsign: 'N3TEST', dmrid: '3100004', room: 'TG 3100', connected: '00:01:03' },
-]
+type MockDigitalClient = { callsign: string; dmrid?: string; room: string; connected: string }
+type MockDigitalClients = Record<'dmr' | 'ysf' | 'p25' | 'nxdn' | 'm17', MockDigitalClient[]>
 
-function connectedClients(dmrClients = defaultDmrClients) {
+const defaultDigitalClients: MockDigitalClients = {
+  dmr: [
+    { callsign: 'N1DMR', dmrid: '3100001', room: 'TG 3100', connected: '00:12:04' },
+    { callsign: 'K7GLOBAL', dmrid: '3100002', room: 'TG 3100', connected: '00:08:12' },
+  ],
+  ysf: [
+    { callsign: 'N2YSF', room: 'TEST-CHARLIE', connected: '00:03:41' },
+    { callsign: 'K7GLOBAL', room: 'TEST-CHARLIE', connected: '00:02:10' },
+  ],
+  p25: [
+    { callsign: 'N3P25', room: 'TG 10200', connected: '00:04:22' },
+    { callsign: 'K7GLOBAL', room: 'TG 10200', connected: '00:02:20' },
+  ],
+  nxdn: [
+    { callsign: 'N4NXDN', room: 'TG 10200', connected: '00:05:32' },
+    { callsign: 'K7GLOBAL', room: 'TG 10200', connected: '00:02:30' },
+  ],
+  m17: [
+    { callsign: 'N5M17', room: 'M17-073 A', connected: '00:06:42' },
+    { callsign: 'K7GLOBAL', room: 'M17-073 A', connected: '00:02:40' },
+  ],
+}
+
+function connectedClients(digitalClients = defaultDigitalClients) {
   return jsonResponse({
-    dmr: dmrClients,
+    ...digitalClients,
     dmr_net: [{ callsign: 'N0CALL', room: 'TG 12345', connected: '00:03:16' }],
-    ysf: [{ callsign: 'N1TEST', room: 'TEST-CHARLIE', connected: '00:03:41' }],
     ysf_net: [{ callsign: 'N2TEST', room: 'TEST-ALPHA', connected: '00:01:18' }],
     zello: [],
   })
@@ -684,7 +708,9 @@ export function allscanMockPlugin(): Plugin {
     configureServer(server) {
       const projectRoot = server.config.root
       let favoritesFailuresRemaining = process.env.ASR_MOCK_FAVORITES_FAIL_ONCE === '1' ? 1 : 0
-      const dmrClients = defaultDmrClients.map((client) => ({ ...client }))
+      const digitalClients = Object.fromEntries(Object.entries(defaultDigitalClients).map(
+        ([mode, clients]) => [mode, clients.map((client) => ({ ...client }))],
+      )) as MockDigitalClients
       let globalBans: string[] = []
       const bridgeControlState: MockBridgeControlState = {
         dmrNetDestination: '12345',
@@ -723,12 +749,15 @@ export function allscanMockPlugin(): Plugin {
             return serveText(res, jsonResponse({
               ok: true,
               bridge: JSON.parse(bridgeLive(bridgeControlState)),
-              clients: JSON.parse(connectedClients(dmrClients)),
+              clients: JSON.parse(connectedClients(digitalClients)),
               clientCounts: {
-                dmr: dmrClients.length,
+                dmr: digitalClients.dmr.length,
                 dmr_net: 1,
-                ysf: 1,
+                ysf: digitalClients.ysf.length,
                 ysf_net: 1,
+                p25: digitalClients.p25.length,
+                nxdn: digitalClients.nxdn.length,
+                m17: digitalClients.m17.length,
                 zello: 0,
               },
               controls: {
@@ -757,10 +786,15 @@ export function allscanMockPlugin(): Plugin {
             return void readFormBody(req).then((form) => {
               const callsign = String(form.get('callsign') || '').toUpperCase()
               const clientId = String(form.get('clientId') || '')
-              const index = dmrClients.findIndex((client) => client.callsign === callsign && client.dmrid === clientId)
-              if (index < 0) return serveText(res, jsonResponse({ ok: false, error: 'DMR client is no longer in the current TGIF roster.' }), 'application/json; charset=utf-8')
-              dmrClients.splice(index, 1)
-              return serveText(res, jsonResponse({ ok: true, verified: true, removed: 1, dmrid: clientId }), 'application/json; charset=utf-8')
+              const bridgeId = String(form.get('bridgeId') || '') as keyof MockDigitalClients
+              const clients = digitalClients[bridgeId]
+              const index = clients?.findIndex((client) => (
+                client.callsign === callsign
+                && (bridgeId !== 'dmr' || client.dmrid === clientId)
+              )) ?? -1
+              if (index < 0) return serveText(res, jsonResponse({ ok: false, error: 'Digital client is no longer in the current bridge roster.' }), 'application/json; charset=utf-8')
+              clients.splice(index, 1)
+              return serveText(res, jsonResponse({ ok: true, verified: true, removed: 1, clientId }), 'application/json; charset=utf-8')
             })
           }
           if (action === 'global-ban-control') {
@@ -769,6 +803,12 @@ export function allscanMockPlugin(): Plugin {
               const rule = String(form.get('rule') || '').toUpperCase()
               if (verb === 'ban') {
                 globalBans = [...new Set([...globalBans, rule])]
+                for (const clients of Object.values(digitalClients)) {
+                  for (let index = clients.length - 1; index >= 0; index -= 1) {
+                    const callsign = clients[index].callsign.toUpperCase()
+                    if (callsign === rule || (rule.endsWith('*') && callsign.startsWith(rule.slice(0, -1)))) clients.splice(index, 1)
+                  }
+                }
               } else if (verb === 'unban') {
                 globalBans = globalBans.filter((item) => item !== rule)
               }
@@ -883,7 +923,7 @@ export function allscanMockPlugin(): Plugin {
         }
 
         if (requestPath === `${ASR_BASE}/connected-clients.json`) {
-          return serveText(res, connectedClients(), 'application/json; charset=utf-8')
+          return serveText(res, connectedClients(digitalClients), 'application/json; charset=utf-8')
         }
 
         if (requestPath === `${ASR_BASE}/css/asr-admin.css`) {
