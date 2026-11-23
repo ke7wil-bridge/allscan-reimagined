@@ -1684,7 +1684,8 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
       if (!label || label === '-') return
       const event = String(record.event || '').toLowerCase()
-      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
+      // Recent Activity labels (#134): CON = connected, DIS = disconnected, TX = transmitted.
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CON' : event === 'disconnect' ? 'DIS' : '') : 'TX'
       if (!action) return
       if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
       const duration = Number(record.duration_seconds)
