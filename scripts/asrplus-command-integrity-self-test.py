@@ -186,6 +186,35 @@ with tempfile.TemporaryDirectory() as directory:
     result = json.loads((endpoint.RESULT_ROOT / "phoenix" / f"{expired['id']}.json").read_text())
     assert result["remoteResult"]["exitCode"] == 124
 
+# Expired inflight commands are archived instead of being replayed.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    _, key = central_fixture(root)
+    now = int(time.time())
+    signed = integrity.sign_command(command(identifier="d" * 32), key,
+                                    "phoenix-test-1", now=now - 200, ttl=100)
+    queue = endpoint.QUEUE_ROOT / "phoenix"
+    queue.mkdir(parents=True)
+    endpoint.atomic_json(queue / f"{signed['id']}.inflight", signed, 0o600)
+    assert endpoint.poll("phoenix")["command"] is None
+    assert not (queue / f"{signed['id']}.inflight").exists()
+    result = json.loads((endpoint.RESULT_ROOT / "phoenix" / f"{signed['id']}.json").read_text())
+    assert result["remoteResult"]["exitCode"] == 124
+
+# Unexpired inflight lease prevents a second queued command from executing.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    _, key = central_fixture(root)
+    now = int(time.time())
+    queue = endpoint.QUEUE_ROOT / "phoenix"
+    queue.mkdir(parents=True)
+    first = integrity.sign_command(command(identifier="e" * 32), key, "phoenix-test-1", now=now)
+    second = integrity.sign_command(command(identifier="f" * 32), key, "phoenix-test-1", now=now)
+    endpoint.atomic_json(queue / f"{first['id']}.inflight", first, 0o600)
+    endpoint.atomic_json(queue / f"{second['id']}.json", second, 0o600)
+    assert endpoint.poll("phoenix")["inflight"] is True
+    assert (queue / f"{second['id']}.json").exists()
+
 # Optional mode drains a bounded legacy queue; required mode rejects it.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
