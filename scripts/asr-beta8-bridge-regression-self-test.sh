@@ -32,6 +32,7 @@ python3 scripts/asr-native-udp-admin-self-test.py        # YSF/P25/NXDN/M17 Kick
 python3 scripts/asr-standalone-admin-self-test.py
 python3 scripts/asr-zello-kick-mute-self-test.py         # Zello Kick = 1-minute mute
 python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # Recent Activity CON / DIS / TX
+node scripts/asr-bridge-recent-activity-self-test.mjs   # Recent Activity CON / DIS / TX, real dashboard code
 python3 scripts/asr-deployment-source-consistency-self-test.py
 # Always test repository Talker code. Never substitute the deployed copy,
 # because doing so would allow precisely the source/live divergence this gate
