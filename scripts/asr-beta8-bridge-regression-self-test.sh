@@ -52,7 +52,11 @@ else
   exit 1
 fi
 bash scripts/asr-side-by-side-self-test.sh
-if command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
+# Live-container comparison is opt-in: a developer's running container may
+# intentionally lag this isolated worktree. Static repository authority checks
+# always run; opt in with ASR_CHECK_LIVE_CONTAINER=1 when validating a staged
+# container built from this exact source revision.
+if [ "${ASR_CHECK_LIVE_CONTAINER:-0}" = "1" ]; then
   python3 scripts/asr-deployment-source-consistency-self-test.py --live
 fi
 git diff --check

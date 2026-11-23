@@ -162,7 +162,15 @@ with tempfile.TemporaryDirectory(prefix="asr-zello-enforcement-self-test-") as r
     runtime.stop_stream("KE7WIL")
     check(runtime._zello_ptt.cleared, "Zello stream stop did not clear PTT")
     remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
+    check("KE7WIL" in remaining and "EXPIRED" in remaining,
+          "Zello stream stop prematurely cleared an active one-minute mute")
+
+    # The selected Kick is consumed only after its one-minute hold expires.
+    remaining["KE7WIL"]["createdAt"] = int(time.time()) - 61
+    kicks.write_text(json.dumps({"schema": 1, "sessions": remaining}), encoding="utf-8")
+    runtime.stop_stream("KE7WIL")
+    remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
     check("KE7WIL" not in remaining and "EXPIRED" in remaining,
-          "Zello stream stop did not consume only the selected one-shot Kick")
+          "Zello stream stop did not consume only the expired selected Kick")
 
 print("Zello client-management and runtime enforcement self-test: ok")
