@@ -34,7 +34,6 @@ def utc_now() -> str:
 
 def atomic_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -136,7 +135,6 @@ def main() -> int:
             audit(command | {"result": "authorized", "requestedHub": hub})
             queue = QUEUE_ROOT / remote_hub
             queue.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(queue, 0o700)
             lock_path = QUEUE_ROOT / f".{remote_hub}.lock"
             with lock_path.open("a+") as lock:
                 os.chmod(lock_path, 0o600)
@@ -162,7 +160,6 @@ def main() -> int:
                                     and str(old.get("node")) == node
                                     and old.get("action") == "connect"):
                                 archive.mkdir(parents=True, exist_ok=True, mode=0o700)
-                                os.chmod(archive, 0o700)
                                 destination = archive / f"{queued.stem}.{int(datetime.now().timestamp())}.superseded.json"
                                 audit(old | {"result": "supersede-authorized", "requestedHub": hub})
                                 queued.replace(destination)

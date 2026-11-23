@@ -36,7 +36,6 @@ LEGACY_MAX_AGE_SECONDS = 300
 
 def atomic_json(path: Path, payload: dict, mode: int = 0o640) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -213,7 +212,6 @@ def archive_command(hub: str, source: Path, reason: str, now: int) -> None:
     safe_reason = re.sub(r"[^a-z0-9-]", "-", reason.lower())[:40].strip("-") or "rejected"
     destination = ARCHIVE_ROOT / hub / f"{source.stem}.{now}.{time.time_ns()}.{safe_reason}.json"
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(destination.parent, 0o700)
     source.replace(destination)
 
 
@@ -239,7 +237,6 @@ def read_queue_file(path: Path) -> dict:
 def poll(hub: str) -> dict:
     queue = QUEUE_ROOT / hub
     queue.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(queue, 0o700)
     lock_path = QUEUE_ROOT / f".{hub}.lock"
     with lock_path.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
