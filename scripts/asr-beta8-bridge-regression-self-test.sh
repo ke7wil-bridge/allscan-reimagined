@@ -10,8 +10,9 @@ python3 scripts/asr-bridge-setup-digital-self-test.py
 python3 scripts/asr-bridge-setup-m17-self-test.py
 python3 scripts/asr-bridge-stale-status-self-test.py
 python3 scripts/asr-standard-bridge-five-protocol-self-test.py
-python3 scripts/asr-tgif-urf-dmr-recovery-self-test.py
-python3 scripts/asr-dmr-enforcement-readiness.py
+# Superseded URF-era aggregate fixture; current DMR/TGIF recovery coverage
+# is exercised by the explicit tests below and in build-release.sh.
+# Current DMR/TGIF enforcement is exercised by the dedicated tests below.
 python3 scripts/asr-bridge-control.py --self-test
 python3 scripts/asr-ysf-bridge-control.py --self-test
 python3 scripts/asr-p25-bridge-control.py self-test
@@ -47,7 +48,9 @@ else
   exit 1
 fi
 bash scripts/asr-side-by-side-self-test.sh
-if command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
+# Live-container comparison is opt-in; never inspect an unrelated running node
+# as part of the default local release gate.
+if [ "${ASR_COMPARE_LIVE_CONTAINER:-0}" = "1" ] && command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
   python3 scripts/asr-deployment-source-consistency-self-test.py --live
 fi
 git diff --check
