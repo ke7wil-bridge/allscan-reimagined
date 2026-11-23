@@ -340,7 +340,7 @@ def ban_payload(rules, timed, now=None):
 
 
 def write_zello_kick(callsign, actor="system"):
-    """Suppress the current or next Zello stream for a recent talker."""
+    """Mute a recent Zello talker on this bridge for one minute (#134)."""
     try:
         with open(ZELLO_TALKERS, "r", encoding="utf-8") as handle:
             talkers = json.load(handle)
@@ -422,7 +422,7 @@ def write_zello_kick(callsign, actor="system"):
     append_audit_event("kick", actor, callsign=target, protocol="ZELLO", removed=1)
     emit(ok=True, action="kick", callsign=target, protocol="ZELLO",
          audit=read_audit_events(), verified=True, removed=1,
-         enforcement="current-or-next-zello-stream", expiresSeconds=300, quietSeconds=0)
+         enforcement="zello-mute-hold-v1", expiresSeconds=60, quietSeconds=0)
 
 
 def emit(**payload):
