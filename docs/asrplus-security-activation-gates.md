@@ -4,7 +4,7 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 
 ## Gate 1 — compatibility
 
-- [x] Offline token, command-integrity and agent-mode self-tests pass.
+- [x] Offline token, command-integrity, agent-mode, KY2 watcher, post-command status and directory-permission self-tests pass.
 - [x] Phoenix 641894, KY2 674980 and MasterHub 674982 staged with backups; no activation.
 - [ ] Verify live-vs-unified agent parity for both hubs, including KY2's split control/watcher configs and `masterhub-pull` telemetry.
 - [ ] Validate all current MasterHub forced-command SSH mappings, `asrplus-sync`, `asrplus-poll`, `asrplus-ack`, status and command queues using offline copies. Read-only audit confirms a KY2 `georgia` forced-command entry restricted to `44.30.157.22`, **but also an older `georgia` entry restricted to `45.76.255.39`**. Verify whether the older credential remains in use and plan revocation separately; do not change it during staging.
