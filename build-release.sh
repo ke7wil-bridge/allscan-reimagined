@@ -178,6 +178,7 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-bridge-recent-activity-self-test.mjs"
 if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
   node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
 else
