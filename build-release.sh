@@ -128,6 +128,8 @@ python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-endpoint-collisions-self-test.py"
+python3 "$ROOT/scripts/asr-net-bridge-mode-self-test.py"
+python3 "$ROOT/scripts/asr-net-bridge-plumbing-acceptance.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
