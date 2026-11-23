@@ -127,6 +127,16 @@ credential access.
 - Systemd services use `NoNewPrivileges`, `PrivateTmp`, and read-only system
   views. The status builder has an explicit narrow writable path.
 
+## Texas agent outbound SSH destination
+
+The Texas agent connects outbound to the Kentucky MasterHub forced-command
+endpoint. The `root@44.30.157.21` destination in the example is the remote
+MasterHub endpoint, not a proposed interactive root login on Texas. Its
+per-hub key must be restricted with `restrict`, a Texas source-IP `from=`
+constraint, and forced command `asrplus-remote-endpoint texas`; no shell, PTY,
+forwarding, or arbitrary command is permitted. Texas's local service identity
+is a separate concern and must be minimized independently before installation.
+
 ## Texas least-privilege baseline
 
 1. Texas gets its own OS service identity, SSH key, forced-command entry,

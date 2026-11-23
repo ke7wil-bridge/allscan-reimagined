@@ -55,6 +55,29 @@ is narrowed enough to avoid root. Apply `NoNewPrivileges`, `PrivateTmp`,
 `ReadWritePaths`, a capability-free bounding set, and network address-family
 restrictions consistent with outbound SSH plus loopback AMI.
 
+## Texas agent SSH endpoint and key configuration
+
+The `server` field in `ops/asrplus/texas-agent.json` is the agent's outbound
+SSH destination on Kentucky MasterHub. It is **not** an instruction to permit
+interactive root login to the Texas host. The current MasterHub endpoint is
+`root@44.30.157.21`; this root account is used only with the dedicated
+per-hub forced-command key. On MasterHub, that key must be installed with
+`restrict`, `from="<approved Texas source IP>"`, and the forced command
+`asrplus-remote-endpoint texas`. It must not permit a shell, PTY, forwarding,
+agent forwarding, or arbitrary commands. Verify the actual MasterHub address,
+source IP, and authorized-key line during host-specific preflight.
+
+The SSH private key (`/etc/asrplus/ssh/texas-to-kentucky`) and HMAC signing
+key (`/etc/asrplus/command-keys/texas.key`) are separate credentials. The
+agent's HMAC path now matches the central Texas key configuration exactly.
+Do not create either key until the host and operator approvals are complete.
+
+The current systemd agent template still runs as root to access Asterisk and
+SSH paths. That is a separate local privilege-hardening item: before Texas
+installation, validate a dedicated service account and the minimum AMI/socket
+permissions needed to remove root from the local agent. The remote forced
+command's root account does not justify an interactive root account on Texas.
+
 ## Installation checklist
 
 ### Operator decisions before credentials
