@@ -480,6 +480,7 @@ rollback_on_error() {
   restore_shared_backup
   if [ "$CHANGES_STARTED" -eq 1 ]; then
     remove_asr_managed_wiring
+    local prior_reapply_healthy=1
     if [ "$PRIOR_ASR_CAN_REAPPLY" -eq 1 ]; then
       install -o root -g root -m 755 "$CURRENT_LINK_PREVIOUS/scripts/asr-reapply.sh" \
         /usr/local/sbin/allscan-reimagined-reapply
@@ -492,6 +493,7 @@ rollback_on_error() {
       )
       prior_reapply_status=$?
       if [ "$prior_reapply_status" -ne 0 ]; then
+        prior_reapply_healthy=0
         echo "WARNING: The previous ASR persistence wiring could not be fully reapplied." >&2
         printf '%s\n' "$prior_reapply_output" >&2
       fi
@@ -539,7 +541,13 @@ rollback_on_error() {
       restore_prior_reapply_units
       restore_bridge_owned_units
       systemctl daemon-reload 2>/dev/null || true
-      [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && restore_reapply_unit_states
+      if [ "$REAPPLY_STATES_CAPTURED" -eq 1 ] && [ "$prior_reapply_healthy" -eq 1 ]; then
+        restore_reapply_unit_states
+      elif [ "$prior_reapply_healthy" -eq 0 ]; then
+        systemctl disable --now allscan-reimagined-reapply.path allscan-reimagined-reapply.timer >/dev/null 2>&1 || true
+        systemctl reset-failed allscan-reimagined-reapply.service >/dev/null 2>&1 || true
+        echo "WARNING: Disabled broken prior reapply triggers; ASR persistence requires repair." >&2
+      fi
     else
       systemctl reset-failed \
         allscan-reimagined-reapply.service \
@@ -603,7 +611,7 @@ validate_loopback_after_upgrade() {
   local output_file error_file attempt error_text
   output_file=$(mktemp)
   error_file=$(mktemp)
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5; do
     if python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" "$@" >"$output_file" 2>"$error_file"; then
       cat "$output_file"
       rm -f "$output_file" "$error_file"
@@ -612,12 +620,12 @@ validate_loopback_after_upgrade() {
     error_text=$(cat "$error_file")
     if [[ "$error_text" != *"loopback request failed:"* ]] \
       || [[ "$error_text" != *"timed out"* && "$error_text" != *"Connection refused"* ]] \
-      || [ "$attempt" -eq 3 ]; then
+      || [ "$attempt" -eq 5 ]; then
       cat "$error_file" >&2
       rm -f "$output_file" "$error_file"
       return 1
     fi
-    echo "Apache loopback temporarily unavailable; retrying validation (attempt $((attempt + 1))/3)..." >&2
+    echo "Apache loopback temporarily unavailable; retrying validation (attempt $((attempt + 1))/5)..." >&2
     sleep 3
   done
 }
