@@ -102,4 +102,6 @@ cross-hub tokens fail; read-only tokens cannot control; each granted control
 works only on its authorized hub; HTTP is rejected; secrets never appear in
 the store/audit; revocation is immediate; and cookie-session behavior remains
 unchanged. Texas control remains disabled until the #253 queue-integrity
-hardening and #254 operator agreement are complete.
+hardening is deployed in required mode and the #254 operator agreement is
+complete. API tokens remain central on Kentucky; remote hubs receive only
+their own command-authentication key and never store dashboard bearer tokens.

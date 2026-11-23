@@ -55,7 +55,7 @@ list, and revoke remain root-operator commands.
 | Connect | Asterisk `rpt cmd <local> ilink 3 <remote>` | `modifyOk()` | `control:connect` |
 | Permanent connect | Asterisk `ilink 13` | `modifyOk()` | `control:connect` |
 | Disconnect | Asterisk `ilink 11` | `modifyOk()` | `control:disconnect` |
-| Ban list/result | Read local or queued remote moderation result | `modifyOk()` in the current POST API | `status:read` |
+| Ban list/result | Read local or queued remote moderation result | `modifyOk()` in the current POST API | Not exposed to tokens |
 | Ban | Queue or execute AllStar node/callsign or EchoLink callsign ban | `modifyOk()` | `control:ban` |
 | Unban | Queue or execute removal of the selected ban | `modifyOk()` | `control:unban` |
 | Remote status | Agent publishes bounded connection/talker/bridge data | Per-hub forced SSH key | Not exposed to dashboard tokens |
@@ -85,6 +85,14 @@ credential access.
    an inflight ID. The SSH forced command limits this to the assigned hub but
    does not cryptographically bind the acknowledgment to command content.
 
+   **Development remediation:** PR #255 now signs each remote command with a
+   per-hub 256-bit HMAC key, enforces a maximum five-minute validity window
+   (two minutes by default), verifies the envelope at Kentucky and the agent,
+   binds signed acknowledgments to the exact command digest, rejects conflicting
+   duplicates, and uses a durable execute-once ledger. This finding remains a
+   deployment blocker until both existing agents and Kentucky complete the
+   staged required-mode cutover.
+
 ### Medium
 
 1. Remote agents run as root, read an AMI secret from `manager.conf`, invoke
@@ -92,8 +100,10 @@ credential access.
    `ProtectSystem=strict`, strict host-key checking, and forced commands reduce
    exposure, but a dedicated agent account and narrowly permissioned Asterisk
    control socket would be safer.
-2. Queue entries do not expire and inflight recovery is not explicit. A stale
-   control can execute after its operator context is no longer valid.
+2. Production queue entries do not expire and inflight recovery is not
+   explicit. PR #255 adds expiry, one-command leases, safe redelivery, invalid
+   and stale quarantine, bounded legacy draining, and signed idempotent
+   acknowledgment. Production remains unchanged until separately approved.
 3. The production sudo inventory for `www-data` is broad because the full ASR
    application exposes many separate root helpers. This audit found the ASR
    Plus helper itself root-owned and non-writable, but the overall web-to-root
@@ -124,10 +134,11 @@ credential access.
 2. The agent may read only the Texas Asterisk status/AMI data it needs, write
    only its runtime directory, connect outbound only to the Kentucky endpoint,
    and execute only the enumerated Asterisk link commands.
-3. Commands must include an issue-time, expiry, immutable hub/node/action
-   fields, and a nonce. The agent must reject expired or mismatched commands;
-   acknowledgments must bind to the complete command digest. This remains a
-   required hardening item before Texas control is enabled.
+3. Commands include an issue-time, expiry, immutable signed content, nonce,
+   key ID, and digest. The agent rejects expired, modified, or mismatched
+   commands; acknowledgments bind to the complete command digest. Texas uses
+   required mode from first installation. Existing hubs use optional mode only
+   during the documented migration window, then switch to required mode.
 4. Start Texas in telemetry-only mode. Enable connect, disconnect, ban, and
    unban individually only after their positive and negative tests pass and
    KJ5IRQ approves the operator agreement.

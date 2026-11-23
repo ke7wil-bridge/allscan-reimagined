@@ -93,7 +93,11 @@ restrictions consistent with outbound SSH plus loopback AMI.
 
 ### Offline and failure qualification
 
-- [ ] Run unit/security tests for invalid hub/node/action, oversized payload,
+- [x] Run local unit/security tests for invalid hub/node/action,
+  stale/replayed/modified commands, cross-hub poll/ack, forged result, expired
+  command, queue saturation, malformed JSON boundaries, lost acknowledgments,
+  and stuck inflight recovery. See `docs/asrplus-command-integrity-test-report.md`.
+- [ ] Repeat deployment-fixture tests for oversized status payload,
   stale timestamp, replayed sequence, cross-hub poll/ack, forged result, expired
   command, queue saturation, and malformed JSON.
 - [ ] Prove a Texas key cannot poll or acknowledge another hub and cannot obtain
@@ -131,3 +135,86 @@ existing Asterisk links, but dashboard freshness and queued control cannot be
 assumed. Operators must fail closed: show telemetry stale, stop leasing new
 commands, expire pending controls, and use the approved human incident path.
 No automatic promotion of Texas is designed or approved by this package.
+
+## Required deployment order
+
+The order is security-critical. Kentucky must not begin issuing signed
+commands until both existing remote agents can verify them.
+
+1. **Preflight and backup only after explicit approval.** Record current hashes,
+   back up each source/config/unit/queue/result file with owner and mode, verify
+   free space and clocks, and run the local security tests. Generate distinct
+   Phoenix, Georgia, and Texas 256-bit HMAC keys outside the repository and
+   chat. Each key file is owner-only `0600`; never reuse a hub key.
+2. **Phoenix agent first.** Install the shared integrity module, upgraded agent,
+   Phoenix key, optional-mode config, and hardened units. Reload/restart only
+   the ASR Plus agent/watcher after an action-time approval. Verify telemetry,
+   strict Kentucky host-key pinning, legacy compatibility, ledger permissions,
+   and no radio-link change.
+3. **Georgia agent second, only after independent host-key verification.** The
+   currently changed Georgia host key is a hard blocker. Once KJ5IRQ verifies
+   it through the provider console or another independent channel, repeat the
+   Phoenix procedure with a distinct Georgia key. Never use
+   `StrictHostKeyChecking=no` or accept a key interactively without comparison.
+4. **Kentucky central components.** With both agents in optional mode, install
+   the shared module, signed control helper, verifying forced-command endpoint,
+   central per-hub key configuration, API/token files, and log rotation. Back
+   up queues before replacement. Existing unsigned entries may drain for at
+   most five minutes; every newly created command is signed.
+5. **Non-mutating protocol qualification.** Use a supervised remote `ban-list`
+   request to prove signed delivery and acknowledgment without changing radio
+   links. Test tamper/expiry/cross-hub rejection with offline fixture files,
+   not production queue injection. Confirm logs and exact duplicate retry.
+6. **Close the compatibility window.** After all legacy queue and inflight
+   files are resolved, change Phoenix and Georgia agent and Kentucky hub modes
+   from `optional` to `required`. Recheck telemetry and a read-only signed
+   lifecycle. Optional mode is temporary and must not remain enabled.
+7. **Texas telemetry-only installation.** Texas begins in `required` mode with
+   a dedicated key, SSH key, forced-command entry, source-IP restriction,
+   ledger, queue, status, and result paths. Do not enable command polling or a
+   production radio link until its VM/network review and KJ5IRQ agreements are
+   complete.
+8. **Incremental control approval.** Enable supervised disconnect first, then
+   connect, ban, and unban only through separate recorded approval and tests.
+
+## Nodes requiring updates
+
+| Node | Required package changes | Compatibility mode |
+| --- | --- | --- |
+| Kentucky 674982 | Shared integrity module, signing control helper, verifying SSH endpoint, central API/token files, per-hub key config, audit rotation, Texas forced-command entry when approved | `optional` for Phoenix/Georgia only during drain; then `required` |
+| Phoenix 641894 | Shared module, execute-once agent, Phoenix-only key/config, hardened agent and watcher units | Install `optional` first; change to `required` after Kentucky verification |
+| Georgia 674980 | Same as Phoenix with a distinct Georgia key | Blocked until independent SSH host-key verification; then `optional` to `required` |
+| Texas 674984 | Full telemetry agent, Texas-only HMAC and SSH keys, required-mode config/ledger/units, central queue/status/result/config and forced-command identity | `required` from first installation; telemetry-only initially |
+
+Dashboard API tokens exist only on Kentucky. Phoenix, Georgia, and Texas never
+receive the bearer-token store or token-authentication sudo rule.
+
+## Rollback
+
+- During agent-first optional mode, restoring an old Kentucky central stack is
+  protocol-compatible. Restore the backed-up agent source/config/unit as one
+  set if an agent regression occurs; do not delete its execution ledger.
+- During Kentucky cutover, stop issuing new controls, preserve queue/result
+  files, restore the central helper/endpoint/API/config backups together, and
+  leave agents in optional mode until legacy behavior is verified.
+- After required mode is enabled, first return agents to optional mode before
+  restoring any unsigned central implementation. Otherwise commands will fail
+  closed, as designed.
+- Never clear or edit an inflight file to force retry. Preserve the queue,
+  result, archive, security audit, and agent ledger for incident review.
+- If any HMAC key may have been exposed, disable control for that hub, revoke
+  the key by removing its active configuration, generate a new per-hub key,
+  and repeat the agent-first rotation. Key material is not restored from the
+  repository.
+- Rollback does not change Asterisk links. Verify telemetry, queue depth,
+  service state, logs, and a read-only signed lifecycle before resuming control.
+
+## Approval required before installation
+
+Josh must separately approve the exact host-by-host deployment plan after
+reviewing the final commit. The approval must name the node(s), files and units
+to change, per-hub key creation/transfer method, backup locations, expected
+service restarts, maintenance impact, validation commands, rollback commands,
+and whether the supervised read-only signed lifecycle may be run. A code-review
+approval, PR approval, or merge is not deployment authorization. Texas radio
+linking and each control permission require later, separate approval.

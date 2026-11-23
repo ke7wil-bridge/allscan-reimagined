@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish ASR Plus immediately when talker state changes
+After=asrplus-talker-watcher.service
+
+[Path]
+PathChanged=/run/asrplus/talker-event
+Unit=asrplus-agent.service
+
+[Install]
+WantedBy=multi-user.target
