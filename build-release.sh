@@ -226,6 +226,7 @@ install -m 755 scripts/asr-asterisk-read.sh "$STAGE/payload/scripts/asr-asterisk
 install -m 755 scripts/asr-friendly-names.php "$STAGE/payload/scripts/asr-friendly-names.php"
 install -m 755 scripts/asr-bridge-clients.php "$STAGE/payload/scripts/asr-bridge-clients.php"
 install -m 755 scripts/asr-tgif-user-session.py "$STAGE/payload/scripts/asr-tgif-user-session.py"
+install -m 755 scripts/asr-tgif-urf-dmr-bridge.py "$STAGE/payload/scripts/asr-tgif-urf-dmr-bridge.py"
 install -m 755 scripts/asr-apache-listeners.py "$STAGE/payload/scripts/asr-apache-listeners.py"
 install -m 755 scripts/asr-standard-bridge-repair.py "$STAGE/payload/scripts/asr-standard-bridge-repair.py"
 install -m 755 scripts/asr-asl-ban.py "$STAGE/payload/scripts/asr-asl-ban.py"
