@@ -22,3 +22,7 @@
 ## Hard stop
 
 Do not replace KY2's current agent with Phoenix's service file: KY2 has a different watcher, paths, and pull topology. Do not alter SSH host trust or key material in source control. Any unexpected talker delay, queue error, or control failure requires rollback to backed-up KY2 unit/config/executable set while preserving the execution ledger.
+
+## Verified live unit layout (read-only)
+
+`asrplus-ky-control.service` runs `/usr/local/sbin/asrplus-ky-agent --config /etc/asrplus-ky-control.json`. `asrplus-ky-watcher.service` runs the same executable with `/etc/asrplus-ky.json --watch-talkers`, with `ProtectSystem=strict`, `ReadOnlyPaths` including `/etc/asrplus-ky.json`, and `ReadWritePaths=/run/asrplus-ky`. Preserve both distinct unit/config contracts during migration.
