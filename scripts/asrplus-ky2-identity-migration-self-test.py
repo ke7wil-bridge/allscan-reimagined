@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -100,5 +101,33 @@ with tempfile.TemporaryDirectory() as directory:
     failed = subprocess.run([sys.executable, str(tool), "state", "--root", str(root / "conflict"), "--apply"],
                             capture_output=True, text=True)
     assert failed.returncode != 0 and "queue must be empty" in failed.stdout
+
+    dashboard = root / "asrplus.json"
+    dashboard.write_text(json.dumps({"hubs": [
+        {"id": "masterhub", "node": "674982", "statusFile": "/local/master.json"},
+        {"id": "arizona-hub", "node": "641894", "statusFile": "/remote/phoenix.json"},
+        {"id": "kentucky-hub", "node": "674980", "statusFile": "/remote/georgia.json"},
+    ]}))
+    dashboard_new = root / "asrplus-new.json"
+    subprocess.run([sys.executable, str(tool), "dashboard-config", "--input", str(dashboard),
+                    "--output", str(dashboard_new)], check=True, capture_output=True, text=True)
+    hubs = json.loads(dashboard_new.read_text())["hubs"]
+    assert next(row for row in hubs if row["node"] == "674982")["statusFile"] == "/local/master.json"
+    assert next(row for row in hubs if row["node"] == "641894")["statusFile"] == "/remote/phoenix.json"
+    assert next(row for row in hubs if row["node"] == "674980")["statusFile"] == "/remote/ky2.json"
+
+    keys = root / "authorized_keys"
+    keys.write_text(
+        'restrict,from="44.30.157.22",command="/usr/local/sbin/asrplus-remote-endpoint georgia" ssh-ed25519 KY2\n'
+        'restrict,from="45.76.255.39",command="/usr/local/sbin/asrplus-remote-endpoint georgia" ssh-ed25519 RETIRED\n'
+        'restrict,from="72.222.219.41",command="/usr/local/sbin/asrplus-remote-endpoint phoenix" ssh-ed25519 PHX\n')
+    os.chmod(keys, 0o600)
+    keys_new = root / "authorized_keys.new"
+    subprocess.run([sys.executable, str(tool), "authorized-keys", "--input", str(keys),
+                    "--output", str(keys_new)], check=True, capture_output=True, text=True)
+    changed = keys_new.read_text()
+    assert '44.30.157.22' in changed and 'endpoint ky2' in changed
+    assert '45.76.255.39' in changed and 'endpoint retired' in changed
+    assert 'endpoint phoenix' in changed and 'georgia' not in changed.lower()
 
 print("ASR Plus KY2 identity migration: PASS")

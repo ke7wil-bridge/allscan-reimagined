@@ -21,6 +21,12 @@ Phoenix change.
   acknowledgments remain byte-for-byte intact.
 - Dashboard/API token aliases expose `ky2`; Phoenix mappings and files are
   unchanged and their hashes are recorded in the generated manifest.
+- The live dashboard configuration is transformed with an exact node-674980
+  match so only its status path changes from `georgia.json` to `ky2.json`.
+- The source-restricted KY2 forced command changes to endpoint identity `ky2`.
+  The retained retired-host credential changes to the unsupported identity
+  `retired`, so it remains present for separate review but cannot acquire KY2
+  authority and no active forced-command line retains the old identifier.
 
 Run `scripts/asrplus-ky2-identity-migration.py build` into a new empty staging
 directory to generate the coordinated MasterHub/KY2 candidate. The builder

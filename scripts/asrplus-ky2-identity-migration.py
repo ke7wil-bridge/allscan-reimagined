@@ -137,6 +137,47 @@ def state_plan(root: Path, reverse: bool, apply: bool) -> list[dict[str, str]]:
     return operations
 
 
+def transform_dashboard(source: Path, destination: Path, reverse: bool) -> None:
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    matches = [hub for hub in payload.get("hubs", [])
+               if isinstance(hub, dict) and str(hub.get("node")) == "674980"]
+    if len(matches) != 1:
+        raise RuntimeError("dashboard config must contain exactly one KY2 node")
+    hub = matches[0]
+    old, new = (("ky2.json", "georgia.json") if reverse else
+                ("georgia.json", "ky2.json"))
+    current = Path(str(hub.get("statusFile", ""))).name
+    if current != old:
+        raise RuntimeError(f"unexpected KY2 status path: {current}")
+    hub["statusFile"] = str(Path(str(hub["statusFile"])).with_name(new))
+    write_text(destination, json.dumps(payload, indent=2) + "\n", 0o644)
+
+
+def transform_authorized_keys(source: Path, destination: Path, reverse: bool) -> None:
+    text = source.read_text(encoding="utf-8")
+    if reverse:
+        changes = (
+            ('from="44.30.157.22"', 'asrplus-remote-endpoint ky2', 'asrplus-remote-endpoint georgia'),
+            ('from="45.76.255.39"', 'asrplus-remote-endpoint retired', 'asrplus-remote-endpoint georgia'),
+        )
+    else:
+        changes = (
+            ('from="44.30.157.22"', 'asrplus-remote-endpoint georgia', 'asrplus-remote-endpoint ky2'),
+            ('from="45.76.255.39"', 'asrplus-remote-endpoint georgia', 'asrplus-remote-endpoint retired'),
+        )
+    lines = text.splitlines(keepends=True)
+    for source_option, old_command, new_command in changes:
+        indexes = [index for index, line in enumerate(lines)
+                   if source_option in line and old_command in line]
+        if len(indexes) != 1:
+            raise RuntimeError(f"expected one forced-command mapping for {source_option}")
+        index = indexes[0]
+        if lines[index].count(old_command) != 1:
+            raise RuntimeError("forced-command mapping is ambiguous")
+        lines[index] = lines[index].replace(old_command, new_command)
+    write_text(destination, "".join(lines), source.stat().st_mode & 0o777)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -147,15 +188,29 @@ def main() -> int:
     state.add_argument("--root", type=Path, required=True)
     state.add_argument("--reverse", action="store_true")
     state.add_argument("--apply", action="store_true")
+    dashboard = sub.add_parser("dashboard-config")
+    dashboard.add_argument("--input", type=Path, required=True)
+    dashboard.add_argument("--output", type=Path, required=True)
+    dashboard.add_argument("--reverse", action="store_true")
+    authorized = sub.add_parser("authorized-keys")
+    authorized.add_argument("--input", type=Path, required=True)
+    authorized.add_argument("--output", type=Path, required=True)
+    authorized.add_argument("--reverse", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "build":
             build(args.repo.resolve(), args.output.resolve())
             print(json.dumps({"ok": True, "output": str(args.output.resolve())}))
-        else:
+        elif args.command == "state":
             print(json.dumps({"ok": True, "applied": args.apply,
                               "operations": state_plan(args.root.resolve(), args.reverse, args.apply)},
                              sort_keys=True))
+        elif args.command == "dashboard-config":
+            transform_dashboard(args.input.resolve(), args.output.resolve(), args.reverse)
+            print(json.dumps({"ok": True, "output": str(args.output.resolve())}))
+        else:
+            transform_authorized_keys(args.input.resolve(), args.output.resolve(), args.reverse)
+            print(json.dumps({"ok": True, "output": str(args.output.resolve())}))
         return 0
     except Exception as error:
         print(json.dumps({"ok": False, "error": str(error)[:300]}))
