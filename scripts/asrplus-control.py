@@ -83,9 +83,15 @@ def main() -> int:
                 print(json.dumps({"ok": True, "pending": True}))
                 return 0
             record = json.loads(result_path.read_text())
+            if (not isinstance(record, dict) or record.get("id") != identifier
+                    or record.get("hub") != remote_hub
+                    or str(record.get("localNode")) != HUBS[hub]):
+                raise ValueError("result identity mismatch")
             if record.get("action") not in {"ban", "unban", "ban-list"}:
                 raise ValueError("not a moderation result")
-            print(json.dumps({"ok": True, "pending": False, "result": record.get("remoteResult", {})}))
+            if not isinstance(record.get("remoteResult"), dict):
+                raise ValueError("invalid moderation result")
+            print(json.dumps({"ok": True, "pending": False, "result": record["remoteResult"]}))
             return 0
         if action in {"connect", "disconnect"} and (not re.fullmatch(r"[0-9]{3,10}", node) or node == HUBS[hub]):
             raise ValueError("invalid remote node")

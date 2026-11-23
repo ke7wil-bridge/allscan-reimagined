@@ -26,7 +26,7 @@ for hub in ('phoenix', 'arizona-hub', 'georgia', 'kentucky-hub', 'texas', 'texas
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier})
     assert code == 0 and response == {'ok': True, 'pending': True}, (hub, response)
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier}, True,
-                            {'action': 'ban-list', 'remoteResult': {'ok': True}})
+                            {'id': identifier, 'hub': 'phoenix' if hub in ('phoenix', 'arizona-hub') else 'georgia' if hub in ('georgia', 'kentucky-hub') else 'texas', 'localNode': control.HUBS[hub], 'action': 'ban-list', 'remoteResult': {'ok': True}})
     assert code == 0 and response['result'] == {'ok': True}, (hub, response)
 for identifier_bad in ('', '../x', 'A' * 32, 'z' * 32, 'a' * 31, 'a' * 33):
     code, response = invoke({'hub': 'phoenix', 'action': 'ban-result', 'id': identifier_bad})
@@ -35,6 +35,11 @@ for hub in ('masterhub', 'kentucky'):
     code, response = invoke({'hub': hub, 'action': 'ban-result', 'id': identifier})
     assert code != 0 and response.get('ok') is False, (hub, response)
 code, response = invoke({'hub': 'phoenix', 'action': 'ban-result', 'id': identifier}, True,
-                        {'action': 'connect', 'remoteResult': {'ok': True}})
+                        {'id': identifier, 'hub': 'phoenix', 'localNode': '641894', 'action': 'connect', 'remoteResult': {'ok': True}})
 assert code != 0 and response.get('ok') is False, response
+for changed in ({'id': 'b' * 32}, {'hub': 'georgia'}, {'localNode': '674980'}, {'remoteResult': 'invalid'}):
+    record = {'id': identifier, 'hub': 'phoenix', 'localNode': '641894',
+              'action': 'ban-list', 'remoteResult': {'ok': True}} | changed
+    code, response = invoke({'hub': 'phoenix', 'action': 'ban-result', 'id': identifier}, True, record)
+    assert code != 0 and response.get('ok') is False, (changed, response)
 print('ASR Plus moderation result lookup validation: PASS')
