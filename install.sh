@@ -761,7 +761,7 @@ prune_old_backups() {
 [ -f "$PAYLOAD_DIR/scripts/asr-apache-listeners.py" ] || fail "Apache listener preservation helper is missing."
 [[ "$ASR_BACKUP_RETENTION" =~ ^[1-9][0-9]*$ ]] || fail "ASR_BACKUP_RETENTION must be a positive integer."
 
-for command in curl php python3 tar install find systemctl flock; do
+for command in curl python3 tar install find systemctl flock; do
   command -v "$command" >/dev/null 2>&1 || fail "Required command not found: $command"
 done
 # Fail before package mutations when disk capacity or inodes are exhausted.

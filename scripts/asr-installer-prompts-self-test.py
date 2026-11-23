@@ -111,6 +111,11 @@ def main() -> int:
         "installer must provision and verify TGIF authentication dependencies on clean nodes",
     )
     require(
+        "for command in curl python3 tar install find systemctl flock; do" in installer
+        and "for command in curl php python3 tar install find systemctl flock; do" not in installer,
+        "clean ASL3 installation must reach the PHP provisioning step before requiring the php CLI",
+    )
+    require(
         "apt-get install -y libapache2-mod-php" in installer
         and "php_web_runtime_ok" in installer
         and "ensure_php_web_runtime\nensure_php_security_updates" in installer,
