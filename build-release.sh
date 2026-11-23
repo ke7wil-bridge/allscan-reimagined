@@ -143,6 +143,7 @@ python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$ROOT/scripts/asr-m17-relay-loopback-self-test.py"
+python3 "$ROOT/scripts/asr-dmr-kick-tgif-self-test.py"
 python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
 python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test

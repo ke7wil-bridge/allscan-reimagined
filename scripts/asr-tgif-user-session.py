@@ -556,9 +556,9 @@ class TgifAcl:
             rows = list(rows.values())
         return [row for row in rows or [] if isinstance(row, dict) and 'entryid' in row]
 
-    def add_ban(self, ids: list[str], duration: int, label: str) -> None:
+    def add_ban(self, ids: list[str], duration: int, label: str, comment: str = ACL_COMMENT) -> None:
         fields = [('action', 'add'), ('flags', str(ACL_BAN_FLAGS)), ('duration', str(duration)),
-                  ('label', label), ('comment', ACL_COMMENT)]
+                  ('label', label), ('comment', comment)]
         fields += [('uuid[]', value) for value in ids]
         self._post(fields)
 
@@ -738,6 +738,86 @@ def ban_sync(user_id: str = NODE_SCOPE, acl: 'TgifAcl | None' = None, now: int |
         os.close(lock)
 
 
+# --- DMR Kick on TGIF -----------------------------------------------------
+# TGIF has no plain kick: its control panel's own (disabled) "Boot" button is a
+# short access-list ban. A timed ACL entry drops the station's live session at
+# once, and TGIF deletes the entry itself when it ends, so Kick needs no state.
+# The distinct label keeps Global Ban sync from treating it as one of its own.
+KICK_LABEL_PREFIX = 'ASR Kick: '
+KICK_COMMENT = 'Added by AllScan Reimagined Kick; TGIF removes it automatically when it ends.'
+KICK_SECONDS = 900  # TGIF's shortest access-list duration.
+
+
+def tgif_kick(user_id: str, client_id: str, callsign: str, acl: 'TgifAcl | None' = None,
+              now: int | None = None) -> dict:
+    """Disconnect one station from the signed-in talkgroup for KICK_SECONDS."""
+    now = int(time.time()) if now is None else int(now)
+    client_id = str(client_id or '').strip()
+    callsign = str(callsign or '').strip().upper()
+    if not re.fullmatch(r'[1-9][0-9]{0,8}', client_id):
+        return {'ok': False, 'error': 'A current DMR client ID is required.'}
+    if not re.fullmatch(r'[A-Z0-9][A-Z0-9_.\/-]{0,14}', callsign):
+        return {'ok': False, 'error': 'Invalid DMR client callsign.'}
+    if acl is None:
+        try:
+            acl = TgifAcl(load_token(user_id))
+        except RuntimeError as exc:
+            return {'ok': False, 'configured': False, 'error': str(exc)}
+    try:
+        if acl.author and callsign == acl.author:
+            return {'ok': False, 'error': f'{callsign} owns the TGIF sign-in this node uses and cannot be kicked on TGIF.'}
+        # Hold the session ID and, for a hotspot (radio ID + 2-digit ESSID), the
+        # radio itself, but never an ID of the account ASR signs in with: the
+        # node's own TGIF bridge session uses it.
+        ids = [client_id] + ([client_id[:7]] if len(client_id) == 9 else [])
+        own = set(acl.lookup_ids(acl.author)) if acl.author else set()
+        own_bases = {value[:7] for value in own}
+        ids = [value for value in dict.fromkeys(ids) if value not in own and value[:7] not in own_bases]
+        if not ids:
+            return {'ok': False, 'error': f'DMR ID {client_id} belongs to this node\'s TGIF account and cannot be kicked on TGIF.'}
+        label = KICK_LABEL_PREFIX + callsign
+        before = {int(row['entryid']) for row in acl.entries()}
+        acl.add_ban(ids, KICK_SECONDS, label, KICK_COMMENT)
+        created = [row for row in acl.entries()
+                   if int(row['entryid']) not in before and str(row.get('label') or '') == label]
+        if not created:
+            return {'ok': False, 'error': 'TGIF accepted the Kick but it is not on the access list.'}
+        row = max(created, key=lambda item: int(item['entryid']))
+        expires = int(row.get('expiration') or 0)
+        return {'ok': True, 'talkgroup': acl.talkgroup, 'entryId': int(row['entryid']), 'ids': ids,
+                'seconds': KICK_SECONDS, 'expiresAt': expires if expires > 0 else now + KICK_SECONDS}
+    except Exception as exc:
+        return {'ok': False, 'error': f'TGIF Kick failed: {str(exc)[:160]}'}
+
+
+def tgif_kick_self_test() -> None:
+    acl = FakeAcl('KN4EWT', {'KN4EWT': ['3135475', '313547501']}, [])
+    acl.now = now = 2_000_000
+    # A hotspot session holds the session ID and the radio; the entry ends on its own.
+    done = tgif_kick('node', '322885001', 'kf8drj', acl=acl, now=now)
+    assert done['ok'] and done['ids'] == ['322885001', '3228850'] and done['expiresAt'] == now + KICK_SECONDS, done
+    assert acl.calls == [f'add ASR Kick: KF8DRJ {KICK_SECONDS} 322885001,3228850'], acl.calls
+    # A plain radio or app session holds just that ID.
+    acl.calls.clear()
+    assert tgif_kick('node', '3228850', 'KF8DRJ', acl=acl, now=now)['ids'] == ['3228850']
+    # The node's own account, and any ID of it, is never put on the access list.
+    acl.calls.clear()
+    assert not tgif_kick('node', '3135475', 'KN4EWT', acl=acl, now=now)['ok']
+    assert not tgif_kick('node', '313547502', 'W1AW', acl=acl, now=now)['ok']
+    assert acl.calls == [], acl.calls
+    # Bad input, a TGIF failure, or a missing entry is reported, never claimed.
+    assert not tgif_kick('node', 'abc', 'KF8DRJ', acl=acl, now=now)['ok']
+    assert not tgif_kick('node', '0', 'KF8DRJ', acl=acl, now=now)['ok']
+    acl.add_ban = lambda *args, **kwargs: None
+    assert 'not on the access list' in tgif_kick('node', '3228850', 'KF8DRJ', acl=acl, now=now)['error']
+    acl.lookup_ids = lambda callsign: (_ for _ in ()).throw(RuntimeError('lookup down'))
+    failed = tgif_kick('node', '3228850', 'KF8DRJ', acl=acl, now=now)
+    assert not failed['ok'] and 'lookup down' in failed['error'], failed
+    # Global Ban sync never removes a Kick entry.
+    assert not KICK_LABEL_PREFIX.startswith(ACL_LABEL_PREFIX) and not ACL_LABEL_PREFIX.startswith(KICK_LABEL_PREFIX)
+    print('TGIF DMR Kick self-test: ok')
+
+
 class FakeAcl:
     """In-memory TGIF access list for the self-test."""
 
@@ -751,7 +831,7 @@ class FakeAcl:
     def entries(self):
         return [dict(row) for row in self.rows]
 
-    def add_ban(self, ids, duration, label):
+    def add_ban(self, ids, duration, label, comment=None):
         self.calls.append(f'add {label} {duration} {",".join(ids)}')
         self.next_id += 1
         expiry = -1 if duration < 0 else self.now + duration
@@ -827,6 +907,7 @@ def ban_sync_self_test(root: Path) -> None:
 
 
 def self_test() -> None:
+    tgif_kick_self_test()
     with tempfile.TemporaryDirectory(prefix='asr-tgif-ban-sync-test-') as temp:
         saved_runtime = RUNTIME
         globals()['RUNTIME'] = Path(temp) / 'runtime'
@@ -917,6 +998,7 @@ def main() -> int:
     collect = sub.add_parser('collect'); collect.add_argument('user_id')
     sub.add_parser('collect-all'); sub.add_parser('self-test')
     sync = sub.add_parser('ban-sync'); sync.add_argument('user_id'); sync.add_argument('--force', action='store_true')
+    kick = sub.add_parser('kick'); kick.add_argument('user_id'); kick.add_argument('client_id'); kick.add_argument('callsign')
     args = parser.parse_args()
     if args.command == 'self-test': self_test(); return 0
     if os.geteuid() != 0: parser.error('run as root')
@@ -931,6 +1013,9 @@ def main() -> int:
     if args.command == 'collect-all': return collect_all()
     if args.command == 'ban-sync':
         result = ban_sync(valid_user_id(args.user_id), force=args.force)
+        print(json.dumps(result, separators=(',', ':'))); return 0 if result.get('ok') else 1
+    if args.command == 'kick':
+        result = tgif_kick(valid_user_id(args.user_id), args.client_id, args.callsign)
         print(json.dumps(result, separators=(',', ':'))); return 0 if result.get('ok') else 1
     return 2
 

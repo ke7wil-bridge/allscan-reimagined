@@ -48,6 +48,7 @@ import {
   updateGlobalBan,
   kickZelloClient,
   kickStandaloneClient,
+  type TgifKickResult,
   provisionedNetBridgeModes,
   restartAsteriskCommand,
   repairStandardBridge,
@@ -2989,11 +2990,20 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanAdminBusy(true)
       setBanAdminStatus(`Kicking ${callsign} from ${mode.toUpperCase()}…`)
-      const result = mode.toUpperCase() === 'ZELLO'
+      const result: { verified: boolean; removed: number; tgif?: TgifKickResult } = mode.toUpperCase() === 'ZELLO'
         ? await kickZelloClient(callsign)
         : await kickStandaloneClient(bridgeId, callsign, clientId)
       if (!result.verified || result.removed < 1) throw new Error('Kick was not verified by the active backend.')
-      setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      const tgif = result.tgif
+      if (tgif?.ok) {
+        // #134: DMR Kick also removes the station from the TGIF talkgroup.
+        const minutes = Math.max(1, Math.round((tgif.seconds || 900) / 60))
+        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''} for ${minutes} minutes and its audio is blocked on this node.`)
+      } else if (tgif) {
+        setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
+      } else {
+        setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      }
     } catch (error) {
       setBanAdminStatus(error instanceof Error ? error.message : 'Bridge client Kick failed.')
     } finally { setBanAdminBusy(false) }
