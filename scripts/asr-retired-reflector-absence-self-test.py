@@ -23,6 +23,7 @@ ALLOWED = {
     "server/asr-api.php": [r"urfReflector'\]\)", r"=== 'urf'", r"URF reflector bridges were retired",
                            r"Retired URF reflector cards", r"URF grouping flag"],
     "scripts/asr-bridge-setup-helper.py": [r"URF reflector bridges (were retired|are no longer supported)"],
+    "build-release.sh": [r'python3 "\$ROOT/scripts/asr-urf-absence-self-test\.py"'],
     "scripts/asr-reapply.sh": [r"urf", r"URF"],  # list-name migration, aliases, URF card retirement
     "docker/layered-reapply.sh": [r"urf-admin", r"URF name", r"urfd\.blacklist"],
     "scripts/asr-dmr-standalone-admin-adapter.py": [r'"urf_dmr"'],
