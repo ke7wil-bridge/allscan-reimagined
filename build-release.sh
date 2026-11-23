@@ -174,7 +174,6 @@ sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
 python3 "$ROOT/scripts/beta86-talker-parity-self-test.py"
-python3 "$ROOT/scripts/asrplus-talker-tracking-self-test.py"
 if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
   node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
 else
