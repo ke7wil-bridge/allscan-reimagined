@@ -398,11 +398,11 @@ function loadTalkerHistory($path) {
 	if(!is_array($rows)) return [];
 	return array_slice(array_values(array_filter($rows, static function($row) {
 		return is_array($row) && trim((string)($row['node'] ?? '')) !== '';
-	})), 0, 4);
+	})), 0, ASR_TALKER_HISTORY_LIMIT);
 }
 
 function writeTalkerHistory($path, $rows) {
-	$payload = json_encode(['updated_epoch' => time(), 'last_talkers' => array_slice(array_values($rows), 0, 4)]);
+	$payload = json_encode(['updated_epoch' => time(), 'last_talkers' => array_slice(array_values($rows), 0, ASR_TALKER_HISTORY_LIMIT)]);
 	if($payload === false) return;
 	$tmp = $path . '.' . getmypid() . '.tmp';
 	if(@file_put_contents($tmp, $payload, LOCK_EX) !== false) {

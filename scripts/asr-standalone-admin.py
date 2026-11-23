@@ -33,6 +33,7 @@ MAX_JSON = 64 * 1024
 FRESH_SECONDS = 30
 RESULT_TIMEOUT = 12.0
 TRUSTED_UID = 0
+TGIF_SESSION_HELPER = os.environ.get("ASR_TGIF_SESSION_HELPER", "/usr/local/sbin/allscan-reimagined-tgif-user-session")
 class AdminError(RuntimeError):
     pass
 
@@ -244,6 +245,31 @@ def refresh_connected_clients() -> None:
                        capture_output=True, timeout=5, check=False)
 
 
+def tgif_kick(client_id: str, identity: str) -> dict[str, Any]:
+    """Disconnect the station from the signed-in TGIF talkgroup (#134).
+
+    The relay hold only refuses the station's audio on this node; TGIF itself
+    keeps the session until the talkgroup owner removes it. This is a Kick, not
+    a ban: the station may reconnect to TGIF at once.
+    """
+    import subprocess
+    if not os.path.isfile(TGIF_SESSION_HELPER) or not os.access(TGIF_SESSION_HELPER, os.X_OK):
+        return {"ok": False, "error": "TGIF session helper is unavailable."}
+    try:
+        done = subprocess.run([TGIF_SESSION_HELPER, "kick", "node", client_id, identity],
+                              capture_output=True, text=True, timeout=45, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return {"ok": False, "error": "TGIF Kick did not finish."}
+    try:
+        result = json.loads((done.stdout or "").strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        return {"ok": False, "error": "TGIF Kick returned no result."}
+    if not isinstance(result, dict):
+        return {"ok": False, "error": "TGIF Kick returned no result."}
+    keep = ("ok", "configured", "error", "talkgroup", "disconnected", "released", "seconds", "expiresAt")
+    return {key: result[key] for key in keep if key in result}
+
+
 def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict[str, Any]:
     identity = identity.strip().upper()
     if not IDENTITY_RE.fullmatch(identity):
@@ -260,12 +286,17 @@ def kick(bridge_id: str, identity: str, actor: str, client_id: str = "") -> dict
     removed = int(result.get("removed") or 0)
     if removed < 1:
         raise AdminError("Client was no longer connected or could not be kicked.")
+    tgif = tgif_kick(client_id, identity) if bridge["_mode"] == "dmr" else None
+    audit = {"tgif": bool(tgif and tgif.get("ok"))} if tgif is not None else {}
     append_audit("kick", actor, bridgeId=bridge_id, callsign=identity,
-                 clientId=client_id, removed=removed)
+                 clientId=client_id, removed=removed, **audit)
     refresh_connected_clients()
-    return {"ok": True, "verified": True, "action": "kick", "bridgeId": bridge_id,
-            "callsign": identity, "clientId": client_id, "removed": removed,
-            "enforcement": result["enforcement"]}
+    response = {"ok": True, "verified": True, "action": "kick", "bridgeId": bridge_id,
+                "callsign": identity, "clientId": client_id, "removed": removed,
+                "enforcement": result["enforcement"]}
+    if tgif is not None:
+        response["tgif"] = tgif
+    return response
 
 
 def reconcile(bridge_id: str, actor: str = "system") -> dict[str, Any]:

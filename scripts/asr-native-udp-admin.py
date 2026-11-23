@@ -31,7 +31,7 @@ NONCE_RE = re.compile(r"^[a-f0-9]{32}$")
 # Radios and hotspots re-poll within seconds, so a Kick that only drops the
 # session is undone immediately (Beta 8.5.1 P25/NXDN acceptance). A kicked
 # identity is refused for this hold, matching the Zello five-minute Kick.
-KICK_HOLD_SECONDS = max(30, min(3600, int(os.environ.get("ASR_KICK_HOLD_SECONDS", "300"))))
+KICK_HOLD_SECONDS = max(30, min(3600, int(os.environ.get("ASR_KICK_HOLD_SECONDS", "60"))))
 SUFFIX_RE = re.compile(r"[-/][A-Z0-9]{1,4}$")
 SUPPORTED = {"ysf", "p25", "nxdn", "m17"}
 def atomic_json(path, payload, mode=0o640):
