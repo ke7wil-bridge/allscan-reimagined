@@ -148,6 +148,7 @@ python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
 python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
+python3 "$ROOT/scripts/asr-standard-bridge-runtime-self-test.py"
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-setup-m17-self-test.py"
@@ -173,6 +174,7 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-client-management-browser-self-test.mjs"
 python3 "$ROOT/scripts/beta86-talker-parity-self-test.py"
 if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
   node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
