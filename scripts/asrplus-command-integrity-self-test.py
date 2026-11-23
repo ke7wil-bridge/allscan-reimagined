@@ -215,6 +215,36 @@ with tempfile.TemporaryDirectory() as directory:
     assert endpoint.poll("phoenix")["inflight"] is True
     assert (queue / f"{second['id']}.json").exists()
 
+# A malformed queued file is quarantined without blocking valid work.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    _, key = central_fixture(root)
+    now = int(time.time())
+    queue = endpoint.QUEUE_ROOT / "phoenix"
+    queue.mkdir(parents=True)
+    (queue / ("1" * 32 + ".json")).write_text("{not-json", encoding="utf-8")
+    valid = integrity.sign_command(command(identifier="2" * 32), key,
+                                   "phoenix-test-1", now=now)
+    endpoint.atomic_json(queue / f"{valid['id']}.json", valid, 0o600)
+    assert endpoint.poll("phoenix")["command"]["id"] == valid["id"]
+    assert list((endpoint.ARCHIVE_ROOT / "phoenix").glob("*.invalid-queued.json"))
+
+# An invalid inflight command is quarantined, allowing the next valid command.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    _, key = central_fixture(root)
+    now = int(time.time())
+    queue = endpoint.QUEUE_ROOT / "phoenix"
+    queue.mkdir(parents=True)
+    bad = integrity.sign_command(command(identifier="3" * 32), key,
+                                 "phoenix-test-1", now=now)
+    endpoint.atomic_json(queue / f"{bad['id']}.inflight", bad | {"node": "99999"}, 0o600)
+    valid = integrity.sign_command(command(identifier="4" * 32), key,
+                                   "phoenix-test-1", now=now)
+    endpoint.atomic_json(queue / f"{valid['id']}.json", valid, 0o600)
+    assert endpoint.poll("phoenix")["command"]["id"] == valid["id"]
+    assert list((endpoint.ARCHIVE_ROOT / "phoenix").glob("*.invalid-inflight.json"))
+
 # Optional mode drains a bounded legacy queue; required mode rejects it.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
