@@ -27,8 +27,7 @@ $cached = static function () use ($cache): ?string {
     if ($raw === false) return null;
     if ($age > 300) {
         $data = json_decode($raw, true);
-        if (!is_array($data)) return null;
-        $data['reported'] = false;
+        if (!is_array($data) || empty($data['reported'])) return null;
         $data['status'] = 'stale';
         $data['stale_seconds'] = $age;
         return json_encode($data);
@@ -63,7 +62,12 @@ $ctx = stream_context_create(['http' => [
     'ignore_errors' => false,
     'header' => "User-Agent: ASR-Standard-Graph/1.0\r\n"
 ]]);
-$raw = @file_get_contents('https://stats.allstarlink.org/api/stats/' . $node, false, $ctx);
+$raw = false;
+for ($attempt = 0; $attempt < 2; $attempt++) {
+    $raw = @file_get_contents('https://stats.allstarlink.org/api/stats/' . $node, false, $ctx);
+    if ($raw !== false) break;
+    if ($attempt === 0) usleep(200000);
+}
 $data = $raw === false ? null : json_decode($raw, true);
 $links = $data['stats']['data']['links'] ?? [];
 $links = is_array($links) ? $links : [];
@@ -71,5 +75,5 @@ $links = array_values(array_unique(array_filter(array_map('strval', $links),
     static fn($n) => (bool)preg_match('/^[0-9]{3,7}$/D', $n))));
 $out = json_encode(['node' => $node, 'links' => array_slice($links, 0, 250),
     'reported' => is_array($data['stats'] ?? null), 'status' => is_array($data['stats'] ?? null) ? 'ok' : 'not-reporting', 'source' => 'AllStarLink stats API']);
-if (is_array($data)) @file_put_contents($cache, $out, LOCK_EX);
-echo is_array($data) ? $out : ($cached() ?? $out);
+if (is_array($data) && is_array($data['stats'] ?? null)) @file_put_contents($cache, $out, LOCK_EX);
+echo is_array($data) && is_array($data['stats'] ?? null) ? $out : ($cached() ?? $out);
