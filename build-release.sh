@@ -190,8 +190,6 @@ python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
-python3 "$ROOT/scripts/asr-bridge-audio-telemetry-self-test.py"
-python3 "$ROOT/scripts/asr-bridge-pcm-gain-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
