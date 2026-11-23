@@ -6,7 +6,7 @@ deployed or modified.
 ## Current distributed-hub architecture
 
 Kentucky node 674982 is the ASR Plus aggregation and command-queue authority.
-Phoenix 641894 and Georgia 674980 run local agents that collect Asterisk and
+Phoenix 641894 and KY2 674980 (legacy `georgia` identifier) run local agents that collect Asterisk and
 bridge telemetry, initiate outbound SSH to Kentucky, publish status, poll a
 hub-specific queue, execute validated local Asterisk link commands, and return
 an acknowledgment. Kentucky builds the combined private dashboard snapshot.
@@ -144,17 +144,17 @@ commands until both existing remote agents can verify them.
 1. **Preflight and backup only after explicit approval.** Record current hashes,
    back up each source/config/unit/queue/result file with owner and mode, verify
    free space and clocks, and run the local security tests. Generate distinct
-   Phoenix, Georgia, and Texas 256-bit HMAC keys outside the repository and
+   Phoenix, KY2, and Texas 256-bit HMAC keys outside the repository and
    chat. Each key file is owner-only `0600`; never reuse a hub key.
 2. **Phoenix agent first.** Install the shared integrity module, upgraded agent,
    Phoenix key, optional-mode config, and hardened units. Reload/restart only
    the ASR Plus agent/watcher after an action-time approval. Verify telemetry,
    strict Kentucky host-key pinning, legacy compatibility, ledger permissions,
    and no radio-link change.
-3. **Georgia agent second, only after independent host-key verification.** The
-   currently changed Georgia host key is a hard blocker. Once KJ5IRQ verifies
+3. **KY2 agent second, only after independent host-key verification.** The
+   currently changed KY2 host key is a hard blocker. Once the KY2 host operator verifies
    it through the provider console or another independent channel, repeat the
-   Phoenix procedure with a distinct Georgia key. Never use
+   Phoenix procedure with a distinct KY2 key. Never use
    `StrictHostKeyChecking=no` or accept a key interactively without comparison.
 4. **Kentucky central components.** With both agents in optional mode, install
    the shared module, signed control helper, verifying forced-command endpoint,
@@ -166,7 +166,7 @@ commands until both existing remote agents can verify them.
    links. Test tamper/expiry/cross-hub rejection with offline fixture files,
    not production queue injection. Confirm logs and exact duplicate retry.
 6. **Close the compatibility window.** After all legacy queue and inflight
-   files are resolved, change Phoenix and Georgia agent and Kentucky hub modes
+   files are resolved, change Phoenix and KY2 agent and Kentucky hub modes
    from `optional` to `required`. Recheck telemetry and a read-only signed
    lifecycle. Optional mode is temporary and must not remain enabled.
 7. **Texas telemetry-only installation.** Texas begins in `required` mode with
@@ -181,12 +181,12 @@ commands until both existing remote agents can verify them.
 
 | Node | Required package changes | Compatibility mode |
 | --- | --- | --- |
-| Kentucky 674982 | Shared integrity module, signing control helper, verifying SSH endpoint, central API/token files, per-hub key config, audit rotation, Texas forced-command entry when approved | `optional` for Phoenix/Georgia only during drain; then `required` |
+| Kentucky 674982 | Shared integrity module, signing control helper, verifying SSH endpoint, central API/token files, per-hub key config, audit rotation, Texas forced-command entry when approved | `optional` for Phoenix/KY2 only during drain; then `required` |
 | Phoenix 641894 | Shared module, execute-once agent, Phoenix-only key/config, hardened agent and watcher units | Install `optional` first; change to `required` after Kentucky verification |
-| Georgia 674980 | Same as Phoenix with a distinct Georgia key | Blocked until independent SSH host-key verification; then `optional` to `required` |
+| KY2 674980 (legacy `georgia` identifier) | Same as Phoenix with a distinct KY2 key | Blocked until independent SSH host-key verification; then `optional` to `required` |
 | Texas 674984 | Full telemetry agent, Texas-only HMAC and SSH keys, required-mode config/ledger/units, central queue/status/result/config and forced-command identity | `required` from first installation; telemetry-only initially |
 
-Dashboard API tokens exist only on Kentucky. Phoenix, Georgia, and Texas never
+Dashboard API tokens exist only on Kentucky. Phoenix, KY2, and Texas never
 receive the bearer-token store or token-authentication sudo rule.
 
 ## Rollback

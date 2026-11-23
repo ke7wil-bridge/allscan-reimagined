@@ -15,7 +15,7 @@ read file metadata/hashes, sudo authorization, systemd unit definitions,
 redacted authorized-key options, and non-secret program source. It did not
 invoke a control, read a private key, change a queue, or restart a service.
 
-Georgia (`45.76.255.39`) was not inspected because its presented ED25519 host
+Kentucky 2 (KY2, node 674980; legacy internal identifier `georgia`, endpoint `45.76.255.39`) was not inspected because its presented ED25519 host
 key no longer matches the pinned local record (presented fingerprint
 `SHA256:EsXcsZT1fxZcEm/olVjPgPmQxLXZFXZmq003akXO3iA`; offending saved entry is
 an ECDSA key). This is not proof of compromise, but it is a hard verification
@@ -120,7 +120,7 @@ credential access.
 - Remote SSH uses `BatchMode`, `IdentitiesOnly`, `StrictHostKeyChecking`, and a
   dedicated known-hosts file.
 - Kentucky authorized keys use `restrict`, a forced command, and source-IP
-  restrictions for Phoenix and Georgia.
+  restrictions for Phoenix and KY2.
 - Endpoint payloads are size bounded, validate hub/node/timestamps, sanitize
   connection/talker fields, and atomically write root-controlled state.
 - Systemd services use `NoNewPrivileges`, `PrivateTmp`, and read-only system
@@ -130,7 +130,7 @@ credential access.
 
 1. Texas gets its own OS service identity, SSH key, forced-command entry,
    source address restriction, known-hosts file, queue/status/result directory,
-   and node mapping for 674984. Never reuse Phoenix or Georgia keys.
+   and node mapping for 674984. Never reuse Phoenix or KY2 keys.
 2. The agent may read only the Texas Asterisk status/AMI data it needs, write
    only its runtime directory, connect outbound only to the Kentucky endpoint,
    and execute only the enumerated Asterisk link commands.
