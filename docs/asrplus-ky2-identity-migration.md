@@ -1,6 +1,9 @@
 # ASR Plus KY2 internal identity migration — preparation only
 
-Status: **OFFLINE PREPARATION — NOT AUTHORIZED FOR PRODUCTION**
+Status: **DEPLOYED IN OPTIONAL MODE — 2026-11-23**
+
+See `docs/asrplus-ky2-identity-migration-report-2026-11-23.md` for installed
+hashes, production qualification, backup location, and rollback readiness.
 
 This later migration changes node 674980's internal ASR Plus identity from
 `georgia` to `ky2`. It is deliberately excluded from the current optional-mode
