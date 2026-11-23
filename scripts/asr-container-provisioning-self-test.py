@@ -524,19 +524,11 @@ def test_urf_docker_environment(installer) -> None:
 
 
 def test_managed_urf_image_repair_selection(host_installer) -> None:
-    with tempfile.TemporaryDirectory(prefix="asr-image-repair-") as temporary:
-        config_root = Path(temporary)
-        profile = SimpleNamespace(asr_config=config_root)
-        (config_root / "config.json").write_text(json.dumps({"bridges": []}))
-        assert host_installer.managed_urf_images_required(profile) is False
-        (config_root / "config.json").write_text(json.dumps({"bridges": [{
-            "id": "dmr_net", "cardType": "dmr_net", "backendMode": "display_only",
-        }]}))
-        assert host_installer.managed_urf_images_required(profile) is False
-        (config_root / "config.json").write_text(json.dumps({"bridges": [{
-            "id": "dmr_net", "cardType": "dmr_net", "backendMode": "managed",
-        }]}))
-        assert host_installer.managed_urf_images_required(profile) is True
+    # Retired URF images must never be restored by host provisioning.
+    assert not hasattr(host_installer, "managed_urf_images_required")
+    assert not hasattr(host_installer, "repair_managed_urf_images")
+    source = (Path(__file__).resolve().parent / "asr-container-host-install.py").read_text()
+    assert "repair_managed_urf_images(profile)" not in source
 
 
 def test_mqtt_secrets_metadata_migration(host_installer) -> None:

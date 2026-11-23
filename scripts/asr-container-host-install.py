@@ -32,9 +32,8 @@ HOST_FILES = (
     "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
     "asr-bridge-setup-m17.py", "asr-bridge-setup-helper.py",
-    "asr-bridge-runtime-sources.py", "asr-bridge-urf-native-runtime.py", "asr-bridge-setup-digital.py",
+    "asr-bridge-runtime-sources.py", "asr-bridge-setup-digital.py",
     "asr-bridge-setup-digital-render.py", "asr-bridge-setup-digital-install.py",
-    "asr-bridge-setup-urf.py", "asr-bridge-setup-urf-install.py",
 )
 CONTROL_FILES = (
     "asr-managed-dmr-net-control.py", "asr-ysf-bridge-control.py",
@@ -181,41 +180,6 @@ def ensure_private_root_directories(paths: tuple[Path, ...]) -> None:
         os.chown(path, 0, 0)
         os.chmod(path, 0o700)
 
-
-def managed_urf_images_required(profile) -> bool:
-    config_path = profile.asr_config / "config.json"
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("ASR configuration could not be read for managed image repair") from exc
-    return any(
-        isinstance(bridge, dict)
-        and bridge.get("cardType") == "dmr_net"
-        and bridge.get("backendMode", "managed") != "display_only"
-        for bridge in config.get("bridges", [])
-    )
-
-
-def repair_managed_urf_images(profile) -> bool:
-    """Restore missing local URF images on hosts that actually use DMR Net Bridge."""
-    if not managed_urf_images_required(profile):
-        return False
-    source = DEST / "asr-bridge-setup-urf-install.py"
-    spec = importlib.util.spec_from_file_location("asr_urf_image_repair", source)
-    if not spec or not spec.loader:
-        raise RuntimeError("managed URF image repair module is unavailable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    previous_profile = os.environ.get("ASR_CONTAINER_PROVISIONING_PROFILE")
-    os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = str(PROFILE)
-    try:
-        spec.loader.exec_module(module)
-        return bool(module.ensure_managed_images())
-    finally:
-        if previous_profile is None:
-            os.environ.pop("ASR_CONTAINER_PROVISIONING_PROFILE", None)
-        else:
-            os.environ["ASR_CONTAINER_PROVISIONING_PROFILE"] = previous_profile
 
 
 def mqtt_secrets_metadata_is_safe(file_info, parent_info, profile) -> bool:
@@ -545,39 +509,9 @@ def install(profile) -> None:
         if not source.is_file() or source.is_symlink() or target.is_symlink():
             raise RuntimeError(f"unsafe or missing support module: {name}")
         atomic_bytes(target, source.read_bytes(), 0o644)
-    runtime_source = HERE.parent / "runtime" / "urf"
-    runtime_target = Path("/usr/local/share/allscan-reimagined/runtime/urf")
-    if not runtime_source.is_dir() or runtime_source.is_symlink():
-        raise RuntimeError("managed URF runtime source is unavailable")
-    temporary_runtime = runtime_target.with_name("urf.new")
-    if temporary_runtime.exists():
-        if temporary_runtime.is_symlink() or not temporary_runtime.is_dir():
-            raise RuntimeError("managed URF temporary runtime is unsafe")
-        shutil.rmtree(temporary_runtime)
-    temporary_runtime.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(runtime_source, temporary_runtime)
-    previous_runtime = runtime_target.with_name("urf.previous")
-    if previous_runtime.exists():
-        if previous_runtime.is_symlink() or not previous_runtime.is_dir() or previous_runtime.stat().st_uid != 0:
-            raise RuntimeError("managed URF previous runtime is unsafe")
-        shutil.rmtree(previous_runtime)
-    if runtime_target.exists():
-        if runtime_target.is_symlink() or not runtime_target.is_dir() or runtime_target.stat().st_uid != 0:
-            raise RuntimeError("managed URF runtime target is unsafe")
-        os.replace(runtime_target, previous_runtime)
-    try:
-        os.replace(temporary_runtime, runtime_target)
-        repair_managed_urf_images(profile)
-    except Exception:
-        if previous_runtime.exists():
-            if runtime_target.exists():
-                if runtime_target.is_symlink() or not runtime_target.is_dir() or runtime_target.stat().st_uid != 0:
-                    raise RuntimeError("managed URF runtime rollback target is unsafe")
-                shutil.rmtree(runtime_target)
-            os.replace(previous_runtime, runtime_target)
-        raise
-    if previous_runtime.exists():
-        shutil.rmtree(previous_runtime)
+    # URF retired (#134). Never restore legacy runtime or images.
+    for legacy in ("asr-bridge-setup-urf.py", "asr-bridge-setup-urf-install.py", "asr-bridge-urf-native-runtime.py"):
+        (DEST / legacy).unlink(missing_ok=True)
     bin_dir = DEST / "container-host-bin"
     bin_dir.mkdir(mode=0o755, exist_ok=True)
     for name, source in (("systemctl", "asr-container-systemctl.py"),
