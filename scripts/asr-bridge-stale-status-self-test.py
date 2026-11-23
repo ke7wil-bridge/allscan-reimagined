@@ -580,31 +580,34 @@ def test_standard_payload_and_ambiguity() -> None:
 
 
 def test_stuck_tx_safety_window() -> None:
-    # Missing EOT must not leave a card transmitting forever, but a valid
-    # two-minute QSO must not be cut off by an arbitrary short timeout.
+    # A missing EOT must not pin any card in TX/RELAY forever. Genuine
+    # two-minute QSOs remain active; expiry must never invent activity.
     config = {"node": "123456", "bridges": [
         {"id": "dmr", "mode": "dmr", "cardType": "standard", "node": "1111"},
+        {"id": "ysf", "mode": "ysf", "cardType": "standard", "node": "2222"},
     ]}
     with tempfile.TemporaryDirectory(prefix="asr-stuck-tx-") as raw:
-        states: dict[str, dict] = {}
         root = Path(raw)
         start = 1_800_000_000
-        source = status.initial_activity_state()
-        source.update({"role": "source", "current_user": "N0CALL",
-                       "active_start_epoch": start, "source_observed_at": start,
-                       "observed": True})
-        states["dmr"] = source
-        for elapsed in (120, status.ACTIVE_STATE_MAX_AGE_SECONDS):
-            result = status.standard_live_payload(config, states, [], start + elapsed, root)
-            assert result["bridges"]["dmr"]["role"] == "source"
-            assert result["bridges"]["dmr"]["current_user"] == "N0CALL"
-        result = status.standard_live_payload(
-            config, states, [], start + status.ACTIVE_STATE_MAX_AGE_SECONDS + 1, root
-        )
-        assert result["bridges"]["dmr"]["role"] == "idle"
-        assert result["bridges"]["dmr"]["current_user"] == ""
-        assert result["bridges"]["dmr"]["active_start_epoch"] == 0
-        assert result["bridges"]["dmr"]["tx_events"] == []
+        for bridge_id, role in (("dmr", "source"), ("ysf", "relay")):
+            states: dict[str, dict] = {}
+            state = status.initial_activity_state()
+            state.update({"role": role,
+                          "current_user": "N0CALL" if role == "source" else "",
+                          "active_start_epoch": start, "source_observed_at": start,
+                          "observed": True})
+            states[bridge_id] = state
+            for elapsed in (120, status.ACTIVE_STATE_MAX_AGE_SECONDS):
+                result = status.standard_live_payload(config, states, [], start + elapsed, root)
+                assert result["bridges"][bridge_id]["role"] == role
+                assert result["bridges"][bridge_id]["current_user"] == ("N0CALL" if role == "source" else "")
+            result = status.standard_live_payload(
+                config, states, [], start + status.ACTIVE_STATE_MAX_AGE_SECONDS + 1, root
+            )
+            assert result["bridges"][bridge_id]["role"] == "idle"
+            assert result["bridges"][bridge_id]["current_user"] == ""
+            assert result["bridges"][bridge_id]["active_start_epoch"] == 0
+            assert result["bridges"][bridge_id]["tx_events"] == []
 
 
 def test_log_follower_safety() -> None:
