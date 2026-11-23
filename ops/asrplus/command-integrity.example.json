@@ -1,0 +1,19 @@
+{
+  "hubs": {
+    "phoenix": {
+      "mode": "optional",
+      "keyId": "phoenix-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/phoenix.key"
+    },
+    "texas": {
+      "mode": "required",
+      "keyId": "texas-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/texas.key"
+    },
+    "ky2": {
+      "mode": "optional",
+      "keyId": "ky2-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/ky2.key"
+    }
+  }
+}

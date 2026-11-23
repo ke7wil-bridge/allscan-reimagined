@@ -1,0 +1,33 @@
+[Unit]
+Description=Track verified app_rpt talker activity for ASR Plus
+After=asterisk.service
+Requires=asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/asrplus-agent --config /etc/asrplus-agent.json --watch-talkers
+Restart=always
+RestartSec=2
+User=root
+Group=root
+RuntimeDirectory=asrplus
+RuntimeDirectoryMode=0700
+StateDirectory=asrplus-agent
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /etc/asterisk/manager.conf /var/lib/asterisk/astdb.txt
+ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
+
+[Install]
+WantedBy=multi-user.target

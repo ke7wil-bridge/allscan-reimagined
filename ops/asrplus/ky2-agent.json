@@ -1,0 +1,17 @@
+{
+  "hub": "ky2",
+  "node": "674980",
+  "eventPublishMode": "masterhub-pull",
+  "talkerHeartbeatSeconds": 1,
+  "server": "root@44.30.157.21",
+  "key": "/root/.ssh/asl3_kentucky_state_pull",
+  "knownHosts": "/root/.ssh/known_hosts_asl3_kentucky",
+  "commandIntegrity": {
+    "mode": "optional",
+    "keyId": "ky2-2026-01",
+    "keyFile": "/etc/asrplus/command-keys/ky2.key"
+  },
+  "commandLedger": "/var/lib/asrplus-agent/executed-commands.json",
+  "astdb": "/var/lib/asterisk/astdb.txt",
+  "publicStatus": "/var/www/html/allscan/public-status.json"
+}
