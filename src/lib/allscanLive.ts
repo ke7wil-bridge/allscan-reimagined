@@ -1631,7 +1631,7 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
         key: `${mode}-${label}-${id || index}`,
         label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
         meta: age ? `Last TX ${age}` : 'No recent TX',
-        clientId: mode === 'dmr' && /^\d{1,8}$/.test(id) ? id : undefined,
+        clientId: mode === 'dmr' && /^\d{1,9}$/.test(id) ? id : undefined,
       }
     })
 

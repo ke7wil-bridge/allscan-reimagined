@@ -54,4 +54,8 @@ source = (ROOT / "scripts/asr-standalone-admin.py").read_text(encoding="utf-8")
 check('tgif_kick(client_id, identity) if bridge["_mode"] == "dmr" else None' in source, "DMR Kick does not call TGIF")
 ui = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
 check("TGIF did not disconnect the station" in ui and "was disconnected from TGIF" in ui, "dashboard does not report the TGIF result")
+# Hotspot and some app sessions carry a 9-digit ID (radio ID + 2-digit suffix);
+# the dashboard must send it, or the API refuses the Kick.
+live = (ROOT / "src/lib/allscanLive.ts").read_text(encoding="utf-8")
+check("clientId: mode === 'dmr' && /^\\d{1,9}$/.test(id) ? id : undefined" in live, "9-digit DMR client IDs are not sent")
 print("DMR Kick TGIF self-test: ok")
