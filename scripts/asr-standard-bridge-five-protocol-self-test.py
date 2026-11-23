@@ -26,7 +26,9 @@ assert set(module.configured_standard_bridges(config)) == {'dmr', 'ysf', 'p25', 
 
 # Fresh ASTAPI keyed evidence must work for every uniquely numbered protocol.
 original_astapi = module.astapi_bridge_evidence
+original_autopatch = module.bridge_autopatch_active
 try:
+    module.bridge_autopatch_active = lambda node: False
     module.astapi_bridge_evidence = lambda local, nodes, now, cache: {
         'keyed': {node: node == '1004' for node in nodes},
         'connected': {node: True for node in nodes},
@@ -39,6 +41,17 @@ try:
     assert all(active['bridges'][b['id']]['state'] == 'Idle'
                for b in bridges if b['id'] != 'nxdn_johnny2')
     module.astapi_bridge_evidence = lambda local, nodes, now, cache: {
+        'keyed': {node: node == '1001' for node in nodes},
+        'connected': {node: True for node in nodes},
+        'caller': '', 'caller_node': '', 'caller_started_epoch': 0,
+    }
+    module.bridge_autopatch_active = lambda node: node == '1001'
+    contaminated = module.standard_live_payload(config, {}, [], int(time.time()),
+                                                cache_dir=Path('/nonexistent'))
+    assert contaminated['bridges']['dmr_johnny2']['state'] == 'Idle'
+    assert 'autopatch' in contaminated['bridges']['dmr_johnny2']['warning'].lower()
+    module.bridge_autopatch_active = lambda node: False
+    module.astapi_bridge_evidence = lambda local, nodes, now, cache: {
         'keyed': {node: False for node in nodes},
         'connected': {node: True for node in nodes},
         'caller': '', 'caller_node': '', 'caller_started_epoch': 0,
@@ -49,6 +62,7 @@ try:
     assert ended['bridges']['nxdn_johnny2']['state'] == 'Idle'
 finally:
     module.astapi_bridge_evidence = original_astapi
+    module.bridge_autopatch_active = original_autopatch
 
 api_text = (source.parents[1] / 'asr-api.php').read_text(encoding='utf-8')
 assert "in_array($mode, ['dmr', 'ysf', 'p25', 'nxdn', 'm17'], true)" in api_text
