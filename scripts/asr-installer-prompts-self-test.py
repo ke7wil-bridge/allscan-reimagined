@@ -201,7 +201,8 @@ def main() -> int:
         "mandatory shared Favorites setup must not have a declined path",
     )
     require(
-        installer.count("scripts/asr-loopback-validate.py") >= 5,
+        installer.count("scripts/asr-loopback-validate.py") >= 3
+        and installer.count("validate_loopback_after_upgrade") == 4,
         "installer must stage, test, and use the loopback endpoint validator",
     )
     require(

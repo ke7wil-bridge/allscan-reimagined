@@ -290,7 +290,11 @@ restore_prior_reapply_units() {
     allscan-reimagined-net-bridge-recovery.service \
     allscan-reimagined-standard-bridge-status.service \
     allscan-reimagined-bridge-audio-telemetry.service \
-    allscan-reimagined-m17-bridge@.service; do
+    allscan-reimagined-m17-bridge@.service \
+    allscan-reimagined-global-ban-expire.service \
+    allscan-reimagined-global-ban-expire.timer \
+    allscan-reimagined-node-diagnostics.service \
+    allscan-reimagined-node-diagnostics.timer; do
     backup="$BACKUP_DIR/runtime/systemd/$unit"
     if [ -f "$backup" ]; then
       install -o root -g root -m 644 "$backup" "/etc/systemd/system/$unit"
@@ -595,6 +599,29 @@ ask() {
   [[ "$answer" =~ ^[Yy]$ ]]
 }
 
+validate_loopback_after_upgrade() {
+  local output_file error_file attempt error_text
+  output_file=$(mktemp)
+  error_file=$(mktemp)
+  for attempt in 1 2 3; do
+    if python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" "$@" >"$output_file" 2>"$error_file"; then
+      cat "$output_file"
+      rm -f "$output_file" "$error_file"
+      return 0
+    fi
+    error_text=$(cat "$error_file")
+    if [[ "$error_text" != *"loopback request failed:"* ]] \
+      || [[ "$error_text" != *"timed out"* && "$error_text" != *"Connection refused"* ]] \
+      || [ "$attempt" -eq 3 ]; then
+      cat "$error_file" >&2
+      rm -f "$output_file" "$error_file"
+      return 1
+    fi
+    echo "Apache loopback temporarily unavailable; retrying validation (attempt $((attempt + 1))/3)..." >&2
+    sleep 3
+  done
+}
+
 php_web_runtime_ok() {
   local probe_name probe_path detected_base="" status=0
   # Stock AllScan's Apache hardening rejects every dot-prefixed file. Keep the
@@ -864,7 +891,11 @@ for unit in \
   allscan-reimagined-net-bridge-recovery.service \
   allscan-reimagined-standard-bridge-status.service \
   allscan-reimagined-bridge-audio-telemetry.service \
-  allscan-reimagined-m17-bridge@.service; do
+  allscan-reimagined-m17-bridge@.service \
+  allscan-reimagined-global-ban-expire.service \
+  allscan-reimagined-global-ban-expire.timer \
+  allscan-reimagined-node-diagnostics.service \
+  allscan-reimagined-node-diagnostics.timer; do
   if [ -f "/etc/systemd/system/$unit" ]; then
     cp -p "/etc/systemd/system/$unit" "$BACKUP_DIR/runtime/systemd/$unit"
   else
@@ -1197,7 +1228,10 @@ else
   asr_login_default=n
   asr_login_prompt="Require login for ASR /asr/? [y/N]"
 fi
-if ask "$asr_login_prompt" "$asr_login_default"; then
+if [ "$ASR_WEB_WAS_PRESENT" -eq 1 ]; then
+  requested_asr_login="$current_asr_login"
+  echo "Existing ASR installation: preserving login policy without prompting."
+elif ask "$asr_login_prompt" "$asr_login_default"; then
   requested_asr_login=yes
 else
   requested_asr_login=no
@@ -1254,7 +1288,10 @@ else
   stock_login_default=n
   stock_login_prompt="Replace it with a login requirement for stock /allscan/? [y/N]"
 fi
-if ask "$stock_login_prompt" "$stock_login_default"; then
+if [ "$ASR_WEB_WAS_PRESENT" -eq 1 ]; then
+  requested_stock_permission="$current_stock_permission"
+  echo "Existing ASR installation: preserving stock AllScan access policy without prompting."
+elif ask "$stock_login_prompt" "$stock_login_default"; then
   requested_stock_permission=0
 elif [ "$current_stock_permission" -ne 0 ] \
   && [ "$current_stock_permission" -ne 2 ] \
@@ -1621,7 +1658,7 @@ assert isinstance(data.get("backups"), list)
 '; then
   fail "Validation failed: rollback listing JSON"
 fi
-if ! runtime_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+if ! runtime_json=$(validate_loopback_after_upgrade \
   --expect json \
   "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/asr-api.php?action=runtime-config"); then
   fail "Validation failed: /asr runtime-config endpoint"
@@ -1632,7 +1669,7 @@ if ! printf '%s' "$runtime_json" | php -r '
 '; then
   fail "Validation failed: runtime-config response content"
 fi
-if ! auth_json=$(python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+if ! auth_json=$(validate_loopback_after_upgrade \
   --expect json \
   "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/asr-api.php?action=auth-status"); then
   fail "Validation failed: /asr auth-status endpoint"
@@ -1661,7 +1698,7 @@ validate_command "stock /allscan access policy" php -r '
   new CfgModel($db);
   if ((int)($gCfg[publicPermission] ?? PERMISSION_READ_ONLY) !== (int)$argv[3]) exit(1);
 ' "$WEB_ROOT" "$STOCK_ALLSCAN_DIR" "$requested_stock_permission"
-if ! python3 "$RELEASE_DIR/scripts/asr-loopback-validate.py" \
+if ! validate_loopback_after_upgrade \
   --expect html \
   --contains 'assets/index-' \
   "${ASR_LOOPBACK_BASE_URL:-http://127.0.0.1}/asr/" >/dev/null; then
