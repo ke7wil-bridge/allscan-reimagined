@@ -26,9 +26,9 @@ check("urfd.blacklist" not in INSTALLER and "/var/lib/allscan-reimagined/global-
       "Zello installer still initializes obsolete Global Ban directory")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
       "Zello Manage Clients presentation missing")
-check("current or next Zello transmission for up to five minutes" in APP
+check("Mute this Zello talker on this bridge for one minute" in APP
       and "mode.toUpperCase() === 'ZELLO'\n        ? await kickZelloClient(callsign)" in APP,
-      "Zello one-shot Kick is not available for recent talkers")
+      "Zello one-minute Kick is not available for recent talkers")
 
 spec = importlib.util.spec_from_file_location("asr_global_ban_zello", ROOT / "scripts/asr-global-ban.py")
 global_ban = importlib.util.module_from_spec(spec)
@@ -49,9 +49,9 @@ with tempfile.TemporaryDirectory(prefix="asr-zello-kick-self-test-") as raw_tmp:
     global_ban.write_zello_kick("n0call", "self-test")
     kick = json.loads(Path(global_ban.ZELLO_KICKS).read_text(encoding="utf-8"))
     check("N0CALL" in kick["sessions"], "recent Zello talker Kick was not armed")
-    check(emitted[-1]["enforcement"] == "current-or-next-zello-stream"
-          and emitted[-1]["expiresSeconds"] == 300,
-          "recent Zello talker Kick did not report its one-shot contract")
+    check(emitted[-1]["enforcement"] == "zello-mute-hold-v1"
+          and emitted[-1]["expiresSeconds"] == 60,
+          "recent Zello talker Kick did not report its one-minute mute contract")
 
 patch_spec = importlib.util.spec_from_file_location("asr_zello_session_patch_test", ZELLO_PATCH_PATH)
 session_patch = importlib.util.module_from_spec(patch_spec)
@@ -162,7 +162,15 @@ with tempfile.TemporaryDirectory(prefix="asr-zello-enforcement-self-test-") as r
     runtime.stop_stream("KE7WIL")
     check(runtime._zello_ptt.cleared, "Zello stream stop did not clear PTT")
     remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
+    check("KE7WIL" in remaining and "EXPIRED" in remaining,
+          "Zello stream stop prematurely cleared an active one-minute mute")
+
+    # The selected Kick is consumed only after its one-minute hold expires.
+    remaining["KE7WIL"]["createdAt"] = int(time.time()) - 61
+    kicks.write_text(json.dumps({"schema": 1, "sessions": remaining}), encoding="utf-8")
+    runtime.stop_stream("KE7WIL")
+    remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
     check("KE7WIL" not in remaining and "EXPIRED" in remaining,
-          "Zello stream stop did not consume only the selected one-shot Kick")
+          "Zello stream stop did not consume only the expired selected Kick")
 
 print("Zello client-management and runtime enforcement self-test: ok")

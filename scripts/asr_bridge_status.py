@@ -23,6 +23,7 @@ MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 STANDARD_RUN_DIR = Path("/run/allscan-reimagined-standard-bridge-status")
 STANDARD_STATUS_PATH = STANDARD_RUN_DIR / "bridge-live.json"
 MANAGED_CLIENT_ROSTER_PATH = Path("/var/www/html/asr/asr-connected-clients.json")
+M17_BRIDGE_INI_PATH = Path("/etc/m17/usrp2m17.ini")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
 MMDVM_LOG_NAME_RE = re.compile(
@@ -523,12 +524,13 @@ def apply_m17_activity(state: dict[str, Any], line: str, now: int, bridge_call: 
 
 
 M17_OPEN_JOURNAL_RE = re.compile(
-    r"^(\d+\.\d+) .*?mrefd\[\d+\]: Opening stream on module [A-Z] from client .+? with id 0x[0-9a-f]+ by user (.+)$", re.I)
+    r"^(\d+\.\d+) .*?mrefd\[\d+\]: Opening stream on module [A-Z] from client (.+?) with id 0x[0-9a-f]+ by user (.+)$", re.I)
 M17_CLOSE_JOURNAL_RE = re.compile(
     r"^(\d+\.\d+) .*?mrefd\[\d+\]: Closing stream on module [A-Z]\s*$", re.I)
 
 
-def apply_m17_journal(state: dict[str, Any], line: str, now: int, bridge_call: str = "") -> None:
+def apply_m17_journal(state: dict[str, Any], line: str, now: int, bridge_call: str = "",
+                      bridge_identity: str = "") -> None:
     """Use authoritative reflector stream open/close for live source identity."""
     opened = M17_OPEN_JOURNAL_RE.fullmatch(line)
     closed = M17_CLOSE_JOURNAL_RE.fullmatch(line)
@@ -541,7 +543,9 @@ def apply_m17_journal(state: dict[str, Any], line: str, now: int, bridge_call: s
     if epoch < int(state.get("last_event_epoch", 0) or 0):
         return
     if opened:
-        caller = opened.group(2).strip().upper().replace(" ", "-")
+        if bridge_identity and bridge_identity in (m17_identity(opened.group(2)), m17_identity(opened.group(3))):
+            return  # The bridge relaying AllStar audio into the reflector (#134).
+        caller = opened.group(3).strip().upper().replace(" ", "-")
         caller = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", caller)
         if bridge_call and (caller == bridge_call or caller.startswith(bridge_call + "-")):
             return  # Reflector bridge loopback is not a remote M17 station.
@@ -805,13 +809,13 @@ def log_belongs_to_stem(name: str, stem: str) -> bool:
     return name == f"{stem}.log" or (name.startswith(f"{stem}-") and name.endswith(".log"))
 
 
-def mmdvm_ini_log_root(path: Path) -> str:
-    """Read a YSF Net card's validated MMDVM FileRoot without following links."""
+def read_trusted_ini(path: Path) -> configparser.RawConfigParser | None:
+    """Parse a small root-owned ini without following links."""
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError:
-        return ""
+        return None
     try:
         details = os.fstat(descriptor)
         if (
@@ -821,7 +825,7 @@ def mmdvm_ini_log_root(path: Path) -> str:
             or stat.S_IMODE(details.st_mode) & 0o022
             or details.st_size > 256 * 1024
         ):
-            return ""
+            return None
         chunks: list[bytes] = []
         remaining = 256 * 1024 + 1
         while remaining > 0:
@@ -834,17 +838,53 @@ def mmdvm_ini_log_root(path: Path) -> str:
         os.close(descriptor)
     raw = b"".join(chunks)
     if len(raw) > 256 * 1024:
-        return ""
+        return None
     parser = configparser.RawConfigParser(
         inline_comment_prefixes=(";", "#"), strict=False
     )
     try:
         parser.read_string(raw.decode("utf-8"))
+    except (UnicodeError, configparser.Error):
+        return None
+    return parser
+
+
+def mmdvm_ini_log_root(path: Path) -> str:
+    """Read a YSF Net card's validated MMDVM FileRoot without following links."""
+    parser = read_trusted_ini(path)
+    if parser is None:
+        return ""
+    try:
         log_path = parser.get("Log", "FilePath").strip()
         log_root = parser.get("Log", "FileRoot").strip()
-    except (UnicodeError, configparser.Error):
+    except configparser.Error:
         return ""
     return log_root if log_path == "/var/log/mmdvm" and MMDVM_LOG_STEM_RE.fullmatch(log_root) else ""
+
+
+def m17_identity(value: object) -> str:
+    """Compare M17 client names whatever their module separator (space or dash)."""
+    return re.sub(r"[\s-]+", "-", str(value or "").strip().upper())
+
+
+def m17_bridge_identity(bridge: dict[str, Any], ini_path: Path | None = None) -> str:
+    """The callsign this M17 bridge itself uses on the reflector (#134).
+
+    The bridge relays AllStar audio into the reflector under this callsign, so
+    a reflector stream from it is outgoing relay, never a remote M17 talker.
+    """
+    configured = m17_identity(bridge.get("m17Callsign"))
+    if configured:
+        return configured
+    if bridge.get("activityLogDirectory") != "/var/log/m17" or bridge.get("activityLogStem") != "USRP2M17":
+        return ""
+    parser = read_trusted_ini(ini_path or M17_BRIDGE_INI_PATH)
+    if parser is None:
+        return ""
+    try:
+        return m17_identity(parser.get("M17 Network", "Callsign"))
+    except configparser.Error:
+        return ""
 
 
 class MmdvmFollower:
@@ -1158,7 +1198,8 @@ def standard_live_payload(
     for tagged in m17_journal_lines or []:
         bridge_id, sep, message = tagged.partition("\t")
         if sep and bridge_id in visible and str(visible[bridge_id].get("mode", "")).lower() == "m17":
-            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call)
+            apply_m17_journal(states.setdefault(bridge_id, initial_activity_state()), message, now, local_call,
+                              m17_bridge_identity(visible[bridge_id]))
     health_cache = states.setdefault("__service_health__", {})
     for bridge_id, bridge in visible.items():
         if bridge_id not in unambiguous_ids and str(bridge.get("mode", "")).lower() != "m17":

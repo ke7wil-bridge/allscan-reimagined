@@ -350,16 +350,21 @@ export async function kickZelloClient(callsign: string): Promise<{ verified: boo
   return { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
 }
 
-export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number }> {
+export type TgifKickResult = { ok: boolean; error?: string; talkgroup?: string; seconds?: number; released?: boolean }
+
+export async function kickStandaloneClient(bridgeId: string, callsign: string, clientId = ''): Promise<{ verified: boolean; removed: number; tgif?: TgifKickResult }> {
   const body = new URLSearchParams({ bridgeId, callsign, clientId })
   const response = await fetch(`${ASR_API}?action=standalone-client-kick`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'standalone-client-kick' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; verified?: boolean; removed?: number; tgif?: TgifKickResult }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Standalone bridge client Kick failed.')
-  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)) }
+  const tgif = payload.tgif && typeof payload.tgif === 'object'
+    ? { ok: payload.tgif.ok === true, error: String(payload.tgif.error || ''), talkgroup: String(payload.tgif.talkgroup || ''), seconds: Number(payload.tgif.seconds || 0), released: payload.tgif.released === true }
+    : undefined
+  const result = { verified: payload.verified === true, removed: Math.max(0, Number(payload.removed || 0)), tgif }
   if (!result.verified || result.removed < 1) throw new Error('DMR Kick was not verified by the active media relay.')
   return result
 }
@@ -850,7 +855,9 @@ function buildSnapshot(
   const fallbackCurrent = talkerRows.find((row) => row.state === 'talking' || row.state === 'both') || null
   const currentTalker = serverCurrent?.node ? payloadTalkerEntry(serverCurrent) : (fallbackCurrent ? rowTalkerEntry(fallbackCurrent) : null)
   const recentTalkers = serverHistory.length
-    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 4)
+    // Up to 12 server events: the Talkers panel filters relay echoes and
+    // merges bridge events before showing the newest four (#168).
+    ? serverHistory.filter((entry) => entry?.node).map((entry) => payloadTalkerEntry(entry, true)).slice(0, 12)
     : talkerRows
       .filter((row) => row.received && row.received !== 'Never' && row.received !== 'N/A')
       .map(rowTalkerEntry)
@@ -1626,7 +1633,7 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
         key: `${mode}-${label}-${id || index}`,
         label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
         meta: age ? `Last TX ${age}` : 'No recent TX',
-        clientId: mode === 'dmr' && /^\d{1,8}$/.test(id) ? id : undefined,
+        clientId: mode === 'dmr' && /^\d{1,9}$/.test(id) ? id : undefined,
       }
     })
 
@@ -1679,7 +1686,8 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
       if (!label || label === '-') return
       const event = String(record.event || '').toLowerCase()
-      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
+      // Recent Activity labels (#134): CON = connected, DIS = disconnected, TX = transmitted.
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CON' : event === 'disconnect' ? 'DIS' : '') : 'TX'
       if (!action) return
       if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
       const duration = Number(record.duration_seconds)
@@ -1779,16 +1787,24 @@ export async function fetchBridgeCards(
       lastTransmitter: lastTalkerIsFresh ? String(entry?.last_source_user || entry?.last_user || '-').trim() || '-' : '-',
       lastTxEpoch: lastTalkerIsFresh ? rawLastTxEpoch : 0,
       activeStartEpoch: Math.max(0, Number(entry?.active_start_epoch) || 0),
+      // Digital-originated transmissions only. "outgoing" is AllStar audio
+      // sent out to the digital network, so matching it hid every genuine
+      // AllStar talker whenever a bridge was linked (#168).
       relayEventEpochs: (Array.isArray(entry?.tx_events) ? entry.tx_events : [])
-        .filter((record) => String(record.direction || "").toLowerCase() === "outgoing")
+        .filter((record) => String(record.direction || "").toLowerCase() === "incoming")
         .map((record) => Math.max(0, Number(record.epoch) || 0))
         .filter((epoch) => epoch > 0),
-      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).slice(0, 4).map((record) => ({
+      // Pick the newest four identified transmissions. Relayed AllStar audio
+      // logs callsign-less "outgoing" events on every bridge, which must not
+      // push a digital talker out of the Talkers panel (#168).
+      recentTalkers: (Array.isArray(entry?.tx_events) ? entry.tx_events : []).map((record) => ({
         callsign: String(record.callsign || '').slice(0, 20),
         startEpoch: Math.max(0, Number(record.start_epoch) || 0),
         eventEpoch: Math.max(0, Number(record.epoch) || 0),
         duration: Math.max(0, Number(record.duration_seconds) || 0),
-      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0),
+      })).filter((record) => Boolean(record.callsign) && record.eventEpoch > 0)
+        .sort((left, right) => right.eventEpoch - left.eventEpoch)
+        .slice(0, 4),
       recentRows: formatBridgeRecentRows(entry, mode),
       audioMeter: entry?.audio_meter ? {
         inboundPeak: safeAudioMeterLevel(entry.audio_meter.inboundpeak),

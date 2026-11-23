@@ -48,6 +48,7 @@ import {
   updateGlobalBan,
   kickZelloClient,
   kickStandaloneClient,
+  type TgifKickResult,
   provisionedNetBridgeModes,
   restartAsteriskCommand,
   repairStandardBridge,
@@ -891,6 +892,22 @@ function App({ config }: { config: RuntimeConfig }) {
         }
       }
     }
+    // History rows already carry the identity the server resolved for that
+    // transmission (e.g. node 1001 -> KN4EWT / DMR). Use it when this page did
+    // not see the transmission live, so a refresh does not drop every past
+    // bridge talker until someone keys up again (#168).
+    const serverSource = String(talker.source || '').trim().toUpperCase()
+    const serverCallsign = String(talker.info || '').trim().toUpperCase()
+    if (!bridgeTalkerIdentityRef.current[cacheKey]
+        && serverSource !== '' && serverSource !== 'ALLSTAR'
+        && serverCallsign !== '' && serverCallsign !== transportNode
+        && /^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(serverCallsign)) {
+      bridgeTalkerIdentityRef.current[cacheKey] = {
+        callsign: serverCallsign,
+        source: serverSource,
+        description: String(talker.description || '').trim(),
+      }
+    }
     const identity = bridgeTalkerIdentityRef.current[cacheKey]
     if (!identity && transportNode === '1001') {
       if (!isCurrentTalker) return null
@@ -933,8 +950,9 @@ function App({ config }: { config: RuntimeConfig }) {
     const bridgeTalkers = bridgeTalkerFeed(bridgeState.cards)
     const cutoff = Math.floor(clock.getTime() / 1000) - TALKER_HISTORY_MAX_AGE_SECONDS
     // ASTAPI reports the AllStar/EchoLink side of a digital bridge relay as
-    // a talker too. When its event timestamp matches an outgoing digital
-    // bridge TX edge, it is transport echo, not the originating digital user.
+    // a talker too. When its event timestamp matches a digital user's
+    // incoming bridge TX edge, it is transport echo, not the originating
+    // digital user. AllStar-originated audio relayed out stays visible.
     const relayEpochs = bridgeState.cards.flatMap((card) => card.relayEventEpochs || [])
     const isRelayEcho = (entry: TalkerFeedEntry | null) => Boolean(entry
       && String(entry.source || '').toUpperCase() === 'ALLSTAR'
@@ -2989,11 +3007,21 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanAdminBusy(true)
       setBanAdminStatus(`Kicking ${callsign} from ${mode.toUpperCase()}…`)
-      const result = mode.toUpperCase() === 'ZELLO'
+      const result: { verified: boolean; removed: number; tgif?: TgifKickResult } = mode.toUpperCase() === 'ZELLO'
         ? await kickZelloClient(callsign)
         : await kickStandaloneClient(bridgeId, callsign, clientId)
       if (!result.verified || result.removed < 1) throw new Error('Kick was not verified by the active backend.')
-      setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      const tgif = result.tgif
+      if (tgif?.ok) {
+        // #134: DMR Kick also disconnects the station from the TGIF talkgroup.
+        // It is not a ban: the station may reconnect at once.
+        const blocked = !tgif.released && tgif.seconds ? ` TGIF still holds it out for up to ${Math.max(1, Math.round(tgif.seconds / 60))} minutes.` : ' It can reconnect right away.'
+        setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''}.${blocked}`)
+      } else if (tgif) {
+        setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
+      } else {
+        setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
+      }
     } catch (error) {
       setBanAdminStatus(error instanceof Error ? error.message : 'Bridge client Kick failed.')
     } finally { setBanAdminBusy(false) }
@@ -4150,7 +4178,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
                   <div className="allscan-ban-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!banClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-bridge-client-admin-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setBanAdminOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{isBannableConnection(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setBanAdminOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
                   <div className="allscan-ban-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.filter((managedCard) => managedCard.mode.toUpperCase() !== 'ZELLO').flatMap((managedCard) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === managedCard.id); const clientAdmin = bridgeConfig?.adminCapabilities?.clientAdmin || []; const canKick = clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan })) }).filter((detail) => !banClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = globalBanRules.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{detail.canKick ? <button type="button" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode, detail.clientId)}>Kick</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign) : null}</span></span> })}</div>
-                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Suppress this talker’s current or next Zello transmission for up to five minutes" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
+                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Mute this Zello talker on this bridge for one minute" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
                   </> : <div className="allscan-management-bans">
                     <button type="button" className="allscan-action-button" onClick={() => { setBanAdminOpen(false); openParticipantBan() }}>Add ban…</button>
                     {aslEnforcementStatus ? <p role="status">{aslEnforcementStatus}</p> : null}
@@ -4459,7 +4487,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
                             {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Mute this station on this bridge for five minutes' : (isZello ? 'Suppress this talker’s current or next Zello transmission for up to five minutes' : 'Disconnect this station and refuse it for five minutes')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Mute this Zello talker on this bridge for one minute' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}

@@ -233,7 +233,7 @@ def capability(bridge_id: str, digest: str, enforcement: Path | None = None) -> 
             "heartbeatEpoch": int(time.time()), "listClients": True,
             "kickClient": ready and hold is not None, "kickContract": "disconnect-hold-v1",
             "kickRequiresCurrentSession": True, "kickAllowsImmediateReconnect": False,
-            "kickHoldSeconds": hold if hold is not None else 300,
+            "kickHoldSeconds": hold if hold is not None else 60,
             "banClient": ready, "unbanClient": ready, "listBans": ready,
             "banContract": "global-timed-v1", "appliedPolicyDigest": digest}
 
