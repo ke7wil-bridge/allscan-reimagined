@@ -1,0 +1,14 @@
+{
+  "hubs": {
+    "phoenix": {
+      "mode": "optional",
+      "keyId": "phoenix-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/phoenix.key"
+    },
+    "georgia": {
+      "mode": "optional",
+      "keyId": "georgia-2026-01",
+      "keyFile": "/etc/asrplus/command-keys/georgia.key"
+    }
+  }
+}

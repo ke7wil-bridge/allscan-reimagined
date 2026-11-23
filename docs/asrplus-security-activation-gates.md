@@ -13,11 +13,12 @@ Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
 
 ## Gate 2 — secrets and staged configs
 
-- [ ] Generate separate random HMAC keys for Phoenix and KY2; store root-only, never in repository or logs.
+- [ ] Generate separate random HMAC keys for Phoenix and KY2; store root-only, never in repository or logs. Config/module bundles are now staged under `ops/asrplus/staging/`; no keys are included or generated.
 - [ ] Configure `phoenix` and legacy `georgia` identities in MasterHub `/etc/asrplus/command-integrity.json`, both initially `optional`.
 - [ ] Prepare Phoenix merged config: `eventPublishMode=outbound`, heartbeat 5, signing config and persistent ledger.
 - [ ] Prepare KY2 control config: `eventPublishMode=masterhub-pull`, heartbeat 1, signing config and persistent ledger. Keep watcher config separate and watcher-only.
-- [ ] Validate module import paths, root-only key access, ledger persistence, and systemd write allowances.
+- [x] Validate staged module/config pairing, hub IDs, optional mode, KY2 keyless watcher config, and expected existing SSH/control paths offline.
+- [ ] Validate deployed module import paths, root-only key access, ledger persistence, and systemd write allowances on each host.
 - [ ] **Import blocker:** all new Python entrypoints import `asrplus_command_integrity`, but the existing deployed entrypoints live in `/usr/local/sbin`; explicitly install the shared module beside each entrypoint (or configure a verified import path) on MasterHub, Phoenix and KY2. Repo scan found no installation instruction for this module. Test imports using the deployed interpreter and service environment before replacement.
 
 ## Gate 3 — approved coordinated activation

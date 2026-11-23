@@ -1,0 +1,16 @@
+{
+  "hub": "georgia",
+  "node": "674980",
+  "key": "/etc/asrplus-ky-control-key",
+  "knownHosts": "/etc/asrplus-ky-known-hosts",
+  "server": "root@44.30.157.21",
+  "controlPath": "/run/asrplus-ky/ssh-%C",
+  "eventPublishMode": "masterhub-pull",
+  "talkerHeartbeatSeconds": 1,
+  "commandIntegrity": {
+    "mode": "optional",
+    "keyId": "georgia-2026-01",
+    "keyFile": "/etc/asrplus/command-keys/georgia.key"
+  },
+  "commandLedger": "/var/lib/asrplus-agent/executed-commands.json"
+}
