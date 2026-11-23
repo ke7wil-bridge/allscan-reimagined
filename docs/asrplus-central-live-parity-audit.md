@@ -13,6 +13,6 @@ Read-only source comparison of live `/usr/local/sbin/asrplus-control` and `/usr/
 
 - [ ] Execute integration tests against copies of live queue/status/result data, without invoking Asterisk or writing to production paths.
 - [ ] Validate `REMOTE_HUBS` mapping, ban-list result retrieval, and dashboard compatibility.
-- [ ] Check actual ownership/mode of affected queue, result, and status directories and dependent service identities.
+- [ ] Check dependent service identities and access before any mode changes. Read-only production inspection: `/var/lib/asrplus`, `queue`, `results`, `remote-status`, `queue/phoenix`, and `queue/georgia` are currently `0755 root:root`. The new `atomic_json` implementation changes existing parent directories to `0700`, which could break non-root readers; do not deploy without a service access audit.
 - [ ] Test inflight recovery, duplicate acknowledgment, stale-command rejection and interrupted execution.
 - [ ] Verify legacy Georgia forced-command SSH entry is still needed before any revocation.
