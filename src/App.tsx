@@ -3220,7 +3220,14 @@ function App({ config }: { config: RuntimeConfig }) {
                     <span className="allscan-favorite-details">
                       <span className="allscan-favorite-description" title={favorite.description || favorite.name || 'No description'}>
                         {favorite.href ? (
-                          <a href={favorite.href} target="_blank" rel="noreferrer">{favorite.description || favorite.name || <em>No description</em>}</a>
+                          <a href={favorite.href} target="_blank" rel="noreferrer" onClick={(event) => {
+                            // Favorites supplied by AllScan may link to an external node-status
+                            // page. Open the same native bubble chart as Connection Status.
+                            if (/^https?:\/\/stats\.allstarlink\.org\/stats\/\d+(?:[/?#]|$)/i.test(favorite.href) && /^\d{3,7}$/.test(favorite.node)) {
+                              event.preventDefault()
+                              setBubbleNode(favorite.node)
+                            }
+                          }}>{favorite.description || favorite.name || <em>No description</em>}</a>
                         ) : (favorite.description || favorite.name || <em>No description</em>)}
                       </span>
                       <span className="allscan-favorite-meta">
