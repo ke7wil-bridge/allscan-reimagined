@@ -12,8 +12,8 @@ Read in this order:
 5. `texas-hub-674984-readiness-254.md`
 6. `asrplus-security-inspection-package-2026-11-24.pdf`
 
-The JSON files are machine-readable evidence. The `implementation` directory
-contains the reviewed installer, narrow helper and non-secret configuration
+The JSON files are machine-readable evidence. The `scripts` and `ops` directories
+contain the reviewed installer, narrow helper and non-secret configuration
 templates. Do not substitute real addresses, public keys or key IDs until the
 operator gates are approved. Never put a private key, HMAC key, AMI secret,
 session cookie or bearer token in this package.

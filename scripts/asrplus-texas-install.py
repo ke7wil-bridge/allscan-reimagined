@@ -52,14 +52,19 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def atomic_write(path: Path, data: bytes, mode: int) -> None:
+def atomic_write(path: Path, data: bytes, mode: int, owner: tuple[int, int] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if owner is None and path.exists():
+        st = path.stat()
+        owner = (st.st_uid, st.st_gid)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        if owner is not None:
+            os.chown(temporary, *owner)
         os.chmod(temporary, mode)
         os.replace(temporary, path)
     finally:
@@ -171,7 +176,7 @@ def make_backup(root: Path, paths: list[Path]) -> Path:
             destination = backup / "files" / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)
-            record |= {"sha256": sha256(path), "mode": stat.S_IMODE(path.stat().st_mode)}
+            record |= {"sha256": sha256(path), "mode": stat.S_IMODE(path.stat().st_mode), "uid": path.stat().st_uid, "gid": path.stat().st_gid}
         records.append(record)
     atomic_write(backup / "manifest.json", (json.dumps({"version": 1, "files": records}, indent=2) + "\n").encode(), 0o600)
     return backup
@@ -203,7 +208,7 @@ def install(root: Path, values: dict) -> dict:
         atomic_write(rooted(root, "var/lib/asrplus-texas/kentucky-authorized-key.fragment"),
                      render_authorized_key(values), 0o600)
         written.append("var/lib/asrplus-texas/kentucky-authorized-key.fragment")
-        atomic_write(extensions, integrate_admission(extensions.read_text()).encode(), 0o640)
+        atomic_write(extensions, integrate_admission(extensions.read_text()).encode(), stat.S_IMODE(extensions.stat().st_mode))
         written.append("etc/asterisk/extensions.conf")
         registration = json.loads((OPS / "asrplus-central-hub.json").read_text())
         atomic_write(rooted(root, "var/lib/asrplus-texas/central-registration.json"),
@@ -235,7 +240,7 @@ def rollback(root: Path, backup: Path) -> dict:
     for record, relative, source in validated:
         destination = rooted(root, str(relative))
         if record["existed"]:
-            atomic_write(destination, source.read_bytes(), int(record["mode"]))
+            atomic_write(destination, source.read_bytes(), int(record["mode"]), (int(record["uid"]), int(record["gid"])) if "uid" in record and "gid" in record else None)
         elif destination.exists():
             if not destination.is_file():
                 raise InstallError(f"refusing to remove non-file {destination}")

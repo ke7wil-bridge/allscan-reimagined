@@ -13,6 +13,7 @@ Group=asrplus-agent
 SupplementaryGroups=asterisk
 RuntimeDirectory=asrplus
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 StateDirectory=asrplus-agent
 StateDirectoryMode=0700
 NoNewPrivileges=true

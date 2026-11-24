@@ -419,7 +419,7 @@ def main() -> int:
     evidence = {
         "schemaVersion": 1, "result": "PASS", "generatedEpoch": int(time.time()),
         "scope": "disposable fixtures only; no production credentials, radio or Asterisk controls",
-        "commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip(),
+        "commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False).stdout.strip() or "standalone-package",
         "host": {"platform": platform.platform(), "python": platform.python_version(),
                  "cpuCount": os.cpu_count(), "totalMemoryKiB": meminfo().get("MemTotal", 0)},
         "tests": out.tests, "soak": metrics,

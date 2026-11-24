@@ -27,5 +27,6 @@ ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /var/lib/asterisk/astdb.txt /
 ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
 RuntimeDirectory=asrplus
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 StateDirectory=asrplus-agent
 StateDirectoryMode=0700
