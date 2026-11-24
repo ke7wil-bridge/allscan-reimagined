@@ -43,3 +43,5 @@ activate required mode, or install Texas.
 - Periodic asrplus-reapply was run after source update; authoritative source and deployed web copy hashes match.
 - Apache and Asterisk remained active. No Asterisk restart or radio-link change.
 - Authenticated browser-session regression testing remains outstanding; existing session path was retained in API source.
+
+- Audit log rotation installed at /etc/logrotate.d/asrplus-token-audit: daily, 90 rotations, compression, root:root 0640 recreation. logrotate.timer is active and full configuration debug parsing recognizes the rule. No forced rotation was performed.

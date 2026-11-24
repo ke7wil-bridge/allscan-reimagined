@@ -247,7 +247,7 @@ def build(output: Path) -> None:
             ["Optional downgrade risk", "Closed by required-mode cutover"],
             ["KY2 root service sandbox gap", "Installed and verified"],
             ["Live authenticated browser-session regression", "Source-level regression guards pass; live browser test pending"],
-            ["Audit-log retention", "Root-only 0640 log; rotation policy not configured; operator retention decision needed"],
+            ["Audit-log retention", "Daily compressed rotation; 90 archives; recreated root:root 0640; logrotate timer active"],
             ["Remote agents run as root", "Dedicated-account feasibility required for Texas; later migration for existing hubs"],
             ["Kentucky single dependency", "Dashboard/control fail stale and closed; no automatic regional failover"],
             ["Texas operational policy incomplete", "KJ5IRQ agreements and isolated qualification required"],
@@ -262,7 +262,6 @@ def build(output: Path) -> None:
         para("Outstanding gates", styles["H2ASR"]),
         *bullets([
             "Live authenticated browser-session regression test for the updated API.",
-            "Agree audit-log retention and configure daily compressed rotation (90 days suggested).",
             "Texas contact, installation, firewall changes, radio linking or control enablement.",
             "Asterisk restart, production radio-link change, push, merge or required-mode activation beyond the named nodes and window.",
         ], styles["BulletASR"]),
