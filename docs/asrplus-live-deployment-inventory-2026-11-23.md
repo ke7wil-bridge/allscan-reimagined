@@ -19,7 +19,7 @@ The following production token components are absent:
 
 - `/usr/local/sbin/asrplus-token`
 - `/etc/sudoers.d/asrplus-token`
-- `/var/lib/asrplus/tokens.json`
+- `/var/lib/asrplus/tokens/tokens.json`
 - `/var/log/asrplus-token-audit.jsonl`
 
 Per-hub key files are root-owned `0600`; key bytes were not read. MasterHub's

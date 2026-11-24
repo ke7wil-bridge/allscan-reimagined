@@ -18,7 +18,7 @@ import tempfile
 import time
 
 
-STORE_PATH = Path(os.environ.get("ASRPLUS_TOKEN_STORE", "/var/lib/asrplus/tokens.json"))
+STORE_PATH = Path(os.environ.get("ASRPLUS_TOKEN_STORE", "/var/lib/asrplus/tokens/tokens.json"))
 AUDIT_PATH = Path(os.environ.get("ASRPLUS_TOKEN_AUDIT", "/var/log/asrplus-token-audit.jsonl"))
 LOCK_PATH = Path(os.environ.get("ASRPLUS_TOKEN_LOCK", "/run/lock/asrplus-token.lock"))
 KNOWN_NODES = {

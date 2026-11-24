@@ -2,40 +2,29 @@
 
 Inspection package - 2026-11-23 (America/Phoenix)
 
-Authoritative scope: issues #252, #253 and #254; related #134; merged command
-security foundation `4b43851`; local completion branch
-`security/asrplus-security-completion` based on `e9641b7` with PR #266 fix
-`918a995`. The final local commit is recorded in the delivery report after the
-package is committed. No production mutation, restart, radio-link change,
-firewall change, token installation, push or merge was performed.
+**Internal draft — not approved for external delivery.**
+
+Scope: issues #252, #253 and #254; related #134. PR #268 merged into main.
+Production signing activation and KY2 hardening completed November 23 Arizona time.
+API token deployment awaits public DNS and trusted HTTPS.
 
 ## Executive decision
 
-The installed signed-command stack is healthy and source-parity verified on
-Kentucky, KY2 and Phoenix, but required mode is not ready for approval until
-KY2's control service receives and passes the prepared sandbox drop-in.
-Kentucky API tokens are implemented and tested in source but are not installed.
-Texas configuration is internally consistent and remains a design-only package;
-Texas has not been contacted. The UK node is planned, not yet validated,
-and is excluded from the three-hub production security qualification.
-
-Three production approvals remain deliberately separate:
-
-1. KY2 systemd hardening followed by Phoenix/KY2/Kentucky required-mode
-   activation.
-2. Kentucky-only API token package installation and qualification.
-3. Texas telemetry-only installation after capacity tests and operator
-   agreements. Radio linking and each control permission are later approvals.
+Mandatory command integrity is active on all three existing hubs. Signed
+read-only ban-list checks passed independently for Phoenix and KY2 after
+central enforcement. KY2 sandbox hardening passed. No Asterisk restart or
+radio-link changes were made during cutover. All 12 local security suites
+passed after token storage and status-scope corrections.
 
 ## Production inspection result
 
 | Node | Identity | Installed state | Readiness |
 | --- | --- | --- | --- |
-| Kentucky 674982 | `kentucky` | Signed control/endpoint/module and per-hub optional config match reviewed source; queues empty; token package absent | Ready to remain optional; token and required cutovers need approval |
-| KY2 674980 | `ky2` | Signed agent/module, separate key and durable ledger healthy in optional mode | Blocked on control-unit sandbox qualification |
-| Phoenix 641894 | `phoenix` | Signed agent/module, separate key, hardened unit and durable ledger healthy in optional mode | Ready for approved config-only required cutover after KY2 gate |
-| Texas 674984 | `texas` | Repository config only; required from first installation | Not install-ready until VM/account/network agreements and isolated tests pass |
-| UK node (number pending) | Not yet validated | Planned architecture only; no security parity claimed | Qualify separately before activation |
+| Kentucky 674982 | kentucky | Required signing for both remote hubs | HTTPS and token deployment pending |
+| KY2 674980 | ky2 | Required signing; sandbox verified | Passed |
+| Phoenix 641894 | phoenix | Required signing; hardened unit | Passed |
+| Texas 674984 | texas | Required-mode configuration prepared | Operator and isolated qualification pending |
+| UK 674985 | Planned | ASR Plus not independently validated | Separate qualification |
 
 KY2 and Phoenix independently pin the Kentucky ED25519 host fingerprint
 `SHA256:a5I8wvynj6X5DMOCsXUVnM0MbdpZpJhoBXfyuC17fJs`. Key contents were never
@@ -71,7 +60,7 @@ read-only inspection.
 | Queue tampering/saturation | Verification before lease, invalid quarantine, atomic files and bounded depth |
 | Over-broad automation | Kentucky-only scoped tokens, read-only default, explicit node/operation, expiry, revocation and audit |
 | Key-path drift or unsafe key file | Three-hub parity assertions and fail-closed type/mode/symlink checks |
-| KY2 root service filesystem access | Prepared systemd sandbox; production qualification still required |
+| KY2 root service filesystem access | Installed systemd sandbox; production qualification passed |
 
 ## Test result
 
@@ -87,10 +76,8 @@ failure cases remain an isolated-fixture gate.
 
 ## Remaining risks and blockers
 
-1. Optional mode accepts bounded legacy unsigned work; it must not be treated
-   as the final security posture.
-2. KY2's live control service lacks the prepared sandbox. Required mode should
-   not be activated before this is installed and qualified.
+1. Public DNS and trusted HTTPS are pending.
+2. Token corrections are locally tested but not deployed.
 3. Kentucky still has the session-only API. Token code is not an installed
    control until the API, helper, sudoers, protected store and audit path are
    deployed and tested together.
@@ -104,11 +91,10 @@ failure cases remain an isolated-fixture gate.
 
 ## Recommended sequence and rollback
 
-First approve and qualify the KY2 drop-in. Then, with empty queues, change
-Phoenix and KY2 agents to required one at a time, followed by Kentucky's two
-hub definitions. Roll back by stopping new controls, returning Kentucky then
-the affected agent to optional, restoring the KY2 unit state if necessary, and
-preserving all queues, results, archives, audits and ledgers.
+Signing cutover is complete. If rollback is needed, stop new controls,
+return Kentucky then the affected agent to optional, and preserve queues,
+results, archives, audits and ledgers. Restore KY2's backed-up unit only
+if necessary.
 
 Install the Kentucky token package only in a separate window. Back up the API
 and sudoers state, install all components as one set, validate syntax and TLS,
@@ -121,19 +107,13 @@ and SSH keys, a source-restricted forced endpoint, isolated state and no
 production radio link. Snapshot rollback and credential revocation must be
 demonstrated before any control permission.
 
-## Exact approval required from Josh
+## Remaining activation gates
 
-No approval is needed for the completed local work. Before the next live step,
-Josh must explicitly approve: (a) KY2 674980 installation of the named systemd
-drop-in and systemd reload, then (b) the config-only `optional` to `required`
-changes on Phoenix 641894, KY2 674980 and Kentucky 674982, including the
-supervised signed read-only `ban-list` checks. The approval must name the
-maintenance window, backup locations, affected files, expected timer/service
-effects, verification and rollback. It must explicitly confirm no Asterisk
-restart or radio-link change.
-
-Kentucky token installation and any Texas contact/install remain unapproved
-and require their own later action-time approvals.
+Follow docs/asrplus-https-readiness.md after DNS propagates. Validate trusted
+TLS and certificate renewal before installing tokens. Verify session compatibility,
+scope isolation, expiry and revocation on the live API. Texas contact/install
+requires separate operator approval. Beta 8.6.1 release qualification remains
+separate under #129; no publication authorized.
 
 ## Supporting technical files
 
