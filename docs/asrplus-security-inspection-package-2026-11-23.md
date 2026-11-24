@@ -14,6 +14,11 @@ Mandatory command integrity is active on all three existing hubs. Signed
 read-only ban-list checks passed independently for Phoenix and KY2 after
 central enforcement. KY2 sandbox hardening passed. No Asterisk restart or
 radio-link changes were made during cutover. All 12 local security suites passed. Live API tests verified HTTPS enforcement, single-hub scope, cross-hub denial, read-only permission denial, expiration and revocation.
+Final browser regression testing also passed against Josh's existing authenticated
+Chrome session on Kentucky. The ordinary dashboard API returned current three-hub
+status with no bearer token, an omitted-cookie request was denied with `403`, the
+control-header probe was denied without executing a control, and logout invalidated
+the session and redirected both Kentucky tabs to `/asr/user/`.
 
 ## Production inspection result
 
@@ -41,9 +46,9 @@ read-only inspection.
 - Live tests passed: anonymous and invalid token denial; HTTP bearer rejection; HTTPS status read; one-hub-only response; cross-hub denial; read-only token control denial; expiry and revocation. All test tokens revoked; no permanent production token issued.
 - Apache and Asterisk remained active; no Asterisk restart or radio-link changes.
 
-Existing browser-session authentication and dashboard control code paths were preserved. PR #272 adds regression assertions for common.php initialization, UserModel::validate(), valid user detection, login-required fallback, and the existing modifyOk()/control-header gate; all 12 ASR Plus self-test entrypoints pass. A live authenticated browser-session regression test remains outstanding because the connected Mac Chrome profile has no ASR login cookies. No credentials or cookie values were accessed.
+Existing browser-session authentication and dashboard control code paths were preserved. PR #272 adds regression assertions for common.php initialization, UserModel::validate(), valid user detection, login-required fallback, and the existing modifyOk()/control-header gate; all 12 ASR Plus self-test entrypoints pass. On November 24, Desktop Commander used Josh's existing authenticated Mac Chrome tab without reading cookies or credentials. The session-authenticated API returned `200`, `ok: true`, response freshness metadata, and Kentucky 674982 plus Phoenix and KY2 status. The dashboard showed all three hubs and all six bridges online with no authentication error. A request with credentials omitted returned `403` (`Login or bearer token required.`), proving unauthorized access remains closed. A non-operational `probe` POST without the required control header returned `403` (`Invalid control request.`); no connect, disconnect, ban, unban, Asterisk, or radio action ran. The live account reported `canModify: true`. Kentucky has no read-only accounts, so the deployed `modifyOk()` boundary was additionally executed read-only in PHP with synthetic Read Only and Read/Modify roles; denial and allowance both passed. The deployed API, `CfgModel.php`, and `UserModel.php` hashes exactly match the tested repository sources. Logout then redirected both tabs to `/asr/user/`, and the same API returned `403`.
 
-The audit log is root-owned mode 0640, but no logrotate rule currently exists. The log is small today (3.4 KB); retention/rotation should be agreed by operators before configuring it. Suggested starting point: daily compressed rotation, 90-day retention, root:root 0640.
+Kentucky audit-log rotation is installed: daily, 90 archives, compression, root:root 0640 recreation. Timer active; configuration debug validation passed. No forced rotation performed.
 
 ## Security changes completed locally
 
@@ -89,12 +94,11 @@ failure cases remain an isolated-fixture gate.
 
 ## Remaining risks and blockers
 
-1. Authenticated browser-session compatibility needs a live browser regression test; source-level regression guards now pass.
-2. Audit-log rotation/retention policy is not configured; agree retention with operators before installing logrotate.
-3. No permanent API bearer token has been issued; create one only when a named integration and owner require it.
-4. Remote agents still run as root; Texas requires a dedicated-account feasibility decision; existing hubs need a later compatibility migration.
-5. Kentucky is a single aggregation/queue dependency. Hub radio links can continue during a Kentucky outage, but dashboard and remote control fail stale/closed; there is no automatic regional failover.
-6. Texas provider capacity, source address, administrator model, retention, incident authority and radio/control policy still require KJ5IRQ agreement.
+1. Audit rotation is configured for 90 daily archives; operator review of retention remains possible.
+2. No permanent API bearer token has been issued; create one only when a named integration and owner require it.
+3. Remote agents still run as root; Texas requires a dedicated-account feasibility decision; existing hubs need a later compatibility migration.
+4. Kentucky is a single aggregation/queue dependency. Hub radio links can continue during a Kentucky outage, but dashboard and remote control fail stale/closed; there is no automatic regional failover.
+5. Texas provider capacity, source address, administrator model, retention, incident authority and radio/control policy still require KJ5IRQ agreement.
 
 ## Recommended sequence and rollback
 
@@ -112,11 +116,11 @@ demonstrated before any control permission.
 
 ## Remaining activation gates
 
-Follow docs/asrplus-https-readiness.md after DNS propagates. Validate trusted
-TLS and certificate renewal before installing tokens. Verify session compatibility,
-scope isolation, expiry and revocation on the live API. Texas contact/install
-requires separate operator approval. Beta 8.6.1 release qualification remains
-separate under #129; no publication authorized.
+Kentucky's scoped-token implementation is ready for final security acceptance.
+Release publication remains separately gated by Beta 8.6.1 qualification under
+#129 and any decision to issue a permanent token.
+Texas contact/install requires separate operator approval and isolated
+qualification. No publication is authorized by this inspection.
 
 ## Supporting technical files
 
@@ -125,4 +129,4 @@ separate under #129; no publication authorized.
 - `docs/asrplus-live-deployment-inventory-2026-11-23.md (November 24 update appended)`
 - `docs/asrplus-command-integrity-test-report.md`
 - `docs/texas-hub-674984-readiness-254.md`
-- `docs/asrplus-security-inspection-evidence-2026-11-23.json`
+- `docs/asrplus-security-inspection-evidence-2026-11-24.json`

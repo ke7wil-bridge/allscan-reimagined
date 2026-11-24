@@ -1,0 +1,88 @@
+{
+  "auditDate": "2026-11-24",
+  "browserSessionMutation": "logout-only",
+  "credentialsOrCookieValuesRead": false,
+  "radioOrAsteriskControlsExecuted": false,
+  "kentucky": {
+    "node": "674982",
+    "apiHash": "ea23e5848cf8adcc7faddb71973d8ab9fbfbb1d7ada6869a164aa11e1cf842a3",
+    "cfgModelHash": "3a3cfc7d09bb59c917993026501389aa9848a8296adbbab12721d307b4826145",
+    "userModelHash": "78f13c7f347cf2593cc94525a013ef585299773e9ba1b1558f3c245dc913b5fe",
+    "deployedSourcesMatchRepository": true,
+    "accountPermissionCounts": {
+      "admin": 3,
+      "superuser": 3,
+      "readOnly": 0
+    }
+  },
+  "browserVerification": {
+    "surface": "existing authenticated Mac Chrome tab via Desktop Commander",
+    "pageTitle": "Netoholics Connection Monitor \u00b7 ASR Plus",
+    "authenticatedStatus": 200,
+    "statusOk": true,
+    "responseEpochHeaderPresent": true,
+    "dashboardSummary": "3 of 3 Hubs Online; 6 of 6 Bridges Online; 20 Connections",
+    "hubs": [
+      {
+        "id": "masterhub",
+        "node": "674982",
+        "available": true,
+        "stale": false
+      },
+      {
+        "id": "arizona-hub",
+        "node": "641894",
+        "available": true,
+        "stale": false
+      },
+      {
+        "id": "kentucky-hub",
+        "node": "674980",
+        "available": true,
+        "stale": false
+      }
+    ],
+    "ordinaryDashboardBearerRequired": false,
+    "unauthorizedStatus": 403,
+    "unauthorizedError": "Login or bearer token required.",
+    "safeControlGateStatus": 403,
+    "safeControlGateError": "Invalid control request.",
+    "authenticatedRole": {
+      "loggedIn": true,
+      "canRead": true,
+      "canModify": true,
+      "canWrite": true,
+      "isAdmin": true
+    },
+    "dashboardError": "",
+    "runtimeAuthenticationErrors": [],
+    "logoutRedirectPath": "/asr/user/",
+    "postLogoutStatus": 403,
+    "postLogoutError": "Login or bearer token required."
+  },
+  "permissionBoundary": {
+    "method": "read-only PHP execution of deployed modifyOk() with synthetic role objects",
+    "readOnlyDenied": true,
+    "readModifyAllowed": true,
+    "result": "PASS"
+  },
+  "localValidation": {
+    "asrplusTokenSelfTest": "PASS"
+  },
+  "remainingReleaseQualification": [
+    "Beta 8.6.1 release qualification under issue 129",
+    "named owner and scope approval before any permanent bearer token is issued",
+    "separate Texas operator approval and isolated qualification"
+  ],
+  "recommendation": "Kentucky scoped-token implementation is ready for final security acceptance; release publication and Texas remain separately gated.",
+  "auditLogRotation": {
+    "installed": true,
+    "daily": true,
+    "archives": 90,
+    "compression": true,
+    "mode": "0640",
+    "owner": "root:root",
+    "timerActive": true,
+    "forcedRotationTested": false
+  }
+}
