@@ -97,7 +97,7 @@ def build(output: Path) -> None:
         canvas.drawString(0.65 * inch, 10.48 * inch, "ASR PLUS SECURITY INSPECTION")
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(MUTED)
-        canvas.drawRightString(7.85 * inch, 10.48 * inch, "Issues #252 - #254 | 2026-11-23")
+        canvas.drawRightString(7.85 * inch, 10.48 * inch, "Issues #252 - #254 | 2026-11-24")
         canvas.line(0.65 * inch, 0.55 * inch, 7.85 * inch, 0.55 * inch)
         canvas.drawString(0.65 * inch, 0.35 * inch, "Review package - no deployment authorization")
         canvas.drawRightString(7.85 * inch, 0.35 * inch, f"Page {doc.page}")
@@ -119,12 +119,12 @@ def build(output: Path) -> None:
         para("Security Completion and Texas Readiness", styles["TitleASR"]),
         para("Authoritative inspection package for Kentucky 674982, KY2 674980, Phoenix 641894, planned Texas 674984, and UK 674985 (planned, not yet validated)", styles["SubtitleASR"]),
         para("INTERNAL DRAFT - REQUIRED MODE ACTIVE", styles["Callout"]),
-        para("Mandatory signing is active on all three current hubs. KY2 sandbox hardening and signed read-only checks passed. API token deployment awaits DNS and trusted HTTPS. Texas remains design-only and was not contacted.", styles["BodyASR"]),
+        para("Mandatory signing is active on all three current hubs. KY2 sandbox hardening and signed read-only checks passed. API token stack is installed on Kentucky; live scope, denial, expiry and revocation checks passed. No permanent bearer token issued. Texas remains design-only and was not contacted.", styles["BodyASR"]),
         Spacer(1, 8),
         table([
             ["Control boundary", "Current state", "Decision"],
             ["Command signing", "Installed on Kentucky, KY2 and Phoenix; required mode", "Required cutover verified"],
-            ["API tokens", "Implemented and tested in source; absent from production", "Awaiting DNS and HTTPS"],
+            ["API tokens", "Installed; live scope, expiry and revocation checks passed", "Production validation passed"],
             ["Texas", "Required-mode config and checklist prepared", "No contact or install; operator and fixture gates open"],
             ["UK", "Planned architecture only; not yet validated", "Separate qualification before activation"],
         ], [1.45 * inch, 2.75 * inch, 2.8 * inch], styles),
@@ -136,7 +136,7 @@ def build(output: Path) -> None:
         para("1. Production security posture", styles["H1ASR"]),
         table([
             ["Node", "Installed state", "Signing", "Readiness"],
-            ["Kentucky 674982", "Central control, endpoint and integrity module match reviewed source; queues empty; forced SSH identities restricted", "Phoenix and KY2 required", "HTTPS and token activation pending"],
+            ["Kentucky 674982", "Central control, endpoint and integrity module match reviewed source; queues empty; forced SSH identities restricted", "Phoenix and KY2 required", "HTTPS and token activation passed"],
             ["KY2 674980", "Canonical ky2 agent, separate key, strict SSH and durable ledger healthy", "Required", "Sandbox verified"],
             ["Phoenix 641894", "Canonical phoenix agent, separate key, strict SSH, hardened unit and durable ledger healthy", "Required", "Signed read-only checks passed"],
             ["Texas 674984", "Repository configuration only", "Required from first install", "Not install-ready; no host contact"],
@@ -152,7 +152,7 @@ def build(output: Path) -> None:
         ], styles["BulletASR"]),
         para("Production token discrepancy", styles["H2ASR"]),
         Spacer(1, 4),
-        para("MasterHub still serves the session-only API. The token helper, token sudoers rule, protected token store and token audit log are absent. Tokens are therefore a tested source capability, not an installed production control.", styles["Callout"]),
+        para("Kentucky serves the token-enabled API from the authoritative reapply source. HTTPS, helper, authentication-only sudoers, protected store and audit are installed. Live tests passed for HTTPS enforcement, hub scope, denied controls, expiry and revocation. No permanent bearer token is issued.", styles["Callout"]),
         PageBreak(),
 
         para("2. Command-integrity controls", styles["H1ASR"]),
@@ -190,14 +190,14 @@ def build(output: Path) -> None:
         Spacer(1, 10),
         para("Kentucky install transaction", styles["H2ASR"]),
         *bullets([
-            "Back up API and sudoers state; validate the exact approved commit and file hashes.",
-            "Install API, root-owned helper, authentication-only sudoers rule, protected store and audit rotation together.",
-            "Validate PHP and sudoers syntax, TLS detection, default read-only scope, node isolation and permission denial.",
-            "Create a short-lived read-only test token; test expiry and revocation; remove it after evidence capture.",
+            "Back up API and sudoers state; update the authoritative reapply source and deployed web copy.",
+            "Install API, root-owned helper, authentication-only sudoers rule, protected store and audit path together.",
+            "Validate PHP and sudoers syntax, TLS enforcement, default read-only scope, node isolation and permission denial.",
+            "Live-test HTTPS status, HTTP denial, scope isolation, control denial, expiry and revocation; revoke all test tokens.",
             "On failure, restore the whole session-only API set. Never leave a partial token stack.",
         ], styles["BulletASR"]),
         Spacer(1, 4),
-        para("Tokens exist centrally on Kentucky only. Phoenix, KY2 and Texas do not receive a bearer-token store or token-authentication sudo rule.", styles["Callout"]),
+        para("Token helper and store exist centrally on Kentucky only. Phoenix, KY2 and Texas do not receive a bearer-token store or token-authentication sudo rule. No permanent bearer token is currently issued.", styles["Callout"]),
         PageBreak(),
 
         para("4. Required-mode activation", styles["H1ASR"]),
@@ -246,7 +246,7 @@ def build(output: Path) -> None:
             ["Remaining risk", "Disposition"],
             ["Optional downgrade risk", "Closed by required-mode cutover"],
             ["KY2 root service sandbox gap", "Installed and verified"],
-            ["Token stack absent", "Awaiting trusted HTTPS"],
+            ["Authenticated browser-session regression", "Preserved in code; live browser test pending"],
             ["Remote agents run as root", "Dedicated-account feasibility required for Texas; later migration for existing hubs"],
             ["Kentucky single dependency", "Dashboard/control fail stale and closed; no automatic regional failover"],
             ["Texas operational policy incomplete", "KJ5IRQ agreements and isolated qualification required"],
@@ -256,17 +256,17 @@ def build(output: Path) -> None:
         para("7. Approval statement", styles["H1ASR"]),
         para("No approval is needed for the completed local development and read-only audit.", styles["Status"]),
         Spacer(1, 4),
-        para("KY2 hardening and required-mode activation are complete. Next gate is public DNS, trusted HTTPS, renewal dry-run and production token validation.", styles["Callout"]),
+        para("KY2 hardening, required-mode activation, HTTPS and token authorization validation are complete. Remaining gates are authenticated browser-session regression, Texas approval and isolated qualification, and Beta 8.6.1 release qualification.", styles["Callout"]),
         para("Follow docs/asrplus-https-readiness.md. Token status responses exclude global talkers and telemetry; dedicated token storage preserves shared directory permissions.", styles["BodyASR"]),
         para("Outstanding gates", styles["H2ASR"]),
         *bullets([
-            "Kentucky API token installation and live qualification after TLS.",
+            "Authenticated browser-session regression test for the updated API.",
             "Texas contact, installation, firewall changes, radio linking or control enablement.",
             "Asterisk restart, production radio-link change, push, merge or required-mode activation beyond the named nodes and window.",
         ], styles["BulletASR"]),
         Spacer(1, 12),
         para("Supporting technical record", styles["H2ASR"]),
-        para("Repository files: asrplus-security-audit-253.md; asrplus-security-activation-gates.md; asrplus-live-deployment-inventory-2026-11-23.md; asrplus-command-integrity-test-report.md; texas-hub-674984-readiness-254.md; asrplus-security-inspection-evidence-2026-11-23.json.", styles["Small"]),
+        para("Repository files: asrplus-security-audit-253.md; asrplus-security-activation-gates.md; asrplus-live-deployment-inventory-2026-11-24.md; asrplus-command-integrity-test-report.md; texas-hub-674984-readiness-254.md; asrplus-security-inspection-evidence-2026-11-24.json.", styles["Small"]),
         Spacer(1, 18),
         para("Internal draft only. Do not send to KJ5IRQ until final qualification. No release publication authorized.", styles["Callout"]),
     ]
