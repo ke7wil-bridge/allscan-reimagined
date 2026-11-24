@@ -16,7 +16,8 @@ Kentucky, KY2 and Phoenix, but required mode is not ready for approval until
 KY2's control service receives and passes the prepared sandbox drop-in.
 Kentucky API tokens are implemented and tested in source but are not installed.
 Texas configuration is internally consistent and remains a design-only package;
-Texas has not been contacted.
+Texas has not been contacted. The UK node is planned, not yet validated,
+and is excluded from the three-hub production security qualification.
 
 Three production approvals remain deliberately separate:
 
@@ -34,6 +35,7 @@ Three production approvals remain deliberately separate:
 | KY2 674980 | `ky2` | Signed agent/module, separate key and durable ledger healthy in optional mode | Blocked on control-unit sandbox qualification |
 | Phoenix 641894 | `phoenix` | Signed agent/module, separate key, hardened unit and durable ledger healthy in optional mode | Ready for approved config-only required cutover after KY2 gate |
 | Texas 674984 | `texas` | Repository config only; required from first installation | Not install-ready until VM/account/network agreements and isolated tests pass |
+| UK node (number pending) | Not yet validated | Planned architecture only; no security parity claimed | Qualify separately before activation |
 
 KY2 and Phoenix independently pin the Kentucky ED25519 host fingerprint
 `SHA256:a5I8wvynj6X5DMOCsXUVnM0MbdpZpJhoBXfyuC17fJs`. Key contents were never

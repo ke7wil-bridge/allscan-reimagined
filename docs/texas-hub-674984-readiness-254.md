@@ -246,3 +246,7 @@ service restarts, maintenance impact, validation commands, rollback commands,
 and whether the supervised read-only signed lifecycle may be run. A code-review
 approval, PR approval, or merge is not deployment authorization. Texas radio
 linking and each control permission require later, separate approval.
+
+## Planned UK expansion (not yet validated)
+
+The UK node is a planned future hub, not part of the current three-hub production security qualification. Its node number, deployment configuration, identity, credentials, routing, security posture and operational readiness must be independently confirmed before installation or activation. UK completion is not a prerequisite to KJ5IRQ reviewing the Texas inspection package.
