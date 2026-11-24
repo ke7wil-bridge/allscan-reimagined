@@ -1,0 +1,18 @@
+{
+  "hub": "texas",
+  "node": "674984",
+  "server": "root@KENTUCKY_ADDRESS",
+  "key": "/etc/asrplus/ssh/texas-to-kentucky",
+  "knownHosts": "/etc/asrplus/ssh/known_hosts_kentucky",
+  "managerConf": "/etc/asrplus/texas-manager.conf",
+  "controlHelper": "/usr/local/sbin/asrplus-texas-control",
+  "controlPolling": false,
+  "commandIntegrity": {
+    "mode": "required",
+    "keyId": "TEXAS_KEY_ID",
+    "keyFile": "/etc/asrplus/command-keys/texas.key"
+  },
+  "commandLedger": "/var/lib/asrplus-agent/executed-commands.json",
+  "astdb": "/var/lib/asterisk/astdb.txt",
+  "publicStatus": "/var/www/html/allscan/public-status.json"
+}

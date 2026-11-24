@@ -1,7 +1,8 @@
 # Texas hub 674984 readiness and installation checklist — issue #254
 
-Status: design/review package only. No Texas or existing production hub was
-deployed or modified.
+Status: isolated preapproval implementation and fixture qualification completed
+2026-11-24; Texas has not been contacted or deployed. Existing Kentucky
+security acceptance is complete (PR #277).
 
 ## Current distributed-hub architecture
 
@@ -89,8 +90,10 @@ command's root account does not justify an interactive root account on Texas.
   windows, log retention, evidence sharing, outage notification, and who may
   revoke credentials.
 - [ ] Define whether permanent links are allowed and who may create them.
-- [ ] Define capacity limits, admission rules, abuse thresholds, and the exact
-  conditions under which Texas is isolated from the network.
+- [ ] Approve the proposed Texas hard cap of 60 inbound radio connections,
+  matching the active dialplans on KY1, KY2 and Phoenix verified November 24.
+  Set ASR Plus displayed capacity to 60. Define abuse thresholds and isolation
+  rules.
 - [ ] Confirm provider console access, backup/snapshot ownership, monthly cost,
   data jurisdiction, and recovery responsibility.
 
@@ -109,10 +112,13 @@ command's root account does not justify an interactive root account on Texas.
 - [ ] Independently verify Kentucky's SSH host key, then pin it. Add a Kentucky
   authorized-key entry with `restrict`, `from="TEXAS_SOURCE_IP"`, and forced
   command `asrplus-remote-endpoint texas` only after endpoint support is merged.
-- [ ] Extend the endpoint/config hub map to `texas: 674984`; add isolated queue,
-  result, and status directories; keep control polling disabled initially.
-- [ ] Install telemetry-only services and verify file ownership, sandboxing,
-  sudoers syntax, log rotation, and absence of secrets from web/log output.
+- [x] Prepare the endpoint/config source map for `texas: 674984`, isolated
+  paths, capacity 60 and `controlPolling=false`; live central registration is
+  still an approved installation action.
+- [x] Prepare and fixture-test the telemetry-only service, dedicated account,
+  filesystem sandbox, no-sudo control helper, install/rollback and secret-free
+  audit contract. Live ownership, systemd, log rotation and web/log checks are
+  still installation gates.
 
 ### Offline and failure qualification
 
@@ -120,21 +126,24 @@ command's root account does not justify an interactive root account on Texas.
   stale/replayed/modified commands, cross-hub poll/ack, forged result, expired
   command, queue saturation, malformed JSON boundaries, lost acknowledgments,
   and stuck inflight recovery. See `docs/asrplus-command-integrity-test-report.md`.
-- [ ] Repeat deployment-fixture tests for oversized status payload,
+- [x] Repeat deployment-fixture tests for oversized status payload,
   stale timestamp, replayed sequence, cross-hub poll/ack, forged result, expired
   command, queue saturation, and malformed JSON.
-- [ ] Prove a Texas key cannot poll or acknowledge another hub and cannot obtain
-  an interactive shell, forwarding, PTY, or arbitrary command.
-- [ ] Test token read, cross-node denial, each permission boundary, expiration,
+- [x] Prove in disposable fixtures that a Texas key cannot poll or acknowledge
+  another hub. The forced-key template prohibits shell, forwarding and PTY;
+  live `sshd -T` verification remains an installation gate.
+- [x] Test token read, cross-node denial, each permission boundary, expiration,
   revocation, audit logging, and HTTPS enforcement.
-- [ ] Measure status/queue behavior during Kentucky outage, DNS failure, clock
+- [x] Measure fixture status/queue behavior during Kentucky outage, DNS
+  failure, clock
   skew, packet loss, duplicate delivery, agent restart, and a stuck inflight
   command. No stale command may execute after recovery.
-- [ ] Load-test only an isolated fixture: documented connection target, normal
+- [x] Load-test only an isolated fixture: documented connection target, normal
   peak, rejection threshold, CPU/RAM/network limits, and recovery. Never load
   test an existing production hub.
-- [ ] Prove manual rollback from the pre-install snapshot and configuration
-  backup, including credential revocation.
+- [x] Prove disposable-filesystem manual rollback from configuration backup,
+  including partial-failure rollback. Provider snapshot and live credential
+  revocation remain operator gates.
 
 ### Staged integration and go-live gates
 
@@ -163,7 +172,11 @@ No automatic promotion of Texas is designed or approved by this package.
 
 Run these only against a disposable Texas fixture, never a current hub. Record
 the VM size, software commit, latency, CPU, RSS, file growth, queue depth, error
-rate and recovery time. The acceptance ceiling is 80 queued commands per hub
+rate and recovery time. Proposed radio acceptance: admit 60 counted inbound
+connections, reject the 61st, verify loopback bridge exclusion and admission
+after a slot is freed. Test outbound/inter-hub paths separately; this is not a
+total-channel cap. The separate command acceptance ceiling is 80 queued
+commands per hub
 (below the implementation's hard limit of 100), status payloads at the enforced
 size boundary, and the agreed peak telemetry rate for at least 30 minutes with
 CPU below 70%, no swap growth, no dropped audit records and status age below
@@ -179,40 +192,25 @@ capacity and final peak assumptions require KJ5IRQ approval before testing.
 
 ## Required deployment order
 
-Authenticated command components and distinct Phoenix/KY2 signing keys are
-already installed in optional mode. The remaining order is security-critical:
+Existing Kentucky, Phoenix and KY2 signed-command enforcement is required.
+KY2 sandbox hardening, Kentucky HTTPS, scoped token security, audit rotation
+and browser regression have passed (PR #277). No permanent token issued.
 
-1. **Required-mode preflight after explicit approval.** Back up current
-   configs and unit state, verify empty queues, synchronized clocks, healthy
-   services, key-hash parity, fresh telemetry and unchanged links.
-2. **Harden KY2 control.** Install and qualify the reviewed systemd drop-in
-   without changing its split services, `masterhub-pull` topology, one-second
-   heartbeat, Asterisk, or radio routing.
-3. **Close the compatibility window.** Change Phoenix and KY2 agents to
-   `required`, one at a time, then change Kentucky's matching hub definitions.
-   Qualify each with a signed read-only `ban-list` lifecycle. Follow
-   `docs/asrplus-security-activation-gates.md` for rollback.
-4. **Install Kentucky API tokens as a separate transaction.** Install the API,
-   root helper, authentication-only sudoers rule, protected store and audit
-   rotation together; test TLS, default read-only scope, node isolation,
-   permission denial, expiration and revocation. Do not issue a token until
-   its owner and scope are approved.
-5. **Texas telemetry-only installation after a third approval.** Texas begins
-   in `required` with dedicated HMAC and SSH keys, forced endpoint, source-IP
-   restriction, ledger and isolated state paths. Keep command polling and all
-   production radio links disabled until offline failure/capacity tests and the
-   KJ5IRQ agreements are complete.
-6. **Incremental control approval.** Enable supervised disconnect first, then
-   connect, ban, and unban only through separate recorded approvals and tests.
+1. Isolated Texas qualification is complete; obtain the operator agreements.
+2. Obtain explicit approval for host-specific preflight, backups, dedicated
+   credentials, source-restricted forced endpoint and Texas telemetry-only
+   installation. Keep command polling and production radio links disabled.
+3. Verify Texas telemetry, identity, freshness and the approved 60-inbound
+   admission cap before supervised radio linking.
+4. Enable supervised disconnect first; approve connect, ban and unban
+   separately.
 
-## Nodes requiring updates
-
-| Node | Required package changes | Compatibility mode |
-| --- | --- | --- |
-| Kentucky 674982 | Token API package; later Texas mapping/forced endpoint | Existing signed stack is `optional` for Phoenix/KY2; change to `required` only after remote agents |
-| Phoenix 641894 | Config-only required-mode cutover | Signed agent installed; `optional` to `required` |
-| KY2 674980 | Systemd control sandbox, then config-only required-mode cutover | Signed agent installed; `optional` to `required` |
-| Texas 674984 | Full telemetry agent, Texas-only HMAC and SSH keys, required-mode config/ledger/units, central queue/status/result/config and forced-command identity | `required` from first installation; telemetry-only initially |
+| Node | Current status / remaining changes |
+| --- | --- |
+| Kentucky 674982 | Required mode and token security accepted; Texas mapping/forced key activation pending |
+| Phoenix 641894 | Required mode active; 60 inbound cap verified |
+| KY2 674980 | Required mode and sandbox active; 60 inbound cap verified |
+| Texas 674984 | Proposed 60 inbound cap; isolated qualification passed; dedicated credentials and telemetry-only live installation pending |
 
 Dashboard API tokens exist only on Kentucky. Phoenix, KY2, and Texas never
 receive the bearer-token store or token-authentication sudo rule.

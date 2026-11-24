@@ -341,7 +341,8 @@ def least_privilege_tests(out: Results) -> None:
     watcher = (ROOT / "ops/asrplus/texas/asrplus-texas-talker-watcher.service").read_text()
     authorized = (ROOT / "ops/asrplus/texas/authorized_keys.template").read_text()
     config = json.loads((ROOT / "ops/asrplus/texas/asrplus-agent.json").read_text())
-    out.check("dedicated-service-account", "User=asrplus-agent" in unit and "CapabilityBoundingSet=" in unit)
+    out.check("dedicated-service-account", "User=asrplus-agent" in unit
+              and "CapabilityBoundingSet=" in unit and "RuntimeDirectory=asrplus" in unit)
     out.check("dedicated-talker-watcher", "User=asrplus-agent" in watcher and "--watch-talkers" in watcher)
     out.check("systemd-filesystem-sandbox", "ProtectSystem=strict" in unit and "ReadWritePaths=" in unit)
     out.check("forced-source-restricted-ssh", "restrict,from=" in authorized and 'command="/usr/local/sbin/asrplus-remote-endpoint texas"' in authorized)

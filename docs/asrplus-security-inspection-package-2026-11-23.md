@@ -27,7 +27,7 @@ the session and redirected both Kentucky tabs to `/asr/user/`.
 | Kentucky 674982 | kentucky | Required signing for both remote hubs | HTTPS and token activation passed |
 | KY2 674980 | ky2 | Required signing; sandbox verified | Passed |
 | Phoenix 641894 | phoenix | Required signing; hardened unit | Passed |
-| Texas 674984 | texas | Required-mode configuration prepared | Operator and isolated qualification pending |
+| Texas 674984 | texas | Telemetry-only required-mode package prepared | Disposable fixture qualification passed; operator/live gates pending |
 | UK 674985 | Planned | ASR Plus not independently validated | Separate qualification |
 
 KY2 and Phoenix independently pin the Kentucky ED25519 host fingerprint
@@ -65,6 +65,9 @@ Kentucky audit-log rotation is installed: daily, 90 archives, compression, root:
   altering its timer, watcher, topology, Asterisk or radio links.
 - Updated active security, activation, deployment-inventory and Texas guidance
   to the canonical `ky2` identity and actual installed state.
+- Added the Texas 60-inbound admission policy, dedicated-account service,
+  telemetry-only control gate, guarded installer/rollback, narrow local helper
+  and reproducible isolated qualification harness.
 
 ## Vulnerabilities addressed
 
@@ -89,14 +92,16 @@ identity/watcher behavior, directory permissions, staging parity and Texas
 config parity. Python compilation and PHP syntax checks pass. The exact command
 list is in `docs/asrplus-command-integrity-test-report.md`.
 
-No load or failure injection was run against production. Texas capacity and
-failure cases remain an isolated-fixture gate.
+No load or failure injection was run against production. Texas disposable
+fixtures passed 60/61 admission, 200-row telemetry, exact 4 MiB endpoint input,
+80/100 queue boundaries, security/replay/recovery, installation rollback and a
+30-minute synthetic telemetry soak. This is not hardware certification.
 
 ## Remaining risks and blockers
 
 1. Audit rotation is configured for 90 daily archives; operator review of retention remains possible.
 2. No permanent API bearer token has been issued; create one only when a named integration and owner require it.
-3. Remote agents still run as root; Texas requires a dedicated-account feasibility decision; existing hubs need a later compatibility migration.
+3. Existing remote agents still run as root. Texas dedicated-account fixture feasibility passed; actual AMI/control-socket permissions remain a host preflight gate. Existing hubs need a later compatibility migration.
 4. Kentucky is a single aggregation/queue dependency. Hub radio links can continue during a Kentucky outage, but dashboard and remote control fail stale/closed; there is no automatic regional failover.
 5. Texas provider capacity, source address, administrator model, retention, incident authority and radio/control policy still require KJ5IRQ agreement.
 
@@ -119,8 +124,8 @@ demonstrated before any control permission.
 Kentucky's scoped-token implementation is ready for final security acceptance.
 Release publication remains separately gated by Beta 8.6.1 qualification under
 #129 and any decision to issue a permanent token.
-Texas contact/install requires separate operator approval and isolated
-qualification. No publication is authorized by this inspection.
+Texas contact/install requires separate operator approval; isolated repository
+qualification is complete. No publication is authorized by this inspection.
 
 ## Supporting technical files
 
@@ -129,4 +134,8 @@ qualification. No publication is authorized by this inspection.
 - `docs/asrplus-live-deployment-inventory-2026-11-23.md (November 24 update appended)`
 - `docs/asrplus-command-integrity-test-report.md`
 - `docs/texas-hub-674984-readiness-254.md`
+- `docs/texas-674984-isolated-qualification-report-2026-11-24.md`
+- `docs/texas-674984-install-runbook.md`
+- `docs/texas-674984-activation-checklist.md`
+- `docs/texas-674984-operator-decision-record.md`
 - `docs/asrplus-security-inspection-evidence-2026-11-24.json`

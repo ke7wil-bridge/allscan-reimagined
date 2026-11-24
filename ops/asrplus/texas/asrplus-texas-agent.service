@@ -25,5 +25,7 @@ CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /var/lib/asterisk/astdb.txt /var/www/html/allscan
 ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
+RuntimeDirectory=asrplus
+RuntimeDirectoryMode=0700
 StateDirectory=asrplus-agent
 StateDirectoryMode=0700

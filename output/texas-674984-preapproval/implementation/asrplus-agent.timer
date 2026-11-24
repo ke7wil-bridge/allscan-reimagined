@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh this hub in ASR Plus every five seconds
+
+[Timer]
+OnBootSec=5
+OnUnitActiveSec=5
+AccuracySec=1
+Unit=asrplus-agent.service
+
+[Install]
+WantedBy=timers.target

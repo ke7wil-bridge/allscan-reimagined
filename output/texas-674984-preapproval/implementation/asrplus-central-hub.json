@@ -1,0 +1,9 @@
+{
+  "id": "texas-hub",
+  "name": "Texas",
+  "location": "Texas",
+  "node": "674984",
+  "capacity": 60,
+  "remoteStatus": "/var/lib/asrplus/remote-status/texas.json",
+  "available": false
+}
