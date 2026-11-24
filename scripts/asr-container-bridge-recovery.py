@@ -127,6 +127,8 @@ def main() -> int:
     if profile is None:
         raise SystemExit("container profile unavailable")
     backend().validate_active_profile(profile)
+    # /run is volatile; restore watcher inputs even when the Asterisk identity is unchanged.
+    backend().refresh_watch_snapshots(profile)
     current = container_identity(profile.asterisk_container)
     try:
         previous = json.loads(STATE.read_text(encoding="utf-8"))

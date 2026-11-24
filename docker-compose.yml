@@ -1,10 +1,13 @@
 services:
   layered-allscan:
+    image: ${ASR_IMAGE:-allscan-reimagined:local}
     build:
       context: .
       dockerfile: Dockerfile.layered
     env_file:
       - .env
+    environment:
+      ASR_UPDATE_MODE: ${ASR_UPDATE_MODE:-external}
     ports:
       - "4173:80"
     networks:

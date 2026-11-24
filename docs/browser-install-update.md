@@ -36,6 +36,8 @@ Open `/asr/` after installation and log in with an existing AllScan administrato
 
 In ASR, open **Admin → Update ASR**.
 
+Layered Docker deployments use the startup-selected workflow in [Layered Docker browser updates](container-browser-updates.md). `external` mode is notification-only; `container` mode uses the authenticated host broker, versioned images, full persistent-volume backup, automatic rollback, and health checks. The Docker socket is never mounted into the web container.
+
 For the one-time v1.04-to-v1.05 transition on ASR Beta 8.1.5.7 or earlier, use
 the terminal command above. After Beta 8.1.5.8 is installed, these browser steps
 also handle a future AllScan upgrade when the published ASR release includes an

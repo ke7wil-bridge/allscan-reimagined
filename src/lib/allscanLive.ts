@@ -432,6 +432,8 @@ export type UpdateCheck = {
   installedVersion: string
   availableVersion: string
   updateAvailable: boolean
+  updateMode?: 'native' | 'external' | 'container'
+  checkStatus?: 'checked' | 'pending'
 }
 
 export type UpdatePreflight = {

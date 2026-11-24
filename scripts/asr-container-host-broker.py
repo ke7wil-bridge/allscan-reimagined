@@ -7,6 +7,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -16,6 +17,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PROFILE = Path("/etc/allscan-reimagined/container-provisioning.json")
 HELPER = HERE / "asr-bridge-setup-helper.py"
+UPDATER = HERE / "asr-container-updater.py"
 MAX_REQUEST = 3 * 1024 * 1024
 MAX_RESPONSE = 1024 * 1024
 MAX_CONTROL_STDIN = 2 * 1024 * 1024
@@ -26,6 +28,7 @@ COMMANDS = frozenset({
     "dmr-security-update",
     "net-bridge-plan", "net-bridge-install", "net-bridge-reset",
 })
+UPDATE_OPERATIONS = frozenset({"check", "preflight", "queue", "recover", "status", "diagnostic"})
 PROGRAMS = {
     "asterisk-read": str(HERE / "asr-container-asterisk.py"),
     "managed-dmr": "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
@@ -102,6 +105,14 @@ def read_request(stream=sys.stdin.buffer) -> dict:
         if not isinstance(value.get("payload"), dict):
             raise BrokerError("broker payload must be an object")
         value["kind"] = "setup"
+    elif set(value) in ({"schema", "update"}, {"schema", "update", "jobId"}):
+        operation = value.get("update")
+        job = value.get("jobId", "")
+        if (value.get("schema") != 1 or operation not in UPDATE_OPERATIONS
+                or (operation in {"status", "diagnostic"}) != bool(job)
+                or (job and re.fullmatch(r"[0-9]{8}-[0-9]{6}-[a-f0-9]{8}", job) is None)):
+            raise BrokerError("broker update operation is not allowed")
+        value["kind"] = "update"
     elif set(value) in ({"schema", "program", "args"},
                         {"schema", "program", "args", "stdinBase64"}):
         if value.get("schema") != 1 or value.get("program") not in PROGRAMS:
@@ -180,7 +191,8 @@ def execute(request: dict, profile_path: Path = PROFILE) -> dict:
     if peer_uid() != profile.client_uid:
         raise BrokerError("broker peer is not authorized")
     backend.validate_active_profile(profile)
-    executable = HELPER if request["kind"] == "setup" else Path(PROGRAMS[request["program"]])
+    executable = (HELPER if request["kind"] == "setup" else
+                  UPDATER if request["kind"] == "update" else Path(PROGRAMS[request["program"]]))
     if not executable.is_file() or executable.is_symlink():
         raise BrokerError("host bridge helper is unavailable")
     info = executable.stat()
@@ -189,8 +201,14 @@ def execute(request: dict, profile_path: Path = PROFILE) -> dict:
             or parent.st_uid != 0 or parent.st_mode & 0o022):
         raise BrokerError("host bridge helper permissions are unsafe")
     environment = child_environment(profile_path, profile)
-    argv = ([str(executable), request["command"]] if request["kind"] == "setup"
-            else [str(executable), *request["args"]])
+    if request["kind"] == "setup":
+        argv = [str(executable), request["command"]]
+    elif request["kind"] == "update":
+        argv = [str(executable), request["update"]]
+        if request.get("jobId"):
+            argv.append(request["jobId"])
+    else:
+        argv = [str(executable), *request["args"]]
     # P25/NXDN keep their authenticated MQTT brokers on loopback in the
     # Asterisk container network namespace.  Run their short-lived root control
     # commands in that namespace as well; the long-running status watchers use

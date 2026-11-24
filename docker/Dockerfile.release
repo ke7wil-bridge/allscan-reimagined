@@ -1,0 +1,43 @@
+FROM php:8.3.36-apache
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git rsync sqlite3 libsqlite3-dev pkg-config ca-certificates python3 python3-socketio python3-websocket sudo \
+  && docker-php-source extract \
+  && cp /usr/src/php/ext/sqlite3/config0.m4 /usr/src/php/ext/sqlite3/config.m4 \
+  && docker-php-ext-install pdo_sqlite sqlite3 \
+  && docker-php-source delete \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN a2enmod rewrite headers
+
+WORKDIR /opt/asr-source
+COPY package.json /opt/asr-source/package.json
+COPY payload/stock-allscan.json /opt/asr-source/stock-allscan.json
+COPY payload/compat /opt/asr-source/compat
+COPY payload/scripts /opt/asr-source/scripts
+COPY payload/runtime /opt/asr-source/runtime
+COPY payload/server/asr-api.php /opt/asr-source/asr-api.php
+COPY payload/public /opt/asr-source/public
+COPY payload/personalization /opt/asr-source/personalization
+COPY payload/web /opt/asr-ui-dist
+COPY container/layered-entrypoint.sh /usr/local/bin/layered-entrypoint.sh
+COPY container/layered-reapply.sh /usr/local/sbin/allscan-reimagined-docker-reapply
+RUN commit="$(php -r '$v=json_decode(file_get_contents("/opt/asr-source/stock-allscan.json"),true,512,JSON_THROW_ON_ERROR);echo $v["commit"];')" \
+  && test "${#commit}" -eq 40 \
+  && git init -q /opt/upstream-allscan \
+  && git -C /opt/upstream-allscan remote add origin https://github.com/davidgsd/AllScan.git \
+  && git -C /opt/upstream-allscan fetch --depth 1 origin "$commit" \
+  && git -C /opt/upstream-allscan checkout --detach --force FETCH_HEAD \
+  && test "$(git -C /opt/upstream-allscan rev-parse HEAD)" = "$commit" \
+  && chmod +x /usr/local/bin/layered-entrypoint.sh /usr/local/sbin/allscan-reimagined-docker-reapply \
+  && install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link \
+  && /usr/local/sbin/allscan-reimagined-node-db-link --self-test
+
+ENV ASR_PACKAGED_ALLSCAN=1
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
+  CMD php -r '$v=@file_get_contents("http://127.0.0.1/asr/");exit(is_string($v)&&str_contains($v,"assets/index-")?0:1);'
+
+EXPOSE 80
+ENTRYPOINT ["/usr/local/bin/layered-entrypoint.sh"]
+CMD ["apache2-foreground"]

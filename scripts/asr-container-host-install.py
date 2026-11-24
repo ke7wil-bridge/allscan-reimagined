@@ -24,10 +24,12 @@ SOCKET_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-provisionin
 SERVICE_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-provisioning@.service")
 ASTERISK_SOCKET_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-asterisk.socket")
 ASTERISK_SERVICE_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-asterisk@.service")
+UPDATE_SERVICE_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-update@.service")
 SOCKET_TMPFILES = Path("/etc/tmpfiles.d/allscan-reimagined-container-provisioning.conf")
 
 HOST_FILES = (
     "asr-provisioning-backend.py", "asr-container-host-broker.py",
+    "asr-container-updater.py", "asr-updater.py",
     "asr-container-netns-exec.py", "asr-container-systemctl.py",
     "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
@@ -50,6 +52,9 @@ DOCKER_STATE_DIRECTORIES = (
     Path("/var/cache/allscan-reimagined/docker-home"),
     Path("/var/cache/allscan-reimagined/docker-config"),
     Path("/var/cache/allscan-reimagined/buildx"),
+    Path("/var/cache/allscan-reimagined/container-updates"),
+    Path("/var/backups/allscan-reimagined-container"),
+    Path("/var/lib/allscan-reimagined/container-updates"),
 )
 
 
@@ -86,6 +91,7 @@ def atomic_bytes(path: Path, content: bytes, mode: int) -> None:
 def profile_json(profile) -> str:
     return json.dumps({
         "schema": 1, "backend": "container-host",
+        "webContainer": profile.web_container,
         "asteriskContainer": profile.asterisk_container,
         "asteriskConfig": str(profile.asterisk_config),
         "asrConfig": str(profile.asr_config), "clientUid": profile.client_uid,
@@ -372,7 +378,7 @@ def normalize_managed_m17_bind_address(profile) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def install(profile) -> None:
+def install(profile, *, preserve_bridge_runtime: bool = False) -> None:
     if os.geteuid() != 0:
         raise RuntimeError("container host backend installation requires root")
     normalize_mqtt_secrets(profile)
@@ -533,6 +539,25 @@ ReadWritePaths={profile.asterisk_config} {profile.asr_config} {profile.runtime_h
 TimeoutStartSec=1200
 TasksMax=128
 MemoryMax=2G
+""", 0o644)
+    atomic(UPDATE_SERVICE_UNIT, f"""[Unit]
+Description=ASR verified container update %i
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=ASR_CONTAINER_PROVISIONING_PROFILE={PROFILE}
+ExecStart={DEST}/asr-container-updater.py run-job %i
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full
+BindReadOnlyPaths={PROFILE}
+TimeoutStartSec=45min
 """, 0o644)
     atomic(ASTERISK_SOCKET_UNIT, f"""[Unit]
 Description=ASR constrained Asterisk command socket
@@ -747,16 +772,18 @@ WantedBy=timers.target
     subprocess.run(["systemctl", "restart", "allscan-reimagined-container-recovery.timer"], check=True)
     subprocess.run(["systemctl", "enable", "allscan-reimagined-m17-hosts-update.timer"], check=True)
     subprocess.run(["systemctl", "restart", "allscan-reimagined-m17-hosts-update.timer"], check=True)
-    for mode in ("ysf", "p25", "nxdn"):
-        unit = f"allscan-reimagined-{mode}-net-live.service"
-        subprocess.run(["systemctl", "enable", unit], check=True)
-        subprocess.run(["systemctl", "restart", unit], check=True)
-    # Reapply updated helpers and unit policy only to instances whose root-owned
-    # installation records prove that they are owned by ASR.
-    recovery_env = os.environ.copy()
-    recovery_env["ASR_CONTAINER_PROVISIONING_PROFILE"] = str(PROFILE)
-    subprocess.run([str(DEST / "asr-container-bridge-recovery.py"), "--restart-owned"],
-                   check=True, env=recovery_env)
+    if not preserve_bridge_runtime:
+        for mode in ("ysf", "p25", "nxdn"):
+            unit = f"allscan-reimagined-{mode}-net-live.service"
+            subprocess.run(["systemctl", "enable", unit], check=True)
+            subprocess.run(["systemctl", "restart", unit], check=True)
+        # Explicit reapply normally refreshes owned bridge processes. The
+        # updater bootstrap can preserve live radio paths while it installs
+        # only the browser-update host boundary.
+        recovery_env = os.environ.copy()
+        recovery_env["ASR_CONTAINER_PROVISIONING_PROFILE"] = str(PROFILE)
+        subprocess.run([str(DEST / "asr-container-bridge-recovery.py"), "--restart-owned"],
+                       check=True, env=recovery_env)
 
 
 def main() -> int:
@@ -765,6 +792,8 @@ def main() -> int:
     parser.add_argument("--web-container", required=True)
     parser.add_argument("--asterisk-container", required=True)
     parser.add_argument("--client-user", default="www-data")
+    parser.add_argument("--preserve-bridge-runtime", action="store_true",
+                        help="install host updater without restarting bridge services")
     parser.add_argument("--host-proc", type=Path, default=Path("/proc"))
     parser.add_argument("--runtime-host-root", type=Path,
                         default=Path("/opt/allscan-reimagined-bridges"))
@@ -776,7 +805,7 @@ def main() -> int:
                                      host_proc=args.host_proc,
                                      runtime_host_root=args.runtime_host_root)
         if args.command == "install":
-            install(profile)
+            install(profile, preserve_bridge_runtime=args.preserve_bridge_runtime)
         print(profile_json(profile), end="")
         return 0
     except (KeyError, OSError, RuntimeError, subprocess.SubprocessError) as exc:

@@ -28,6 +28,7 @@ class BackendError(RuntimeError):
 
 @dataclass(frozen=True)
 class ContainerProfile:
+    web_container: str
     asterisk_container: str
     asterisk_config: Path
     asr_config: Path
@@ -39,14 +40,17 @@ class ContainerProfile:
     @classmethod
     def parse(cls, value: Any) -> "ContainerProfile":
         if not isinstance(value, dict) or set(value) != {
-            "schema", "backend", "asteriskContainer", "asteriskConfig",
+            "schema", "backend", "webContainer", "asteriskContainer", "asteriskConfig",
             "asrConfig", "clientUid", "clientGid", "hostProc", "runtimeHostRoot",
         }:
             raise BackendError("container provisioning profile has an invalid shape")
         if value.get("schema") != 1 or value.get("backend") != "container-host":
             raise BackendError("unsupported container provisioning profile")
+        web_name = value.get("webContainer")
         name = value.get("asteriskContainer")
-        if not isinstance(name, str) or not CONTAINER_RE.fullmatch(name):
+        if (not isinstance(web_name, str) or not CONTAINER_RE.fullmatch(web_name)
+                or not isinstance(name, str) or not CONTAINER_RE.fullmatch(name)
+                or web_name == name):
             raise BackendError("invalid Asterisk container identity")
         paths: list[Path] = []
         for key in ("asteriskConfig", "asrConfig"):
@@ -80,7 +84,7 @@ class ContainerProfile:
             raise BackendError("host runtime root is unsafe")
         if any(runtime == item or runtime in item.parents or item in runtime.parents for item in paths):
             raise BackendError("host provisioning roots overlap")
-        return cls(name, paths[0], paths[1], uid, gid, host_proc.resolve(), runtime)
+        return cls(web_name, name, paths[0], paths[1], uid, gid, host_proc.resolve(), runtime)
 
 
 def load_profile(path: Path | None = None) -> ContainerProfile | None:
@@ -260,14 +264,19 @@ def discover(web_container: str, asterisk_container: str,
         raise BackendError("host runtime root is unsafe")
     if not 1 <= client_gid <= 65535:
         raise BackendError("invalid broker client GID")
-    return ContainerProfile(asterisk_container, config, asr, client_uid, client_gid,
+    return ContainerProfile(web_container, asterisk_container, config, asr, client_uid, client_gid,
                             host_proc.resolve(), runtime_host_root)
 
 
 def validate_active_profile(profile: ContainerProfile,
                             runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run) -> None:
     """Revalidate mutable container identities and mounts for every request."""
+    web = docker_inspect(profile.web_container, runner)
     asterisk = docker_inspect(profile.asterisk_container, runner)
+    if web.get("State", {}).get("Running") is not True:
+        raise BackendError("ASR web container is not running")
+    if mounted_source(web, "/etc/allscan-reimagined") != profile.asr_config:
+        raise BackendError("ASR container configuration mount changed")
     if asterisk.get("State", {}).get("Running") is not True:
         raise BackendError("Asterisk container is not running")
     if mounted_source(asterisk, "/etc/asterisk") != profile.asterisk_config:
