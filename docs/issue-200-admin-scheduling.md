@@ -1,6 +1,6 @@
 # Issue #200 — Admin Scheduling
 
-ASR Beta 8.6 integrates administrator scheduling with the native AllScan v1.06 scheduler and adds a separately guarded systemd timer console. It does not install a second connection scheduler or a second cron entry.
+ASR Beta 8.7 integrates administrator scheduling with the native AllScan v1.06 scheduler and adds a separately guarded systemd timer console. It does not install a second connection scheduler or a second cron entry.
 
 ## Scheduled AllStar connections
 
@@ -16,9 +16,13 @@ Times use the node's configured system timezone. During the fall DST transition,
 
 The timer console inventories system timers and the invoking web account's user-manager timers. Inventory merges unit files with runtime timers so inactive, disabled, static, generated, transient, and package-provided timers remain visible. Details include enablement, active/sub states, next and previous execution, associated service, result, unit definition, and bounded journal history.
 
-All non-ASR timers are inspect-only. A protected critical-timer denylist applies in addition to that ownership boundary. Actions are limited to ASR-owned units. New definitions, edits, deletion, and rollback are limited to `allscan-reimagined-admin-*.timer`, and associated services must be `allscan-reimagined-*.service`. The interface supports preview plus `systemd-analyze calendar`/`verify`, enable, disable, start, stop, restart, manual service trigger, delete, and rollback. Every mutation requires an exact action-and-unit confirmation.
+Existing noncritical system timers and timers in the invoking web account's user manager can be enabled, disabled, started, stopped, restarted, and manually triggered. Manual execution starts only the timer's single declared service; it never accepts a command or path. Critical timers, protected services, and units in a critical dependency chain are denied. Generated and transient timers can be operated when safe but cannot be edited as persistent files.
 
-The root helper uses fixed argument arrays, strict unit/service/calendar validation, a process lock, atomic replacement, root-only timestamped backups, and JSONL audit records. It never accepts shell commands or arbitrary paths. A failed definition apply restores its pre-change backup before returning an error.
+New ASR definitions remain limited to `allscan-reimagined-admin-*.timer` and may trigger only `allscan-reimagined-*.service`. Existing package or OS timer schedules are edited only through `90-allscan-reimagined-schedule.conf` in that timer's drop-in directory; the vendor unit is never replaced or deleted. Calendar expressions and monotonic `OnBootSec`, `OnStartupSec`, `OnActiveSec`, `OnUnitActiveSec`, and `OnUnitInactiveSec` intervals are supported and validated by `systemd-analyze`. Only ASR Admin-owned timer files can be deleted.
+
+Before a definition or override change, ASR records the prior content plus enabled/active state in a root-only timestamped backup. Rollback first creates a safety backup, restores or removes only the ASR-owned file/drop-in, reloads the correct system or user manager, and restores enablement/activity. Every mutation and failed attempt requires an exact action-and-unit confirmation and is written to the JSONL audit with actor, scope, action, unit, outcome, and bounded detail.
+
+The root helper uses fixed argument arrays, strict unit/service/schedule validation, derived fixed storage locations, a process lock, atomic replacement, root-only timestamped backups, and JSONL audit records. It never accepts shell commands or arbitrary paths. A failed definition or override apply restores its pre-change backup before returning an error.
 
 User-manager inventory requires an active user systemd manager for the web account. If none exists, the page reports a partial-inventory warning while continuing to show system timers; ASR does not start a user manager or alter login lingering.
 

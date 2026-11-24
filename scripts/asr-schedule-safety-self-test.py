@@ -27,6 +27,18 @@ checks = {
     'timer helper argv': "@proc_open($command",
     'timer inventory': "['list','--scope','all'",
     'timer confirmation': "timerConfirmation",
+    'timer scope': "'--scope', $scope",
+    'invalid timer scope rejected': "$asrTimerError = 'Invalid timer scope.'",
+    'explicit create scope': '<select name="timerScope">',
+    'browser-valid timer unit pattern': 'pattern="allscan-reimagined-admin-[A-Za-z0-9_.@:\\-]+\\.timer"',
+    'browser-valid service unit pattern': 'pattern="allscan-reimagined-[A-Za-z0-9_.@:\\-]+\\.service"',
+    'preview preserves timer form': "$asrTimerForm['description'] = trim((string)($_POST['timerDescription'] ?? ''))",
+    'scrollable timer inventory': 'class="asr-settings-table-scroll asr-settings-table-scroll--timers" role="region" aria-label="Systemd timer inventory"',
+    'scrollable schedule inventory': 'class="asr-settings-table-scroll" role="region" aria-label="Scheduled connections"',
+    'protected delete hidden': "$asrTimerIsManaged && !empty($asrTimerDetails['editable'])",
+    'vendor override preview': "'preview-override','override'",
+    'calendar and monotonic selector': "'unit-active'=>'After service activation'",
+    'manual service execution': "'trigger' ? 'Run associated service now'",
 }
 for name, text in checks.items():
     assert text in s, f'Missing {name}'
@@ -39,6 +51,15 @@ assert "$_SESSION['asrScheduleCsrf']" not in s, 'scheduling CSRF must not depend
 assert '[PHP_BINARY, $runner' not in s, 'dry run must not exec PHP_BINARY from the web SAPI'
 assert 'asrSettingsPhpCliBinary()' in s and "PHP_SAPI === 'cli'" in s
 assert 'catch(\\Throwable $e) { $process = false; }' in s, 'dry-run proc_open must not fatal'
+
+timer_control = (root / 'scripts/asr-timer-control.py').read_text()
+assert '90-allscan-reimagined-schedule.conf' in timer_control, 'vendor edits need a managed drop-in'
+assert 'Existing vendor timer must be edited through a managed override' in timer_control
+assert 'Only an ASR Admin-owned timer file can be deleted' in timer_control
+assert 'shell=True' not in timer_control and 'os.system' not in timer_control
+
+admin_css = (root / 'compat/allscan-v1.06/css/asr-admin.css').read_text()
+assert '.asr-settings-table-scroll' in admin_css and 'overflow-x: auto' in admin_css
 
 runner = (root / 'compat/allscan-v1.06/_tools/runSchedule.php').read_text()
 assert 'if($disabled && !$dryRun) exit(0);' in runner, 'dry run must preview while the scheduler is disabled'
