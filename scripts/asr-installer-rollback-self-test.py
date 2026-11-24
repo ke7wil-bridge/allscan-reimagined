@@ -320,6 +320,10 @@ def assert_installer_order(installer: Path) -> None:
     for scheduler_file in ("schedule.json", "schedule.activity", "schedule.heartbeat", "schedule.log", "schedule.pending.json", "schedule.state.json", "schedule.history.jsonl"):
         assert scheduler_file in text
     assert 'crontab -u "$WEB_USER"' in text
+    # #129: restored scheduler state must be web-owned, not the root-only backup mode.
+    scheduler_restore = text[text.index('scheduler_tmp=$(mktemp'):text.index('mv -fT "$scheduler_tmp"')]
+    assert 'chown "$WEB_USER:$WEB_GROUP" "$scheduler_tmp"' in scheduler_restore
+    assert 'chmod 664 "$scheduler_tmp"' in scheduler_restore
     assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
     assert 'mv "$STOCK_PREVIOUS_DIR" "$STOCK_ALLSCAN_DIR"' in rollback_block
     assert text.index('STOCK_PREVIOUS_ARMED=1') < text.index(

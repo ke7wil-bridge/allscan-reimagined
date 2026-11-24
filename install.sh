@@ -159,6 +159,9 @@ restore_shared_backup() {
         [ ! -L "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ] || continue
         scheduler_tmp=$(mktemp "/etc/allscan/.${scheduler_file}.rollback.XXXXXX")
         cp -p "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" "$scheduler_tmp"
+        # Finalized backups are root-only 0600; the web server owns scheduler state (#129).
+        chown "$WEB_USER:$WEB_GROUP" "$scheduler_tmp"
+        chmod 664 "$scheduler_tmp"
         mv -fT "$scheduler_tmp" "/etc/allscan/$scheduler_file"
       elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file.absent" ]; then
         rm -f "/etc/allscan/$scheduler_file"

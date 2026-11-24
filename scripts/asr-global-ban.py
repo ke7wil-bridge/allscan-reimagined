@@ -123,8 +123,17 @@ def reconcile_standalone_bans(actor="system"):
         if isinstance(candidate, dict):
             payload = candidate
             break
-    if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("verified") is not True:
+    if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True:
         raise RuntimeError(str((payload or {}).get("error") or "Standalone bridge Global Ban reconciliation failed."))
+    if payload.get("verified") is not True:
+        # A bridge with no ban-capable native adapter (for example a wizard
+        # YSF/P25/NXDN bridge without a native-admin proxy) is reported as
+        # skipped. That is partial enforcement, not a reconciliation failure:
+        # return it so global_enforcement_verified() reports
+        # partial_pending_enforcement instead of failing list/ban/expire (#129).
+        skipped = payload.get("skipped")
+        if not isinstance(skipped, list) or not skipped:
+            raise RuntimeError(str(payload.get("error") or "Standalone bridge Global Ban reconciliation failed."))
     return payload
 
 

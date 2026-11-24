@@ -108,6 +108,38 @@ assert not admin.global_enforcement_verified(
 for native in ({"verified": False, "skipped": ["p25"]}, {"verified": False, "unavailable": True}, {"verified": True, "skipped": ["nxdn"]}):
     assert not admin.global_enforcement_verified({"status": "applied"}, native)
 assert not admin.global_enforcement_verified({"status": "pending"}, {"verified": True, "skipped": []})
+
+# #129: wizard YSF/P25/NXDN bridges without a native-admin proxy are skipped by
+# reconcile-all. That must report partial enforcement, not fail list/ban/expire.
+with tempfile.TemporaryDirectory() as helper_dir:
+    helper = Path(helper_dir) / "standalone-admin"
+    original_helper = admin.STANDALONE_ADMIN_HELPER
+    admin.STANDALONE_ADMIN_HELPER = str(helper)
+    try:
+        def fake(stdout: str, code: int = 0) -> None:
+            helper.write_text(f"#!/bin/sh\nprintf '%s\\n' '{stdout}'\nexit {code}\n", encoding="utf-8")
+            helper.chmod(0o755)
+
+        fake(json.dumps({"ok": True, "verified": False, "action": "reconcile-all",
+                         "applied": [], "skipped": ["nxdn", "p25", "ysf"]}))
+        partial = admin.reconcile_standalone_bans()
+        assert partial["verified"] is False and partial["skipped"] == ["nxdn", "p25", "ysf"]
+        assert not admin.global_enforcement_verified({"status": "applied"}, partial)
+        fake(json.dumps({"ok": True, "verified": True, "applied": [{"bridgeId": "dmr"}], "skipped": []}))
+        assert admin.reconcile_standalone_bans()["verified"] is True
+        for bad, code in ((json.dumps({"ok": False, "error": "adapter failed"}), 1),
+                          (json.dumps({"ok": True, "verified": False, "skipped": []}), 0),
+                          (json.dumps({"ok": True, "verified": False}), 0),
+                          ("not json", 0)):
+            fake(bad, code)
+            try:
+                admin.reconcile_standalone_bans()
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError(f"reconcile accepted an unverified result: {bad}")
+    finally:
+        admin.STANDALONE_ADMIN_HELPER = original_helper
 assert json.loads(json.dumps(admin.ban_payload(["KE7WIL"], {}, now=1))) == [
     {"rule": "KE7WIL", "createdAt": 0, "expiresAt": 0, "remainingSeconds": 0}]
 

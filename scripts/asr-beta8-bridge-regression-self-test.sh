@@ -14,6 +14,8 @@ python3 scripts/asr-dmr-admin-lock-self-test.py
 python3 scripts/bridge-relays/asr-tgif-standalone-relay-self-test.py
 python3 scripts/bridge-relays/asr-tgif-standalone-relay-udp-self-test.py
 python3 scripts/asr-standalone-admin-self-test.py
+python3 scripts/asr-global-ban-storage-self-test.py  # #129: skipped wizard bridges = partial, not failure
+python3 scripts/asr-rollback.py self-test             # #129: restored scheduler state stays web-readable
 python3 scripts/asr-native-udp-admin-self-test.py
 python3 scripts/asr-bridge-control.py --self-test
 python3 scripts/asr-ysf-bridge-control.py --self-test
