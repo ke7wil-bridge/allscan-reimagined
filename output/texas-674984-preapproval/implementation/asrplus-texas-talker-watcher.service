@@ -1,0 +1,36 @@
+[Unit]
+Description=Track Texas 674984 talker activity for ASR Plus
+After=asterisk.service
+Requires=asterisk.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/asrplus-agent --config /etc/asrplus-agent.json --watch-talkers
+Restart=always
+RestartSec=2
+User=asrplus-agent
+Group=asrplus-agent
+SupplementaryGroups=asterisk
+RuntimeDirectory=asrplus
+RuntimeDirectoryMode=0700
+StateDirectory=asrplus-agent
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /var/lib/asterisk/astdb.txt
+ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
+
+[Install]
+WantedBy=multi-user.target

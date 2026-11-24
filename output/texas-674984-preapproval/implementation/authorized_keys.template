@@ -1,0 +1,1 @@
+restrict,from="TEXAS_SOURCE_IP",command="/usr/local/sbin/asrplus-remote-endpoint texas" TEXAS_PUBLIC_KEY

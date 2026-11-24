@@ -96,6 +96,16 @@ with tempfile.TemporaryDirectory() as directory:
     ok, denied = authenticate(token, base | {"token": control["token"]})
     assert not ok and "revoked" in denied["error"]
 
+    replacement = token.create(SimpleNamespace(
+        label="Texas control rotation", nodes="texas",
+        permissions="status:read,control:connect,control:disconnect", expires_in=3600
+    ))
+    ok, claims = authenticate(token, base | {"token": replacement["token"],
+        "permission": "control:disconnect", "method": "POST"})
+    assert ok and claims["tokenId"] == replacement["id"]
+    ok, denied = authenticate(token, base | {"token": control["token"]})
+    assert not ok and "revoked" in denied["error"]
+
     expired = token.create(SimpleNamespace(
         label="Expiry test", nodes="texas", permissions="status:read", expires_in=300
     ))

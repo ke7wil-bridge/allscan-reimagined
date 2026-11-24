@@ -24,5 +24,7 @@ assert agent["knownHosts"] == "/etc/asrplus/ssh/known_hosts_kentucky"
 assert agent["commandIntegrity"]["mode"] == texas["mode"] == "required"
 assert agent["commandIntegrity"]["keyId"] == texas["keyId"] == "texas-2026-01"
 assert agent["commandIntegrity"]["keyFile"] == texas["keyFile"] == "/etc/asrplus/command-keys/texas.key"
+assert agent["controlPolling"] is False
+assert agent["controlHelper"] == "/usr/local/sbin/asrplus-texas-control"
 assert agent["commandLedger"] == "/var/lib/asrplus-agent/executed-commands.json"
 print("PASS Texas agent endpoint, separate SSH/HMAC credentials, and central key-path parity")

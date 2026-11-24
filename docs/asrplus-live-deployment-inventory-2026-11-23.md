@@ -46,3 +46,14 @@ activate required mode, or install Texas.
 - The deployed API hash is `ea23e5848cf8adcc7faddb71973d8ab9fbfbb1d7ada6869a164aa11e1cf842a3`; deployed `CfgModel.php` and `UserModel.php` hashes match the tested repository files. Kentucky has no read-only users, so a read-only PHP execution of the deployed `modifyOk()` function verified Read Only denial and Read/Modify allowance without changing the user database.
 
 - Audit rotation verified November 24: daily, 90 archives, compression, root:root 0640; logrotate.timer active. No forced rotation performed.
+
+## Texas preapproval qualification update - November 24
+
+Texas 674984 remains uncontacted and uninstalled. Repository-only disposable
+fixtures qualified the proposed 60-inbound policy, telemetry/status boundaries,
+required-mode command identity, replay/recovery, queue ceilings and guarded
+install/rollback workflow. A dedicated non-login service account and
+telemetry-only configuration are prepared. These results change no deployed
+inventory and do not certify Texas VM capacity. Operator agreement, actual host
+preflight, credentials, installation, supervised radio/audio and incremental
+control approvals remain required.
