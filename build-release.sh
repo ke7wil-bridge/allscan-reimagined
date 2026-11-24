@@ -134,6 +134,7 @@ python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
 python3 "$ROOT/scripts/asr-retired-reflector-absence-self-test.py"
+python3 "$ROOT/scripts/asr-retired-reflector-standalone-self-test.py"
 python3 "$ROOT/scripts/asr-urf-absence-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-audio-telemetry.py" --self-test
 node "$ROOT/scripts/asr-bridge-install-browser-self-test.mjs"
@@ -144,6 +145,7 @@ python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
+python3 "$ROOT/scripts/asr-dmr-radio-id-callsign-self-test.py"
 python3 "$ROOT/scripts/asr-m17-relay-loopback-self-test.py"
 python3 "$ROOT/scripts/asr-dmr-kick-tgif-self-test.py"
 python3 "$ROOT/scripts/asr-tgif-user-session.py" self-test

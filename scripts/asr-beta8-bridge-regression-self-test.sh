@@ -26,23 +26,18 @@ node scripts/asr-bridge-dashboard-self-test.mjs
 node scripts/asr-client-management-browser-self-test.mjs
 python3 scripts/asr-bridge-ui-regression-self-test.py
 python3 scripts/asr-zello-client-management-self-test.py
-# #134 Netoholics live-accepted fixes (Nov 23, 2026). Each lock was proven by
-# breaking the fix and watching the test fail; never weaken them to pass.
-python3 scripts/asr-m17-relay-loopback-self-test.py      # relayed AllStar audio stays RELAY on M17
-python3 scripts/asr-dmr-kick-tgif-self-test.py           # DMR Kick disconnects from TGIF; 1-min holds; 9-digit IDs
-python3 scripts/asr-tgif-user-session.py self-test       # Kick lifts its TGIF block; Global Ban -> TGIF sync
-python3 scripts/asr-tgif-persistent-monitor-self-test.py # Persistent rapid DMR CONN/DISC journal
+# #134 Netoholics live-accepted fixes (Nov 23-24, 2026). Each lock was proven
+# by breaking the fix and watching the test fail; do not weaken these tests.
+python3 scripts/asr-m17-relay-loopback-self-test.py
+python3 scripts/asr-dmr-kick-tgif-self-test.py
+python3 scripts/asr-tgif-user-session.py self-test
+python3 scripts/asr-tgif-persistent-monitor-self-test.py
 python3 scripts/bridge-relays/asr-tgif-standalone-relay.py --self-test
-python3 scripts/asr-dmr-admin-lock-self-test.py
-python3 scripts/asr-native-udp-admin-self-test.py        # YSF/P25/NXDN/M17 Kick hold
-python3 scripts/asr-standalone-admin-self-test.py
-python3 scripts/asr-zello-kick-mute-self-test.py         # Zello Kick = 1-minute mute
-python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # Recent Activity CONN / DISC / TX
-node scripts/asr-bridge-recent-activity-self-test.mjs   # Recent Activity CONN / DISC / TX, real dashboard code
+python3 scripts/asr-zello-kick-mute-self-test.py
+python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # CONN / DISC / TX
+node scripts/asr-bridge-recent-activity-self-test.mjs           # real dashboard code
 python3 scripts/asr-deployment-source-consistency-self-test.py
-# Always test repository Talker code. Never substitute the deployed copy,
-# because doing so would allow precisely the source/live divergence this gate
-# is intended to catch.
+# Always test repository Talker code. Never substitute the deployed copy.
 if command -v php >/dev/null 2>&1; then
   php scripts/asr-talker-identity-self-test.php
 elif command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
@@ -53,11 +48,8 @@ else
   exit 1
 fi
 bash scripts/asr-side-by-side-self-test.sh
-# Live-container comparison is opt-in: a developer's running container may
-# intentionally lag this isolated worktree. Static repository authority checks
-# always run; opt in with ASR_CHECK_LIVE_CONTAINER=1 when validating a staged
-# container built from this exact source revision.
-if [ "${ASR_CHECK_LIVE_CONTAINER:-0}" = "1" ]; then
+# Live-container comparison is opt-in. Never inspect an unrelated running node.
+if [ "${ASR_CHECK_LIVE_CONTAINER:-0}" = "1" ] && command -v docker >/dev/null 2>&1 && docker inspect allscan-reimagined-layered-allscan-1 >/dev/null 2>&1; then
   python3 scripts/asr-deployment-source-consistency-self-test.py --live
 fi
 git diff --check

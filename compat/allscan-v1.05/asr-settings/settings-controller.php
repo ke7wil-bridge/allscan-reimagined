@@ -2143,14 +2143,12 @@ function asrSettingsSavedDmrGains($bridgeId) {
 }
 
 function asrSettingsIsRetiredReflectorBridge($bridge) {
-	// Retired URF reflector cards (#177): the aggregate record and its
-	// per-mode digital cards. Zello cards that carried the old grouping flag
-	// stay ordinary Standard bridges.
+	// Retired URF reflector cards (#177): only the old aggregate record,
+	// which has no backend.
 	if(!is_array($bridge)) return false;
 	$mode = strtolower((string)($bridge['mode'] ?? ''));
-	if($mode === 'urf') return true;
-	return !empty($bridge['urfReflector']) && in_array($mode, ['dmr','ysf','p25','nxdn','m17'], true)
-		&& (string)($bridge['cardType'] ?? 'standard') === 'standard';
+	// Leftover grouping fields never drop a working bridge card (#168).
+	return $mode === 'urf';
 }
 
 function asrSettingsDmrSetupPayload($requireSecret, &$error) {

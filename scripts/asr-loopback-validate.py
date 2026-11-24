@@ -93,7 +93,7 @@ def fetch_once(url: str) -> Response:
     )
 
     try:
-        with opener.open(request, timeout=15) as result:
+        with opener.open(request, timeout=30) as result:
             status = int(result.status)
             headers: Mapping[str, str] = result.headers
             body = read_limited(result)
