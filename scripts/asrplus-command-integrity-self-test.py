@@ -432,4 +432,41 @@ status = endpoint.sanitize_status("phoenix", {
 })
 assert status["connection_status"]["nodes"] == []
 
+# Deployment-fixture telemetry ingestion: enforce identity and freshness,
+# and never allow delayed snapshots or sequence rollback to overwrite newer state.
+def status_payload(generated: int, sequence: int = 1, hub: str = "phoenix",
+                   node: str = "641894") -> dict:
+    return {
+        "hub": hub, "node": node, "generated_epoch": generated,
+        "talker_sequence": sequence, "watcher_instance": "fixture-watcher",
+        "connections": [], "bridges": {}, "current_talker": {}, "last_talkers": [],
+    }
+
+now = int(time.time())
+for bad_payload, expected in (
+    (status_payload(now, hub="texas", node="674984"), "identity mismatch"),
+    (status_payload(now, node="674984"), "identity mismatch"),
+    (status_payload(now - 121), "timestamp invalid"),
+    (status_payload(now + 121), "timestamp invalid"),
+):
+    try:
+        endpoint.sanitize_status("phoenix", bad_payload)
+        raise AssertionError("invalid telemetry identity/freshness was accepted")
+    except ValueError as error:
+        assert expected in str(error)
+
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    endpoint.STATUS_ROOT = root / "status"
+    endpoint.STATUS_EVENT_PATH = root / "status-event"
+    with patch.object(endpoint.subprocess, "run") as publish_mock:
+        assert endpoint.store_status("phoenix", status_payload(now, sequence=10)) is True
+        assert endpoint.STATUS_EVENT_PATH.is_file()
+        assert endpoint.store_status("phoenix", status_payload(now - 1, sequence=99)) is False
+        assert endpoint.store_status("phoenix", status_payload(now, sequence=9)) is False
+        assert endpoint.store_status("phoenix", status_payload(now + 1, sequence=11)) is True
+    stored = json.loads((endpoint.STATUS_ROOT / "phoenix.json").read_text())
+    assert stored["generated_epoch"] == now + 1
+    assert stored["talker_sequence"] == 11
+
 print("ASR Plus command-integrity security lifecycle: PASS")

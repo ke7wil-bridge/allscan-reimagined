@@ -46,8 +46,10 @@ try {
   }))
   // Only DMR's sub-second registration/keepalive frame is false activity.
   entries.dmr_audit.tx_events.push({ callsign: 'DMR-NOISE', epoch: now - 10, duration_seconds: 0.2, direction: 'incoming', source_protocol: 'DMR' })
-  // An authentic event at the far edge of the requested history remains visible.
-  entries.ysf_audit.client_events.push({ callsign: 'YSF-24H', event: 'connect', epoch: now - 86399 })
+  // An authentic event near the 24-hour edge remains visible. Keep 60 seconds
+  // of headroom because fetchBridgeCards runs after payload assembly; this
+  // tests the retention window without making the test wall-clock flaky.
+  entries.ysf_audit.client_events.push({ callsign: 'YSF-24H', event: 'connect', epoch: now - 86340 })
 
   globalThis.fetch = async () => ({ json: async () => ({ bridge: entries }) })
   const { cards } = await fetchBridgeCards({ node: '674982', bridges })
