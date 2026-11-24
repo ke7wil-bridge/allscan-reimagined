@@ -110,6 +110,19 @@ with tempfile.TemporaryDirectory() as directory:
 
 api = (ROOT / "ops/asrplus/api.php").read_text()
 sudoers = (ROOT / "ops/asrplus/asrplus-token.sudoers").read_text().strip()
+# Preserve the existing AllScan login-cookie path alongside bearer auth.
+# The browser integration test is a separate live gate; these assertions guard
+# the source-level compatibility contract against accidental bypass/removal.
+assert "require_once '/var/www/html/asr/include/common.php';" in api
+assert "$userModel = new UserModel($db);" in api
+assert "$user = $userModel->validate();" in api
+assert "$loggedIn = isset($user->user_id) && validDbID($user->user_id);" in api
+assert "} elseif (!$loggedIn) {" in api
+assert "Login or bearer token required." in api
+assert "if ($token === '') {" in api
+assert "if (!modifyOk())" in api
+assert "Node-control permission required." in api
+assert "HTTP_X_ASRPLUS_REQUESTED_WITH" in api
 assert "Bearer" in api and "asrplus_secure_request" in api
 assert "asrplus_filter_status" in api and "control:connect" in api
 assert "'ban-list', 'ban-result'" not in api
