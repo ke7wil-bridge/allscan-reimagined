@@ -31,13 +31,14 @@ python3 scripts/asr-zello-client-management-self-test.py
 python3 scripts/asr-m17-relay-loopback-self-test.py      # relayed AllStar audio stays RELAY on M17
 python3 scripts/asr-dmr-kick-tgif-self-test.py           # DMR Kick disconnects from TGIF; 1-min holds; 9-digit IDs
 python3 scripts/asr-tgif-user-session.py self-test       # Kick lifts its TGIF block; Global Ban -> TGIF sync
+python3 scripts/asr-tgif-persistent-monitor-self-test.py # Persistent rapid DMR CONN/DISC journal
 python3 scripts/bridge-relays/asr-tgif-standalone-relay.py --self-test
 python3 scripts/asr-dmr-admin-lock-self-test.py
 python3 scripts/asr-native-udp-admin-self-test.py        # YSF/P25/NXDN/M17 Kick hold
 python3 scripts/asr-standalone-admin-self-test.py
 python3 scripts/asr-zello-kick-mute-self-test.py         # Zello Kick = 1-minute mute
-python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # Recent Activity CON / DIS / TX
-node scripts/asr-bridge-recent-activity-self-test.mjs   # Recent Activity CON / DIS / TX, real dashboard code
+python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # Recent Activity CONN / DISC / TX
+node scripts/asr-bridge-recent-activity-self-test.mjs   # Recent Activity CONN / DISC / TX, real dashboard code
 python3 scripts/asr-deployment-source-consistency-self-test.py
 # Always test repository Talker code. Never substitute the deployed copy,
 # because doing so would allow precisely the source/live divergence this gate

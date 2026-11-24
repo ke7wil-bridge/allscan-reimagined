@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -24,10 +25,15 @@ RUNTIME = Path('/run/allscan-reimagined/tgif-users')
 TOKENS = STATE / 'tokens'
 SNAPSHOTS = RUNTIME / 'snapshots'
 CHALLENGES = RUNTIME / 'challenges'
+JOURNALS = STATE / 'journals'
 TGIF_BASE = 'https://tgif.network'
 DEFAULT_TG = ''
 USER_AGENT = 'AllScan-Reimagined TGIF client tracking'
 NODE_SCOPE = 'node'
+EVENT_MAX_AGE = 86400
+EVENT_MAX_ROWS = 200
+INITIAL_SYNC_QUIET = 0.5
+SNAPSHOT_HEARTBEAT = 5.0
 
 
 def valid_user_id(value: str) -> str:
@@ -55,8 +61,12 @@ def challenge_path(user_id: str) -> Path:
     return CHALLENGES / f'{valid_user_id(user_id)}.json'
 
 
+def journal_path(user_id: str) -> Path:
+    return JOURNALS / f'{valid_user_id(user_id)}.json'
+
+
 def ensure_storage() -> None:
-    for path in (STATE, TOKENS, RUNTIME, SNAPSHOTS, CHALLENGES):
+    for path in (STATE, TOKENS, JOURNALS, RUNTIME, SNAPSHOTS, CHALLENGES):
         path.mkdir(parents=True, exist_ok=True)
         os.chmod(path, 0o700)
 
@@ -118,6 +128,27 @@ def prior_session_roster(user_id: str, now: int | None = None) -> dict[str, dict
     return rows
 
 
+def load_event_journal(user_id: str, now: int | None = None) -> dict:
+    current = int(time.time() if now is None else now)
+    try:
+        payload = json.loads(journal_path(user_id).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        payload = {}
+    rows = payload.get('events') if isinstance(payload, dict) else []
+    events = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        epoch = int(row.get('epoch') or 0)
+        if (row.get('event') in {'connect', 'disconnect'} and epoch > 0
+                and epoch <= current + 300 and current - epoch <= EVENT_MAX_AGE):
+            events.append(dict(row))
+    events.sort(key=lambda row: (int(row.get('sequence') or 0), int(row.get('epoch') or 0)), reverse=True)
+    return {'schema': 1, 'sequence': max(int(payload.get('sequence') or 0),
+            max((int(row.get('sequence') or 0) for row in events), default=0)),
+            'events': events[:EVENT_MAX_ROWS]}
+
+
 def failure_snapshot(user_id: str, callsign: str, talkgroup: str, error: str, now: int | None = None) -> dict:
     current = int(time.time() if now is None else now)
     retained = [row for row in prior_session_roster(user_id, current).values() if str(row.get('talkgroup', '')) == talkgroup]
@@ -130,6 +161,7 @@ def failure_snapshot(user_id: str, callsign: str, talkgroup: str, error: str, no
         'ok': False, 'configured': True, 'callsign': callsign, 'talkgroup': talkgroup,
         'updatedEpoch': current, 'clients': retained, 'stale': True,
         'reauthRequired': reauth_required, 'error': detail,
+        'events': load_event_journal(user_id, current)['events'],
     }
 
 
@@ -285,7 +317,10 @@ def update_session_roster(sessions: dict[str, dict], item: dict, talkgroup: str,
         return 'ignored'
     event = str(item.get('event') or item.get('action') or '').strip().lower()
     connected = item.get('connected')
-    explicit_disconnect = event in {'disconnect', 'disconnected', 'remove', 'removed'} or connected is False
+    state_present = 'state' in item
+    state = str(item.get('state') if state_present else '').strip().lower()
+    explicit_disconnect = (event in {'disconnect', 'disconnected', 'remove', 'removed'}
+                           or connected is False or (state_present and state in {'', '0', 'null'}))
     if explicit_disconnect:
         sessions.pop(session_id, None)
         return 'disconnected'
@@ -311,6 +346,103 @@ def update_session_roster(sessions: dict[str, dict], item: dict, talkgroup: str,
     })
     sessions[session_id] = merged
     return 'connected'
+
+
+def session_membership(item: object, talkgroup: str) -> bool | None:
+    """Return TGIF's explicit membership state, never a TX-derived guess."""
+    if not isinstance(item, dict) or not str(item.get('uuid') or '').strip():
+        return None
+    event = str(item.get('event') or item.get('action') or '').strip().lower()
+    if event in {'disconnect', 'disconnected', 'remove', 'removed'} or item.get('connected') is False:
+        return False
+    if 'state' in item:
+        state = str(item.get('state') if item.get('state') is not None else '').strip().lower()
+        if state in {'', '0', 'null'}:
+            return False
+        if state != '1':
+            return None
+    elif not (event in {'connect', 'connected', 'add', 'added'} or item.get('connected') is True):
+        return None
+    groups = {str(item.get('ts1_talkgroup') or '').strip(), str(item.get('ts2_talkgroup') or '').strip()}
+    return talkgroup in groups
+
+
+class SessionEventTracker:
+    """Maintain the exact current roster and a durable, ordered transition journal."""
+
+    def __init__(self, user_id: str, talkgroup: str, callsign: str):
+        self.user_id = valid_user_id(user_id)
+        self.talkgroup = talkgroup
+        self.callsign = callsign.strip().upper()
+        self.sessions = prior_session_roster(self.user_id)
+        journal = load_event_journal(self.user_id)
+        self.events = journal['events']
+        self.sequence = int(journal['sequence'])
+        self.syncing = True
+        self.sync_sessions: dict[str, dict] = {}
+        self.lock = threading.Lock()
+
+    def apply(self, item: object, now: int | None = None) -> str:
+        current = int(time.time() if now is None else now)
+        membership = session_membership(item, self.talkgroup)
+        if membership is None or not isinstance(item, dict):
+            return 'ignored'
+        session_id = str(item.get('uuid') or '').strip()
+        with self.lock:
+            target = self.sync_sessions if self.syncing else self.sessions
+            prior = target.get(session_id)
+            if membership:
+                merged = dict(prior or {})
+                merged.update({key: value for key, value in item.items() if value not in (None, '')})
+                merged.update({'callsign': str(merged.get('callsign') or '').strip()[:20],
+                               'name': str(merged.get('name') or merged.get('shortname') or '').strip()[:80],
+                               'dmrid': session_id, 'id': session_id, 'talkgroup': self.talkgroup,
+                               'last_seen_epoch': current, 'source': 'TGIF node-wide authenticated session'})
+                if is_local_bridge_session(merged, self.callsign):
+                    target.pop(session_id, None)
+                    return 'local'
+                target[session_id] = merged
+                transition = 'connect' if prior is None else ''
+            else:
+                target.pop(session_id, None)
+                transition = 'disconnect' if prior is not None else ''
+            if transition and not self.syncing:
+                source = target.get(session_id) if membership else prior
+                self.sequence += 1
+                event = {'event_id': f'{self.user_id}:{self.sequence}', 'sequence': self.sequence,
+                         'callsign': str((source or item).get('callsign') or '').strip()[:20],
+                         'dmrid': session_id, 'event': transition, 'epoch': current,
+                         'source': 'tgif_event_journal'}
+                self.events.insert(0, event)
+                self.events = [row for row in self.events
+                               if current - int(row.get('epoch') or 0) <= EVENT_MAX_AGE][:EVENT_MAX_ROWS]
+                self._write_journal()
+            return transition or 'duplicate'
+
+    def finish_sync(self) -> None:
+        with self.lock:
+            self.sessions = self.sync_sessions
+            self.sync_sessions = {}
+            self.syncing = False
+            self.persist_locked()
+
+    def _write_journal(self) -> None:
+        atomic_json(journal_path(self.user_id), {'schema': 1, 'sequence': self.sequence,
+                    'updatedEpoch': int(time.time()), 'events': self.events})
+
+    def persist(self, ok: bool = True, error: str = '', reauth_required: bool = False) -> None:
+        with self.lock:
+            self.persist_locked(ok, error, reauth_required)
+
+    def persist_locked(self, ok: bool = True, error: str = '', reauth_required: bool = False) -> None:
+        current = int(time.time())
+        self._write_journal()
+        atomic_json(snapshot_path(self.user_id), {
+            'ok': ok, 'configured': True, 'reauthRequired': reauth_required,
+            'callsign': self.callsign, 'talkgroup': self.talkgroup, 'updatedEpoch': current,
+            'clients': list(self.sessions.values()), 'events': self.events,
+            'stale': not ok, 'error': error[:180],
+        })
 
 
 def is_local_bridge_session(item: dict, node_callsign: str) -> bool:
@@ -412,9 +544,92 @@ def collect_user(user_id: str) -> dict:
     enrich_session_transmissions(sessions, talkgroup)
     payload = {'ok': True, 'configured': True, 'reauthRequired': False, 'callsign': callsign,
                'talkgroup': talkgroup, 'updatedEpoch': int(time.time()),
-               'clients': list(sessions.values()), 'error': ''}
+               'clients': list(sessions.values()), 'events': load_event_journal(user_id)['events'], 'error': ''}
     atomic_json(snapshot_path(user_id), payload)
     return payload
+
+
+def monitor_user(user_id: str) -> None:
+    """Continuously monitor one authenticated TGIF session, resyncing silently."""
+    import socketio
+    backoff = 1.0
+    while True:
+        tracker = None
+        sio = None
+        try:
+            data = load_token(user_id)
+            talkgroup = str(data.get('talkgroup') or '').strip()
+            if not re.fullmatch(r'[1-9][0-9]{0,7}', talkgroup):
+                raise ValueError('TGIF talkgroup is required; sign in with the configured DMR talkgroup')
+            callsign = str(data.get('callsign') or '').strip().upper()
+            tracker = SessionEventTracker(user_id, talkgroup, callsign)
+            token_mtime = token_path(user_id).stat().st_mtime_ns
+            token = current_api_token(data, talkgroup)
+            cookies = cookie_header(data)
+            sio = socketio.Client(logger=False, engineio_logger=False, reconnection=False)
+            authenticated = False
+            auth_at = 0.0
+            last_message = 0.0
+
+            @sio.event
+            def connect():
+                sio.emit('handshake', token)
+
+            @sio.on('status')
+            def status(value):
+                nonlocal authenticated, auth_at
+                if str(value) == '200':
+                    authenticated = True
+                    auth_at = time.monotonic()
+                    sio.emit('cli-state', {'scope': int(talkgroup), 'page': 'tgadmin', 'action': 'sessions'})
+
+            @sio.on('dmr_session')
+            def dmr_session(item):
+                nonlocal last_message
+                last_message = time.monotonic()
+                tracker.apply(item)
+
+            headers = {'Cookie': cookies} if cookies else None
+            sio.connect(TGIF_BASE, headers=headers, transports=['websocket', 'polling'], wait_timeout=10)
+            next_snapshot = time.monotonic() + SNAPSHOT_HEARTBEAT
+            auth_deadline = time.monotonic() + 12
+            while sio.connected:
+                clock = time.monotonic()
+                if not authenticated and clock >= auth_deadline:
+                    raise RuntimeError('TGIF session authentication was rejected')
+                if authenticated and tracker.syncing and clock - (last_message or auth_at) >= INITIAL_SYNC_QUIET:
+                    tracker.finish_sync()
+                    backoff = 1.0
+                if not token_path(user_id).is_file() or token_path(user_id).stat().st_mtime_ns != token_mtime:
+                    break
+                if not tracker.syncing and clock >= next_snapshot:
+                    tracker.persist()
+                    next_snapshot = clock + SNAPSHOT_HEARTBEAT
+                sio.sleep(0.1)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:
+            detail = str(exc)[:180]
+            if tracker is not None:
+                tracker.persist(False, detail, any(marker in detail.lower() for marker in (
+                    'authentication was rejected', 'authentication token', 'redirected back to sign-in',
+                    'web session is missing', 'not authenticated')))
+        finally:
+            if sio is not None:
+                try:
+                    sio.disconnect()
+                except Exception:
+                    pass
+        time.sleep(backoff)
+        backoff = min(30.0, backoff * 2)
+
+
+def monitor_all() -> None:
+    """Run the node-wide listener even before credentials are configured."""
+    while True:
+        if token_path(NODE_SCOPE).is_file():
+            monitor_user(NODE_SCOPE)
+        time.sleep(5)
 
 def public_status(user_id: str) -> dict:
     token_file = token_path(user_id)
@@ -458,7 +673,7 @@ def login_user(user_id: str, callsign: str, talkgroup: str, secret: str, captcha
 
 
 def logout_user(user_id: str) -> dict:
-    for path in (token_path(user_id), snapshot_path(user_id), challenge_path(user_id)):
+    for path in (token_path(user_id), snapshot_path(user_id), challenge_path(user_id), journal_path(user_id)):
         try: path.unlink()
         except FileNotFoundError: pass
     return public_status(user_id)
@@ -990,7 +1205,7 @@ def self_test() -> None:
     update_session_roster(sessions, {'uuid': '3', 'callsign': 'CLIENT-C', 'state': '1', 'ts2_talkgroup': test_tg, 'tx': True}, test_tg, 101)
     assert len(sessions) == 5 and {row['callsign'] for row in sessions.values()} == {'CLIENT-A','CLIENT-B','CLIENT-C','CLIENT-D','CLIENT-E'}
     update_session_roster(sessions, {'uuid': '3', 'callsign': 'CLIENT-C', 'state': '0', 'ts2_talkgroup': test_tg, 'tx': False}, test_tg, 102)
-    assert len(sessions) == 5, 'TX end incorrectly removed a connected client'
+    assert len(sessions) == 4, 'TGIF state=0 did not remove a disconnected client'
     update_session_roster(sessions, {'uuid': '3', 'event': 'disconnect'}, test_tg, 103)
     assert len(sessions) == 4 and all(row['callsign'] != 'CLIENT-C' for row in sessions.values())
     update_session_roster(sessions, {'uuid': '2', 'callsign': 'CLIENT-B', 'state': '1', 'ts2_talkgroup': test_tg, 'tx': True}, test_tg, 104)
@@ -1003,7 +1218,7 @@ def self_test() -> None:
     assert is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'ASR TGIF to URF bri'}, 'KE7WIL')
     assert not is_local_bridge_session({'callsign': 'N1ABC', 'description': 'N1ABC ASL to DMR B'}, 'KE7WIL')
     assert not is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'Personal hotspot'}, 'KE7WIL')
-    original_paths = (STATE, RUNTIME, TOKENS, SNAPSHOTS, CHALLENGES)
+    original_paths = (STATE, RUNTIME, TOKENS, SNAPSHOTS, CHALLENGES, JOURNALS)
     original_login = login_to_tgif
     original_collect = collect_user
     with tempfile.TemporaryDirectory(prefix='asr-tgif-session-test-') as temp:
@@ -1011,6 +1226,7 @@ def self_test() -> None:
         globals()['STATE'] = root / 'state'
         globals()['RUNTIME'] = root / 'runtime'
         globals()['TOKENS'] = STATE / 'tokens'
+        globals()['JOURNALS'] = STATE / 'journals'
         globals()['SNAPSHOTS'] = RUNTIME / 'snapshots'
         globals()['CHALLENGES'] = RUNTIME / 'challenges'
         ensure_storage()
@@ -1043,7 +1259,7 @@ def self_test() -> None:
         public = public_status(NODE_SCOPE)
         assert public['configured'] and not any(key in public for key in ('cookies', 'token', 'password', 'secret'))
         assert not logout_user(NODE_SCOPE)['configured']
-    globals()['STATE'], globals()['RUNTIME'], globals()['TOKENS'], globals()['SNAPSHOTS'], globals()['CHALLENGES'] = original_paths
+    globals()['STATE'], globals()['RUNTIME'], globals()['TOKENS'], globals()['SNAPSHOTS'], globals()['CHALLENGES'], globals()['JOURNALS'] = original_paths
     globals()['login_to_tgif'] = original_login
     globals()['collect_user'] = original_collect
     print('node-wide TGIF session helper self-test: ok')
@@ -1056,7 +1272,7 @@ def main() -> int:
     status = sub.add_parser('status'); status.add_argument('user_id')
     logout = sub.add_parser('logout'); logout.add_argument('user_id')
     collect = sub.add_parser('collect'); collect.add_argument('user_id')
-    sub.add_parser('collect-all'); sub.add_parser('self-test')
+    sub.add_parser('collect-all'); sub.add_parser('monitor-all'); sub.add_parser('self-test')
     sync = sub.add_parser('ban-sync'); sync.add_argument('user_id'); sync.add_argument('--force', action='store_true')
     kick = sub.add_parser('kick'); kick.add_argument('user_id'); kick.add_argument('client_id'); kick.add_argument('callsign')
     args = parser.parse_args()
@@ -1071,6 +1287,7 @@ def main() -> int:
     if args.command == 'logout': print(json.dumps(logout_user(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'collect': print(json.dumps(collect_user(args.user_id), separators=(',', ':'))); return 0
     if args.command == 'collect-all': return collect_all()
+    if args.command == 'monitor-all': monitor_all(); return 0
     if args.command == 'ban-sync':
         result = ban_sync(valid_user_id(args.user_id), force=args.force)
         print(json.dumps(result, separators=(',', ':'))); return 0 if result.get('ok') else 1

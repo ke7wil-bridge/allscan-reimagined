@@ -1672,11 +1672,18 @@ function liveZelloRecentTalkers(entry?: BridgeEntry) {
 
 function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): BridgeDetailItem[] {
   const now = Date.now() / 1000
-  const cleanIdentity = (value: unknown) => String(value || '').trim().toUpperCase()
-    .replace(/\s+[A-Z0-9]{1,3}$/, '').replace(/-[A-Z0-9]{1,3}$/, '')
+  const normalizedMode = normalizedBridgeMode(mode, mode)
+  const cleanIdentity = (value: unknown) => {
+    const identity = String(value || '').trim().toUpperCase()
+    // M17 modules/SSIDs are transport detail, while hyphens in every other
+    // protocol's identity are significant and must be preserved verbatim.
+    return normalizedMode === 'm17'
+      ? identity.replace(/\s+(?:[0-9]{1,2}|[A-Z])$/, '').replace(/-(?:[0-9]{1,2}|[A-Z])$/, '')
+      : identity
+  }
   const rows: (BridgeDetailItem & { epoch: number })[] = []
   for (const [records, kind] of [
-    [entry?.tx_events, 'TX'], [entry?.client_events, 'CLIENT'],
+    [entry?.tx_events, 'TX'], [normalizedMode === 'zello' ? undefined : entry?.client_events, 'CLIENT'],
   ] as const) {
     if (!Array.isArray(records)) continue
     records.forEach((record, index) => {
@@ -1686,13 +1693,15 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const label = identity === '-' && record.identity_available === false ? 'Unidentified talker' : identity
       if (!label || label === '-') return
       const event = String(record.event || '').toLowerCase()
-      // Recent Activity labels (#134): CON = connected, DIS = disconnected, TX = transmitted.
-      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CON' : event === 'disconnect' ? 'DIS' : '') : 'TX'
+      // Recent Activity labels (#134): CONN = connected, DISC = disconnected, TX = transmitted.
+      const action = kind === 'CLIENT' ? (event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : '') : 'TX'
       if (!action) return
       if (kind === 'TX' && String(record.direction || '').toLowerCase() !== 'incoming') return
+      const sourceProtocol = normalizedBridgeMode(String(record.source_protocol || ''), '')
+      if (kind === 'TX' && sourceProtocol !== 'unknown' && sourceProtocol !== normalizedMode) return
       const duration = Number(record.duration_seconds)
       // DMR network registration produces spurious 0.1s voice frames.
-      if (kind === 'TX' && (!Number.isFinite(duration) || duration < 1)) return
+      if (kind === 'TX' && (!Number.isFinite(duration) || duration < (normalizedMode === 'dmr' ? 1 : Number.EPSILON))) return
       const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
       rows.push({ key: `${mode}-${action}-${label}-${epoch}-${index}`, label,
         meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '), epoch })

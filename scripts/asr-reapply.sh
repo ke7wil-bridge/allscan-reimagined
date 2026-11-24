@@ -1128,35 +1128,30 @@ WantedBy=timers.target
 EOF
 cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service <<'EOF'
 [Unit]
-Description=Refresh node-wide TGIF connected-client sessions
+Description=Continuously monitor node-wide TGIF connected-client sessions
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/allscan-reimagined-tgif-user-session collect-all
+Type=simple
+ExecStart=/usr/local/sbin/allscan-reimagined-tgif-user-session monitor-all
+Restart=always
+RestartSec=3s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/run/allscan-reimagined /var/lib/allscan-reimagined
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-EOF
-cat > /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer <<'EOF'
-[Unit]
-Description=Refresh node-wide TGIF connected-client sessions
-
-[Timer]
-OnBootSec=15s
-OnUnitInactiveSec=15s
-AccuracySec=2s
-Unit=allscan-reimagined-tgif-user-sessions.service
 
 [Install]
-WantedBy=timers.target
+WantedBy=multi-user.target
 EOF
-systemctl enable --now allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
+systemctl disable --now allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer
 systemctl daemon-reload
+systemctl enable allscan-reimagined-tgif-user-sessions.service >/dev/null 2>&1 || true
+systemctl restart allscan-reimagined-tgif-user-sessions.service >/dev/null 2>&1 || true
 bridge_client_source_count=$(php -r '
   $data = json_decode((string) @file_get_contents($argv[1]), true);
   $count = 0;

@@ -717,10 +717,9 @@ def test_standard_net_log_isolation() -> None:
 def test_client_snapshot_evidence() -> None:
     state = status.initial_activity_state()
     status.reconcile_client_snapshot(state, ["N0CALL"], 100)
-    assert [(e["callsign"], e["event"], e.get("source")) for e in state["client_events"]] == [
-        ("N0CALL", "connect", "baseline_observation")]
+    assert state["client_events"] == []  # Initial state is not historical connection evidence.
     status.reconcile_client_snapshot(state, None, 101)
-    assert len(state["client_events"]) == 1  # Missing roster never erases evidence.
+    assert state["client_events"] == []  # Missing roster never fabricates evidence.
     status.reconcile_client_snapshot(state, ["N0CALL", "W1ABC"], 102)
     status.reconcile_client_snapshot(state, ["W1ABC"], 103)
     assert ("N0CALL", "disconnect") in [(e["callsign"], e["event"]) for e in state["client_events"]]
@@ -776,9 +775,7 @@ def test_client_snapshot_restart_baseline() -> None:
     states: dict[str, dict] = {}
     first = status.standard_live_payload(
         config, states, [], now, client_snapshots={"dmr": ["N0CALL"]})
-    assert [(row["callsign"], row["event"], row.get("source"))
-            for row in first["bridges"]["dmr"]["client_events"]] == [
-        ("N0CALL", "connect", "baseline_observation")]
+    assert first["bridges"]["dmr"]["client_events"] == []
     with tempfile.TemporaryDirectory() as raw:
         path = Path(raw) / "bridge-live.json"
         path.write_text(json.dumps(first), encoding="utf-8")
@@ -800,14 +797,19 @@ def test_asrplus_recent_activity_parity() -> None:
     now = 2_000_000
     rows = asrplus.bridge_recent_activity({
         "tx_events": [
-            {"callsign": "N0TX", "epoch": now, "start_epoch": now - 5, "duration_seconds": 5},
+            {"callsign": "N0TX", "epoch": now, "start_epoch": now - 5, "duration_seconds": 5,
+             "direction": "incoming", "source_protocol": "DMR"},
+            {"callsign": "OUT", "epoch": now, "duration_seconds": 5,
+             "direction": "outgoing", "source_protocol": "DMR"},
+            {"callsign": "CROSS", "epoch": now, "duration_seconds": 5,
+             "direction": "incoming", "source_protocol": "YSF"},
             {"callsign": "OLD", "epoch": now - asrplus.BRIDGE_RECENT_MAX_AGE_SECONDS - 1},
         ],
         "client_events": [
             {"callsign": "W1NEW", "event": "connect", "epoch": now - 1},
             {"callsign": "BAD", "event": "kick", "epoch": now - 2},
         ],
-    }, [], now)
+    }, now, "dmr")
     assert [(row["callsign"], row["event"]) for row in rows] == [
         ("N0TX", "transmit"), ("W1NEW", "connect")]
     javascript = (PAYLOAD_ROOT / "ops/asrplus/asrplus.js").read_text(encoding="utf-8")
