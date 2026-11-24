@@ -37,8 +37,7 @@ function asrplus_bearer_token(): string {
 }
 
 function asrplus_secure_request(): bool {
-    return strtolower((string) ($_SERVER['HTTPS'] ?? '')) === 'on'
-        || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    return strtolower((string) ($_SERVER['HTTPS'] ?? '')) === 'on';
 }
 
 function asrplus_run_helper(array $command, array $input): array {
@@ -99,7 +98,11 @@ function asrplus_filter_status(array $payload, string $hub): array {
         return asrplus_canonical_hub((string) ($candidate['id'] ?? '')) === $hub;
     }));
     if (count($payload['hubs']) !== 1) return ['ok' => false, 'error' => 'Authorized hub status is unavailable.'];
-    return $payload;
+    return [
+        'ok' => !empty($payload['ok']),
+        'generatedEpoch' => $payload['generatedEpoch'] ?? null,
+        'hubs' => $payload['hubs'],
+    ];
 }
 
 $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
