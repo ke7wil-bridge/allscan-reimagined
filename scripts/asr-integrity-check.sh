@@ -66,8 +66,10 @@ if [ -s /etc/allscan-reimagined/apache-listeners.json ]; then
   [ -L /etc/apache2/conf-enabled/allscan-reimagined-listeners.conf ] || needs_reapply=1
   [ -f /etc/apache2/conf-available/allscan-reimagined-listeners.conf ] || needs_reapply=1
 fi
-[ -f /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer ] || needs_reapply=1
-systemctl is-enabled --quiet allscan-reimagined-tgif-user-sessions.timer || needs_reapply=1
+[ -f /etc/systemd/system/allscan-reimagined-tgif-user-sessions.service ] || needs_reapply=1
+systemctl is-enabled --quiet allscan-reimagined-tgif-user-sessions.service || needs_reapply=1
+systemctl is-active --quiet allscan-reimagined-tgif-user-sessions.service || needs_reapply=1
+[ ! -e /etc/systemd/system/allscan-reimagined-tgif-user-sessions.timer ] || needs_reapply=1
 [ -d /run/allscan-reimagined-bridge-control ] || needs_reapply=1
 [ "$(stat -c '%U:%G:%a' /run/allscan-reimagined-bridge-control 2>/dev/null)" = "root:root:755" ] || needs_reapply=1
 if [ -f "$MASTER_DIR/scripts/asr_bridge_status.py" ]; then

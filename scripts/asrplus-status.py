@@ -79,37 +79,46 @@ def text(value: object, limit: int = 120) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
-def bridge_recent_activity(runtime: dict, fallback: list[dict], now: int) -> list[dict]:
-    """Use the same retained transmission and roster events as standard ASR."""
-    if not runtime:
-        return fallback[:30]
+def bridge_recent_activity(runtime: dict, now: int, mode: str) -> list[dict]:
+    """Use the same authenticated connection and incoming-TX evidence as ASR."""
     rows = []
-    for source, expected in ((runtime.get("tx_events"), "transmit"),
-                             (runtime.get("client_events"), "client")):
+    sources = ((runtime.get("tx_events"), "transmit"),
+               (None if mode == "zello" else runtime.get("client_events"), "client"))
+    for source, expected in sources:
         for item in source if isinstance(source, list) else []:
             if not isinstance(item, dict):
                 continue
             event = text(item.get("event"), 16).lower()
             if expected == "transmit":
+                if str(item.get("direction") or "").lower() != "incoming":
+                    continue
+                source_protocol = re.sub(r"[^a-z0-9]", "", str(item.get("source_protocol") or "").lower())
+                if source_protocol and source_protocol != mode:
+                    continue
                 event = "transmit"
             elif event not in {"connect", "disconnect"}:
                 continue
             event_epoch = epoch(item.get("epoch"))
             callsign = text(item.get("callsign") or item.get("name"), 32)
+            if mode == "m17":
+                callsign = re.sub(r"-(?:[0-9]{1,2}|[A-Z])$", "", callsign, flags=re.I)
             if (not callsign or event_epoch <= 0 or event_epoch > now + 300
                     or now - event_epoch > BRIDGE_RECENT_MAX_AGE_SECONDS):
                 continue
             row = {"callsign": callsign, "event": event, "epoch": event_epoch}
             if event == "transmit":
-                row["startEpoch"] = epoch(item.get("start_epoch")) or event_epoch
                 try:
                     duration = float(item.get("duration_seconds") or 0)
                 except (TypeError, ValueError):
-                    duration = 0.0
-                row["durationSeconds"] = max(0.0, duration)
+                    continue
+                if duration < (1.0 if mode == "dmr" else 0.000001):
+                    continue
+                row["startEpoch"] = epoch(item.get("start_epoch")) or event_epoch
+                row["durationSeconds"] = duration
+                row["direction"] = "incoming"
             rows.append(row)
     rows.sort(key=lambda item: int(item["epoch"]), reverse=True)
-    return rows[:30]
+    return rows[:100]
 
 
 def normalize_connection_duration(value: object) -> str:
@@ -258,15 +267,49 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
         key=lambda row: int(row.get("startedEpoch") or row.get("eventEpoch") or 0), reverse=True)
     # A completed earlier transmission must never suppress a newly keyed
     # transmission merely because their start times are 1-3 seconds apart.
-    suppressed_relays = [row for row in relay_current
-        if any(str(row.get("node")) == str(ended.get("node"))
-               and same_active_transmission(row, ended)
-               and int(ended.get("eventEpoch") or 0) >= int(row.get("startedEpoch") or 0)
-               for ended in completed)]
+    suppressed_relays = []
+    ambiguous_relays = []
+    # Suppress a downstream relay only when its observed upstream hub is
+    # already known to have completed this same transmission. Propagate that
+    # evidence along the observed relay chain (Phoenix -> Kentucky -> Georgia)
+    # rather than matching unrelated stations solely by nearby timestamps.
+    # If multiple completed upstream events fit the same relay window, retain
+    # the activity as ambiguous instead of guessing which one ended.
+    upstream_completed = list(completed)
+    while True:
+        newly_suppressed = []
+        for row in relay_current:
+            if row in suppressed_relays:
+                continue
+            matches = [ended for ended in upstream_completed
+                if str(row.get("node", "")) == str(ended.get("hubNode") or "")
+                and same_active_transmission(row, ended)
+                and int(ended.get("eventEpoch") or 0) >= int(row.get("startedEpoch") or 0)]
+            if len(matches) == 1:
+                newly_suppressed.append(row)
+            elif len(matches) > 1:
+                ambiguous_relays.append(row)
+        if not newly_suppressed:
+            break
+        suppressed_relays.extend(newly_suppressed)
+        upstream_completed.extend(newly_suppressed)
     unmatched_relays = [row for row in relay_current if row not in suppressed_relays]
-    # A relay without a currently matched origin is still a known relay.
-    # Do not manufacture an "Unidentified Station" global talker while source
-    # hub event timestamps are briefly out of sync.
+    # A relay may arrive before the source hub's verified station event.
+    # Keep the UI visibly ACTIVE for a short, bounded identity-resolution
+    # window, but never invent a callsign or station node for that interval.
+    pending_until = 0
+    if current is None and unmatched_relays:
+        first_relay = unmatched_relays[0]
+        relay_started = int(first_relay.get("startedEpoch") or first_relay.get("eventEpoch") or now)
+        pending_until = (relay_started + 2) * 1000
+        if pending_until > now * 1000:
+            current = {"node": "", "callsign": "", "description": "Origin not yet verified",
+                "location": "", "source": "AllStar", "duration": first_relay.get("duration", "—"),
+                "eventEpoch": first_relay.get("eventEpoch", now), "startedEpoch": relay_started,
+                "current": True, "hubId": first_relay.get("hubId", ""),
+                "hubName": first_relay.get("hubName", ""), "hubNode": first_relay.get("hubNode", ""),
+                "heardOn": first_relay.get("heardOn", ""),
+                "identityPendingUntilEpochMs": pending_until}
     for hub in hubs:
         hub["txState"] = "idle"
         hub["txLabel"] = "Idle"
@@ -295,7 +338,8 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
                 matches = [candidate]
         # Relay watchers report the neighboring hub's node, not the actual
         # remote caller. Use the verified originating talker while it is live.
-        if not matches and current and str(active.get("node", "")) in hub_nodes:
+        if (not matches and current and not current.get("identityPendingUntilEpochMs")
+                and str(active.get("node", "")) in hub_nodes):
             if same_active_transmission(active, current):
                 matches = [current]
         # Live inter-hub relay streams may begin well after the originating
@@ -335,11 +379,27 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
         else:
             relay_node = str(active.get("node", ""))
             relay_hub = next((item for item in hubs if str(item.get("node", "")) == relay_node), None)
-            if relay_hub and not active.get("originatedLocally"):
-                hub["txState"] = "relay"
-                # Without verified origin, show a neutral relay indicator
-                # rather than misrepresenting the immediate hop as source.
-                hub["txLabel"] = "RELAY · Origin pending"
+            relay_is_ambiguous = any(
+                row.get("hubId") == hub.get("id")
+                and str(row.get("node", "")) == str(active.get("node", ""))
+                and same_active_transmission(row, active)
+                for row in ambiguous_relays)
+            if relay_is_ambiguous or len(matches) > 1:
+                # Concurrent origins overlap this relay's timing window. We
+                # know activity exists, but cannot safely attribute its source.
+                hub["txState"] = "unknown"
+                hub["txLabel"] = "RELAY · Origin ambiguous"
+                hub["currentTalker"] = hub["txLabel"]
+            elif relay_hub and not active.get("originatedLocally"):
+                if pending_until > now * 1000:
+                    hub["txState"] = "pending"
+                    hub["txLabel"] = "ACTIVE · Origin not yet verified"
+                    hub["identityPendingUntilEpochMs"] = pending_until
+                else:
+                    hub["txState"] = "relay"
+                    # Without verified origin, show a neutral relay indicator
+                    # rather than misrepresenting the immediate hop as source.
+                    hub["txLabel"] = "RELAY · Origin pending"
                 hub["relayUpstream"] = {"hubId": relay_hub.get("id"), "hubNode": relay_node,
                                         "hubName": relay_hub.get("name")}
                 hub["currentTalker"] = hub["txLabel"]
@@ -350,8 +410,9 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
     # Use a single coherent event for the current card, hub pill and row.
     # A hub may have an event ahead of its neighbors by 1-3 seconds.
     if current:
+        pending_current = int(current.get("identityPendingUntilEpochMs") or 0) > now * 1000
         origin_hub = next((hub for hub in hubs if hub.get("id") == current.get("hubId")), None)
-        if not origin_hub or origin_hub.get("txState") != "origin":
+        if not pending_current and (not origin_hub or origin_hub.get("txState") != "origin"):
             current = None
     for hub in hubs:
         if hub.get("txState") == "idle":
@@ -619,6 +680,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
             destination = BRIDGE_DESTINATIONS[bridge_id]
         runtime_key = runtime_bridge_aliases.get(bridge_id, bridge_id)
         runtime = runtime_bridges.get(runtime_key, {}) if isinstance(runtime_bridges, dict) else {}
+        activity_events = []
         if isinstance(runtime, dict) and runtime:
             role = str(runtime.get("role") or "idle")
             active = runtime.get("active") is True
@@ -626,7 +688,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
             if bridge_id == "m17":
                 current_user = re.sub(r"-[0-9]{1,2}$", "", current_user)
             bridge_state = "TX" if active and role == "source" else "RELAY" if active and role == "relay" else "Idle"
-            recent_users = bridge_recent_activity(runtime, recent_users, now)
+            activity_events = bridge_recent_activity(runtime, now, bridge_id)
         else:
             role = "idle"
             active = False
@@ -645,6 +707,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
             "relay": active and role == "relay",
             "clients": clients[:50],
             "recentUsers": recent_users[:30],
+            "activityEvents": activity_events,
         })
     generated = epoch(status.get("generated_epoch")) or epoch(state.get("utc"))
     age = max(0, now - generated) if generated else -1

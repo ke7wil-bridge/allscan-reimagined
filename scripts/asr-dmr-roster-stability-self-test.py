@@ -47,16 +47,17 @@ assert activity["tx_events"][0]["callsign"] == "CLIENT-C"
 assert activity["tx_events"][0]["event"] == "transmit"
 assert len(sessions) == 5
 
-# A TX-end-shaped session update is not connection-disconnect evidence.
+# TGIF's own session UI defines state=0 as connection-disconnect evidence;
+# the incidental tx=False field does not change that meaning.
 tgif.update_session_roster(
     sessions,
     {"uuid": "3", "callsign": "CLIENT-C", "state": "0", "ts2_talkgroup": tg, "tx": False},
     tg,
     106,
 )
-assert len(sessions) == 5
+assert len(sessions) == 4
 
-# Only explicit independent connection evidence removes CLIENT-C.
+# A duplicate explicit disconnect remains idempotent.
 tgif.update_session_roster(sessions, {"uuid": "3", "event": "disconnect"}, tg, 107)
 assert len(sessions) == 4
 assert all(row["callsign"] != "CLIENT-C" for row in sessions.values())

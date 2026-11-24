@@ -23,6 +23,7 @@ MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 STANDARD_RUN_DIR = Path("/run/allscan-reimagined-standard-bridge-status")
 STANDARD_STATUS_PATH = STANDARD_RUN_DIR / "bridge-live.json"
 MANAGED_CLIENT_ROSTER_PATH = Path("/var/www/html/asr/asr-connected-clients.json")
+TGIF_SESSION_SNAPSHOT_PATH = Path("/run/allscan-reimagined/tgif-users/snapshots/node.json")
 M17_BRIDGE_INI_PATH = Path("/etc/m17/usrp2m17.ini")
 BRIDGE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
@@ -145,21 +146,11 @@ def reconcile_client_snapshot(state: dict[str, Any], clients: list[str] | None, 
     current = sorted({clean_caller(client, 120).upper() for client in clients if clean_caller(client, 120)})
     previous = state.get("client_snapshot")
     state["client_snapshot"] = current
+    state["client_events"] = [row for row in state.get("client_events", [])
+                              if isinstance(row, dict) and row.get("source") != "baseline_observation"]
     baseline_version = int(state.get("client_snapshot_version", 0) or 0)
     if baseline_version < 1:
-        # On first observation (including upgrade from the old collector),
-        # report currently connected stations as present at observation time.
-        # This is explicitly a baseline observation, not a claimed historical
-        # connect timestamp. It lets already-connected operators appear in UI.
-        events = [row for row in state.get("client_events", []) if isinstance(row, dict)
-                  and 0 < int(row.get("epoch", 0) or 0) <= now
-                  and now - int(row.get("epoch", 0) or 0) <= BRIDGE_RECENT_MAX_AGE_SECONDS]
-        known = {str(row.get("callsign", "")).upper() for row in events}
-        events.extend({"callsign": name, "event": "connect", "epoch": now,
-                       "source": "baseline_observation"}
-                      for name in current if name not in known)
-        events.sort(key=lambda row: int(row.get("epoch", 0) or 0), reverse=True)
-        state["client_events"] = events[:100]
+        # A first roster is current state, not evidence of when anyone connected.
         state["client_snapshot_version"] = 1
         return
     if not isinstance(previous, list):
@@ -267,6 +258,63 @@ def authoritative_client_snapshots(
             identity for row in rows if (identity := _roster_identity(row, config))
         })
     return snapshots
+
+
+def tgif_session_activity(
+    now: int, path: Path = TGIF_SESSION_SNAPSHOT_PATH,
+) -> dict[str, Any] | None:
+    """Read TGIF's explicit transition journal; absence enables roster fallback."""
+    payload = _safe_json(
+        path,
+        required_uid=0 if os.geteuid() == 0 else None,
+        forbidden_write_mask=0o022,
+    )
+    if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+        return None
+    events = []
+    for row in payload["events"]:
+        if not isinstance(row, dict) or row.get("event") not in ("connect", "disconnect"):
+            continue
+        epoch = int(row.get("epoch", 0) or 0)
+        callsign = clean_caller(row.get("callsign", ""), 20)
+        dmrid = str(row.get("dmrid", "")).strip()
+        event_id = str(row.get("event_id", "")).strip()
+        if (not callsign or not re.fullmatch(r"[1-9][0-9]{0,9}", dmrid)
+                or not re.fullmatch(r"node:[1-9][0-9]{0,19}", event_id)
+                or epoch <= 0 or epoch > now + 300 or now - epoch > BRIDGE_RECENT_MAX_AGE_SECONDS):
+            continue
+        events.append({
+            "event_id": event_id,
+            "sequence": int(row.get("sequence", 0) or 0),
+            "callsign": callsign,
+            "dmrid": dmrid,
+            "event": row["event"],
+            "epoch": epoch,
+            "source": "tgif_event_journal",
+        })
+    events.sort(key=lambda row: (int(row["sequence"]), int(row["epoch"])), reverse=True)
+    clients = []
+    for row in payload.get("clients", []) if isinstance(payload.get("clients"), list) else []:
+        if isinstance(row, dict):
+            identity = clean_caller(row.get("callsign", ""), 20).upper()
+            if identity:
+                clients.append(identity)
+    return {"events": events[:200], "clients": sorted(set(clients))}
+
+
+def merge_tgif_session_activity(state: dict[str, Any], activity: dict[str, Any]) -> None:
+    """Replace snapshot-derived DMR events with the authoritative TGIF journal."""
+    retained = [row for row in state.get("client_events", [])
+                if isinstance(row, dict) and row.get("source") == "tgif_event_journal"]
+    by_id = {str(row.get("event_id", "")): dict(row) for row in retained if row.get("event_id")}
+    for row in activity.get("events", []):
+        if isinstance(row, dict) and row.get("event_id"):
+            by_id[str(row["event_id"])] = dict(row)
+    events = list(by_id.values())
+    events.sort(key=lambda row: (int(row.get("sequence", 0) or 0), int(row.get("epoch", 0) or 0)), reverse=True)
+    state["client_events"] = events[:100]
+    state["client_snapshot"] = list(activity.get("clients", []))
+    state["client_snapshot_version"] = 1
 
 
 def record_transmission(
@@ -1129,6 +1177,7 @@ def standard_live_payload(
     m17_lines: list[str] | None = None,
     m17_journal_lines: list[str] | None = None,
     client_snapshots: dict[str, list[str]] | None = None,
+    dmr_session_activity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bridges = configured_standard_bridges(config)
     # Every configured card needs an Idle/health entry, even when multiple
@@ -1209,6 +1258,7 @@ def standard_live_payload(
             states[bridge_id]["client_snapshot"] = (
                 previous.get("client_snapshot") if isinstance(previous.get("client_snapshot"), list) else None
             )
+            states[bridge_id]["client_snapshot_version"] = int(previous.get("client_snapshot_version", 0) or 0)
             states[bridge_id]["client_events"] = (
                 previous.get("client_events") if isinstance(previous.get("client_events"), list) else []
             )
@@ -1227,7 +1277,10 @@ def standard_live_payload(
             if state.get("role") == "source" and not state.get("current_user"):
                 state["role"] = "idle"
                 state["active_start_epoch"] = 0
-        if client_snapshots is not None and bridge_id in client_snapshots:
+        mode = str(bridge.get("mode", "")).lower()
+        if mode == "dmr" and dmr_session_activity is not None:
+            merge_tgif_session_activity(state, dmr_session_activity)
+        elif client_snapshots is not None and bridge_id in client_snapshots:
             reconcile_client_snapshot(state, client_snapshots[bridge_id], now)
         active_start = int(state.get("active_start_epoch", 0) or 0)
         if (
@@ -1529,6 +1582,7 @@ def watch_standard_status(
                 tag_stem=True,
             ),
             client_snapshots=authoritative_client_snapshots(config, now, client_roster_path),
+            dmr_session_activity=tgif_session_activity(now),
         ))
         if once:
             return
