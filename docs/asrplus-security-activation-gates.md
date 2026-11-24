@@ -1,42 +1,71 @@
-# ASR Plus coordinated signing activation gates
+# ASR Plus required-mode activation and rollback gates
 
-Status: **BLOCKED / STAGED ONLY**. No production signing or service replacement.
+Status: prepared locally; production activation is not approved.
 
-## Gate 1 — compatibility
+## Current baseline
 
-- [x] All nine offline token, command-integrity, agent-mode, moderation-result,
-  import-layout, KY2 watcher, post-command status, staging-config and
-  directory-permission self-tests pass at `b1f9e96`.
-- [x] Phoenix 641894, KY2 674980 and MasterHub 674982 staged with backups; no activation.
-- [x] Verify live-vs-unified configuration and unit contracts for both hubs,
-  including Phoenix's existing drop-ins and KY2's split control/watcher configs,
-  keyless watcher and `masterhub-pull` telemetry.
-- [ ] Validate all current MasterHub forced-command SSH mappings, `asrplus-sync`, `asrplus-poll`, `asrplus-ack`, status and command queues using offline copies. Read-only audit confirms a KY2 `georgia` forced-command entry restricted to `44.30.157.22`, **but also an older `georgia` entry restricted to `45.76.255.39`**. Verify whether the older credential remains in use and plan revocation separately; do not change it during staging.
-- [ ] Verify current queued/inflight commands and ledger semantics; do not switch code while commands are pending. Initial read-only queue scan returned no pending `.json` or `.inflight` files; repeat immediately before cutover.
-- [ ] Verify current systemd sandbox paths and all required existing Asterisk admin writes.
+- Authenticated command components are installed and source-parity verified on
+  Kentucky 674982, KY2 674980, and Phoenix 641894.
+- Phoenix and KY2 are healthy in `optional`; Texas is not installed.
+- Current remote queues were empty during the read-only inspection. Repeat this
+  check at the action window.
+- Signing keys are separate, root-owned `0600`, and were never displayed.
+- KY2's control service requires the staged sandbox drop-in before activation.
+- Kentucky's token package is a separate deployment and is not a prerequisite
+  for signing activation.
 
-## Gate 2 — secrets and staged configs
+## Preflight gate
 
-- [ ] Generate separate random HMAC keys for Phoenix and KY2; store root-only, never in repository or logs. Config/module bundles are now staged under `ops/asrplus/staging/`; no keys are included or generated.
-- [ ] Configure `phoenix` and legacy `georgia` identities in MasterHub `/etc/asrplus/command-integrity.json`, both initially `optional`.
-- [ ] Prepare Phoenix merged config: `eventPublishMode=outbound`, heartbeat 5, signing config and persistent ledger.
-- [ ] Prepare KY2 control config: `eventPublishMode=masterhub-pull`, heartbeat 1, signing config and persistent ledger. Keep watcher config separate and watcher-only.
-- [x] Validate staged module/config pairing, hub IDs, optional mode, KY2 keyless watcher config, and expected existing SSH/control paths offline.
-- [ ] Validate deployed module import paths, root-only key access, ledger persistence, and systemd write allowances on each host.
-- [ ] Replace all stale staged entrypoints: Phoenix/KY2 agent (`f4874d...` ->
-  `7e4c41...`) and MasterHub control/endpoint (`098144...`/`324630...` ->
-  `ba857f...`/`4ef829...`). Verify repository manifest hashes on all hosts.
-- [ ] **Import blocker:** all new Python entrypoints import `asrplus_command_integrity`, but the existing deployed entrypoints live in `/usr/local/sbin`; explicitly install the shared module beside each entrypoint (or configure a verified import path) on MasterHub, Phoenix and KY2. Repo scan found no installation instruction for this module. Test imports using the deployed interpreter and service environment before replacement.
+- [ ] Josh approves the exact hosts, window, service effects and rollback.
+- [ ] Capture root-only backups of each config and unit/drop-in with owner,
+  mode and SHA-256; record a rollback directory on each node.
+- [ ] Confirm NTP synchronized, all three nodes healthy, dashboards fresh, and
+  Asterisk links unchanged.
+- [ ] Confirm no queued or inflight commands and preserve all ledgers/audits.
+- [ ] Confirm per-hub key paths, IDs and hashes match their central counterpart
+  without printing key contents.
+- [ ] Run all local security suites at the approved commit.
 
-## Gate 3 — approved coordinated activation
+## Stage 1 - KY2 sandbox remediation
 
-- [ ] Obtain explicit production activation approval and select quiet maintenance window.
-- [ ] Fresh backups and pre-change checks of hub links, telemetry, queues, control API and watcher services.
-- [ ] Install compatible agent and central code in coordinated order; never enable central signing until both remote agents can verify it.
-- [ ] Exercise signed **read-only** `ban-list` against each hub; verify acknowledgment, replay rejection and audit without changing radio links.
-- [ ] Verify controls, last talker, recent activity, status freshness, and no unexpected link changes.
-- [ ] Drain queues and obtain separate approval before `optional` -> `required` cutover.
+Install only the reviewed `security-hardening.conf` drop-in for
+`asrplus-ky-control.service`, run `systemd-analyze verify`, reload systemd, and
+allow the existing timer to invoke it. Do not restart Asterisk. Verify KY2
+telemetry, ledger persistence, strict SSH, queue polling, watcher freshness,
+and unchanged links. On failure, restore/remove the drop-in, reload systemd,
+and preserve ledger/audit state.
 
-## Rollback
+## Stage 2 - remote agents require signatures
 
-Stop issuing commands; preserve ledger, queue, inflight and audit records. Restore backed-up binaries, configs and units in coordinated order. Do not rotate keys or delete ledger as a shortcut. Validate link and telemetry health after rollback.
+With queues empty, change Phoenix and KY2 agent configs from `optional` to
+`required`, one hub at a time. Do not change key IDs, key paths, SSH settings,
+node numbers, timers, or routing. Let each existing timer run and verify fresh
+telemetry plus a signed read-only `ban-list` lifecycle before continuing.
+
+Order: Phoenix first, then KY2. A failure affects only that hub; restore its
+backed-up config to `optional`, allow the timer to run, and stop the cutover.
+Kentucky remains compatible because it already signs all newly created work.
+
+## Stage 3 - central rejection of unsigned work
+
+After both remote agents are verified required and queues remain empty, change
+only Phoenix and KY2 modes in Kentucky
+`/etc/asrplus/command-integrity.json` to `required`. Verify a signed read-only
+command and acknowledgment independently for Phoenix and KY2, then confirm
+dashboard freshness, empty queues, audit events, ledgers, and radio-link health.
+
+## Rollback order
+
+1. Stop issuing new controls; preserve queue, inflight, result, archive, ledger
+   and audit files.
+2. Return Kentucky's affected hub mode to `optional` if central required mode
+   was reached.
+3. Return the affected remote agent to its backed-up optional config.
+4. If the KY2 sandbox caused the regression, restore its prior unit state and
+   reload systemd. Do not clear the execute-once ledger.
+5. Verify telemetry, queue depth, signed read-only lifecycle, audit continuity,
+   and unchanged Asterisk links before resuming control.
+
+Required-mode activation needs a fresh, explicit production approval naming
+Kentucky, Phoenix and KY2. A merge, issue comment, or approval of the token or
+Texas work does not authorize it.

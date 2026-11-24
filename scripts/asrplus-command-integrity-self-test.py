@@ -83,6 +83,33 @@ def central_fixture(root: Path, mode: str = "required") -> tuple[Path, bytes]:
     return config, key
 
 
+# Key loading fails closed for missing, symbolic-link, short, and group-readable
+# material. These checks cover both central and remote-agent configuration.
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    valid, raw = key_file(root)
+    assert integrity.load_key(valid) == raw
+    insecure = root / "insecure.key"
+    insecure.write_text(raw.hex() + "\n", encoding="ascii")
+    insecure.chmod(0o640)
+    short = root / "short.key"
+    short.write_bytes(b"too-short")
+    short.chmod(0o600)
+    link = root / "linked.key"
+    link.symlink_to(valid)
+    for candidate, expected in (
+        (root / "missing.key", "unavailable"),
+        (insecure, "owner-only"),
+        (short, "256 bits"),
+        (link, "symbolic link"),
+    ):
+        try:
+            integrity.load_key(candidate)
+            raise AssertionError(f"unsafe command key accepted: {candidate.name}")
+        except integrity.IntegrityError as error:
+            assert expected in str(error)
+
+
 # Cryptographic envelope: authorized command and acknowledgment succeed.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)

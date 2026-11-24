@@ -6,7 +6,7 @@ deployed or modified.
 ## Current distributed-hub architecture
 
 Kentucky node 674982 is the ASR Plus aggregation and command-queue authority.
-Phoenix 641894 and KY2 674980 (legacy `georgia` identifier) run local agents that collect Asterisk and
+Phoenix 641894 and KY2 674980 run local agents that collect Asterisk and
 bridge telemetry, initiate outbound SSH to Kentucky, publish status, poll a
 hub-specific queue, execute validated local Asterisk link commands, and return
 an acknowledgment. Kentucky builds the combined private dashboard snapshot.
@@ -54,6 +54,29 @@ is narrowed enough to avoid root. Apply `NoNewPrivileges`, `PrivateTmp`,
 `ProtectSystem=strict`, `ProtectHome=true`, explicit `ReadOnlyPaths`, explicit
 `ReadWritePaths`, a capability-free bounding set, and network address-family
 restrictions consistent with outbound SSH plus loopback AMI.
+
+## Texas agent SSH endpoint and key configuration
+
+The `server` field in `ops/asrplus/texas-agent.json` is the agent's outbound
+SSH destination on Kentucky MasterHub. It is **not** an instruction to permit
+interactive root login to the Texas host. The current MasterHub endpoint is
+`root@44.30.157.21`; this root account is used only with the dedicated
+per-hub forced-command key. On MasterHub, that key must be installed with
+`restrict`, `from="<approved Texas source IP>"`, and the forced command
+`asrplus-remote-endpoint texas`. It must not permit a shell, PTY, forwarding,
+agent forwarding, or arbitrary commands. Verify the actual MasterHub address,
+source IP, and authorized-key line during host-specific preflight.
+
+The SSH private key (`/etc/asrplus/ssh/texas-to-kentucky`) and HMAC signing
+key (`/etc/asrplus/command-keys/texas.key`) are separate credentials. The
+agent's HMAC path now matches the central Texas key configuration exactly.
+Do not create either key until the host and operator approvals are complete.
+
+The current systemd agent template still runs as root to access Asterisk and
+SSH paths. That is a separate local privilege-hardening item: before Texas
+installation, validate a dedicated service account and the minimum AMI/socket
+permissions needed to remove root from the local agent. The remote forced
+command's root account does not justify an interactive root account on Texas.
 
 ## Installation checklist
 
@@ -136,54 +159,59 @@ assumed. Operators must fail closed: show telemetry stale, stop leasing new
 commands, expire pending controls, and use the approved human incident path.
 No automatic promotion of Texas is designed or approved by this package.
 
+## Isolated capacity and failure test plan
+
+Run these only against a disposable Texas fixture, never a current hub. Record
+the VM size, software commit, latency, CPU, RSS, file growth, queue depth, error
+rate and recovery time. The acceptance ceiling is 80 queued commands per hub
+(below the implementation's hard limit of 100), status payloads at the enforced
+size boundary, and the agreed peak telemetry rate for at least 30 minutes with
+CPU below 70%, no swap growth, no dropped audit records and status age below
+two heartbeat intervals.
+
+Inject Kentucky unreachability, DNS failure, 30-second clock skew, packet loss,
+duplicate delivery, lost acknowledgment, agent restart, stale inflight work,
+full queue, malformed payloads and disk-full writes. Acceptance requires no
+duplicate execution, no cross-hub access, no expired execution after recovery,
+bounded retry without a tight loop, explicit stale dashboard state, intact
+ledger/audit history, and successful recovery without clearing state. Provider
+capacity and final peak assumptions require KJ5IRQ approval before testing.
+
 ## Required deployment order
 
-The order is security-critical. Kentucky must not begin issuing signed
-commands until both existing remote agents can verify them.
+Authenticated command components and distinct Phoenix/KY2 signing keys are
+already installed in optional mode. The remaining order is security-critical:
 
-1. **Preflight and backup only after explicit approval.** Record current hashes,
-   back up each source/config/unit/queue/result file with owner and mode, verify
-   free space and clocks, and run the local security tests. Generate distinct
-   Phoenix, KY2, and Texas 256-bit HMAC keys outside the repository and
-   chat. Each key file is owner-only `0600`; never reuse a hub key.
-2. **Phoenix agent first.** Install the shared integrity module, upgraded agent,
-   Phoenix key, optional-mode config, and hardened units. Reload/restart only
-   the ASR Plus agent/watcher after an action-time approval. Verify telemetry,
-   strict Kentucky host-key pinning, legacy compatibility, ledger permissions,
-   and no radio-link change.
-3. **KY2 agent second.** KY2 at `44.30.157.22` has a verified host key
-   (`SHA256:a5I8wvynj6X5DMOCsXUVnM0MbdpZpJhoBXfyuC17fJs`). Preserve its
-   split control/watcher services, `masterhub-pull` mode and one-second talker
-   heartbeat. Use a distinct KY2 signing key. Do not confuse KY2 with the
-   unrelated `45.76.255.39` legacy Georgia endpoint.
-4. **Kentucky central components.** With both agents in optional mode, install
-   the shared module, signed control helper, verifying forced-command endpoint,
-   central per-hub key configuration, API/token files, and log rotation. Back
-   up queues before replacement. Existing unsigned entries may drain for at
-   most five minutes; every newly created command is signed.
-5. **Non-mutating protocol qualification.** Use a supervised remote `ban-list`
-   request to prove signed delivery and acknowledgment without changing radio
-   links. Test tamper/expiry/cross-hub rejection with offline fixture files,
-   not production queue injection. Confirm logs and exact duplicate retry.
-6. **Close the compatibility window.** After all legacy queue and inflight
-   files are resolved, change Phoenix and KY2 agent and Kentucky hub modes
-   from `optional` to `required`. Recheck telemetry and a read-only signed
-   lifecycle. Optional mode is temporary and must not remain enabled.
-7. **Texas telemetry-only installation.** Texas begins in `required` mode with
-   a dedicated key, SSH key, forced-command entry, source-IP restriction,
-   ledger, queue, status, and result paths. Do not enable command polling or a
-   production radio link until its VM/network review and KJ5IRQ agreements are
-   complete.
-8. **Incremental control approval.** Enable supervised disconnect first, then
-   connect, ban, and unban only through separate recorded approval and tests.
+1. **Required-mode preflight after explicit approval.** Back up current
+   configs and unit state, verify empty queues, synchronized clocks, healthy
+   services, key-hash parity, fresh telemetry and unchanged links.
+2. **Harden KY2 control.** Install and qualify the reviewed systemd drop-in
+   without changing its split services, `masterhub-pull` topology, one-second
+   heartbeat, Asterisk, or radio routing.
+3. **Close the compatibility window.** Change Phoenix and KY2 agents to
+   `required`, one at a time, then change Kentucky's matching hub definitions.
+   Qualify each with a signed read-only `ban-list` lifecycle. Follow
+   `docs/asrplus-security-activation-gates.md` for rollback.
+4. **Install Kentucky API tokens as a separate transaction.** Install the API,
+   root helper, authentication-only sudoers rule, protected store and audit
+   rotation together; test TLS, default read-only scope, node isolation,
+   permission denial, expiration and revocation. Do not issue a token until
+   its owner and scope are approved.
+5. **Texas telemetry-only installation after a third approval.** Texas begins
+   in `required` with dedicated HMAC and SSH keys, forced endpoint, source-IP
+   restriction, ledger and isolated state paths. Keep command polling and all
+   production radio links disabled until offline failure/capacity tests and the
+   KJ5IRQ agreements are complete.
+6. **Incremental control approval.** Enable supervised disconnect first, then
+   connect, ban, and unban only through separate recorded approvals and tests.
 
 ## Nodes requiring updates
 
 | Node | Required package changes | Compatibility mode |
 | --- | --- | --- |
-| Kentucky 674982 | Shared integrity module, signing control helper, verifying SSH endpoint, central API/token files, per-hub key config, audit rotation, Texas forced-command entry when approved | `optional` for Phoenix/KY2 only during drain; then `required` |
-| Phoenix 641894 | Shared module, execute-once agent, Phoenix-only key/config, hardened agent and watcher units | Install `optional` first; change to `required` after Kentucky verification |
-| KY2 674980 (legacy `georgia` identifier) | Same as Phoenix with a distinct KY2 key | Host key verified; split-service compatibility gate remains; `optional` to `required` |
+| Kentucky 674982 | Token API package; later Texas mapping/forced endpoint | Existing signed stack is `optional` for Phoenix/KY2; change to `required` only after remote agents |
+| Phoenix 641894 | Config-only required-mode cutover | Signed agent installed; `optional` to `required` |
+| KY2 674980 | Systemd control sandbox, then config-only required-mode cutover | Signed agent installed; `optional` to `required` |
 | Texas 674984 | Full telemetry agent, Texas-only HMAC and SSH keys, required-mode config/ledger/units, central queue/status/result/config and forced-command identity | `required` from first installation; telemetry-only initially |
 
 Dashboard API tokens exist only on Kentucky. Phoenix, KY2, and Texas never
@@ -218,3 +246,7 @@ service restarts, maintenance impact, validation commands, rollback commands,
 and whether the supervised read-only signed lifecycle may be run. A code-review
 approval, PR approval, or merge is not deployment authorization. Texas radio
 linking and each control permission require later, separate approval.
+
+## Planned UK expansion (not yet validated)
+
+The UK node is a planned future hub, not part of the current three-hub production security qualification. Its node number, deployment configuration, identity, credentials, routing, security posture and operational readiness must be independently confirmed before installation or activation. UK completion is not a prerequisite to KJ5IRQ reviewing the Texas inspection package.

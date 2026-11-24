@@ -41,7 +41,10 @@ def authenticate(module, request: dict) -> tuple[bool, dict]:
 
 
 with tempfile.TemporaryDirectory() as directory:
-    root = Path(directory)
+    parent = Path(directory) / "shared"
+    parent.mkdir(mode=0o755)
+    root = parent / "tokens"
+    root.mkdir(mode=0o700)
     token = load_module(root)
     assert token.KNOWN_NODES["ky2"] == "674980" and "georgia" not in token.KNOWN_NODES
     assert "ky2" in token.parse_csv("ky2") and "georgia" not in token.KNOWN_NODES
@@ -116,4 +119,12 @@ assert 'args.command != "authenticate" and os.geteuid() != 0' in SOURCE.read_tex
 subprocess.run(["php", "-l", str(ROOT / "ops/asrplus/api.php")], check=True,
                stdout=subprocess.DEVNULL)
 
+# Execute the actual PHP filter against a synthetic multi-hub payload.
+functions = api[api.index("function asrplus_canonical_hub"):api.index("$method = strtoupper")]
+php = functions + """
+$p = asrplus_filter_status(['ok'=>true,'generatedEpoch'=>123,'hubs'=>[['id'=>'masterhub'],['id'=>'arizona-hub']],'talkers'=>['other hub'],'telemetry'=>['other hub']], 'phoenix');
+if (array_keys($p) !== ['ok','generatedEpoch','hubs'] || $p['hubs'] !== [['id'=>'arizona-hub']]) exit(1);
+if (asrplus_filter_status(['hubs'=>[]], 'phoenix')['ok'] !== false) exit(2);
+"""
+subprocess.run(["php", "-r", php], check=True)
 print("ASR Plus scoped token security contract: PASS")

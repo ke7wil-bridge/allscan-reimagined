@@ -1,6 +1,7 @@
 bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392  ./ky2/asrplus_command_integrity.py
 7766c67ad379e00ea6f878f28a5e982aa5a48a4b952a0bada08c50ef4eed5602  ./ky2/asrplus-ky-agent
 6680fb7a4a830e9afdfa115c11963e61929dfb7451ecb230f1e9d8f68d214ae0  ./ky2/asrplus-ky-control.json
+d0e8a81ccd798033e4a10f8559e0ec3cb7391860ee03fb2211ebef7f37c6010f  ./ky2/asrplus-ky-control.service.d/security-hardening.conf
 8b8484850a4b01a2e071e65c88505269be59417463f97fa5ba60268ad5da3f85  ./ky2/asrplus-ky.json
 bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392  ./masterhub/asrplus_command_integrity.py
 f4c3fbef8e808aaf4f04c3463aafe079ed1315838c8e88b6632df37b6457c915  ./masterhub/asrplus-control.py
