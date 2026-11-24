@@ -373,6 +373,7 @@ remove_asr_managed_wiring() {
     allscan-reimagined-ysf-hosts-refresh.timer \
     allscan-reimagined-bridge-clients.timer \
     allscan-reimagined-connected-clients-maintenance.timer \
+    allscan-reimagined-tgif-user-sessions.service \
     allscan-reimagined-tgif-user-sessions.timer >/dev/null 2>&1 || true
   systemctl stop 'allscan-reimagined-m17-bridge@*.service' >/dev/null 2>&1 || true
   for m17_unit_link in /etc/systemd/system/multi-user.target.wants/allscan-reimagined-m17-bridge@*.service; do

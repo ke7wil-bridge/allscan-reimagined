@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Bridge card Recent Activity shows CON, DIS and TX (#134).
+"""Bridge card Recent Activity shows CONN, DISC and TX (#134).
 
 Connects, disconnects and transmissions on a bridge card's Recent Activity
-are labelled CON, DIS and TX. Connection events come from the status
+are labelled CONN, DISC and TX. Connection events come from the status
 reader's client roster changes, never from transmissions.
 """
 from pathlib import Path
@@ -17,11 +17,19 @@ def check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-check("event === 'connect' ? 'CON' : event === 'disconnect' ? 'DIS' : ''" in live,
-      "Recent Activity does not label connects/disconnects CON/DIS")
-check("[entry?.tx_events, 'TX'], [entry?.client_events, 'CLIENT']" in live and ": 'TX'" in live,
+check("event === 'connect' ? 'CONN' : event === 'disconnect' ? 'DISC' : ''" in live,
+      "Recent Activity does not label connects/disconnects CONN/DISC")
+check("[entry?.tx_events, 'TX']" in live and ": 'TX'" in live,
       "Recent Activity does not merge TX and connection events")
-check("'CONN'" not in live and "'DISC'" not in live, "old CONN/DISC labels are back")
+check("'CON'" not in live and "'DIS'" not in live, "abbreviated CON/DIS labels are back")
+check("normalizedMode === 'zello' ? undefined : entry?.client_events" in live,
+      "Zello Recent Activity is not TX-only")
+check("sourceProtocol !== 'unknown' && sourceProtocol !== normalizedMode" in live,
+      "cross-protocol transmission events are not rejected")
 check("def reconcile_client_snapshot" in status and '("disconnect", old - new), ("connect", new - old)' in status,
       "status reader no longer records connects/disconnects from roster changes")
-print("Bridge Recent Activity CON/DIS/TX self-test: ok")
+for api_path in (ROOT / "asr-api.php", ROOT / "server/asr-api.php"):
+    api = api_path.read_text(encoding="utf-8")
+    check("'direction'=>'incoming','source_protocol'=>'ZELLO'" in api,
+          f"{api_path.name} does not identify authentic inbound Zello TX events")
+print("Bridge Recent Activity CONN/DISC/TX self-test: ok")

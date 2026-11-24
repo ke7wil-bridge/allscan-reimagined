@@ -2347,6 +2347,44 @@ def self_test(spec: ModeSpec) -> None:
         )
         assert restarted_disconnected["requestedTarget"] is None
         assert restarted_disconnected["connectionState"] == "disconnected"
+        if spec.mode == "nxdn":
+            # NXDN gateways unlink after inactivity and then select the fixed
+            # destination again when traffic returns.  Selection is control-
+            # plane evidence only: it must not manufacture reachability, a
+            # connected state, or TX activity.
+            inactive = normalize_event(json.dumps({"link": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "unlinked", "reason": "inactivity", "talkgroup": 10200,
+            }}), spec)
+            inactive_status = base_status(
+                validated, spec, service_snapshot,
+                {"requestedTarget": 10200, "pending": False,
+                 "pendingAction": "connect", "epoch": int(time.time()) - 60},
+                inactive,
+            )
+            assert inactive_status["requestedTarget"] is None
+            assert inactive_status["confirmedTarget"] is None
+            assert inactive_status["connectionState"] == "disconnected"
+            assert inactive_status["reachabilityConfirmed"] is False
+
+            relinked = normalize_event(json.dumps({"link": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "relinking", "reason": "network", "talkgroup": 10200,
+                "reachable": True, "evidence": "poll-response",
+            }}), spec)
+            relink_status = base_status(
+                validated, spec, service_snapshot,
+                {"requestedTarget": 10200, "pending": False,
+                 "pendingAction": "connect", "epoch": int(time.time())},
+                relinked,
+            )
+            assert relinked["action"] == "relinking"
+            assert relink_status["confirmedTarget"] == 10200
+            assert relink_status["reachabilityConfirmed"] is False
+            assert relink_status["connectionState"] == "selected-unverified"
+            relink_with_transport = with_allstar_state(relink_status, True)
+            assert relink_with_transport["connectionState"] == "connected-unverified"
+            assert relink_with_transport["connectionState"] != "connected"
         if spec.mode == "p25":
             proven_status = base_status(
                 validated, spec, service_snapshot, {}, proven
@@ -2475,6 +2513,12 @@ def self_test(spec: ModeSpec) -> None:
         assert restarted_state["outboundActive"] is False
         assert restarted_state["eventEpoch"] == log_network_eot["epoch"]
         assert restarted_state["recentTalkers"][0]["callsign"] == "N0CALL"
+        if spec.mode == "nxdn":
+            assert restarted_state["active"] is False
+            assert restarted_state["outboundActive"] is False
+            assert json.loads(fast_activity_path(
+                validated, test_spec
+            ).read_text(encoding="utf-8"))["role"] == "idle"
         stream_fixture._apply({
             **inbound,
             "epochMs": log_network_eot["epochMs"] - 1,
@@ -2598,6 +2642,8 @@ def self_test(spec: ModeSpec) -> None:
             raise AssertionError("unsafe watch interval accepted")
         except ControlError:
             pass
+    if spec.mode == "nxdn":
+        print("NXDN inactivity, relink, relay attribution, and interruption recovery: ok")
     print(f"{spec.label} bridge-control self-test: ok")
 
 

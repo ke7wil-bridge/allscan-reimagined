@@ -128,6 +128,8 @@ python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-endpoint-collisions-self-test.py"
+python3 "$ROOT/scripts/asr-net-bridge-mode-self-test.py"
+python3 "$ROOT/scripts/asr-net-bridge-plumbing-acceptance.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-setup-dmr-net-self-test.py"
@@ -155,6 +157,7 @@ python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
 python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"
 python3 "$ROOT/scripts/asr-p25-bridge-control.py" self-test
 python3 "$ROOT/scripts/asr-nxdn-bridge-control.py" self-test
+python3 "$ROOT/scripts/asr-standard-bridge-runtime-self-test.py"
 python3 "$ROOT/scripts/asr-m17-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-m17-usrp-connector.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-setup-m17-self-test.py"
@@ -180,6 +183,8 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-client-management-browser-self-test.mjs"
+python3 "$ROOT/scripts/beta86-talker-parity-self-test.py"
 node "$ROOT/scripts/asr-bridge-recent-activity-self-test.mjs"
 if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
   node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
@@ -193,7 +198,10 @@ python3 "$ROOT/scripts/asr-post-reboot-health-self-test.py"
 python3 "$ROOT/qa/disposable-node/asr-qa-gate-self-test.py"
 bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
+python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-client-management-self-test.py"
+python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
+python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
@@ -217,6 +225,9 @@ node "$ROOT/scripts/asr-update-dialog-self-test.mjs"
 node "$ROOT/scripts/asr-custom-command-buttons-self-test.mjs"
 node "$ROOT/scripts/asr-maintenance-regression-self-test.mjs"
 python3 "$ROOT/scripts/asr-deployment-source-consistency-self-test.py"
+# Unified bridge gate: includes Thomas's protocol, roster, Kick/Ban,
+# relay identity, Recent Activity and real-dashboard behavioral blockers.
+sh "$ROOT/scripts/asr-beta8-bridge-regression-self-test.sh"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
 		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do

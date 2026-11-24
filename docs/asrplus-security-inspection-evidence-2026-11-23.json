@@ -1,0 +1,60 @@
+{
+  "auditDate": "2026-11-23",
+  "productionMutations": false,
+  "basis": {
+    "originMain": "e9641b7416a0a22372e6e8fb728aeced7438df31",
+    "securityFoundation": "4b43851c1366f3dcbb31afbd9d30332b62b96fa0",
+    "pr266LocalCommit": "918a9953fded4cff0b2bca462c71d04f740956af"
+  },
+  "nodes": {
+    "kentucky": {
+      "node": "674982",
+      "role": "central",
+      "signingMode": {"phoenix": "optional", "ky2": "optional"},
+      "sourceParity": true,
+      "queueEmptyAtInspection": true,
+      "tokenPackageInstalled": false
+    },
+    "ky2": {
+      "node": "674980",
+      "role": "remote-agent",
+      "signingMode": "optional",
+      "sourceParity": true,
+      "ledgerPersistent": true,
+      "controlSandboxGap": true
+    },
+    "phoenix": {
+      "node": "641894",
+      "role": "remote-agent",
+      "signingMode": "optional",
+      "sourceParity": true,
+      "ledgerPersistent": true,
+      "controlSandboxGap": false
+    },
+    "texas": {
+      "node": "674984",
+      "role": "planned-remote-agent",
+      "signingMode": "required",
+      "contacted": false,
+      "installed": false
+    }
+  },
+  "deployedHashes": {
+    "control": "f4c3fbef8e808aaf4f04c3463aafe079ed1315838c8e88b6632df37b6457c915",
+    "remoteEndpoint": "145c4ec9968703d3f09d708a9227ecac84e7d5537d36c81565fb56d44312814c",
+    "integrityModule": "bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392",
+    "remoteAgent": "7766c67ad379e00ea6f878f28a5e982aa5a48a4b952a0bada08c50ef4eed5602",
+    "centralIntegrityConfig": "12842a2ddce2c4ba5d01853589b0bff0c1e4e86a85c6b312c249766975572c81"
+  },
+  "apiHashPrefixes": {
+    "productionSessionApi": "9024d5",
+    "repositoryTokenApi": "06cbbe"
+  },
+  "approvalGates": [
+    "ky2-control-sandbox",
+    "required-mode-cutover",
+    "kentucky-token-package",
+    "texas-telemetry-only-install",
+    "texas-radio-and-control"
+  ]
+}

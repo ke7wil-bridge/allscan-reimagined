@@ -1367,7 +1367,7 @@ function asr_bridge_status_payload(): array {
                 $name = substr(trim((string) ($row['name'] ?? $row['callsign'] ?? '')), 0, 120);
                 $epoch = asr_client_epoch_value($row['epoch'] ?? 0);
                 $duration = max(0.0, (float) ($row['duration_seconds'] ?? 0));
-                if ($name !== '' && $epoch > 0) $zelloEvents[] = ['callsign'=>$name,'event'=>'transmit','epoch'=>$epoch,'start_epoch'=>$epoch - $duration,'duration_seconds'=>$duration];
+                if ($name !== '' && $epoch > 0) $zelloEvents[] = ['callsign'=>$name,'event'=>'transmit','epoch'=>$epoch,'start_epoch'=>$epoch - $duration,'duration_seconds'=>$duration,'direction'=>'incoming','source_protocol'=>'ZELLO'];
             }
             $lastUser = substr(trim((string) ($zelloPayload['last_user'] ?? '')), 0, 120);
             $lastEpoch = $zelloEvents ? (int) ($zelloEvents[0]['epoch'] ?? 0) : 0;

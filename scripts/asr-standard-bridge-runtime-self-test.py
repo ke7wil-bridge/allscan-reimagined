@@ -38,11 +38,12 @@ with patch.object(m.subprocess, 'run', side_effect=[Result(), Result()]):
 assert len(units) == 2 and issues == []
 print('Runtime confirmation and healthy services: PASS')
 
-# An NXDN inactivity unlink immediately followed by a network-activity
-# relink does not establish successful end-to-end audio or external health.
+# An idle NXDN card must not infer successful end-to-end audio or external
+# health.  Inactivity/relink behavior is exercised by the production NXDN
+# control entry point's self-test, which shares the installed P25/NXDN core.
 nxdn = {'id': 'nxdn_johnny2', 'mode': 'nxdn', 'node': '1005', 'backendMode': 'managed'}
 state = m.initial_activity_state()
 entry = m.public_entry(nxdn, state)
 assert entry['online'] is None and entry['linked'] is None
 assert entry['health_severity'] is None
-print('NXDN inactivity/relink remains unverified: PASS')
+print('NXDN idle status does not fabricate runtime connectivity: PASS')

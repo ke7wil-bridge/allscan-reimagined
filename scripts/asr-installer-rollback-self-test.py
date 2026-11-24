@@ -234,6 +234,7 @@ def assert_installer_order(installer: Path) -> None:
     remove_end = text.index("restore_reapply_unit_states()", remove_start)
     remove_block = text[remove_start:remove_end]
     assert "allscan-reimagined-standard-bridge-status.service" in remove_block
+    assert "allscan-reimagined-tgif-user-sessions.service" in remove_block
     assert "allscan-reimagined-tgif-user-sessions.timer" in remove_block
     assert "/etc/tmpfiles.d/allscan-reimagined.conf" in remove_block
     assert "/usr/local/sbin/asr_bridge_status.py" in remove_block

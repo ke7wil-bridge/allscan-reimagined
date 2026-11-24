@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-import ast
 import importlib.util
 import json
-import os
 import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
-ZELLO_COMPOSE_PATH = ROOT.parent / "asl3/docker-compose.yml"
-ZELLO_COMPOSE = ZELLO_COMPOSE_PATH.read_text(encoding="utf-8") if ZELLO_COMPOSE_PATH.exists() else ""
-ZELLO_PATH = Path(os.environ.get("ASR_ZELLO_RUNTIME_SOURCE", str(ROOT / "runtime/zello"))) / "asl_zello_bridge/zello.py"
+ZELLO_PATCH_PATH = ROOT / "scripts/asr-zello-session-patch.py"
 
 
 def check(value: bool, message: str) -> None:
@@ -19,11 +15,13 @@ def check(value: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-check(not ZELLO_COMPOSE or "/run/asr-global:ro" in ZELLO_COMPOSE,
-      "Zello global-ban read-only mount missing")
 INSTALLER = (ROOT / "scripts/asr-bridge-setup-zello-install.py").read_text(encoding="utf-8")
 check("ExecStartPre=/usr/bin/test -f /var/lib/allscan-reimagined/admin/global-bans.list" in INSTALLER,
       "Zello startup must require the native Global Ban blacklist")
+check('ZELLO_GLOBAL_BANS: "/run/asr-global/global-bans.list"' in INSTALLER
+      and 'ZELLO_SESSION_KICKS: "/run/asr-global/asr-zello-kicks.json"' in INSTALLER
+      and "session_patch.patch_file(zello)" in INSTALLER,
+      "managed Zello installer is not the production enforcement path")
 check("urfd.blacklist" not in INSTALLER and "/var/lib/allscan-reimagined/global-ban" not in INSTALLER,
       "Zello installer still initializes obsolete Global Ban directory")
 check("Recent Zello Talkers" in APP and "managedConnectedCards" in APP,
@@ -55,23 +53,124 @@ with tempfile.TemporaryDirectory(prefix="asr-zello-kick-self-test-") as raw_tmp:
           and emitted[-1]["expiresSeconds"] == 60,
           "recent Zello talker Kick did not report its one-minute mute contract")
 
-with tempfile.TemporaryDirectory(prefix="asr-zello-self-test-") as raw_tmp:
-    tmp = Path(raw_tmp)
-    if not ZELLO_PATH.exists():
-        print("Zello runtime ban enforcement: NOT TESTED (source unavailable)")
-        if os.environ.get("ASR_REQUIRE_ZELLO_ENFORCEMENT_TEST") == "1":
-            raise AssertionError("Zello source unavailable; cannot certify ban enforcement")
-    else:
-        source = ZELLO_PATH.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        wanted = {"_ke7wil_clean_talker_name", "_ke7wil_zello_is_banned"}
-        nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
-        namespace = {"os": os}
-        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(ZELLO_PATH), "exec"), namespace)
-        namespace["ZELLO_GLOBAL_BANS"] = str(tmp / "global.blacklist")
-        (tmp / "global.blacklist").write_text("N0CALL*\nAD7TG\n", encoding="utf-8")
-        check(namespace["_ke7wil_zello_is_banned"]("n0call-7"), "Zello prefix ban failed")
-        check(namespace["_ke7wil_zello_is_banned"]("AD7TG"), "Zello exact ban failed")
-        check(not namespace["_ke7wil_zello_is_banned"]("KE7WIL"), "Zello ban overmatched")
+patch_spec = importlib.util.spec_from_file_location("asr_zello_session_patch_test", ZELLO_PATCH_PATH)
+session_patch = importlib.util.module_from_spec(patch_spec)
+patch_spec.loader.exec_module(session_patch)
 
-print("Zello client-management UI/static checks: ok")
+# The release does not vendor the separately maintained Zello application.
+# Production stages that upstream tree and this installer-owned
+# patch injects enforcement into both decoded-stream entry points.  Exercise
+# that exact patch and the resulting runtime behavior instead of silently
+# skipping whenever a developer checkout lacks the external source tree.
+RUNTIME_FIXTURE = '''import json
+import os
+import time
+
+def _ke7wil_clean_talker_name(value):
+    return str(value or "").strip()
+
+ZELLO_GLOBAL_BANS = ""
+def _ke7wil_zello_is_banned(user):
+    name = _ke7wil_clean_talker_name(user).upper()
+    try:
+        with open(ZELLO_GLOBAL_BANS, "r", encoding="utf-8") as handle:
+            rules = [line.strip().upper() for line in handle if line.strip() and not line.startswith("#")]
+    except OSError:
+        return False
+    return any(name == rule or (rule.endswith("*") and name.startswith(rule[:-1])) for rule in rules)
+
+# KE7WIL safe Zello stream debug export
+
+def accept_json_stream(user):
+    if _ke7wil_zello_is_banned(user):
+        return False
+    return True
+
+class RuntimeFixture:
+    def __init__(self, user):
+        self._talk_user = user
+        self._zello_ptt = PttFixture()
+
+    def accept_binary_stream(self):
+        if _ke7wil_zello_is_banned(self._talk_user):
+            return False
+        return True
+
+    def stop_stream(self, user):
+        if user:
+            if True:
+                if True:
+                    if True:
+                        if True:
+                            if True:
+                                if True:
+                                    if True:
+                                        if True:
+                                            self._zello_ptt.clear()
+                                            # Drop any decoded PCM left from the completed Zello transmission.
+        return True
+'''
+
+
+class PttFixture:
+    def __init__(self):
+        self.cleared = False
+
+    def clear(self):
+        self.cleared = True
+
+
+with tempfile.TemporaryDirectory(prefix="asr-zello-enforcement-self-test-") as raw_tmp:
+    tmp = Path(raw_tmp)
+    patched = session_patch.patch_text(RUNTIME_FIXTURE)
+    check(session_patch.patch_text(patched) == patched, "Zello enforcement patch is not idempotent")
+    namespace = {"PttFixture": PttFixture}
+    exec(compile(patched, str(ZELLO_PATCH_PATH), "exec"), namespace)
+    bans = tmp / "global-bans.list"
+    kicks = tmp / "asr-zello-kicks.json"
+    namespace["ZELLO_GLOBAL_BANS"] = str(bans)
+    namespace["ZELLO_SESSION_KICKS"] = str(kicks)
+    bans.write_text("N0CALL*\nAD7TG\n", encoding="utf-8")
+
+    check(not namespace["accept_json_stream"]("n0call-7"),
+          "globally banned Zello JSON stream bypassed enforcement")
+    check(not namespace["RuntimeFixture"]("AD7TG").accept_binary_stream(),
+          "globally banned Zello binary stream bypassed enforcement")
+    check(namespace["accept_json_stream"]("KE7WIL"),
+          "legitimate Zello JSON stream was blocked")
+    check(namespace["RuntimeFixture"]("KE7WIL").accept_binary_stream(),
+          "legitimate Zello binary stream was blocked")
+
+    now = int(time.time())
+    kicks.write_text(json.dumps({
+        "schema": 1,
+        "sessions": {
+            "KE7WIL": {"createdAt": now},
+            "EXPIRED": {"createdAt": now - 301},
+        },
+    }), encoding="utf-8")
+    check(not namespace["accept_json_stream"]("KE7WIL"),
+          "one-shot Zello Kick did not block the selected JSON stream")
+    check(not namespace["RuntimeFixture"]("KE7WIL").accept_binary_stream(),
+          "one-shot Zello Kick did not block the selected binary stream")
+    check(namespace["accept_json_stream"]("K7SAFE"),
+          "Zello Kick blocked an unrelated legitimate client")
+    check(namespace["accept_json_stream"]("EXPIRED"),
+          "expired Zello Kick continued blocking a legitimate client")
+
+    runtime = namespace["RuntimeFixture"]("KE7WIL")
+    runtime.stop_stream("KE7WIL")
+    check(runtime._zello_ptt.cleared, "Zello stream stop did not clear PTT")
+    remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
+    check("KE7WIL" in remaining and "EXPIRED" in remaining,
+          "Zello stream stop prematurely cleared an active one-minute mute")
+
+    # The selected Kick is consumed only after its one-minute hold expires.
+    remaining["KE7WIL"]["createdAt"] = int(time.time()) - 61
+    kicks.write_text(json.dumps({"schema": 1, "sessions": remaining}), encoding="utf-8")
+    runtime.stop_stream("KE7WIL")
+    remaining = json.loads(kicks.read_text(encoding="utf-8"))["sessions"]
+    check("KE7WIL" not in remaining and "EXPIRED" in remaining,
+          "Zello stream stop did not consume only the expired selected Kick")
+
+print("Zello client-management and runtime enforcement self-test: ok")
