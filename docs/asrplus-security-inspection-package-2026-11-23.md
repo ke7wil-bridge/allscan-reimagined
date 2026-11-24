@@ -41,7 +41,9 @@ read-only inspection.
 - Live tests passed: anonymous and invalid token denial; HTTP bearer rejection; HTTPS status read; one-hub-only response; cross-hub denial; read-only token control denial; expiry and revocation. All test tokens revoked; no permanent production token issued.
 - Apache and Asterisk remained active; no Asterisk restart or radio-link changes.
 
-Existing browser-session authentication and dashboard control code paths were preserved. A live authenticated browser-session regression test remains outstanding.
+Existing browser-session authentication and dashboard control code paths were preserved. PR #272 adds regression assertions for common.php initialization, UserModel::validate(), valid user detection, login-required fallback, and the existing modifyOk()/control-header gate; all 12 ASR Plus self-test entrypoints pass. A live authenticated browser-session regression test remains outstanding because the connected Mac Chrome profile has no ASR login cookies. No credentials or cookie values were accessed.
+
+The audit log is root-owned mode 0640, but no logrotate rule currently exists. The log is small today (3.4 KB); retention/rotation should be agreed by operators before configuring it. Suggested starting point: daily compressed rotation, 90-day retention, root:root 0640.
 
 ## Security changes completed locally
 
@@ -87,16 +89,12 @@ failure cases remain an isolated-fixture gate.
 
 ## Remaining risks and blockers
 
-1. Authenticated browser-session compatibility needs a browser regression test.
-2. No permanent API bearer token has been issued; create one only when a named integration and owner require it.
-3. Remote agents still run as root; Texas requires a dedicated-account feasibility decision.
-4. Remote agents still run as root. Texas requires a dedicated-account
-   feasibility decision; existing hubs need a later compatibility migration.
-5. Kentucky is a single aggregation/queue dependency. Hub radio links can
-   continue during a Kentucky outage, but dashboard and remote control fail
-   stale/closed; there is no automatic regional failover.
-6. Texas provider capacity, source address, administrator model, retention,
-   incident authority and radio/control policy still require KJ5IRQ agreement.
+1. Authenticated browser-session compatibility needs a live browser regression test; source-level regression guards now pass.
+2. Audit-log rotation/retention policy is not configured; agree retention with operators before installing logrotate.
+3. No permanent API bearer token has been issued; create one only when a named integration and owner require it.
+4. Remote agents still run as root; Texas requires a dedicated-account feasibility decision; existing hubs need a later compatibility migration.
+5. Kentucky is a single aggregation/queue dependency. Hub radio links can continue during a Kentucky outage, but dashboard and remote control fail stale/closed; there is no automatic regional failover.
+6. Texas provider capacity, source address, administrator model, retention, incident authority and radio/control policy still require KJ5IRQ agreement.
 
 ## Recommended sequence and rollback
 
