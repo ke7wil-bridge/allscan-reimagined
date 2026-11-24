@@ -14,7 +14,7 @@ values are supplied in a protected JSON file outside the repository.
 The admission block counts only non-loopback inbound channels in
 `${EXTEN}@rptin`. Channels 1–60 are admitted, channel 61 is rejected, and the
 group count is released automatically when a channel ends. Local loopback
-bridges, outbound links and inter-hub links are not part of this inbound cap.
+bridges and outbound links are excluded; non-loopback inbound inter-hub links count toward the cap.
 ASR Plus separately displays capacity 60. This is a policy limit, not a claim
 that an untested Texas VM can sustain 60 radio connections.
 
@@ -81,7 +81,7 @@ approved actions. Re-running the installer is idempotent.
 Apply the installed `asrplus-texas.conf` with `systemd-sysusers` only after the
 file and approval are verified; it creates the dedicated `asrplus-agent`
 service account without login or home and adds only the Asterisk group.
-Grant only read access to its dedicated AMI file and the Asterisk control socket
+Before enabling any unit, run chown root:asrplus-agent /etc/asrplus-agent.json and chmod 0640 /etc/asrplus-agent.json. Verify readability as the service account, including all credential and directory paths. Grant only read access to its dedicated AMI file and the Asterisk control socket
 group needed by the validated helper. The service keeps `NoNewPrivileges`, an
 empty capability set, strict filesystem protection and two writable state
 paths. No sudo rule is installed. If the actual Texas Asterisk socket cannot be
