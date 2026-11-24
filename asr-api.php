@@ -41,8 +41,8 @@ const ASR_STANDARD_BRIDGE_REPAIR_HELPER = '/usr/local/sbin/allscan-reimagined-st
 const ASR_GLOBAL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-global-ban';
 const ASR_GLOBAL_BAN_ROOT = '/var/lib/allscan-reimagined/admin';
 const ASR_ASL_BAN_HELPER = '/usr/local/sbin/allscan-reimagined-asl-ban';
-const ASR_VERSION = '1.0.0-beta.8.6.1';
-const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.6.1';
+const ASR_VERSION = '1.0.0-beta.8.7';
+const ASR_VERSION_LABEL = 'v1.0.0 Beta 8.7';
 
 require_once __DIR__ . '/include/common.php';
 require_once __DIR__ . '/include/asrRuntime.php';
@@ -680,6 +680,19 @@ function asr_release_status_payload(): array {
 
 
 function asr_updater_command(string $operation, string $jobId = ''): array {
+    $mode = asr_update_mode();
+    if ($mode === 'external') {
+        if ($operation !== 'check') asr_error('ASR updates are managed outside this container.', 409);
+        $release = asr_release_status_payload();
+        return [
+            'ok' => true,
+            'installedVersion' => (string) ($release['installedVersion'] ?? ASR_VERSION),
+            'availableVersion' => (string) ($release['availableVersion'] ?? ASR_VERSION),
+            'updateAvailable' => !empty($release['updateAvailable']),
+            'updateMode' => 'external',
+            'checkStatus' => ($release['status'] ?? 'pending') === 'pending' ? 'pending' : 'checked',
+        ];
+    }
     $allowed = [
         'check' => '--check-json',
         'preflight' => '--preflight-json',
@@ -718,7 +731,13 @@ function asr_updater_command(string $operation, string $jobId = ''): array {
         $reason = (string) ($payload['error'] ?? 'Update operation could not complete.');
         asr_error(substr(preg_replace('/[^A-Za-z0-9 .,;:-]/', '', $reason), 0, 180), 409);
     }
+    $payload['updateMode'] = $mode;
     return $payload;
+}
+
+function asr_update_mode(): string {
+    $mode = strtolower(trim((string) getenv('ASR_UPDATE_MODE')));
+    return in_array($mode, ['external', 'container'], true) ? $mode : 'native';
 }
 
 function asr_dmr_net_live_statuses(): array {

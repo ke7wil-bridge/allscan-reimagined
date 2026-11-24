@@ -10,6 +10,13 @@ ASR_AMI_PORT="${ASR_AMI_PORT:-5038}"
 ASR_AMI_USER="${ASR_AMI_USER:-admin}"
 ASR_AMI_PASS="${ASR_AMI_PASS:-}"
 ASR_REQUIRE_LOGIN="${ASR_REQUIRE_LOGIN:-0}"
+ASR_UPDATE_MODE="${ASR_UPDATE_MODE:-native}"
+
+case "$ASR_UPDATE_MODE" in
+  native|external|container) ;;
+  *) echo "ASR_UPDATE_MODE must be native, external, or container" >&2; exit 1 ;;
+esac
+export ASR_UPDATE_MODE
 
 ASR_AMI_HOST_CFG="$ASR_AMI_HOST"
 if ! printf '%s' "$ASR_AMI_HOST_CFG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -24,18 +31,33 @@ STOCK_DIR="$WEB_ROOT/allscan"
 ASR_DIR="$WEB_ROOT/asr"
 UPSTREAM_CACHE=/opt/upstream-allscan
 
+if [ "${ASR_PACKAGED_ALLSCAN:-0}" = "1" ]; then
+  PACKAGED_MANIFEST=/opt/asr-source/stock-allscan.json
+  test -f "$PACKAGED_MANIFEST" || { echo "Packaged AllScan manifest is missing." >&2; exit 1; }
+  ALLSCAN_REPO_REF="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$PACKAGED_MANIFEST")"
+  case "$ALLSCAN_REPO_REF" in
+    *[!0-9a-f]*|'') echo "Packaged AllScan commit is invalid." >&2; exit 1 ;;
+  esac
+  [ "${#ALLSCAN_REPO_REF}" -eq 40 ] || { echo "Packaged AllScan commit is invalid." >&2; exit 1; }
+  test -d "$UPSTREAM_CACHE/.git" \
+    && test "$(git -C "$UPSTREAM_CACHE" rev-parse HEAD)" = "$ALLSCAN_REPO_REF" \
+    || { echo "Packaged AllScan source does not match its verified commit." >&2; exit 1; }
+fi
+
 if [ -z "$ASR_AMI_PASS" ]; then
   echo "ASR_AMI_PASS must be set in .env" >&2
   exit 1
 fi
 
-if [ ! -d "$UPSTREAM_CACHE/.git" ]; then
+if [ "${ASR_PACKAGED_ALLSCAN:-0}" != "1" ] && [ ! -d "$UPSTREAM_CACHE/.git" ]; then
   rm -rf "$UPSTREAM_CACHE"
   git init -q "$UPSTREAM_CACHE"
   git -C "$UPSTREAM_CACHE" remote add origin "$ALLSCAN_REPO_URL"
 fi
-git -C "$UPSTREAM_CACHE" fetch --depth 1 origin "$ALLSCAN_REPO_REF"
-git -C "$UPSTREAM_CACHE" checkout --detach --force FETCH_HEAD
+if [ "${ASR_PACKAGED_ALLSCAN:-0}" != "1" ]; then
+  git -C "$UPSTREAM_CACHE" fetch --depth 1 origin "$ALLSCAN_REPO_REF"
+  git -C "$UPSTREAM_CACHE" checkout --detach --force FETCH_HEAD
+fi
 
 mkdir -p "$STOCK_DIR" "$ASR_DIR"
 RUNTIME_EXCLUDES="--exclude=bridge-live.json --exclude=connected-clients.json --exclude=asr-connected-clients.json --exclude=zello-talkers.json --exclude=zello-relay.json --exclude=zello-status-data.json"

@@ -6,11 +6,12 @@ import {
 import { ASR_WHATS_NEW } from '../config/whatsNew'
 
 const STORED_JOB = 'asrUpdateJobId.v1'
-const ACTIVE = new Set(['queued', 'preflight', 'downloading', 'verifying', 'staging', 'backup', 'installing', 'restoring', 'health'])
+const ACTIVE = new Set(['queued', 'preflight', 'downloading', 'verifying', 'staging', 'building', 'backup', 'installing', 'restoring', 'health'])
 const LABELS: Record<string, string> = {
   queued: 'Waiting to start…', preflight: 'Checking update compatibility…',
   downloading: 'Downloading the release…', verifying: 'Verifying SHA-256…',
   staging: 'Staging the verified release…', backup: 'Creating a rollback backup…',
+  building: 'Building the verified container image…',
   installing: 'Installing the verified AllScan and ASR update…', restoring: 'Restoring configuration…',
   health: 'Running health checks…', complete: 'Update complete',
   failed: 'Update needs attention',
@@ -113,6 +114,8 @@ export default function UpdateAsrDialog({
   })
   const running = Boolean(job && ACTIVE.has(job.state))
   const hasUpdate = available?.updateAvailable === true
+  const externallyManaged = available?.updateMode === 'external'
+  const containerManaged = available?.updateMode === 'container'
 
   return (
     <div className="asr-update-overlay" role="presentation" onMouseDown={(event) => {
@@ -142,7 +145,11 @@ export default function UpdateAsrDialog({
             <p>If you’re using AllScan Reimagined, Josh (KE7WIL) would appreciate a quick email letting him know you’re running it. <a href="mailto:ke7wil@gmail.com">ke7wil@gmail.com</a>.</p>
           </section>
         ) : <>
-        <p>Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.</p>
+        <p>{externallyManaged
+          ? 'Check for supported AllScan and ASR updates here. This container is configured for host-managed updates, so installation is intentionally unavailable in ASR.'
+          : containerManaged
+            ? 'Check for supported AllScan and ASR updates, then install them here. The authenticated host broker verifies the release, backs up persistent volumes, replaces the container, and runs health checks.'
+            : 'Check for supported AllScan and ASR updates, then install them here in the browser. ASR verifies pinned release files and creates a rollback backup automatically.'}</p>
         {job ? <div className="asr-update-job" role="status" aria-live="polite">
           <strong>{LABELS[job.state] || 'Checking update status…'}</strong>
           {job.message && job.state !== 'complete' && job.state !== 'failed' ? <p>{job.message}</p> : null}
@@ -173,9 +180,11 @@ export default function UpdateAsrDialog({
           </dl>
           <div className="asr-update-actions">
             <button type="button" disabled={busy} onClick={check}>Check for Update</button>
-            {hasUpdate ? <button type="button" disabled={busy} onClick={apply}>Update Now</button> : null}
+            {hasUpdate && !externallyManaged ? <button type="button" disabled={busy} onClick={apply}>Update Now</button> : null}
           </div>
-          {available && !hasUpdate ? <p>ASR is up to date.</p> : null}
+          {hasUpdate && externallyManaged ? <p><strong>Update available.</strong> Ask the container host administrator to apply the verified release using the documented Compose workflow.</p> : null}
+          {available && !hasUpdate && available.checkStatus !== 'pending' ? <p>ASR is up to date.</p> : null}
+          {available?.checkStatus === 'pending' ? <p>Release information is not available yet. Try checking again shortly.</p> : null}
         </> : null}
         {!job && connectionMessage ? <p role="status">{connectionMessage}</p> : null}
         {error ? <p className="asr-update-error" role="alert">{error}</p> : null}

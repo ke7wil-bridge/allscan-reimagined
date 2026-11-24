@@ -175,6 +175,7 @@ python3 "$ROOT/scripts/asr-standard-bridge-repair.py" --self-test
 python3 "$ROOT/scripts/asr-patch-html-nullability.py" --self-test
 TMPDIR=$(python3 -c 'import os; print(os.path.realpath("/tmp"))') \
   python3 "$ROOT/scripts/asr-container-provisioning-self-test.py"
+python3 "$ROOT/scripts/asr-container-updater-self-test.py"
 python3 "$ROOT/scripts/asr-fixed-bridge-recovery.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-lifecycle.py" self-test
 python3 "$ROOT/scripts/asr-startup-bridge-summary.py" --self-test
@@ -186,12 +187,7 @@ node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
 node "$ROOT/scripts/asr-client-management-browser-self-test.mjs"
 python3 "$ROOT/scripts/beta86-talker-parity-self-test.py"
 node "$ROOT/scripts/asr-bridge-recent-activity-self-test.mjs"
-if [ -x /usr/bin/google-chrome ] || [ -x /usr/bin/chromium ] || [ -x /usr/bin/chromium-browser ]; then
-  node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
-else
-  echo "ERROR: Mobile browser regression gate requires Chrome/Chromium." >&2
-  exit 1
-fi
+node "$ROOT/scripts/asr-mobile-layout-browser-self-test.mjs"
 python3 "$ROOT/scripts/asr-bridge-ui-regression-self-test.py"
 python3 "$ROOT/scripts/asr-dashboard-auth-gate-self-test.py"
 python3 "$ROOT/scripts/asr-post-reboot-health-self-test.py"
@@ -252,6 +248,7 @@ fi
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload/web" "$STAGE/payload/server" "$STAGE/payload/bin" "$STAGE/payload/scripts"
 mkdir -p "$STAGE/payload/compat"
+mkdir -p "$STAGE/payload/public/js" "$STAGE/payload/personalization" "$STAGE/container"
 mkdir -p "$STAGE/docs"
 mkdir -p "$STAGE/release-notes"
 
@@ -311,7 +308,7 @@ install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/as
 for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-bridge-setup-dmr-net-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
-for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
+for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-update-client.py asr-container-updater.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
   install -m 755 "scripts/$container_script" "$STAGE/payload/scripts/$container_script"
 done
 install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"
@@ -376,6 +373,12 @@ install -m 644 stock-allscan.json "$STAGE/payload/stock-allscan.json"
 mkdir -p "$STAGE/payload/scripts/bridge-relays"
 install -m 755 scripts/bridge-relays/asr-tgif-standalone-relay.py "$STAGE/payload/scripts/bridge-relays/asr-tgif-standalone-relay.py"
 install -m 755 scripts/asr-updater.py "$STAGE/payload/scripts/asr-updater.py"
+install -m 755 scripts/asr-node-db-link.sh "$STAGE/payload/scripts/asr-node-db-link.sh"
+install -m 644 public/js/asr-settings-modern.js "$STAGE/payload/public/js/asr-settings-modern.js"
+install -m 644 personalization/config.seed.json "$STAGE/payload/personalization/config.seed.json"
+install -m 644 docker/Dockerfile.release "$STAGE/container/Dockerfile.layered"
+install -m 755 docker/layered-entrypoint.sh "$STAGE/container/layered-entrypoint.sh"
+install -m 755 docker/layered-reapply.sh "$STAGE/container/layered-reapply.sh"
 install -m 644 README.md "$STAGE/README.md"
 install -m 644 LICENSE "$STAGE/LICENSE"
 install -m 644 ATTRIBUTION.md "$STAGE/ATTRIBUTION.md"

@@ -1,87 +1,44 @@
 #!/usr/bin/env node
+import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
-import { access, mkdtemp, rm } from 'node:fs/promises'
-import { constants } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createServer } from 'node:net'
 
 const assert = (value, message) => { if (!value) throw new Error(message) }
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-async function chromePath() {
-  for (const candidate of [process.env.CHROME_BIN, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean)) {
-    try { await access(candidate, constants.X_OK); return candidate } catch { /* continue */ }
-  }
-  throw new Error('Chrome or Chromium is required')
+async function freePort() {
+  const server = createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = server.address().port
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  return port
 }
 
 async function waitFor(url, timeout = 15000) {
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
-    try { const response = await fetch(url); if (response.ok) return response } catch { /* starting */ }
+    try { const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); if (response.ok) return response } catch { /* starting */ }
     await delay(100)
   }
   throw new Error(`Timed out waiting for ${url}`)
 }
 
-class Cdp {
-  constructor(url) {
-    this.id = 0
-    this.pending = new Map()
-    this.socket = new WebSocket(url)
-  }
-  async connect() {
-    await new Promise((resolve, reject) => {
-      this.socket.addEventListener('open', resolve, { once: true })
-      this.socket.addEventListener('error', reject, { once: true })
-    })
-    this.socket.addEventListener('message', ({ data }) => {
-      const message = JSON.parse(data)
-      if (!message.id) return
-      const pending = this.pending.get(message.id)
-      this.pending.delete(message.id)
-      message.error ? pending.reject(new Error(message.error.message)) : pending.resolve(message.result)
-    })
-  }
-  send(method, params = {}) {
-    const id = ++this.id
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
-      this.socket.send(JSON.stringify({ id, method, params }))
-    })
-  }
-  close() { this.socket.close() }
-}
-
 async function runBrowser(unauthorized = false) {
-  const port = unauthorized ? 4192 : 4191
-  const cdpPort = unauthorized ? 9392 : 9391
+  const port = await freePort()
   const appUrl = `http://127.0.0.1:${port}/asr/`
   const vite = spawn('./node_modules/.bin/vite', ['--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     env: { ...process.env, ASR_MOCK: '1', ASR_MOCK_UNAUTHORIZED: unauthorized ? '1' : '0' },
     stdio: 'ignore',
   })
-  const profile = await mkdtemp(join(tmpdir(), 'asr-client-management-chrome-'))
-  const chrome = spawn(await chromePath(), [
-    '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, 'about:blank',
-  ], { stdio: 'ignore' })
-  let cdp
+  let browser
   try {
     await waitFor(appUrl)
-    const targets = await (await waitFor(`http://127.0.0.1:${cdpPort}/json/list`)).json()
-    const target = targets.find((item) => item.type === 'page' && item.url === 'about:blank')
-      || targets.find((item) => item.type === 'page' && !item.url.startsWith('chrome-extension://'))
-    assert(target?.webSocketDebuggerUrl, 'Chrome did not expose the application page target')
-    cdp = new Cdp(target.webSocketDebuggerUrl)
-    await cdp.connect()
-    await cdp.send('Page.enable')
-    await cdp.send('Runtime.enable')
-    const evaluate = async (expression) => {
-      const result = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
-      return result.result.value
-    }
+    browser = await chromium.launch({headless:true, ...(process.env.CHROME_BIN ? {executablePath:process.env.CHROME_BIN} : {})})
+    const page = await browser.newPage({viewport:{width:1440,height:1000}})
+    const evaluate = expression => page.evaluate(expression)
     const waitUntil = async (expression, message, timeout = 8000) => {
       const deadline = Date.now() + timeout
       while (Date.now() < deadline) {
@@ -91,9 +48,13 @@ async function runBrowser(unauthorized = false) {
       throw new Error(message)
     }
 
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, mobile: false, deviceScaleFactor: 1 })
-    await cdp.send('Page.navigate', { url: appUrl })
-    await waitUntil("document.readyState === 'complete' && document.body.textContent.includes('Connected Clients')", 'Dashboard did not load')
+    await page.goto(appUrl, {waitUntil:'domcontentloaded',timeout:20000})
+    try {
+      await waitUntil("document.readyState === 'complete' && document.body.textContent.includes('Connected Clients')", 'Dashboard did not load', 30000)
+    } catch (error) {
+      console.error('Dashboard diagnostic:', await evaluate("JSON.stringify({url:location.href,state:document.readyState,text:document.body?.innerText?.slice(0,1000)})"))
+      throw error
+    }
     await evaluate(`(() => {
       for (const card of document.querySelectorAll('.allscan-bridge-card:not(.allscan-net-bridge-card)')) {
         const button = [...card.querySelectorAll('.allscan-bridge-detail-toggle')].find((item) => item.textContent.includes('Connected Clients') || item.textContent.includes('Recent Talkers'))
@@ -156,7 +117,7 @@ async function runBrowser(unauthorized = false) {
     assert(await evaluate("['N2YSF','N3P25','N4NXDN','N5M17'].every((identity) => document.body.textContent.includes(identity))"),
       'Global Ban removed an unrelated digital client')
 
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, mobile: true, deviceScaleFactor: 1 })
+    await (await page.context().newCDPSession(page)).send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, mobile: true, deviceScaleFactor: 1 })
     await delay(150)
     const mobile = await evaluate(`(() => {
       const rows = [...document.querySelectorAll('.allscan-bridge-client:not(.is-empty)')].filter((row) => row.querySelector('.allscan-bridge-inline-client-actions'));
@@ -167,11 +128,10 @@ async function runBrowser(unauthorized = false) {
     })()`)
     assert(mobile, 'mobile Connected Clients Kick/Ban controls are missing or clipped')
   } finally {
-    cdp?.close()
-    chrome.kill('SIGTERM')
+    await browser?.close()
     vite.kill('SIGTERM')
     await delay(400)
-    await rm(profile, { recursive: true, force: true })
+
   }
 }
 

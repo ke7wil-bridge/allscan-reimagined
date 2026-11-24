@@ -5,6 +5,12 @@ SOURCE_DIR=/opt/asr-source
 CONFIG_DIR=/etc/allscan-reimagined
 WEB_GROUP=www-data
 LOCK_FILE=/run/lock/allscan-reimagined-docker-reapply.lock
+UPDATE_MODE="${ASR_UPDATE_MODE:-native}"
+
+case "$UPDATE_MODE" in
+  native|external|container) ;;
+  *) echo "Invalid ASR_UPDATE_MODE." >&2; exit 1 ;;
+esac
 
 mkdir -p /run/lock
 exec 9>"$LOCK_FILE"
@@ -88,6 +94,10 @@ if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
     /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py
   install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-control-client.py" \
     /usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py
+  if [ "$UPDATE_MODE" = "container" ] || [ "$UPDATE_MODE" = "external" ]; then
+    install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-update-client.py" \
+      /usr/local/sbin/allscan-reimagined-updater
+  fi
   for control_helper in \
     allscan-reimagined-managed-dmr-net-control \
     allscan-reimagined-ysf-bridge-control \
@@ -102,6 +112,9 @@ else
   rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py \
     /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py \
     /usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py
+fi
+if [ "$UPDATE_MODE" = "native" ]; then
+  rm -f /usr/local/sbin/allscan-reimagined-updater
 fi
 
 install -d -o root -g "$WEB_GROUP" -m 1775 /run/allscan-reimagined
@@ -144,6 +157,12 @@ fi
 
 cat > /etc/sudoers.d/allscan-reimagined-docker <<EOF
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-docker-reapply
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --check-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --preflight-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --queue-update
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --recover-json
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --diagnostic-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-asterisk-read
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-friendly-names
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-bridge-clients

@@ -81,6 +81,7 @@ def profile_value(ast: Path, asr: Path, proc: Path, runtime: Path | None = None,
     value = {
         "schema": 1,
         "backend": "container-host",
+        "webContainer": "layered-allscan",
         "asteriskContainer": "allstarlink3",
         "asteriskConfig": str(ast),
         "asrConfig": str(asr),
@@ -221,7 +222,7 @@ def test_active_profile(backend) -> None:
         (asr / "config.json").write_text('{"node":"641890","bridges":[]}\n')
         (proc / "self/status").write_text("ok\n")
         profile = backend.ContainerProfile.parse(profile_value(
-            ast, asr, proc, runtime, asteriskContainer="asterisk"))
+            ast, asr, proc, runtime, webContainer="web", asteriskContainer="asterisk"))
         rows = {
             "asterisk": {"State": {"Running": True}, "Mounts": [{
                 "Destination": "/etc/asterisk", "Source": str(ast), "RW": True, "Type": "bind"}]},
@@ -279,7 +280,12 @@ def test_broker(broker) -> None:
         "payload": {"confirmation": "RESET NET BRIDGE"},
     })
     assert unified_reset["kind"] == "setup"
-    profile = SimpleNamespace(asterisk_container="asterisk", runtime_host_root=Path("/runtime"))
+    update = request(broker, {"schema": 1, "update": "queue"})
+    assert update["kind"] == "update"
+    update_status = request(broker, {"schema": 1, "update": "status",
+                                     "jobId": "20261124-120000-aabbccdd"})
+    assert update_status["kind"] == "update"
+    profile = SimpleNamespace(web_container="web", asterisk_container="asterisk", runtime_host_root=Path("/runtime"))
     environment = broker.child_environment(Path("/profile.json"), profile)
     assert environment["HOME"] == "/var/cache/allscan-reimagined/docker-home"
     assert environment["DOCKER_CONFIG"] == "/var/cache/allscan-reimagined/docker-config"
@@ -325,6 +331,8 @@ def test_broker(broker) -> None:
     layered_source = (HERE.parent / "docker/layered-reapply.sh").read_text(encoding="utf-8")
     assert "asr-container-host-control-client.py" in layered_source
     assert "/usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py" in layered_source
+    assert "asr-container-update-client.py" in layered_source
+    assert "allscan-reimagined-updater --queue-update" in layered_source
     assert "allscan-reimagined-ysf-bridge-control" in layered_source
     reapply_source = (HERE / "asr-reapply.sh").read_text(encoding="utf-8")
     assert "allscan-reimagined-ysf-bridge-control --import-hosts" in reapply_source
@@ -338,6 +346,10 @@ def test_broker(broker) -> None:
         {"schema": 1, "command": "dmr-plan", "payload": {}, "extra": True},
         {"schema": 1, "program": "../../bin/sh", "args": []},
         {"schema": 1, "program": "managed-dmr", "args": "--status"},
+        {"schema": 1, "update": "shell"},
+        {"schema": 1, "update": "status"},
+        {"schema": 1, "update": "queue", "jobId": "20261124-120000-aabbccdd"},
+        {"schema": 1, "update": "status", "jobId": "../../etc/passwd"},
     ]
     for value in malformed:
         rejected(request, broker, value)
@@ -1029,6 +1041,10 @@ def test_client_error_forwarding(setup_client, control_client) -> None:
 
 
 def test_recovery(recovery) -> None:
+    # Recovery must refresh volatile watcher inputs before the namespace-change gate.
+    import inspect
+    source = inspect.getsource(recovery.main)
+    assert source.index("refresh_watch_snapshots(profile)") < source.index("if args.restart_owned or changed:")
     dmr = {"bridgeType": "dmr", "bridgeId": "qa_dmr", "services": ["asr-dmr-vocoder-qa_dmr.service", "asr-dmr-mmdvm-qa_dmr.service", "asr-dmr-analog-qa_dmr.service", "asr-dmr-admin-qa_dmr.service"]}
     assert recovery.expected_units(dmr) == dmr["services"]
     assert recovery.expected_units({**dmr, "services": ["unrelated.service"]}) == []
@@ -1123,6 +1139,9 @@ def main() -> int:
     assert "/run/allscan-reimagined-bridge-control:/run/allscan-reimagined-bridge-control:ro" in compose_source
     assert "/run/allscan-reimagined-m17:/run/allscan-reimagined-m17:ro" in compose_source
     assert "layered-asr-state:/var/lib/allscan-reimagined" in compose_source
+    assert "ASR_IMAGE" in compose_source and "ASR_UPDATE_MODE" in compose_source
+    assert "allscan-reimagined-container-update@.service" in installer_source
+    assert '"asr-container-updater.py", "asr-updater.py"' in installer_source
     assert "allscan-reimagined-tgif-user-session status node" in layered_reapply
     assert "allscan-reimagined-tgif-user-session login node" in layered_reapply
     assert "allscan-reimagined-tgif-user-session logout node" in layered_reapply
