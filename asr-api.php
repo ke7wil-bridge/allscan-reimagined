@@ -2387,6 +2387,19 @@ function asr_sanitize_client_rows(array $rows, string $bridgeId = '', bool $curr
             $value = $row[$key];
             if (is_scalar($value)) $item[$key] = is_string($value) ? substr(trim($value), 0, 160) : $value;
         }
+        if ($currentConnectedFeed && in_array(($row['connection_time_source'] ?? ''), ['native', 'observed'], true)) {
+            $source = (string) $row['connection_time_source'];
+            $since = (int) ($row['connected_since_epoch'] ?? 0);
+            $seen = (int) ($row['connection_observed_epoch'] ?? 0);
+            $valid = $source === 'native'
+                ? $since > 0 && $since <= time() + 300
+                : $since > 0 && $since <= $seen && $seen <= time() && time() - $seen <= 45;
+            if ($valid) {
+                $item['connected_since_epoch'] = $since;
+                if ($seen > 0) $item['connection_observed_epoch'] = $seen;
+                $item['connection_time_source'] = $source;
+            }
+        }
         if ($item !== []
             && asr_client_has_identity($item)
             && asr_client_row_is_fresh($item, $bridgeId, $currentConnectedFeed)) {
@@ -2501,6 +2514,22 @@ function asr_bridge_clients_state(): array {
         $clean = $tgifConfigured
             ? asr_dedupe_client_rows(asr_sanitize_client_rows($tgifRows, 'dmr', true))
             : [];
+        // Preserve observed duration only for matching exact DMR IDs in the current managed roster.
+        $managedTimings = [];
+        if (($managedMeta[$id]['kind'] ?? '') === 'current') {
+            foreach (asr_sanitize_client_rows($managedPayload[$id] ?? [], 'dmr', true) as $row) {
+                $dmrid = (string) ($row['dmrid'] ?? $row['dmr_id'] ?? $row['id'] ?? '');
+                if ($dmrid !== '' && isset($row['connected_since_epoch'])) $managedTimings[$dmrid] = $row;
+            }
+        }
+        foreach ($clean as &$row) {
+            $dmrid = (string) ($row['dmrid'] ?? $row['dmr_id'] ?? $row['id'] ?? '');
+            if (isset($managedTimings[$dmrid])) {
+                foreach (['connected_since_epoch', 'connection_observed_epoch', 'connection_time_source'] as $key)
+                    if (isset($managedTimings[$dmrid][$key])) $row[$key] = $managedTimings[$dmrid][$key];
+            }
+        }
+        unset($row);
         $clients[$id] = $clean;
         $counts[$id] = $tgifConfigured ? count($clean) : 0;
     }

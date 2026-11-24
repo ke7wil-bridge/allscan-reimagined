@@ -11,3 +11,9 @@
 @import "./styles/asr/09-responsive-layouts.css";
 @import "./styles/asr/10-locked-responsive-geometry.css";
 @import "./styles/asr/11-locked-connection-and-bridge.css";
+
+
+/* Issue 281: preserve the existing client row height. */
+.asr-client-duration-line { display: grid; width: 100%; box-sizing: border-box; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); align-items: baseline; gap: 4px; min-width: 0; }
+.asr-client-duration-line > span:first-child { grid-column: 2; justify-self: center; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asr-client-duration { grid-column: 3; justify-self: end; font-size: .8em; opacity: .75; white-space: nowrap; font-variant-numeric: tabular-nums; }

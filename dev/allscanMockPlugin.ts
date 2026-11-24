@@ -598,28 +598,39 @@ function bridgeLive(state?: MockBridgeControlState) {
   })
 }
 
-type MockDigitalClient = { callsign: string; dmrid?: string; room: string; connected: string }
+type MockDigitalClient = {
+  callsign: string
+  dmrid?: string
+  room: string
+  connected: string
+  connected_since_epoch?: number
+  connection_observed_epoch?: number
+  connection_time_source?: 'native' | 'observed'
+}
 type MockDigitalClients = Record<'dmr' | 'ysf' | 'p25' | 'nxdn' | 'm17', MockDigitalClient[]>
+
+const mockNow = Math.floor(Date.now() / 1000)
 
 const defaultDigitalClients: MockDigitalClients = {
   dmr: [
-    { callsign: 'N1DMR', dmrid: '3100001', room: 'TG 3100', connected: '00:12:04' },
+    { callsign: 'N1DMR', dmrid: '3100001', room: 'TG 3100', connected: '00:12:04', connected_since_epoch: mockNow - 12 * 60, connection_observed_epoch: mockNow, connection_time_source: 'observed' },
     { callsign: 'K7GLOBAL', dmrid: '3100002', room: 'TG 3100', connected: '00:08:12' },
   ],
   ysf: [
-    { callsign: 'N2YSF', room: 'TEST-CHARLIE', connected: '00:03:41' },
+    { callsign: 'N2YSF', room: 'TEST-CHARLIE', connected: '00:03:41', connected_since_epoch: mockNow - 3 * 60, connection_time_source: 'native' },
     { callsign: 'K7GLOBAL', room: 'TEST-CHARLIE', connected: '00:02:10' },
+    { callsign: 'LONGCALLSIGN-12', room: 'TEST-CHARLIE', connected: '00:01:02', connected_since_epoch: mockNow - 62, connection_observed_epoch: mockNow, connection_time_source: 'observed' },
   ],
   p25: [
-    { callsign: 'N3P25', room: 'TG 10200', connected: '00:04:22' },
+    { callsign: 'N3P25', room: 'TG 10200', connected: '00:04:22', connected_since_epoch: mockNow - 4 * 60, connection_time_source: 'native' },
     { callsign: 'K7GLOBAL', room: 'TG 10200', connected: '00:02:20' },
   ],
   nxdn: [
-    { callsign: 'N4NXDN', room: 'TG 10200', connected: '00:05:32' },
+    { callsign: 'N4NXDN', room: 'TG 10200', connected: '00:05:32', connected_since_epoch: mockNow - 5 * 60, connection_time_source: 'native' },
     { callsign: 'K7GLOBAL', room: 'TG 10200', connected: '00:02:30' },
   ],
   m17: [
-    { callsign: 'N5M17', room: 'M17-073 A', connected: '00:06:42' },
+    { callsign: 'N5M17', room: 'M17-073 A', connected: '00:06:42', connected_since_epoch: mockNow - 6 * 60, connection_time_source: 'native' },
     { callsign: 'K7GLOBAL', room: 'M17-073 A', connected: '00:02:40' },
   ],
 }

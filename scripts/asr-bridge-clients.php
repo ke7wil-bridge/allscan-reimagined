@@ -627,7 +627,7 @@ INI);
 	$m17Rows = asrM17RowsFromPayload([
 		'Clients' => [
 			['Callsign' => 'N7LOCAL N', 'IP' => '127.0.0.1', 'Protocol' => 'M17'],
-			['Callsign' => 'N7REMOTE', 'IP' => '198.51.100.8', 'Protocol' => 'M17', 'LastHeardTime' => 1],
+			['Callsign' => 'N7REMOTE', 'IP' => '198.51.100.8', 'Protocol' => 'M17', 'LastHeardTime' => 1, 'ConnectTime' => time() - 60],
 		],
 		'Peers' => [['Callsign' => 'PEERDECOY', 'IP' => '198.51.100.9']],
 		'Users' => [['Callsign' => 'USERDECOY', 'IP' => '198.51.100.10']],
@@ -635,6 +635,7 @@ INI);
 	asrAssertSelfTest(
 		is_array($m17Rows)
 			&& array_column($m17Rows, 'callsign') === ['N7REMOTE']
+			&& ($m17Rows[0]['connection_time_source'] ?? '') === 'native'
 			&& !isset($m17Rows[0]['IP'])
 			&& !isset($m17Rows[0]['address']),
 		'M17 current-client parsing, loopback exclusion, or address redaction failed.'
@@ -673,6 +674,8 @@ INI);
 	asrAssertSelfTest(
 		$reflectorAvailable
 			&& array_column($reflectorRows, 'callsign') === ['N7NEW']
+			&& ($reflectorRows[0]['connected_since_epoch'] ?? 0) === strtotime('2026-08-11 20:01:00 UTC')
+			&& ($reflectorRows[0]['connection_time_source'] ?? '') === 'native'
 			&& !isset($reflectorRows[0]['address']),
 		'P25/NXDN snapshot, event replay, loopback exclusion, or address redaction failed.'
 	);
@@ -734,6 +737,18 @@ INI);
 		$restartAvailable
 	);
 	asrAssertSelfTest(!$restartAvailable, 'Pre-restart reflector snapshot was retained.');
+	$postRestartAvailable = false;
+	$postRestartRows = asrReflectorRowsFromLogLines(array_merge($reflectorLines, [
+		'M: 2026-08-11 20:02:05.000 Starting P25Reflector-20210912',
+		'M: 2026-08-11 20:02:10.000 Currently linked repeaters:',
+		'M: 2026-08-11 20:02:10.000     N7NEW     : 198.51.100.12:42000 0/120',
+	]), 'p25', (int) $logNow, [], $postRestartAvailable);
+	asrAssertSelfTest(
+		$postRestartAvailable
+			&& ($postRestartRows[0]['connected_since_epoch'] ?? 0) === strtotime('2026-08-11 20:02:05 UTC')
+			&& ($postRestartRows[0]['connection_time_source'] ?? '') === 'observed',
+		'P25/NXDN service restart did not reset connection duration.'
+	);
 	$ipv6Rows = asrM17RowsFromPayload([
 		'Clients' => [
 			['Callsign' => 'N7V6LOCAL', 'IP' => '::1', 'Protocol' => 'M17'],
@@ -772,7 +787,9 @@ INI);
 	];
 	$ysfRows = asrYsfRowsFromLogLines($ysfEvents, (int) $logNow, $ysfAvailable, true, 'KN4EWT');
 	asrAssertSelfTest(
-		$ysfAvailable && array_column($ysfRows, 'callsign') === ['KF8DRJ', 'N9BO'],
+		$ysfAvailable && array_column($ysfRows, 'callsign') === ['KF8DRJ', 'N9BO']
+			&& ($ysfRows[0]['connected_since_epoch'] ?? 0) === strtotime('2026-08-11 20:02:10 UTC')
+			&& ($ysfRows[0]['connection_time_source'] ?? '') === 'native',
 		'A YSF station linked since the last full list was not shown, or an unlinked one stayed.'
 	);
 	$ysfEvents[] = 'M: 2026-08-11 20:02:40.000 Removing KF8DRJ     (127.0.0.1:10728) unlinked';
@@ -781,7 +798,40 @@ INI);
 		$ysfAvailable && array_column($ysfRows, 'callsign') === ['N9BO'],
 		'A YSF station that unlinked since the last full list was still shown.'
 	);
+	$ysfRestartAvailable = false;
+	asrYsfRowsFromLogLines(array_merge(
+		$ysfEvents,
+		['M: 2026-08-11 20:02:45.000 Starting YSFReflector-20200917']
+	), (int) $logNow, $ysfRestartAvailable);
+	asrAssertSelfTest(!$ysfRestartAvailable, 'Pre-restart YSF snapshot was retained.');
+	$ysfPostRestartAvailable = false;
+	$ysfPostRestartRows = asrYsfRowsFromLogLines(array_merge($ysfEvents, [
+		'M: 2026-08-11 20:02:45.000 Starting YSFReflector-20200917',
+		'M: 2026-08-11 20:02:50.000 Currently linked repeaters/gateways:',
+		'M: 2026-08-11 20:02:50.000     N9BO      : 127.0.0.1:10005 5/60',
+	]), (int) $logNow, $ysfPostRestartAvailable, true);
+	asrAssertSelfTest(
+		$ysfPostRestartAvailable
+			&& ($ysfPostRestartRows[0]['connected_since_epoch'] ?? 0) === strtotime('2026-08-11 20:02:45 UTC')
+			&& ($ysfPostRestartRows[0]['connection_time_source'] ?? '') === 'observed',
+		'YSF service restart did not reset connection duration.'
+	);
 
+	$durationRows = [['callsign' => 'KE7WIL']];
+	$first = asrTrackClientDuration($durationRows, [], 1000);
+	$next = asrTrackClientDuration($durationRows, $first, 1010);
+	asrAssertSelfTest($next[0]['connected_since_epoch'] === 1000, 'Duration continuity failed.');
+	asrAssertSelfTest(asrTrackClientDuration($durationRows, [], 1020)[0]['connected_since_epoch'] === 1020, 'Reconnect reset failed.');
+	asrAssertSelfTest(asrTrackClientDuration($durationRows, $next, 1300)[0]['connected_since_epoch'] === 1300, 'Stale duration reset failed.');
+	$native = asrTrackClientDuration([[
+		'callsign' => 'KE7WIL',
+		'connected_since_epoch' => 990,
+		'connection_time_source' => 'native',
+	]], $next, 1020);
+	asrAssertSelfTest(
+		$native[0]['connected_since_epoch'] === 990 && $native[0]['connection_time_source'] === 'native',
+		'Native connection timestamp did not replace the observed lower bound.'
+	);
 	echo "bridge-client source, freshness, owned-reflector, sorting, port, and redaction self-test: ok" . PHP_EOL;
 }
 
@@ -1075,7 +1125,7 @@ function asrSanitizeClientRows(
 			continue;
 
 		$item = [];
-		foreach(['callsign', 'call', 'station', 'username', 'name', 'display_name', 'displayName', 'user', 'current_user', 'dmrid', 'dmr_id', 'id', 'ip', 'address', 'host', 'remote_addr', 'last_tx_epoch', 'tx_epoch', 'last_talk_epoch', 'last_seen_epoch', 'last_seen', 'timestamp', 'active', 'current', 'connected'] as $key) {
+		foreach(['callsign', 'call', 'station', 'username', 'name', 'display_name', 'displayName', 'user', 'current_user', 'dmrid', 'dmr_id', 'id', 'ip', 'address', 'host', 'remote_addr', 'last_tx_epoch', 'tx_epoch', 'last_talk_epoch', 'last_seen_epoch', 'last_seen', 'timestamp', 'active', 'current', 'connected', 'connected_since_epoch', 'connection_observed_epoch', 'connection_time_source'] as $key) {
 			if(!array_key_exists($key, $row))
 				continue;
 			$value = $row[$key];
@@ -1136,6 +1186,43 @@ function asrClientIdentityKey(array $row): string {
 	if($host !== '')
 		return 'host:' . $host;
 	return 'row:' . hash('sha256', (string) json_encode($row));
+}
+
+// Observed duration is a lower bound, never a last-TX timestamp.
+function asrTrackClientDuration(array $rows, array $previous, int $now): array {
+	$prior = [];
+	foreach($previous as $row) {
+		if(is_array($row))
+			$prior[asrClientIdentityKey($row)] = $row;
+	}
+	foreach($rows as &$row) {
+		$old = $prior[asrClientIdentityKey($row)] ?? [];
+		$nativeSince = ($row['connection_time_source'] ?? '') === 'native'
+			? asrEpochValue($row['connected_since_epoch'] ?? 0)
+			: 0;
+		$observedSince = ($row['connection_time_source'] ?? '') === 'observed'
+			? asrEpochValue($row['connected_since_epoch'] ?? 0)
+			: 0;
+		$since = asrEpochValue($old['connected_since_epoch'] ?? 0);
+		$seen = asrEpochValue($old['connection_observed_epoch'] ?? 0);
+		$source = (string) ($old['connection_time_source'] ?? '');
+		if($nativeSince > 0 && $nativeSince <= $now + ASR_CLOCK_FUTURE_TOLERANCE) {
+			$since = $nativeSince;
+			$source = 'native';
+		} elseif($observedSince > 0 && $observedSince <= $now) {
+			$since = $observedSince;
+			$source = 'observed';
+		} elseif($since <= 0 || $since > $seen || $seen > $now || $now - $seen > 180
+			|| !in_array($source, ['native', 'observed'], true)) {
+			$since = $now;
+			$source = 'observed';
+		}
+		$row['connected_since_epoch'] = $since;
+		$row['connection_observed_epoch'] = $now;
+		$row['connection_time_source'] = $source;
+	}
+	unset($row);
+	return $rows;
 }
 
 function asrDedupeAndSortClientRows(array $rows): array {
@@ -1354,7 +1441,13 @@ function asrM17RowsFromPayload(
 		$protocol = strtoupper(trim((string) ($client['Protocol'] ?? 'M17')));
 		if($protocol !== '' && $protocol !== 'M17')
 			continue;
-		$rows[] = ['callsign' => $callsign, 'connected' => true];
+		$row = ['callsign' => $callsign, 'connected' => true];
+		$connectedSince = asrEpochValue($client['ConnectTime'] ?? 0);
+		if($connectedSince > 0 && $connectedSince <= time() + ASR_CLOCK_FUTURE_TOLERANCE) {
+			$row['connected_since_epoch'] = $connectedSince;
+			$row['connection_time_source'] = 'native';
+		}
+		$rows[] = $row;
 	}
 	if($proxiedSessions)
 		$rows = asrRemoveOneLocalBridgeSession($rows, $localCallsign);
@@ -1470,6 +1563,7 @@ function asrReflectorRowsFromLogLines(
 		return [];
 	$state = [];
 	$baselineEpoch = 0;
+	$restartEpoch = 0;
 	$pendingEpoch = 0;
 	$pendingRows = [];
 	$pendingHeader = false;
@@ -1478,6 +1572,13 @@ function asrReflectorRowsFromLogLines(
 		if(!$pendingHeader)
 			return;
 		if($pendingRows !== []) {
+			foreach($pendingRows as $endpoint => &$pendingRow) {
+				$old = $state[$endpoint] ?? null;
+				if(is_array($old) && ($old['callsign'] ?? '') === ($pendingRow['callsign'] ?? '')
+					&& isset($old['connected_since_epoch']))
+					$pendingRow['connected_since_epoch'] = $old['connected_since_epoch'];
+			}
+			unset($pendingRow);
 			$state = $pendingRows;
 			$baselineEpoch = $pendingEpoch;
 		}
@@ -1499,7 +1600,7 @@ function asrReflectorRowsFromLogLines(
 				$callsign = asrSafeClientCallsign($rowMatch[1]);
 				$endpoint = trim($rowMatch[2]);
 				if($callsign !== '' && $endpoint !== '' && $timeout > 0 && $timer >= 0 && $timer < $timeout)
-					$pendingRows[$endpoint] = $callsign;
+					$pendingRows[$endpoint] = ['callsign' => $callsign];
 				continue;
 			}
 			$finishPending();
@@ -1508,6 +1609,7 @@ function asrReflectorRowsFromLogLines(
 		if(preg_match('/^Starting\s+' . strtoupper($mode) . 'Reflector-/iD', $message)) {
 			$state = [];
 			$baselineEpoch = 0;
+			$restartEpoch = $epoch;
 			continue;
 		}
 		if($message === 'Currently linked repeaters:') {
@@ -1527,7 +1629,7 @@ function asrReflectorRowsFromLogLines(
 			$callsign = asrSafeClientCallsign($eventMatch[1]);
 			$endpoint = trim($eventMatch[2]);
 			if($callsign !== '' && $endpoint !== '')
-				$state[$endpoint] = $callsign;
+				$state[$endpoint] = ['callsign' => $callsign, 'connected_since_epoch' => $epoch];
 			continue;
 		}
 		if(preg_match('/^Removing\s+.+?\s+\(([^)]+)\)\s+(?:unlinked|disappeared)\s*$/D', $message, $eventMatch))
@@ -1541,10 +1643,20 @@ function asrReflectorRowsFromLogLines(
 		return [];
 	$available = true;
 	$rows = [];
-	foreach($state as $endpoint => $callsign) {
+	foreach($state as $endpoint => $client) {
 		if(!$proxiedSessions && asrEndpointIsLocal((string) $endpoint, $localAddresses))
 			continue;
-		$rows[] = ['callsign' => (string) $callsign, 'connected' => true];
+		$callsign = is_array($client) ? (string) ($client['callsign'] ?? '') : (string) $client;
+		$row = ['callsign' => $callsign, 'connected' => true];
+		$connectedSince = is_array($client) ? (int) ($client['connected_since_epoch'] ?? 0) : 0;
+		if($connectedSince > 0) {
+			$row['connected_since_epoch'] = $connectedSince;
+			$row['connection_time_source'] = 'native';
+		} elseif($restartEpoch > 0) {
+			$row['connected_since_epoch'] = $restartEpoch;
+			$row['connection_time_source'] = 'observed';
+		}
+		$rows[] = $row;
 	}
 	if($proxiedSessions)
 		$rows = asrRemoveOneLocalBridgeSession($rows, $localCallsign);
@@ -1733,6 +1845,7 @@ function asrYsfRowsFromLogLines(
 ): array {
 	$available = false;
 	$latestEpoch = 0;
+	$restartEpoch = 0;
 	$latestRows = [];
 	$pendingEpoch = 0;
 	$pendingRows = [];
@@ -1745,6 +1858,13 @@ function asrYsfRowsFromLogLines(
 		&$pendingHeader
 	): void {
 		if($pendingHeader && $pendingRows !== []) {
+			foreach($pendingRows as $endpoint => &$pendingRow) {
+				$old = $latestRows[$endpoint] ?? null;
+				if(is_array($old) && ($old['callsign'] ?? '') === ($pendingRow['callsign'] ?? '')
+					&& isset($old['connected_since_epoch']))
+					$pendingRow['connected_since_epoch'] = $old['connected_since_epoch'];
+			}
+			unset($pendingRow);
 			$latestEpoch = $pendingEpoch;
 			$latestRows = $pendingRows;
 		}
@@ -1766,7 +1886,7 @@ function asrYsfRowsFromLogLines(
 				$callsign = asrSafeClientCallsign($linked[1]);
 				$endpoint = trim($linked[2]);
 				if($callsign !== '' && $endpoint !== '' && $timeout > 0 && $timer >= 0 && $timer < $timeout)
-					$pendingRows[$endpoint] = $callsign;
+					$pendingRows[$endpoint] = ['callsign' => $callsign];
 				continue;
 			}
 			$finishPending();
@@ -1775,6 +1895,12 @@ function asrYsfRowsFromLogLines(
 			$pendingHeader = true;
 			$pendingEpoch = $epoch;
 			$pendingRows = [];
+			continue;
+		}
+		if(preg_match('/^Starting\s+YSFReflector-/iD', $message)) {
+			$latestEpoch = 0;
+			$latestRows = [];
+			$restartEpoch = $epoch;
 			continue;
 		}
 		if($message === 'No repeaters linked' || $message === 'No repeaters/gateways linked') {
@@ -1788,7 +1914,7 @@ function asrYsfRowsFromLogLines(
 		if(preg_match('/^Adding\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/D', $message, $event)) {
 			$callsign = asrSafeClientCallsign($event[1]);
 			if($callsign !== '')
-				$latestRows[trim($event[2])] = $callsign;
+				$latestRows[trim($event[2])] = ['callsign' => $callsign, 'connected_since_epoch' => $epoch];
 			continue;
 		}
 		if(preg_match('/^Removing\s+([A-Z0-9\/ -]{2,16}?)\s+\(([^)\s]+)\)/', $message, $event))
@@ -1802,13 +1928,20 @@ function asrYsfRowsFromLogLines(
 
 	$available = true;
 	$rows = [];
-	foreach($latestRows as $endpoint => $callsign) {
+	foreach($latestRows as $endpoint => $client) {
 		if(!$proxiedSessions && asrEndpointIsLocal((string) $endpoint))
 			continue;
-		$rows[] = [
-			'callsign' => (string) $callsign,
-			'connected' => true,
-		];
+		$callsign = is_array($client) ? (string) ($client['callsign'] ?? '') : (string) $client;
+		$row = ['callsign' => $callsign, 'connected' => true];
+		$connectedSince = is_array($client) ? (int) ($client['connected_since_epoch'] ?? 0) : 0;
+		if($connectedSince > 0) {
+			$row['connected_since_epoch'] = $connectedSince;
+			$row['connection_time_source'] = 'native';
+		} elseif($restartEpoch > 0) {
+			$row['connected_since_epoch'] = $restartEpoch;
+			$row['connection_time_source'] = 'observed';
+		}
+		$rows[] = $row;
 	}
 	if($proxiedSessions)
 		$rows = asrRemoveOneLocalBridgeSession($rows, $localCallsign);
@@ -1927,6 +2060,7 @@ $passwords = is_array($secrets['bridgeClientPasswords'] ?? null) ? $secrets['bri
 $output = asrManagedOutputPath((string) (getenv('ASR_CONNECTED_CLIENTS_JSON') ?: ''));
 $result = [];
 $resultMeta = [];
+$previousClients = asrReadFreshJson($output);
 $builtInModeCounts = ['p25' => 0, 'nxdn' => 0, 'm17' => 0];
 foreach($bridges as $bridge) {
 	if(!asrUsesBuiltinOwnedReflector($bridge))
@@ -2001,6 +2135,11 @@ foreach($bridges as $bridge) {
 		}
 	}
 	$result[$id] = asrDedupeAndSortClientRows($rows);
+    if ($feedKind === 'current') {
+        $prior = ($previousClients['_asr_meta'][$id]['kind'] ?? '') === 'current'
+            ? ($previousClients[$id] ?? []) : [];
+        $result[$id] = asrTrackClientDuration($result[$id], $prior, time());
+    }
 	$resultMeta[$id] = [
 		'kind' => in_array($feedKind, ['current', 'recent', 'fallback'], true) ? $feedKind : 'empty',
 		'mode' => $mode,
