@@ -224,6 +224,7 @@ python3 "$ROOT/scripts/asr-deployment-source-consistency-self-test.py"
 # Unified bridge gate: includes Thomas's protocol, roster, Kick/Ban,
 # relay identity, Recent Activity and real-dashboard behavioral blockers.
 sh "$ROOT/scripts/asr-beta8-bridge-regression-self-test.sh"
+sh "$ROOT/scripts/asrplus-security-regression-self-test.sh"
 if command -v php >/dev/null 2>&1; then
 	for compat_version in $COMPAT_VERSIONS; do
 		for compat_file in AMI.php asrAmiGuard.php cmd.php server.php asrEchoLink.php asrTalkerIdentity.php; do

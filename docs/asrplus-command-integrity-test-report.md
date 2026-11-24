@@ -1,6 +1,6 @@
 # ASR Plus security test report
 
-Date: 2026-11-23 (America/Phoenix)
+Date: 2026-11-24 (America/Phoenix)
 
 Scope: local worktree only. No production command, queue injection, deployment,
 restart, credential, radio link, firewall or Texas host was used.
@@ -24,6 +24,12 @@ asrplus-texas-agent-config-self-test.py             PASS
 asrplus-token-self-test.py                          PASS
 ```
 
+The new `asrplus-security-regression-self-test.sh` CI entrypoint runs those 12
+tests plus the disposable Texas qualification harness. The Texas harness passed
+35 quick-gate checks; its separate 30-minute evidence covers sustained
+telemetry. Token coverage now includes replacement-token rotation after
+revocation.
+
 Python compilation passed for the agent, control helper, endpoint, token
 helper, integrity module and KY2 migration utility. `php -l` reported no syntax
 errors in `ops/asrplus/api.php`. The staged manifest and inspection-evidence
@@ -31,6 +37,11 @@ JSON validated. `systemd-analyze verify` accepted the KY2 control drop-in when
 composed with the repository agent unit and a harmless local `/bin/true`
 ExecStart substitute; the development machine emitted only unrelated removed
 `CPUAccounting` warnings from vendor units. No unit was started.
+
+The full Beta 8.6.1 `build-release.sh` gate also passed with the new security
+entrypoint included. Its local archive hash was
+`4f3c7d85b6bfae66e4a52050af6b3803724ff6a21a1544daf234ac9783c7ab47`;
+the archive was not published or deployed.
 
 ## Security coverage
 
@@ -46,17 +57,15 @@ ExecStart substitute; the development machine emitted only unrelated removed
 | SSH | Strict host key, dedicated known-hosts, no forwarding/TTY asserted | No host-key bypass path |
 | API token | Scoped read/control authentication | Altered, expired, revoked, HTTP, cross-node and missing-permission denied |
 | Hub compatibility | Phoenix outbound and KY2 masterhub-pull modes preserved | Invalid heartbeat/publish mode rejected; KY2 watcher remains keyless |
-| Texas | Endpoint, node, required mode, HMAC/SSH separation and central parity | No production contact or installation |
+| Texas | Endpoint, node, required mode, HMAC/SSH separation, telemetry-only mode, capacity 60 and central parity | 61st inbound rejection, cross-key/hub, no control polling, install/rollback and no production contact |
 
 ## Compatibility conclusion
 
-Existing Phoenix and KY2 optional-mode behavior remains intact. Signed work is
-always verified even in optional mode, and unsigned compatibility work remains
-bounded and deduplicated. The prepared required-mode change alters only mode
-fields and preserves key IDs and paths; rollback restores the exact optional
-configuration. KY2's staged systemd hardening does not override ExecStart,
+Existing Phoenix and KY2 behavior remains intact and production required-mode
+activation is recorded separately. Signed work is always verified; duplicates
+remain bounded and deduplicated. Texas starts in required integrity mode with
+control polling disabled. KY2's systemd hardening does not override ExecStart,
 timer, watcher, node, SSH, Asterisk or routing configuration.
 
-Production optional-mode health was inspected separately and is not inferred
-from these local tests. Required-mode activation, token installation and Texas
-qualification remain separate approval gates.
+Production health is not inferred from local tests. Texas operator agreement,
+host installation, radio linking and incremental controls remain separate gates.

@@ -4,6 +4,8 @@
   "server": "root@44.30.157.21",
   "key": "/etc/asrplus/ssh/texas-to-kentucky",
   "knownHosts": "/etc/asrplus/ssh/known_hosts_kentucky",
+  "controlPolling": false,
+  "controlHelper": "/usr/local/sbin/asrplus-texas-control",
   "commandIntegrity": {
     "mode": "required",
     "keyId": "texas-2026-01",

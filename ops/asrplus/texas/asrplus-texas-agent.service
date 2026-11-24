@@ -1,0 +1,32 @@
+[Unit]
+Description=Publish Texas telemetry to ASR Plus
+After=asterisk.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/asrplus-agent --config /etc/asrplus-agent.json
+User=asrplus-agent
+Group=asrplus-agent
+SupplementaryGroups=asterisk
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /var/lib/asterisk/astdb.txt /var/www/html/allscan
+ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
+RuntimeDirectory=asrplus
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+StateDirectory=asrplus-agent
+StateDirectoryMode=0700

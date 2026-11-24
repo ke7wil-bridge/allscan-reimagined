@@ -1,0 +1,208 @@
+{
+  "commit": "890ef91898c0b63eb9ffddef28cba20683638c61",
+  "generatedEpoch": 1795537109,
+  "host": {
+    "cpuCount": 8,
+    "platform": "Linux-7.0.0-43-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "totalMemoryKiB": 6707200
+  },
+  "limitations": [
+    "Synthetic fixture qualification is not Texas provider or hardware certification.",
+    "No live radio link, Asterisk channel, production credential or production control was used."
+  ],
+  "result": "PASS",
+  "schemaVersion": 1,
+  "scope": "disposable fixtures only; no production credentials, radio or Asterisk controls",
+  "soak": {
+    "cpuSeconds": 0.915,
+    "diskBytes": 25952,
+    "elapsedSeconds": 1800.002,
+    "latencyMsMax": 8.868,
+    "latencyMsP50": 2.143,
+    "maxRssKiB": 44008,
+    "processCpuPercent": 0.051,
+    "processSwapEndKiB": 0,
+    "processSwapStartKiB": 0,
+    "recordsPerSample": 200,
+    "requestedSeconds": 1800,
+    "samples": 361
+  },
+  "tests": [
+    {
+      "detail": "",
+      "name": "capacity-config-60",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "admit-1-through-60",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "reject-61",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "readmit-after-disconnect",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "local-bridge-excluded",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "outbound-interhub-excluded",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "simultaneous-admission-atomic",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "telemetry-200-row-cap",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "clock-skew-boundary",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "endpoint-4mib-boundary",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "tamper-and-cross-key-rejected",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "signed-command-ack-duplicate",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "ledger-exactly-once",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "restart-interruption-no-reexecute",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "network-failures-no-execution",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "atomic-write-failure-preserves-old",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "queue-80-operational-100-hard-recovery",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "telemetry-only-no-control-poll",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "outage-dashboard-stale",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-verify",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-emergency-isolation",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-backup-integrity",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-idempotent",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-repeat-rollback",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-full-rollback",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "installer-partial-failure-rollback",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "dedicated-service-account",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "dedicated-talker-watcher",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "systemd-filesystem-sandbox",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "forced-source-restricted-ssh",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "ssh-hmac-credentials-separated",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "narrow-local-control-helper",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "sustained-telemetry",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "soak-cpu-below-70",
+      "result": "PASS"
+    },
+    {
+      "detail": "",
+      "name": "soak-no-process-swap-growth",
+      "result": "PASS"
+    }
+  ]
+}

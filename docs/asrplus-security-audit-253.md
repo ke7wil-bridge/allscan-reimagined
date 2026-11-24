@@ -115,3 +115,9 @@ hub's command. Texas starts in required and telemetry-only mode. Dashboard
 automation receives the shortest practical Kentucky-issued token, defaults to
 `status:read`, and receives control permissions only by explicit operation and
 hub approval.
+
+The November 24 Texas disposable qualification adds a non-login
+`asrplus-agent` service account, empty capability set, strict filesystem
+sandbox, source-restricted forced-key template and a narrow validated local
+link helper without sudo. Actual Texas AMI/control-socket group access remains
+a host preflight gate. No live credential or host was used.

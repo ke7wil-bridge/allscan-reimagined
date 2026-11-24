@@ -439,9 +439,17 @@ def execute_action(config: dict, command: dict) -> dict:
         if not re.fullmatch(r"[0-9]{3,10}", remote) or remote == str(config["node"]):
             return {"ok": False, "exitCode": 2, "message": "command validation failed"}
         ilink = "13" if action == "connect" and command.get("permanent") is True else "3" if action == "connect" else "11"
-        result = subprocess.run(
-            ["/usr/sbin/asterisk", "-rx", f"rpt cmd {config['node']} ilink {ilink} {remote}"],
-            capture_output=True, text=True, timeout=10, check=False)
+        configured_helper = config.get("controlHelper", "")
+        helper = ([str(item) for item in configured_helper]
+                  if isinstance(configured_helper, list) else
+                  ([str(configured_helper).strip()] if str(configured_helper).strip() else []))
+        arguments = (helper + [action, str(config["node"]), remote,
+                      "permanent" if command.get("permanent") is True else "temporary"]
+                     if helper else
+                     ["/usr/sbin/asterisk", "-rx",
+                      f"rpt cmd {config['node']} ilink {ilink} {remote}"])
+        result = subprocess.run(arguments, capture_output=True, text=True,
+                                timeout=10, check=False)
         return {"ok": result.returncode == 0, "exitCode": result.returncode,
                 "message": (result.stdout or result.stderr).strip()[:300]}
     if action not in {"ban", "unban", "ban-list"}:
@@ -567,6 +575,11 @@ def execute_once(config: dict, command: dict) -> dict:
 
 def sync_once(config: dict) -> int:
     status = stamped_status(config)
+    if config.get("controlPolling", True) is False:
+        pushed = run_ssh(config, "asrplus-status", json.dumps(status))
+        if pushed.returncode != 0:
+            raise SystemExit("status push failed")
+        return 0
     synced = run_ssh(config, "asrplus-sync", json.dumps(status))
     if synced.returncode != 0:
         pushed = run_ssh(config, "asrplus-status", json.dumps(status))

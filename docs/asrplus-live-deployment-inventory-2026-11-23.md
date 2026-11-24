@@ -42,4 +42,18 @@ activate required mode, or install Texas.
 - Live validation passed: HTTPS status, one-hub-only response, cross-hub denial, read-only control denial, HTTP denial, expiry and revocation. Test tokens revoked; no permanent bearer token issued.
 - Periodic asrplus-reapply was run after source update; authoritative source and deployed web copy hashes match.
 - Apache and Asterisk remained active. No Asterisk restart or radio-link change.
-- Authenticated browser-session regression testing remains outstanding; existing session path was retained in API source.
+- Authenticated browser-session regression passed using Josh's existing Mac Chrome session. The dashboard and API returned current three-hub data without a bearer token; omitted-cookie access and a headerless non-operational control probe returned `403`; logout redirected both tabs to `/asr/user/` and the API then returned `403`. No cookie value, credential, radio control, Asterisk action, or service change was used.
+- The deployed API hash is `ea23e5848cf8adcc7faddb71973d8ab9fbfbb1d7ada6869a164aa11e1cf842a3`; deployed `CfgModel.php` and `UserModel.php` hashes match the tested repository files. Kentucky has no read-only users, so a read-only PHP execution of the deployed `modifyOk()` function verified Read Only denial and Read/Modify allowance without changing the user database.
+
+- Audit rotation verified November 24: daily, 90 archives, compression, root:root 0640; logrotate.timer active. No forced rotation performed.
+
+## Texas preapproval qualification update - November 24
+
+Texas 674984 remains uncontacted and uninstalled. Repository-only disposable
+fixtures qualified the proposed 60-inbound policy, telemetry/status boundaries,
+required-mode command identity, replay/recovery, queue ceilings and guarded
+install/rollback workflow. A dedicated non-login service account and
+telemetry-only configuration are prepared. These results change no deployed
+inventory and do not certify Texas VM capacity. Operator agreement, actual host
+preflight, credentials, installation, supervised radio/audio and incremental
+control approvals remain required.
