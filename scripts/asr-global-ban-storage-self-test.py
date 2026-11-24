@@ -143,4 +143,11 @@ with tempfile.TemporaryDirectory() as helper_dir:
 assert json.loads(json.dumps(admin.ban_payload(["KE7WIL"], {}, now=1))) == [
     {"rule": "KE7WIL", "createdAt": 0, "expiresAt": 0, "remainingSeconds": 0}]
 
+# The dashboard must name skipped bridges instead of hiding them (#129).
+live = (ROOT / "src/lib/allscanLive.ts").read_text(encoding="utf-8")
+app = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
+assert "skippedBridges: Array.isArray(payload.standalone?.skipped)" in live
+assert "no native ban adapter on this node" in live
+assert app.count("globalBanPendingReason(result,") >= 2
+
 print("global ban storage self-test: ok")

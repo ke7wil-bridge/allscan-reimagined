@@ -46,6 +46,7 @@ import {
   fetchAslBans,
   changeAslBan,
   updateGlobalBan,
+  globalBanPendingReason,
   kickZelloClient,
   kickStandaloneClient,
   type TgifKickResult,
@@ -2503,7 +2504,7 @@ function App({ config }: { config: RuntimeConfig }) {
       setGlobalBanAudit(result.audit)
       setAslEnforcementStatus(result.asl?.status === 'applied' ? 'Global policy applied everywhere' : `Global policy pending: ${result.asl?.error || 'Adapter unavailable'}`)
       if (!result.verified || result.asl?.applied?.unmappedGlobalRules?.includes(value)) {
-        throw new Error(`Global Ban was saved, but full enforcement is pending: ${result.asl?.error || 'The callsign could not be mapped.'}`)
+        throw new Error(`Global Ban was saved, but full enforcement is pending: ${globalBanPendingReason(result, 'The callsign could not be mapped.')}`)
       }
       let disconnectStatus = ''
       if (banDialog.row) {
@@ -2542,7 +2543,7 @@ function App({ config }: { config: RuntimeConfig }) {
       setGlobalBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
-      setBanStatus(result.verified ? `Removed global ban for ${rule}.` : `Global Ban removal is pending full enforcement: ${result.asl?.error || 'Retrying.'}`)
+      setBanStatus(result.verified ? `Removed global ban for ${rule}.` : `Global Ban removal is pending full enforcement: ${globalBanPendingReason(result, 'Retrying.')}`)
     } catch (error) {
       setBanStatus(error instanceof Error ? error.message : 'Global unban failed.')
     } finally { setBanBusy(false) }

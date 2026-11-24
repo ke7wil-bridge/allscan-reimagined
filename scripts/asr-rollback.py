@@ -52,7 +52,7 @@ SCHEDULER_FILES = (
     "schedule.history.jsonl",
 )
 # Mode the web server needs on restored /etc/allscan scheduler state (#129).
-SCHEDULER_FILE_MODE = 0o664
+SCHEDULER_FILE_MODE = 0o660
 REQUIRED_RELEASE_FILES = (
     "web/index.html",
     "server/asr-api.php",
@@ -1585,6 +1585,14 @@ def self_test() -> None:
         # #129: backups are 0600; restored scheduler state must be web-readable.
         assert stat.S_IMODE((shared / "schedule.json").stat().st_mode) == SCHEDULER_FILE_MODE
         assert stat.S_IMODE((shared / "schedule.activity").stat().st_mode) == SCHEDULER_FILE_MODE
+        # Ownership: restore hands scheduler state to the resolved web account.
+        owner = pwd.getpwuid(os.geteuid()).pw_name
+        os.chmod(shared / "schedule.json", 0o600)
+        restore_shared_state(shared_backup, etc_dir=shared, account=owner, restore_crontab=False)
+        restored = (shared / "schedule.json").stat()
+        identity = pwd.getpwnam(owner)
+        assert (restored.st_uid, restored.st_gid) == (identity.pw_uid, identity.pw_gid)
+        assert stat.S_IMODE(restored.st_mode) == 0o660
         stable_helper = root / "stable-protected-config-helper.py"
         rollback_environment = rollback_reapply_environment(stable_helper)
         assert rollback_environment["ASR_ROLLBACK_MODE"] == "1"

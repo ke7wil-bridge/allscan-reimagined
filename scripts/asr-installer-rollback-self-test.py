@@ -323,7 +323,13 @@ def assert_installer_order(installer: Path) -> None:
     # #129: restored scheduler state must be web-owned, not the root-only backup mode.
     scheduler_restore = text[text.index('scheduler_tmp=$(mktemp'):text.index('mv -fT "$scheduler_tmp"')]
     assert 'chown "$WEB_USER:$WEB_GROUP" "$scheduler_tmp"' in scheduler_restore
-    assert 'chmod 664 "$scheduler_tmp"' in scheduler_restore
+    assert 'chmod 660 "$scheduler_tmp"' in scheduler_restore
+    # #129 WARN-3: cron is a dependency, but installing it must not enable scheduling.
+    cron_fn = text[text.index('ensure_scheduler_cron() {'):text.index('prune_old_backups() {')]
+    assert 'apt-get install -y --no-install-recommends cron' in cron_fn
+    assert 'systemctl enable --now cron.service' in cron_fn
+    assert 'crontab -u' not in cron_fn and 'runSchedule' not in cron_fn
+    assert text.index('\nensure_scheduler_cron\n') < text.index('\nbackup_scheduler_state\n') if '\nbackup_scheduler_state\n' in text else True
     assert '"$BACKUP_DIR/stock-allscan.tar.gz"' in text
     assert 'mv "$STOCK_PREVIOUS_DIR" "$STOCK_ALLSCAN_DIR"' in rollback_block
     assert text.index('STOCK_PREVIOUS_ARMED=1') < text.index(
