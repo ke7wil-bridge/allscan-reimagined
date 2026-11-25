@@ -450,7 +450,7 @@ try {
   }
   // A private transport identity must never become a blank/generic Talker Card.
   const privateTransport = {
-    id: 'urf', mode: 'urf', node: '1001', title: 'N1YKT Reflector', cardType: 'urf',
+    id: 'dmr_transport', mode: 'dmr', node: '1001', title: 'Private Transport', cardType: 'standard',
     status: 'Source/TX', lastCaller: '1001', lastTransmitter: '1001',
     lastTxEpoch: 2_000_000_010, activeStartEpoch: 2_000_000_005,
     recentTalkers: [{ callsign: '1999', startEpoch: 2_000_000_000, eventEpoch: 2_000_000_010, duration: 10 }],
@@ -459,7 +459,7 @@ try {
   assert(placeholders.currentTalker === null && placeholders.recentTalkers.length === 0,
     'private transport number leaked into digital talker cards')
   const realCaller = bridgeTalkerFeed([{ ...privateTransport, lastCaller: 'N1YKT', recentTalkers: [] }])
-  assert(realCaller.currentTalker?.info === 'N1YKT', 'valid URF callsign was suppressed')
+  assert(realCaller.currentTalker?.info === 'N1YKT', 'valid digital callsign was suppressed')
 
   assert(
     bridgeCardWarningText('-') === '-',
@@ -615,11 +615,33 @@ try {
     'M17 Net reflector/module controls are missing or insufficiently validated',
   )
   assert(
+    allscanLiveSource.includes('action=m17-qualification')
+      && allscanLiveSource.includes("credentials: 'same-origin'")
+      && allscanLiveSource.includes("'X-ASR-Requested-With': 'bridge-control'")
+      && appSource.includes("manageM17Qualification(card.id, 'start')")
+      && appSource.includes("manageM17Qualification(card.id, 'complete')")
+      && appSource.includes("manageM17Qualification(card.id, 'cancel')")
+      && appSource.includes("await manageM17Qualification(m17NetConfig.id, 'start')")
+      && appSource.includes('Qualify M17 Net')
+      && appSource.includes("card.mode.toLowerCase() === 'm17' && !bridgeConfig?.m17AudioQualified ? ("),
+    'M17 qualification controls are missing the guarded browser workflow',
+  )
+  assert(
+    asrApiSource.includes("$action === 'm17-qualification'")
+      && asrApiSource.includes('asr_require_post();')
+      && asrApiSource.includes('asr_require_same_origin();')
+      && asrApiSource.includes('asr_require_modify();')
+      && asrApiSource.includes("!== 'bridge-control'"),
+    'M17 qualification API route is missing request authorization guards',
+  )
+  assert(
     !appSource.match(/card\.cardType === 'm17_net'[\s\S]{0,300}approvedDestinations\.map/),
     'M17 Net destination is still restricted to the provisioned dropdown',
   )
   assert(
-    appSource.includes("? 'Current Reflector' : 'Current Destination'")
+    appSource.includes("card.cardType === 'nxdn_net' ? 'Current TG' : 'Current Reflector'")
+      && appSource.includes("<span>Current TG</span>")
+      && !appSource.includes("Current Destination")
       && appSource.includes("card.currentDestination || '–'")
       && !appSource.includes("card.currentTg || '-'"),
     'Net Bridge destination labels or idle en dashes are not standardized',

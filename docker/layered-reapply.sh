@@ -100,6 +100,7 @@ if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
   fi
   for control_helper in \
     allscan-reimagined-managed-dmr-net-control \
+    allscan-reimagined-service-status \
     allscan-reimagined-ysf-bridge-control \
     allscan-reimagined-p25-bridge-control \
     allscan-reimagined-nxdn-bridge-control \
@@ -184,6 +185,9 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-p25-bridge-co
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-control connect [a-zA-Z0-9_-]* [0-9]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-nxdn-bridge-control disconnect [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* status
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* qualification-start
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* qualification-complete
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* qualification-cancel
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* connect --reflector M17-[A-Z0-9]* --module [A-Z]
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-m17-bridge-control --bridge [a-zA-Z0-9_-]* --user [a-zA-Z0-9_.@+-]* disconnect
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-net-bridge-mode-control --mode dmr

@@ -50,6 +50,26 @@ with holder:
     settings = net_settings()
     plan = install.planner.plan(root, settings)
     assert plan["bridgeNode"] == 1999 and plan["role"] == "net"
+    from types import SimpleNamespace
+    renderer = install.renderer
+    native_units = renderer.unit_texts(plan, "a" * 32)
+    assert all("netns-exec.py" not in unit for unit in native_units.values())
+    original_backend = renderer.provisioning_backend
+    renderer.provisioning_backend = lambda: SimpleNamespace(
+        load_profile=lambda: object(),
+        systemd_exec=lambda command, user: "/usr/local/libexec/allscan-reimagined/asr-container-netns-exec.py --container allstarlink3 --proc-root /proc --user " + user + " -- " + " ".join(command))
+    try:
+        units = renderer.unit_texts(plan, "a" * 32)
+        for part in ("vocoder", "mmdvm", "analog"):
+            unit = units[f"/etc/systemd/system/asr-dmr-{part}-dmr_tgif_net.service"]
+            assert "--user asr-bridge -- " in unit and "User=asr-bridge" in unit and "ExecStart=!/usr/local/" in unit
+        assert "ExecStartPre=" not in units["/etc/systemd/system/asr-dmr-mmdvm-dmr_tgif_net.service"]
+        assert "netns-exec.py" not in units["/etc/systemd/system/asr-dmr-admin-dmr_tgif_net.service"]
+        standard_units = renderer.unit_texts(dict(plan, role="standard"), "a" * 32)
+        assert all("netns-exec.py" not in unit for unit in standard_units.values())
+    finally:
+        renderer.provisioning_backend = original_backend
+
     assert (plan["ports"]["usrp_rx"], plan["ports"]["usrp_tx"]) == (NET_RX, NET_TX)
     assert plan["resources"]["netTarget"].endswith("/dmr_tgif_net/tgif-run/net-target")
     assert "/urf/" not in json.dumps(plan)

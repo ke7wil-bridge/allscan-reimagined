@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import urllib.error
 import json
 import subprocess
 import sys
@@ -143,6 +145,29 @@ def main() -> None:
             assert all(request.get_header("Authorization") == "Bearer test-static-token-123456789"
                        for request in requests)
             assert json.loads(requests[1].data) == {"slot": 2, "talkgroup": 67498}
+            # TGIF can report the newly started device offline before login.
+            # Retry only explicit 409s and read current membership before writing.
+            requests.clear()
+            replies = iter([
+                {"ok": True, "device": 322493904, "enabled": True,
+                 "supports_ts2": True, "memberships": []},
+                {"ok": True, "device": 322493904, "memberships": [{"slot": 2, "talkgroup": 67498}]},
+                {"ok": True, "device": 322493904, "enabled": True,
+                 "supports_ts2": True, "memberships": [{"slot": 2, "talkgroup": 67498}]},
+            ])
+            def delayed_open(request, timeout=0):
+                if not requests:
+                    requests.append(request)
+                    raise urllib.error.HTTPError(request.full_url, 409, "offline", {}, io.BytesIO(b"{}"))
+                return fake_urlopen(request, timeout)
+            control.STATIC_OPENER.open = delayed_open
+            original_sleep = control.time.sleep
+            try:
+                control.time.sleep = lambda _: None
+                original_set(bridge, token, 67498)
+                assert [request.get_method() for request in requests] == ["GET", "GET", "POST", "GET"]
+            finally:
+                control.time.sleep = original_sleep
             control.STATIC_OPENER.open = original_open
 
             status = control.status_payload(loaded, bridge, target, runner)

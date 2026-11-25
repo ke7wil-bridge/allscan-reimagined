@@ -101,7 +101,8 @@ def net_bridges(config: dict) -> dict[str, dict]:
 
 def validate_mode_preflight(mode: str, bridge: dict) -> None:
     """Reject permanent configuration failures before disturbing the live mode."""
-    if mode == "m17" and bridge.get("m17AudioQualified") is not True:
+    if (mode == "m17" and bridge.get("m17AudioQualified") is not True
+            and bridge.get("m17QualificationState") != "qualifying"):
         raise ModeError(
             "M17 audio is not qualified on this node. The current Net Bridge "
             "mode was left unchanged."
@@ -247,6 +248,48 @@ def prepare_backend(mode: str, runner: Runner = run) -> None:
         ], False), "applying YSF reflector catalog")
 
 
+def connect_selected_backend(mode: str, bridge: dict, runner: Runner = run) -> None:
+    """Restore the configured session after its exclusive runtime is ready."""
+    if mode == "dmr":
+        approved = {str(value) for value in bridge.get("approvedDestinations", [])}
+        destination = str(bridge.get("fixedDestination", ""))
+        if destination == "" and len(approved) == 1:
+            # Beta 8.5.1 originally removed fixedDestination from managed DMR
+            # Net records. Preserve upgrade behavior when their allowlist has
+            # one unambiguous configured default.
+            destination = next(iter(approved))
+        if (not re.fullmatch(r"[0-9]{1,8}", destination)
+                or not 1 <= int(destination) <= 16777215 or destination == "4000"
+                or destination not in approved):
+            raise ModeError("DMR Net Bridge default talkgroup is invalid or not approved")
+        checked(runner([
+            "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+            "--bridge", str(bridge["id"]), "--connect", destination,
+        ], False), "connecting DMR talkgroup")
+        return
+    if mode == "m17":
+        reflector = str(bridge.get("m17Reflector", "")).upper()
+        module = str(bridge.get("m17Module", "")).upper()
+        if not re.fullmatch(r"M17-[A-Z0-9]{3}", reflector) or not re.fullmatch(r"[A-Z]", module):
+            raise ModeError("M17 Net Bridge selected reflector is invalid")
+        checked(runner([
+            "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+            "--bridge", str(bridge["id"]), "--user", "mode-switch",
+            "connect", "--reflector", reflector, "--module", module,
+        ], False), "connecting M17 reflector")
+        return
+    if mode != "ysf":
+        return
+    destination = str(bridge.get("fixedDestination", ""))
+    if not re.fullmatch(r"[0-9]{5}", destination):
+        raise ModeError("YSF Net Bridge fixed reflector is invalid")
+    checked(runner([
+        "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
+        "--connect", str(bridge["id"]), destination,
+        "--user", "mode-switch",
+    ], False), "connecting YSF reflector")
+
+
 def configured_ports(mode: str, bridge: dict) -> tuple[int, int]:
     try:
         if mode == "m17":
@@ -372,6 +415,11 @@ def strip_managed(text: str, bridge_ids: list[str]) -> str:
                 rf"(?ms)^[ \t]*{re.escape(begin)}\n.*?^[ \t]*{re.escape(end)}[ \t]*$\n?",
                 "", text,
             )
+        text = re.sub(
+            rf"(?ms)^[ \t]*; BEGIN ASR BRIDGE {re.escape(bridge_id)} [a-f0-9]{{32}}\n.*?"
+            rf"^[ \t]*; END ASR BRIDGE {re.escape(bridge_id)} [a-f0-9]{{32}}[ \t]*$\n?",
+            "", text,
+        )
     return text
 
 
@@ -545,6 +593,23 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
     old_mode = str(config.get("netBridgeMode", "")).lower()
     if old_mode not in bridges:
         old_mode = ""
+    # Snapshot the actual previous transport state, not just its configured
+    # mode. A failed switch must never reconnect a user-disconnected bridge.
+    previous_linked = bool(old_mode and transport_linked(str(config.get("node", "")), runner))
+    rollback_bridge = dict(bridges[old_mode]) if old_mode else {}
+    if previous_linked and old_mode == "m17":
+        result = runner(["/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+                         "--bridge", str(rollback_bridge["id"]), "status"], False)
+        checked(result, "reading previous M17 destination")
+        try:
+            status = json.loads(result.stdout)
+            target = status.get("confirmedTarget")
+        except (ValueError, AttributeError) as exc:
+            raise ModeError("previous M17 status is invalid") from exc
+        if status.get("digitalLinked") is True and isinstance(target, dict):
+            rollback_bridge.update(m17Reflector=target.get("reflector"), m17Module=target.get("module"))
+        else:
+            previous_linked = False
     new_rpt = unified_rpt(original_rpt, bridges, mode)
     updated = json.loads(original_config)
     for bridge in updated["bridges"]:
@@ -572,7 +637,16 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
         refresh_watch_snapshots(profile)
         reload_and_verify(runner, expected_ports=selected_ports(mode, bridges[mode]))
         start_backend(mode, bridges[mode], runner)
-        ensure_transport_link(str(updated.get("node", "")), runner)
+        # Selecting an already-qualified M17 mode is not an instruction to
+        # connect its saved reflector. Only explicit qualification may do so.
+        qualification_active = (mode == "m17"
+                                and bridges[mode].get("m17AudioQualified") is not True
+                                and bridges[mode].get("m17QualificationState") == "qualifying")
+        if mode != "m17" or qualification_active:
+            connect_selected_backend(mode, bridges[mode], runner)
+            ensure_transport_link(str(updated.get("node", "")), runner)
+        else:
+            disconnect_transport(updated, str(NODE), runner)
         updated["netBridgeMode"] = mode
         atomic(config_path, json.dumps(updated, sort_keys=True, indent=2) + "\n")
         refresh_watch_snapshots(profile)
@@ -592,6 +666,11 @@ def switch_mode(mode: str, profile, runner: Runner = run) -> dict:
             reload_and_verify(runner, rollback_node, rollback_ports)
             if old_mode:
                 start_backend(old_mode, bridges[old_mode], runner)
+                if previous_linked:
+                    connect_selected_backend(old_mode, rollback_bridge, runner)
+                    ensure_transport_link(str(config.get("node", "")), runner)
+                else:
+                    disconnect_transport(config, str(NODE), runner)
         except Exception as rollback_exc:
             rollback_error = f"; rollback left all Net Bridge runtimes stopped: {rollback_exc}"
         raise ModeError(f"Net Bridge mode switch failed: {exc}{rollback_error}") from exc

@@ -51,6 +51,7 @@ M17_CRC_INITIAL = 0xFFFF
 STATE_WRITE_INTERVAL = 0.25
 COMMAND_MAX_AGE = 300
 STANDARD_RECONNECT_DELAY = 5.0
+CLIENT_KEEPALIVE_INTERVAL = 5.0
 INBOUND_STREAM_TIMEOUT = 2.0
 ASTERISK_BIN = Path(
     "/usr/local/libexec/allscan-reimagined/container-host-bin/asterisk"
@@ -548,7 +549,8 @@ class AudioBridgeCore:
 
 
 def codec_readiness(bridge: dict[str, Any], library: str | None = None) -> tuple[Codec2Adapter | None, str]:
-    if bridge.get("audioQualified") is not True:
+    if (bridge.get("audioQualified") is not True
+            and bridge.get("qualificationState") != "qualifying"):
         return None, "M17 audio path has not been explicitly qualified for this bridge instance."
     try:
         return Codec2Adapter(library), ""
@@ -578,6 +580,7 @@ class ConnectorRuntime:
         self.last_state_write = 0.0
         self.started_ns = time.time_ns()
         self.next_reconnect_epoch = 0.0
+        self.next_keepalive_epoch = 0.0
         self.disconnect_context = ""
         self.failed_connect_error = ""
         self.pending_connect_target: dict[str, Any] | None = None
@@ -702,6 +705,7 @@ class ConnectorRuntime:
         self.disconnect_context = ""
         self.failed_connect_error = ""
         self.next_reconnect_epoch = 0.0
+        self.next_keepalive_epoch = 0.0
         self.m17_socket.sendto(
             self.control.conn_packet(self.bridge["callsign"], target["module"]), self.remote
         )
@@ -727,6 +731,7 @@ class ConnectorRuntime:
             self.remote = None
             return
         self.remote = None
+        self.next_keepalive_epoch = 0.0
         if context == "failed_connect":
             self.link.complete_failed_connect(
                 self.failed_connect_error or "The AllStar bridge link failed."
@@ -740,10 +745,19 @@ class ConnectorRuntime:
         if context == "reconnect" and pending is not None:
             self._start_connect(pending)
             return
-        if self.bridge["cardType"] == "standard":
+        if self.bridge["cardType"] == "standard" or context == "remote":
             self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
 
+    def _automatic_reconnect_target(self) -> dict[str, Any] | None:
+        if self.bridge["cardType"] == "standard":
+            return self.bridge["fixedTarget"]
+        requested = self.link.state.get("requestedTarget")
+        if isinstance(requested, dict):
+            return requested
+        return self.control.saved_destination(self.bridge)
+
     def _unlink_after_digital_loss(self) -> None:
+        self.next_keepalive_epoch = 0.0
         try:
             set_direct_link(
                 self.bridge["localNode"], self.bridge["node"], False, self.runner
@@ -754,6 +768,7 @@ class ConnectorRuntime:
 
     def disconnect(self, reason: str = "User requested disconnect.") -> None:
         self.pending_connect_target = None
+        self.next_reconnect_epoch = 0.0
         self.disconnect_context = "user"
         state = str(self.link.state.get("linkState", ""))
         if self.remote and (
@@ -800,7 +815,13 @@ class ConnectorRuntime:
         if abs(int(time.time()) - created) > COMMAND_MAX_AGE:
             raise ConnectorError("M17 control command is stale.")
         if created_ns <= self.started_ns:
-            raise ConnectorError("M17 control command predates this connector process.")
+            # A Net mode start can race with the connector restoring its saved
+            # target. Never execute a command created for the prior process,
+            # but consume it so a healthy restored link does not report the
+            # same harmless startup race forever.
+            self.last_command_id = command_id
+            path.unlink(missing_ok=True)
+            return
         action = payload.get("action")
         if action == "connect":
             raw_target = payload.get("target")
@@ -858,6 +879,7 @@ class ConnectorRuntime:
                     self.bridge["localNode"], self.bridge["node"], True, self.runner
                 )
                 self.link.mark_combined_linked()
+                self.next_keepalive_epoch = time.time() + CLIENT_KEEPALIVE_INTERVAL
             except (ConnectorError, self.control.ControlError) as exc:
                 self.failed_connect_error = str(exc)[:160]
                 self.disconnect_context = "failed_connect"
@@ -872,19 +894,28 @@ class ConnectorRuntime:
         if magic == b"NACK":
             self.remote = None
             self._unlink_after_digital_loss()
-            if self.bridge["cardType"] == "standard":
-                self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
+            self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
             return
         if magic == b"DISC" and self.link.state.get("linkState") == "digital_disconnected":
             if not self.disconnect_context:
                 self.disconnect_context = "remote"
             self._finish_digital_disconnect()
             return
-        if (
-            self.bridge["cardType"] == "standard"
-            and self.link.state.get("linkState") in {"disconnected", "rejected"}
-        ):
+        if self.link.state.get("linkState") in {"disconnected", "rejected"}:
             self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
+
+    def _send_client_keepalive(self, now: float | None = None) -> None:
+        epoch = float(time.time() if now is None else now)
+        if (
+            self.remote
+            and self.link.state.get("linkState") == "linked"
+            and epoch >= self.next_keepalive_epoch
+        ):
+            self.m17_socket.sendto(
+                self.control.keepalive_packet(b"PING", self.bridge["callsign"]),
+                self.remote,
+            )
+            self.next_keepalive_epoch = epoch + CLIENT_KEEPALIVE_INTERVAL
 
     def _publish_state(self, *, force: bool = False) -> None:
         now = time.time()
@@ -921,6 +952,7 @@ class ConnectorRuntime:
         except (ConnectorError, self.control.ControlError) as exc:
             self.link.state["lastError"] = str(exc)[:160]
         self._drain_usrp_packets()
+        self._send_client_keepalive()
         if self.usrp_tx_queue:
             timeout = min(
                 timeout,
@@ -969,15 +1001,17 @@ class ConnectorRuntime:
         if self.link.tick():
             self.remote = None
             self._unlink_after_digital_loss()
-            if self.bridge["cardType"] == "standard":
-                self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
+            self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
         if (
-            self.bridge["cardType"] == "standard"
-            and self.next_reconnect_epoch
+            self.next_reconnect_epoch
             and time.time() >= self.next_reconnect_epoch
         ):
             try:
-                self.connect(self.bridge["fixedTarget"])
+                target = self._automatic_reconnect_target()
+                if target is None:
+                    self.next_reconnect_epoch = 0.0
+                else:
+                    self.connect(target)
             except (ConnectorError, self.control.ControlError, OSError) as exc:
                 self.link.state["lastError"] = str(exc)[:160]
                 self.next_reconnect_epoch = time.time() + STANDARD_RECONNECT_DELAY
@@ -1092,11 +1126,32 @@ def self_test() -> None:
     eot = core.handle_usrp(build_usrp_packet(3, False))
     assert len(eot) == 1 and parse_m17_stream(control, eot[0])["eot"] is True
     assert link.handle_control(
-        b"PING" + control.encode_callsign("URF921"), now=11.5
+        b"PING" + control.encode_callsign("M17-TST"), now=11.5
     ) == "PONG"
+    class FakeDatagramSocket:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, packet: bytes, address: tuple[str, int]) -> None:
+            self.sent.append((packet, address))
+
+    keepalive_runtime = object.__new__(ConnectorRuntime)
+    keepalive_runtime.control = control
+    keepalive_runtime.bridge = bridge
+    keepalive_runtime.link = link
+    keepalive_runtime.remote = ("127.0.0.1", 17000)
+    keepalive_runtime.m17_socket = FakeDatagramSocket()
+    keepalive_runtime.next_keepalive_epoch = 20.0
+    keepalive_runtime._send_client_keepalive(now=19.0)
+    assert keepalive_runtime.m17_socket.sent == []
+    keepalive_runtime._send_client_keepalive(now=20.0)
+    assert keepalive_runtime.m17_socket.sent == [(
+        control.keepalive_packet(b"PING", "N0CALL"), ("127.0.0.1", 17000)
+    )]
+    assert keepalive_runtime.next_keepalive_epoch == 25.0
     assert core.handle_usrp(build_usrp_packet(4, True, bytes(320))) == []
-    urf_outbound = core.handle_usrp(build_usrp_packet(5, True, bytes(320)))
-    assert parse_m17_stream(control, urf_outbound[0])["destination"] == "URF921 C"
+    switched_outbound = core.handle_usrp(build_usrp_packet(5, True, bytes(320)))
+    assert parse_m17_stream(control, switched_outbound[0])["destination"] == "M17-TST C"
     core.handle_usrp(build_usrp_packet(6, False))
 
     inbound = build_m17_stream(
@@ -1177,6 +1232,9 @@ def self_test() -> None:
     unqualified = dict(bridge, audioQualified=False)
     codec, error = codec_readiness(unqualified)
     assert codec is None and "not been explicitly qualified" in error
+    qualifying = dict(unqualified, qualificationState="qualifying")
+    codec, error = codec_readiness(qualifying, library="__definitely_missing_codec2__")
+    assert codec is None and "not been explicitly qualified" not in error
     codec, error = codec_readiness(bridge, "/definitely/not/libcodec2.so")
     assert codec is None and error
 
@@ -1228,6 +1286,40 @@ def self_test() -> None:
     assert runtime.link.state["linkState"] == "linked"
     assert runtime.link.state["digitalLinked"] is True
     assert runtime.link.state["allstarLinked"] is True
+    # A reflector can briefly reject a restarted Net connector while its old
+    # UDP session expires. Preserve the selected target and retry without
+    # requiring a manual mode round-trip.
+    retry_runtime = ConnectorRuntime(
+        control, dict(bridge), _FakeCodec(), _FakeAsteriskRunner()
+    )
+    retry_runtime.remote = ("127.0.0.1", 17000)
+    retry_runtime.link.request(target, now=time.time())
+    retry_runtime._handle_m17_datagram(b"NACK", retry_runtime.remote)
+    assert retry_runtime.link.state["linkState"] == "rejected"
+    assert retry_runtime.next_reconnect_epoch > time.time()
+    retry_observed: list[dict[str, Any]] = []
+    retry_runtime.connect = lambda selected: retry_observed.append(selected)
+    with tempfile.TemporaryDirectory(prefix="asr-m17-retry-") as retry_dir:
+        retry_runtime.bridge["commandPath"] = Path(retry_dir) / "command.json"
+        retry_runtime.bridge["statePath"] = Path(retry_dir) / "state.json"
+        retry_runtime.next_reconnect_epoch = time.time() - 1
+        retry_runtime.run_once(timeout=0)
+    assert retry_observed == [target]
+    retry_runtime.disconnect()
+    assert retry_runtime.next_reconnect_epoch == 0
+    retry_runtime.close()
+    with tempfile.TemporaryDirectory(prefix="asr-m17-stale-command-") as command_dir:
+        command_path = Path(command_dir) / "command.json"
+        runtime.bridge["commandPath"] = command_path
+        stale_id = "stale-before-start"
+        command_path.write_text(json.dumps({
+            "schema": 1, "commandId": stale_id, "createdEpoch": int(time.time()),
+            "createdNs": runtime.started_ns - 1, "bridgeId": runtime.bridge["id"],
+            "action": "disconnect", "target": None, "user": "mode-switch",
+        }), encoding="utf-8")
+        runtime._read_command()
+        assert runtime.last_command_id == stale_id and not command_path.exists()
+        assert runtime.link.state["linkState"] == "linked"
     paced_voice = build_usrp_packet(1, True, struct.pack("<160h", *([1234] * 160)))
     runtime._enqueue_usrp_packets([paced_voice, paced_voice])
     assert len(runtime.usrp_tx_queue) == 2

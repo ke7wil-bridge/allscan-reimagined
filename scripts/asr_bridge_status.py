@@ -22,6 +22,7 @@ ASTAPI_CACHE_DIR = Path("/run/allscan-reimagined")
 MMDVM_LOG_DIR = Path("/var/log/mmdvm")
 STANDARD_RUN_DIR = Path("/run/allscan-reimagined-standard-bridge-status")
 STANDARD_STATUS_PATH = STANDARD_RUN_DIR / "bridge-live.json"
+CONTAINER_SERVICE_STATUS = Path("/usr/local/sbin/allscan-reimagined-service-status")
 MANAGED_CLIENT_ROSTER_PATH = Path("/var/www/html/asr/asr-connected-clients.json")
 TGIF_SESSION_SNAPSHOT_PATH = Path("/run/allscan-reimagined/tgif-users/snapshots/node.json")
 M17_BRIDGE_INI_PATH = Path("/etc/m17/usrp2m17.ini")
@@ -1052,6 +1053,27 @@ def parse_service_properties(text: str) -> dict[str, str]:
     return {key: value for line in text.splitlines() if "=" in line for key, value in [line.split("=", 1)]}
 
 
+def service_status_invocation(unit: str) -> tuple[list[str], Any]:
+    """Select native systemctl or the least-privilege container host client."""
+    command = [
+        "systemctl", "show", unit, "--no-pager",
+        "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic",
+    ]
+    drop_privileges = None
+    if CONTAINER_SERVICE_STATUS.is_file():
+        command[0] = str(CONTAINER_SERVICE_STATUS)
+        if os.geteuid() == 0:
+            account = pwd.getpwnam("www-data")
+
+            def drop_to_web_user() -> None:
+                os.setgroups([])
+                os.setgid(account.pw_gid)
+                os.setuid(account.pw_uid)
+
+            drop_privileges = drop_to_web_user
+    return command, drop_privileges
+
+
 def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[str], list[str]]:
     mapping = config.get("bridgeHealthServices") if isinstance(config.get("bridgeHealthServices"), dict) else {}
     configured = mapping.get(bridge_id)
@@ -1074,11 +1096,12 @@ def bridge_service_health(config: dict[str, Any], bridge_id: str) -> tuple[list[
     active_epochs: dict[str, int] = {}
     for unit in units:
         try:
-            result = subprocess.run([
-                "systemctl", "show", unit, "--no-pager",
-                "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic",
-            ], text=True, capture_output=True, timeout=3)
-        except (OSError, subprocess.TimeoutExpired):
+            command, drop_privileges = service_status_invocation(unit)
+            result = subprocess.run(
+                command, text=True, capture_output=True, timeout=3,
+                preexec_fn=drop_privileges,
+            )
+        except (KeyError, OSError, subprocess.TimeoutExpired):
             issues.append(unit + " service status could not be checked.")
             continue
         details = parse_service_properties(result.stdout)

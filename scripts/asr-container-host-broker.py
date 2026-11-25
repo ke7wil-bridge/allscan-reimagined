@@ -31,6 +31,7 @@ COMMANDS = frozenset({
 UPDATE_OPERATIONS = frozenset({"check", "preflight", "queue", "recover", "status", "diagnostic"})
 PROGRAMS = {
     "asterisk-read": str(HERE / "asr-container-asterisk.py"),
+    "service-status": str(HERE / "asr-container-systemctl.py"),
     "managed-dmr": "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
     "ysf": "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
     "p25": "/usr/local/sbin/allscan-reimagined-p25-bridge-control",
@@ -148,6 +149,17 @@ def validate_control(program: str, args: list[str]) -> None:
     if program == "asterisk-read":
         valid = (len(args) == 2 and args[0] == "-rx"
                  and re.fullmatch(r"rpt lstats [0-9]{3,10}", args[1]) is not None)
+    elif program == "service-status":
+        properties = ["-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic"]
+        valid = (len(args) == 9 and args[0] == "show" and args[2] == "--no-pager"
+                 and args[3:] == properties
+                 and re.fullmatch(
+                     r"(?:allscan-reimagined-m17-bridge@[a-z][a-z0-9_-]{1,31}|"
+                     r"asr-dmr-(?:vocoder|mmdvm|analog|admin)-[a-z][a-z0-9_-]{1,31}|"
+                     r"(?:p25gateway|nxdngateway|ysfgateway|mmdvm-bridge|analog-bridge|"
+                     r"md380-emu|asr-mqtt)-[a-z][a-z0-9_-]{1,31})\.service",
+                     args[1],
+                 ) is not None)
     elif program == "managed-dmr":
         valid = ((len(args) == 4 and args[:1] == ["--bridge"] and bid(args[1])
                   and args[2] == "--connect" and number(args[3], 16777215) and args[3] != "4000")
@@ -171,6 +183,8 @@ def validate_control(program: str, args: list[str]) -> None:
     elif program == "m17":
         valid = ((args == ["catalog"])
                  or (len(args) == 3 and args[0] == "--bridge" and bid(args[1]) and args[2] == "status")
+                 or (len(args) == 3 and args[0] == "--bridge" and bid(args[1])
+                     and args[2] in {"qualification-start", "qualification-complete", "qualification-cancel"})
                  or (len(args) == 5 and args[0] == "--bridge" and bid(args[1])
                      and args[2] == "--user" and user(args[3]) and args[4] == "disconnect")
                  or (len(args) == 9 and args[0] == "--bridge" and bid(args[1])

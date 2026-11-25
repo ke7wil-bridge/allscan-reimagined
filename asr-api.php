@@ -527,6 +527,9 @@ function asr_runtime_config(): array {
             'allowTune' => $cardType !== 'standard' && !empty($bridge['allowTune']),
             'm17Module' => $mode === 'm17' && preg_match('/^[A-Z]$/D', strtoupper((string) ($bridge['m17Module'] ?? '')))
                 ? strtoupper((string) $bridge['m17Module']) : '',
+            'm17AudioQualified' => $mode === 'm17' && !empty($bridge['m17AudioQualified']),
+            'm17QualificationState' => $mode === 'm17' && in_array((string) ($bridge['m17QualificationState'] ?? ''), ['not_qualified', 'qualifying', 'qualified', 'failed'], true)
+                ? (string) $bridge['m17QualificationState'] : ($mode === 'm17' ? 'not_qualified' : ''),
             'adminCapabilities' => asr_bridge_admin_capabilities($bridge),
         ];
     }
@@ -2260,6 +2263,26 @@ function asr_net_bridge_activate_mode(string $mode): array {
     }
     if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) {
         asr_error((string) ($payload['error'] ?? 'Net Bridge mode switch failed.'), 500);
+    }
+    return $payload;
+}
+
+function asr_m17_qualification(string $bridgeId, string $verb): array {
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId)) asr_error('Invalid M17 bridge ID.');
+    if (!in_array($verb, ['start', 'complete', 'cancel'], true)) asr_error('Invalid M17 qualification action.');
+    $bridge = asr_bridge_config_by_id($bridgeId);
+    if (!is_array($bridge) || asr_bridge_mode($bridge) !== 'm17') asr_error('Configured M17 bridge was not found.', 404);
+    if (!is_executable(ASR_M17_BRIDGE_CONTROL_HELPER)) asr_error('M17 qualification control is not installed.', 503);
+    $lines = []; $status = 1;
+    exec('sudo -n ' . escapeshellarg(ASR_M17_BRIDGE_CONTROL_HELPER)
+        . ' --bridge ' . escapeshellarg($bridgeId) . ' qualification-' . $verb . ' 2>&1', $lines, $status);
+    $payload = null;
+    foreach (array_reverse($lines) as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded)) { $payload = $decoded; break; }
+    }
+    if ($status !== 0 || !is_array($payload) || empty($payload['ok'])) {
+        asr_error((string) ($payload['error'] ?? 'M17 qualification action failed.'), 500);
     }
     return $payload;
 }
@@ -4223,6 +4246,18 @@ if ($action === 'net-bridge-mode') {
         asr_error('Invalid bridge-control request.', 403);
     }
     asr_json(asr_net_bridge_activate_mode(strtolower((string) ($_POST['mode'] ?? ''))));
+}
+if ($action === 'm17-qualification') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'bridge-control') {
+        asr_error('Invalid bridge-control request.', 403);
+    }
+    asr_json(asr_m17_qualification(
+        (string) ($_POST['bridgeId'] ?? ''),
+        strtolower((string) ($_POST['verb'] ?? ''))
+    ));
 }
 if ($action === 'bridge-connect') {
     asr_require_post();

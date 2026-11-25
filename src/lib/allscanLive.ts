@@ -36,6 +36,8 @@ export type RuntimeBridgeConfig = {
   manualDisconnect?: boolean
   linkAlias?: string
   m17Module?: string
+  m17AudioQualified?: boolean
+  m17QualificationState?: 'not_qualified' | 'qualifying' | 'qualified' | 'failed' | ''
   backendMode?: 'display_only' | 'managed'
   adminCapabilities?: BridgeAdminCapabilities
 }
@@ -1994,6 +1996,27 @@ export async function activateNetBridgeMode(mode: string) {
   const payload = (await response.json()) as { ok?: boolean; error?: string; mode?: string; node?: number }
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.error || `Net Bridge mode switch failed (${response.status}).`)
+  }
+  return payload
+}
+
+export async function updateM17Qualification(
+  bridgeId: string,
+  verb: 'start' | 'complete' | 'cancel',
+) {
+  const response = await fetch(`${ASR_API}?action=m17-qualification`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'bridge-control' },
+    body: new URLSearchParams({ bridgeId, verb }).toString(),
+    signal: AbortSignal.timeout(180_000),
+  })
+  const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    qualificationState?: string
+  }
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `M17 qualification action failed (${response.status}).`)
   }
   return payload
 }

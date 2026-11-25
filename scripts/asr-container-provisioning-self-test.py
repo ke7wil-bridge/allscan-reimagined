@@ -293,6 +293,7 @@ def test_broker(broker) -> None:
     assert "/root" not in "\n".join(environment.values())
     valid_controls = (
         ("asterisk-read", ["-rx", "rpt lstats 641890"]),
+        ("service-status", ["show", "ysfgateway-ysf_1002.service", "--no-pager", "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--disconnect"]),
         ("ysf", ["--connect", "qa_ysf", "12345", "--user", "N0CALL"]),
@@ -301,6 +302,9 @@ def test_broker(broker) -> None:
         ("nxdn", ["status", "qa_nxdn"]),
         ("m17", ["--bridge", "qa_m17", "--user", "N0CALL", "connect", "--reflector", "M17-M17", "--module", "C"]),
         ("m17", ["catalog"]),
+        ("m17", ["--bridge", "qa_m17", "qualification-start"]),
+        ("m17", ["--bridge", "qa_m17", "qualification-complete"]),
+        ("m17", ["--bridge", "qa_m17", "qualification-cancel"]),
         ("net-mode", ["--mode", "dmr"]),
     )
     for program, args in valid_controls:
@@ -334,6 +338,7 @@ def test_broker(broker) -> None:
     assert "asr-container-update-client.py" in layered_source
     assert "allscan-reimagined-updater --queue-update" in layered_source
     assert "allscan-reimagined-ysf-bridge-control" in layered_source
+    assert "allscan-reimagined-service-status" in layered_source
     reapply_source = (HERE / "asr-reapply.sh").read_text(encoding="utf-8")
     assert "allscan-reimagined-ysf-bridge-control --import-hosts" in reapply_source
     assert "allscan-reimagined-ysf-bridge-control --catalog-status" in reapply_source
@@ -360,6 +365,7 @@ def test_broker(broker) -> None:
         ("asterisk-read", ["-rx", "echolink show nodes"]),
         ("asterisk-read", ["-rx", "echolink show nodes; id"]),
         ("managed-dmr", ["--bridge", "qa_dmr;id", "--status"]),
+        ("service-status", ["show", "docker.service", "--no-pager", "-p", "ActiveState", "-p", "NRestarts", "-p", "ActiveEnterTimestampMonotonic"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "11111;id"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "4000"]),
         ("managed-dmr", ["--bridge", "qa_dmr", "--connect", "16777216"]),
@@ -1189,6 +1195,7 @@ def main() -> int:
     renderer = load("asr_container_test_renderer", "asr-bridge-setup-digital-render.py")
     setup_client = load("asr_container_test_setup_client", "asr-container-host-client.py")
     control_client = load("asr_container_test_control_client", "asr-container-host-control-client.py")
+    assert control_client.NAMES["allscan-reimagined-service-status"] == "service-status"
     test_detection(detect)
     test_profile_and_mapping(backend)
     test_discovery(backend)

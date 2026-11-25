@@ -433,6 +433,15 @@ def test_direct_service_discovery() -> None:
         "analogBridgeService": "asr-dmr-analog.service",
         "adminService": "asr-dmr-admin.service",
     }]}
+    with tempfile.TemporaryDirectory(prefix="asr-service-status-") as raw:
+        client = Path(raw) / "service-status"
+        with patch.object(status, "CONTAINER_SERVICE_STATUS", client):
+            command, drop_privileges = status.service_status_invocation("asr-dmr-mmdvm.service")
+            assert command[0] == "systemctl" and drop_privileges is None
+            client.write_text("#!/bin/sh\n", encoding="utf-8")
+            with patch.object(status.os, "geteuid", return_value=33):
+                command, drop_privileges = status.service_status_invocation("asr-dmr-mmdvm.service")
+            assert command[0] == str(client) and drop_privileges is None
     def show(args, **_kwargs):
         assert args[0:2] == ["systemctl", "show"]
         return SimpleNamespace(stdout="ActiveState=active\nNRestarts=0\nActiveEnterTimestampMonotonic=1000000\n", returncode=0)

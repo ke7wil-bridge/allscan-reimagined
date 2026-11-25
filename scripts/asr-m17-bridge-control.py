@@ -8,6 +8,7 @@ queued.  Only the connector may publish ``linked`` after receiving MREFD ACKN.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import importlib.util
 import ipaddress
 import math
@@ -16,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -51,6 +53,9 @@ MODULE_RE = re.compile(r"^[A-Z]$")
 USERNAME_RE = re.compile(r"[^A-Za-z0-9_.@+-]")
 KEEPALIVE_TIMEOUT = 30.0
 CONNECT_TIMEOUT = 10.0
+QUALIFICATION_MAX_AGE = 30 * 60
+QUALIFICATION_LOCK = Path("/run/lock/allscan-reimagined-m17-qualification.lock")
+INSTALLATIONS = Path("/var/lib/allscan-reimagined/bridge-setup/installations")
 
 
 class ControlError(RuntimeError):
@@ -301,6 +306,7 @@ def validate_bridge(bridge: object, config: dict[str, Any]) -> dict[str, Any]:
         "usrpTxPort": usrp_tx_port,
         **gains,
         "audioQualified": bridge.get("m17AudioQualified") is True,
+        "qualificationState": str(bridge.get("m17QualificationState") or "not_qualified"),
         "statePath": _runtime_path(bridge_id, "state", bridge.get("m17StatePath")),
         "commandPath": _runtime_path(bridge_id, "command", bridge.get("m17CommandPath")),
         "selectionPath": _selection_path(bridge_id),
@@ -949,7 +955,167 @@ def read_public_status(bridge: dict[str, Any], now: float | None = None) -> dict
         "updatedEpoch": updated,
         "error": str(payload.get("lastError", ""))[:160],
         "audioReady": payload.get("audioReady") is True,
+        "inboundAudioEpoch": payload.get("inboundAudioEpoch", 0),
+        "outboundAudioEpoch": payload.get("outboundAudioEpoch", 0),
     }
+
+
+def atomic_preserving(path: Path, payload: dict[str, Any]) -> None:
+    """Replace a protected JSON file without changing owner or mode."""
+    info = path.stat()
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fchmod(handle.fileno(), stat.S_IMODE(info.st_mode))
+            os.fchown(handle.fileno(), info.st_uid, info.st_gid)
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def qualification_bridge(config: dict[str, Any], bridge_id: str) -> dict[str, Any]:
+    matches = [item for item in config.get("bridges", [])
+               if isinstance(item, dict) and item.get("id") == bridge_id]
+    if len(matches) != 1 or matches[0].get("mode") != "m17":
+        raise ControlError("Configured M17 bridge was not found or is duplicated.")
+    return matches[0]
+
+
+def qualification_service(bridge: dict[str, Any]) -> str:
+    bridge_id = str(bridge.get("id", ""))
+    if not BRIDGE_ID_RE.fullmatch(bridge_id):
+        raise ControlError("Invalid M17 bridge ID.")
+    return f"allscan-reimagined-m17-bridge@{bridge_id}.service"
+
+
+def run_qualification_command(argv: list[str], label: str) -> None:
+    result = subprocess.run(argv, text=True, capture_output=True, timeout=180)
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()[-300:]
+        raise ControlError(f"{label} failed{': ' + detail if detail else '.'}")
+
+
+def update_installation_qualification(bridge_id: str, required: bool) -> None:
+    path = INSTALLATIONS / f"{bridge_id}.json"
+    if not path.is_file() or path.is_symlink():
+        raise ControlError("M17 installation record is unavailable.")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(record, dict) or record.get("bridgeType") != "m17":
+        raise ControlError("M17 installation record is invalid.")
+    record["qualificationRequired"] = required
+    atomic_preserving(path, record)
+
+
+def qualification_start(
+    bridge_id: str, path: Path = CONFIG_PATH, *, expected_uid: int = 0
+) -> dict[str, Any]:
+    require_secure_config_file(path, expected_uid=expected_uid)
+    config = load_config(path)
+    bridge = qualification_bridge(config, bridge_id)
+    if bridge.get("m17AudioQualified") is True:
+        return {"ok": True, "bridgeId": bridge_id, "qualificationState": "qualified", "alreadyQualified": True}
+    previous_mode = str(config.get("netBridgeMode") or "")
+    started = int(time.time())
+    bridge.update({
+        "m17AudioQualified": False,
+        "m17QualificationState": "qualifying",
+        "m17QualificationStartedEpoch": started,
+        "m17QualificationPreviousMode": previous_mode if bridge.get("cardType") == "m17_net" else "",
+    })
+    bridge.pop("m17QualificationEvidence", None)
+    original = load_config(path)
+    atomic_preserving(path, config)
+    try:
+        if bridge.get("cardType") == "m17_net":
+            run_qualification_command(
+                ["/usr/local/sbin/allscan-reimagined-net-bridge-mode-control", "--mode", "m17"],
+                "M17 Net Bridge qualification startup",
+            )
+        else:
+            run_qualification_command(
+                ["systemctl", "enable", "--now", qualification_service(bridge)],
+                "M17 qualification service startup",
+            )
+    except Exception:
+        atomic_preserving(path, original)
+        raise
+    return {"ok": True, "bridgeId": bridge_id, "qualificationState": "qualifying", "startedEpoch": started}
+
+
+def qualification_complete(
+    bridge_id: str, path: Path = CONFIG_PATH, *, expected_uid: int = 0
+) -> dict[str, Any]:
+    require_secure_config_file(path, expected_uid=expected_uid)
+    config = load_config(path)
+    raw_bridge = qualification_bridge(config, bridge_id)
+    if raw_bridge.get("m17QualificationState") != "qualifying":
+        raise ControlError("M17 qualification is not active for this bridge.")
+    started = int(raw_bridge.get("m17QualificationStartedEpoch") or 0)
+    now = int(time.time())
+    if started <= 0 or now - started > QUALIFICATION_MAX_AGE:
+        raise ControlError("M17 qualification evidence expired; start a new qualification session.")
+    bridge = validate_bridge(raw_bridge, config)
+    status = read_public_status(bridge, now=now)
+    inbound = int(float(status.get("inboundAudioEpoch") or 0))
+    outbound = int(float(status.get("outboundAudioEpoch") or 0))
+    if not (status.get("ok") and status.get("audioReady")
+            and status.get("linkState") == "linked"
+            and status.get("digitalLinked") is True
+            and status.get("allstarLinked") is True):
+        raise ControlError("M17 reflector and AllStar links are not both confirmed.")
+    if inbound < started or outbound < started:
+        raise ControlError("Fresh inbound and outbound M17 audio have not both been observed.")
+    raw_bridge.update({
+        "m17AudioQualified": True,
+        "m17QualificationState": "qualified",
+        "m17QualificationCompletedEpoch": now,
+        "m17QualificationEvidence": {"inboundAudioEpoch": inbound, "outboundAudioEpoch": outbound},
+    })
+    raw_bridge.pop("m17QualificationPreviousMode", None)
+    atomic_preserving(path, config)
+    try:
+        update_installation_qualification(bridge_id, False)
+    except Exception:
+        raw_bridge["m17AudioQualified"] = False
+        raw_bridge["m17QualificationState"] = "qualifying"
+        atomic_preserving(path, config)
+        raise
+    return {"ok": True, "bridgeId": bridge_id, "qualificationState": "qualified",
+            "inboundAudioEpoch": inbound, "outboundAudioEpoch": outbound}
+
+
+def qualification_cancel(
+    bridge_id: str, path: Path = CONFIG_PATH, *, expected_uid: int = 0
+) -> dict[str, Any]:
+    require_secure_config_file(path, expected_uid=expected_uid)
+    config = load_config(path)
+    bridge = qualification_bridge(config, bridge_id)
+    if bridge.get("m17QualificationState") != "qualifying":
+        raise ControlError("M17 qualification is not active for this bridge.")
+    previous_mode = str(bridge.get("m17QualificationPreviousMode") or "")
+    bridge.update({"m17AudioQualified": False, "m17QualificationState": "not_qualified"})
+    for key in ("m17QualificationStartedEpoch", "m17QualificationPreviousMode", "m17QualificationEvidence"):
+        bridge.pop(key, None)
+    atomic_preserving(path, config)
+    if bridge.get("cardType") == "m17_net" and previous_mode in {"dmr", "ysf", "p25", "nxdn"}:
+        run_qualification_command(
+            ["/usr/local/sbin/allscan-reimagined-net-bridge-mode-control", "--mode", previous_mode],
+            "restoring the previous Net Bridge mode",
+        )
+    else:
+        run_qualification_command(
+            ["systemctl", "disable", "--now", qualification_service(bridge)],
+            "stopping M17 qualification",
+        )
+    update_installation_qualification(bridge_id, True)
+    return {"ok": True, "bridgeId": bridge_id, "qualificationState": "not_qualified"}
 
 
 def self_test() -> None:
@@ -1147,6 +1313,80 @@ def self_test() -> None:
         assert read_public_status(bridge, now=301.0)["linkState"] == "rejected"
         assert read_public_status(bridge, now=400.0)["linkState"] == "unavailable"
 
+        # Qualification is a guarded two-step workflow: starting the service
+        # cannot qualify it, and completion requires fresh audio both ways.
+        global RUN_DIR, INSTALLATIONS
+        original_run_dir, original_installations = RUN_DIR, INSTALLATIONS
+        original_runner = globals()["run_qualification_command"]
+        try:
+            RUN_DIR = root / "qualification-run"
+            INSTALLATIONS = root / "installations"
+            INSTALLATIONS.mkdir()
+            qualification_raw = dict(
+                raw_bridge,
+                id="qualification_bridge",
+                cardType="standard",
+                bridgePermission="self_owned",
+                node="1996",
+                m17AudioQualified=False,
+                m17QualificationState="not_qualified",
+                m17Encrypted=False,
+                m17Reflector="M17-M17",
+                m17Host="ref.m17.example",
+                m17Port=17000,
+                m17Module="C",
+            )
+            qualification_config = {"node": "123456", "bridges": [qualification_raw]}
+            qualification_path = root / "qualification-config.json"
+            qualification_path.write_text(json.dumps(qualification_config), encoding="utf-8")
+            qualification_path.chmod(0o640)
+            record_path = INSTALLATIONS / "qualification_bridge.json"
+            record_path.write_text(json.dumps({
+                "bridgeType": "m17", "bridgeId": "qualification_bridge",
+                "qualificationRequired": True,
+            }), encoding="utf-8")
+            record_path.chmod(0o600)
+            commands = []
+            globals()["run_qualification_command"] = lambda argv, label: commands.append((argv, label))
+            started = qualification_start(
+                "qualification_bridge", qualification_path, expected_uid=os.geteuid()
+            )
+            assert started["qualificationState"] == "qualifying"
+            assert commands[-1][0][:3] == ["systemctl", "enable", "--now"]
+            cancelled = qualification_cancel(
+                "qualification_bridge", qualification_path, expected_uid=os.geteuid()
+            )
+            assert cancelled["qualificationState"] == "not_qualified"
+            assert json.loads(record_path.read_text(encoding="utf-8"))["qualificationRequired"] is True
+            started = qualification_start(
+                "qualification_bridge", qualification_path, expected_uid=os.geteuid()
+            )
+            configured = json.loads(qualification_path.read_text(encoding="utf-8"))
+            started_epoch = configured["bridges"][0]["m17QualificationStartedEpoch"]
+            runtime_path = RUN_DIR / "qualification_bridge.state.json"
+            runtime_path.parent.mkdir(parents=True)
+            runtime_path.write_text(json.dumps({
+                "updatedEpoch": started_epoch + 2,
+                "linkState": "linked", "digitalLinked": True, "allstarLinked": True,
+                "audioReady": True, "inboundAudioEpoch": started_epoch + 1,
+                "outboundAudioEpoch": started_epoch + 2,
+            }), encoding="utf-8")
+            completed = qualification_complete(
+                "qualification_bridge", qualification_path, expected_uid=os.geteuid()
+            )
+            assert completed["qualificationState"] == "qualified"
+            assert json.loads(record_path.read_text(encoding="utf-8"))["qualificationRequired"] is False
+            try:
+                qualification_cancel(
+                    "qualification_bridge", qualification_path, expected_uid=os.geteuid()
+                )
+                raise AssertionError("completed M17 qualification was revoked by cancel")
+            except ControlError as exc:
+                assert "not active" in str(exc)
+        finally:
+            RUN_DIR, INSTALLATIONS = original_run_dir, original_installations
+            globals()["run_qualification_command"] = original_runner
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1161,6 +1401,9 @@ def main() -> int:
     subparsers.add_parser("status")
     subparsers.add_parser("validate")
     subparsers.add_parser("catalog")
+    subparsers.add_parser("qualification-start")
+    subparsers.add_parser("qualification-complete")
+    subparsers.add_parser("qualification-cancel")
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -1179,11 +1422,25 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "M17 bridge control must run as root."}, separators=(",", ":")))
         return 1
     try:
+        if args.action.startswith("qualification-"):
+            QUALIFICATION_LOCK.parent.mkdir(parents=True, exist_ok=True)
+            with QUALIFICATION_LOCK.open("w", encoding="utf-8") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                actions = {
+                    "qualification-start": qualification_start,
+                    "qualification-complete": qualification_complete,
+                    "qualification-cancel": qualification_cancel,
+                }
+                print(json.dumps(actions[args.action](args.bridge), separators=(",", ":")))
+            return 0
         bridge = bridge_config(args.bridge, CONFIG_PATH)
         if args.action == "validate":
             print(json.dumps({"ok": True, "bridgeId": bridge["id"], "cardType": bridge["cardType"]}))
         elif args.action == "status":
-            print(json.dumps(read_public_status(bridge), separators=(",", ":")))
+            status = read_public_status(bridge)
+            status["qualificationState"] = bridge["qualificationState"]
+            status["audioQualified"] = bridge["audioQualified"]
+            print(json.dumps(status, separators=(",", ":")))
         elif args.action == "connect":
             target = approved_destination(bridge, args.reflector, args.module)
             persist_destination(bridge, target)

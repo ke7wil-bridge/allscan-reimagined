@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+import importlib.util
+import sys
+from pathlib import Path
 
 
 def analog_ini(plan: dict[str, Any]) -> str:
@@ -164,15 +167,37 @@ export DVSWITCH={root}/mmdvm/DVSwitch.ini
 """
 
 
+def provisioning_backend():
+    spec = importlib.util.spec_from_file_location(
+        "asr_dmr_render_backend", Path(__file__).resolve().parent / "asr-provisioning-backend.py")
+    if not spec or not spec.loader:
+        raise RuntimeError("DMR provisioning backend is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def unit_texts(plan: dict[str, Any], owner_marker: str = "") -> dict[str, str]:
     bridge_id, root, p = plan["settings"]["bridge_id"], plan["resources"]["root"], plan["ports"]
     marker = f"# ASR-BRIDGE-OWNER: {bridge_id} {owner_marker}\n" if owner_marker else ""
     vocoder, mmdvm, analog, admin = plan["services"]
-    common = """Restart=on-failure
+    # Unified node 1999 uses a permanent loopback USRP channel. All three
+    # media workers must share Asterisk's namespace on container hosts.
+    # Leave already-working standard bridge provisioning unchanged.
+    backend = provisioning_backend()
+    in_container = (plan.get("role") == "net" and backend.load_profile() is not None)
+    # Keep the unit identity so systemd owns RuntimeDirectory as asr-bridge.
+    # The ! prefix exempts only ExecStart from credential switching; the
+    # namespace wrapper enters as root and drops to the service account.
+    identity = "User=asr-bridge\nGroup=asr-bridge\n"
+    def media_exec(*command: str) -> str:
+        return "!" + backend.systemd_exec(list(command), "asr-bridge") if in_container else " ".join(command)
+    runtime_owner = ("BindReadOnlyPaths=-/run/systemd/resolve/resolv.conf:/etc/resolv.conf\n"
+                     if in_container else "")
+    common = f"""Restart=on-failure
 RestartSec=2
-User=asr-bridge
-Group=asr-bridge
-NoNewPrivileges=true
+{identity}NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
@@ -185,7 +210,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory={root}/vocoder
-ExecStart={root}/vocoder/qemu-arm-static {root}/vocoder/md380-emu -S {p['emulator']}
+ExecStart={media_exec(f"{root}/vocoder/qemu-arm-static", f"{root}/vocoder/md380-emu", "-S", str(p["emulator"]))}
 {common}
 [Install]
 WantedBy=multi-user.target
@@ -201,7 +226,7 @@ Type=simple
 RuntimeDirectory=asr-direct-dmr-{bridge_id}
 RuntimeDirectoryMode=0750
 WorkingDirectory={root}/mmdvm
-ExecStart={root}/mmdvm/run-mmdvm.sh
+{runtime_owner}ExecStart={media_exec(f"{root}/mmdvm/run-mmdvm.sh")}
 {common}ReadOnlyPaths={root}/secrets/master-password
 ReadWritePaths=/var/log/mmdvm /run/asr-direct-dmr-{bridge_id}
 
@@ -217,7 +242,7 @@ Requires={mmdvm} {vocoder}
 Type=simple
 WorkingDirectory={root}/analog
 Environment=AnalogBridgeLogDir=/var/log/dvswitch
-ExecStart={root}/analog/Analog_Bridge {root}/analog/Analog_Bridge.ini
+ExecStart={media_exec(f"{root}/analog/Analog_Bridge", f"{root}/analog/Analog_Bridge.ini")}
 {common}ReadWritePaths=/var/log/dvswitch
 
 [Install]

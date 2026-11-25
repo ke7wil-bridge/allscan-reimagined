@@ -30,6 +30,13 @@ def main() -> int:
         return subprocess.run(["/usr/bin/docker", "restart", profile.asterisk_container]).returncode
     if args == ["daemon-reload"]:
         return subprocess.run(["/usr/bin/systemctl", *args]).returncode
+    show_properties = [
+        "-p", "ActiveState", "-p", "NRestarts",
+        "-p", "ActiveEnterTimestampMonotonic",
+    ]
+    if (len(args) == 9 and args[0] == "show" and SERVICE.fullmatch(args[1])
+            and args[2] == "--no-pager" and args[3:] == show_properties):
+        return subprocess.run(["/usr/bin/systemctl", *args]).returncode
     verbs = {"enable", "start", "restart", "disable", "is-active", "is-enabled"}
     filtered = [arg for arg in args if arg not in {"--now", "--quiet"}]
     if len(filtered) != 2 or filtered[0] not in verbs or not SERVICE.fullmatch(filtered[1]):
