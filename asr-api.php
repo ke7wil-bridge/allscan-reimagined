@@ -1368,6 +1368,7 @@ function asr_bridge_status_payload(): array {
     $clientState = asr_bridge_clients_state();
     $clients = (array) ($clientState['clients'] ?? []);
     $counts = (array) ($clientState['counts'] ?? []);
+    $clientMeta = (array) ($clientState['meta'] ?? []);
 
     // Zello publishes its own authoritative talker/activity feed.
     $zelloPath = asrRuntimeFilePath('zello-talkers.json');
@@ -1381,8 +1382,10 @@ function asr_bridge_status_payload(): array {
                 if ($rowEpoch > 0) $zelloRow['last_tx_epoch'] = $rowEpoch;
             }
             unset($zelloRow);
-            $clients['zello'] = $zelloRows;
-            $counts['zello'] = count($zelloRows);
+            // Talker history is not an authoritative signed-in user roster.
+            $clients['zello'] = asr_zello_recent_talker_rows($zelloRows, time());
+            $counts['zello'] = 0;
+            $clientMeta['zello'] = ['kind' => 'recent', 'mode' => 'zello'];
             $zelloEvents = [];
             foreach ((array) ($zelloPayload['tx_events'] ?? []) as $row) {
                 if (!is_array($row)) continue;
@@ -1402,7 +1405,7 @@ function asr_bridge_status_payload(): array {
                 'active'=>$active, 'role'=>$active ? 'source' : 'idle', 'state'=>$active ? 'TX ACTIVE' : 'Idle',
                 'current_user'=>$current, 'caller'=>$current, 'last_user'=>$lastUser ?: '-',
                 'last_source_user'=>$lastUser, 'last_source_epoch'=>$lastEpoch,
-                'recent_users'=>$zelloRows, 'tx_events'=>$zelloEvents, 'client_events'=>[],
+                'recent_users'=>$clients['zello'], 'tx_events'=>$zelloEvents, 'client_events'=>[],
             ]);
         }
     }
@@ -1473,7 +1476,7 @@ function asr_bridge_status_payload(): array {
         'bridge' => $bridge,
         'clients' => $clients,
         'clientCounts' => $counts,
-        'clientMeta' => (array) ($clientState['meta'] ?? []),
+        'clientMeta' => $clientMeta,
         'controls' => $controls,
     ];
 }
@@ -2342,6 +2345,21 @@ function asr_client_epoch_value(mixed $value): int {
     return $epoch === false ? 0 : $epoch;
 }
 
+// Keep the recent-talker list aligned with the dashboard's 24-hour retention.
+// This data cannot establish whether any Zello user is currently connected.
+function asr_zello_recent_talker_rows(array $rows, int $now): array {
+    $recent = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $name = trim((string) ($row['name'] ?? $row['callsign'] ?? $row['username'] ?? $row['user'] ?? ''));
+        $epoch = asr_client_epoch_value($row['last_tx_epoch'] ?? $row['tx_epoch'] ?? $row['last_talk_epoch'] ?? $row['last_seen_epoch'] ?? 0);
+        if ($name === '' || $epoch <= 0 || $epoch > $now + 300 || $now - $epoch > 86400) continue;
+        $row['last_tx_epoch'] = $epoch;
+        $recent[] = $row;
+    }
+    return $recent;
+}
+
 function asr_client_explicit_state(array $row): ?bool {
     foreach (['active', 'current', 'connected'] as $key) {
         if (!array_key_exists($key, $row)) continue;
@@ -2517,7 +2535,8 @@ function asr_bridge_clients_state(): array {
         // Fallback feeds (notably YSF gateway snapshots) still contain the
         // current linked stations and should be rendered.  The kind controls
         // provenance, not whether an otherwise-current row is visible.
-        $counts[$id] = count($clean);
+        // Zello's available feeds are talker/activity history, not a live roster.
+        $counts[$id] = $mode === 'zello' ? 0 : count($clean);
     }
 
     $tgif = asr_tgif_node_status();

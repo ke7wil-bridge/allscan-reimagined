@@ -238,6 +238,7 @@ if command -v php >/dev/null 2>&1; then
   php "$ROOT/scripts/asr-talker-identity-self-test.php"
   php "$ROOT/scripts/asr-favorites-discovery-self-test.php"
   php "$ROOT/scripts/asr-runtime-source-self-test.php"
+  php "$ROOT/scripts/asr-zello-connection-count-self-test.php"
   php "$ROOT/scripts/asr-lookup-map-self-test.php"
   php "$ROOT/scripts/asr-access-policy-self-test.php"
   php "$ROOT/scripts/asr-ami-guard-self-test.php"
