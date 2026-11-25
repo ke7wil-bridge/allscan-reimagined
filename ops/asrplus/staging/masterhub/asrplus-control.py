@@ -103,7 +103,7 @@ def queue_remote(command: dict, local_node: str, requested_hub: str) -> dict:
                         audit_outcome(old | {"result": "superseded", "requestedHub": requested_hub})
                 except (OSError, ValueError):
                     continue
-        atomic_json(queue / f"{command_id}.json", command)
+        atomic_json(queue / f"{command['id']}.json", command)
     # Notify Kentucky immediately; the existing timer remains a
     # fallback if the restricted SSH notification is unavailable.
     if remote_hub == "ky2":
@@ -171,6 +171,13 @@ def fan_out(verb: str, kind: str, value: str, duration: str, reason: str, actor:
             "action": verb, "node": "", "permanent": False, "actor": actor, "kind": kind, "value": value,
             "duration": duration if verb == "ban" else "", "reason": reason if verb == "ban" else "",
         }
+        try:
+            load_central_hub(INTEGRITY_CONFIG, remote_hub)
+        except Exception:
+            # A hub with no command-signing configuration has not been
+            # provisioned (e.g. Texas while offline). Report it, do not fail.
+            hubs[remote_hub] = {"ok": True, "queued": False, "skipped": "not provisioned"}
+            continue
         try:
             queued = queue_remote(command, local_node, requested_hub)
             hubs[remote_hub] = {"ok": True, "queued": True, "id": queued["id"]}
@@ -245,7 +252,10 @@ def main() -> int:
             master = apply_master(action, kind, value, ban_duration, reason, actor)
             hubs = {"masterhub": master} | fan_out(action, kind, value, ban_duration, reason, actor, hub)
             failed = sorted(name for name, item in hubs.items() if not item["ok"])
-            message = (f"{action.title()} applied on MasterHub and queued to all {len(hubs) - 1} other hubs."
+            queued = sorted(name for name, item in hubs.items() if item.get("queued"))
+            skipped = sorted(name for name, item in hubs.items() if item.get("skipped"))
+            message = (f"{action.title()} applied on MasterHub and queued to {', '.join(queued) or 'no other hubs'}."
+                       + (f" Not provisioned: {', '.join(skipped)}." if skipped else "")
                        if not failed else f"{action.title()} NOT applied everywhere; failed: {', '.join(failed)}.")
             requested = REMOTE_HUBS.get(HUBS[hub], "masterhub")
             print(json.dumps({"ok": not failed, "queued": True, "hubs": hubs, "message": message,
