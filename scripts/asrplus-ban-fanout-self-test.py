@@ -58,6 +58,7 @@ def control_tests() -> None:
         return subprocess.CompletedProcess(arguments, 0, json.dumps({"ok": True}) + "\n", "")
 
     control.queue_remote = fake_queue
+    control.load_central_hub = lambda path, hub: {"key": b"k" * 32, "keyId": "test", "mode": "required"}
     real_run = subprocess.run
     subprocess.run = fake_run  # control uses the shared subprocess module
     control.audit_outcome = lambda payload: None
@@ -113,6 +114,38 @@ def control_tests() -> None:
     sys.path.remove(str(MASTER))
 
 
+def real_queue_tests() -> None:
+    """Exercise the real queue_remote path (the stubbed tests above missed a
+    NameError there) with a temporary queue and no network."""
+    sys.path.insert(0, str(MASTER))
+    control = load("asrplus_control_queue", MASTER / "asrplus-control.py")
+    with tempfile.TemporaryDirectory() as directory:
+        control.QUEUE_ROOT = Path(directory) / "queue"
+        control.AUDIT_PATH = Path(directory) / "audit.jsonl"
+
+        def integrity(path, hub):
+            if hub == "texas":
+                raise ValueError("hub integrity configuration is unavailable")
+            return {"key": b"k" * 32, "keyId": "test", "mode": "required"}
+
+        control.load_central_hub = integrity
+        control.sign_command = lambda command, key, key_id: command | {"signature": "test", "keyId": key_id}
+        popen_calls = []
+        real_popen = subprocess.Popen
+        subprocess.Popen = lambda *args, **kwargs: popen_calls.append(args)
+        hubs = control.fan_out("ban", "allstar-call", "N0QA291", "15m", "", "test", "fanout")
+        assert hubs["texas"] == {"ok": True, "queued": False, "skipped": "not provisioned"}, hubs
+        for hub in ("ky2", "phoenix", "uk"):
+            assert hubs[hub]["ok"] and hubs[hub]["queued"], hubs
+            files = list((control.QUEUE_ROOT / hub).glob("*.json"))
+            assert len(files) == 1 and files[0].stem == hubs[hub]["id"], (hub, files)
+            queued = json.loads(files[0].read_text())
+            assert queued["action"] == "ban" and queued["value"] == "N0QA291" and queued["hub"] == hub
+        subprocess.Popen = real_popen
+        assert len(popen_calls) == 1, "ky2 notification should fire once"
+    sys.path.remove(str(MASTER))
+
+
 def helper_tests() -> None:
     for relative in ("scripts/asr-global-ban.py", "scripts/asr-asl-ban.py"):
         module = load("fanout_" + Path(relative).stem.replace("-", "_"), ROOT / relative)
@@ -144,6 +177,7 @@ def helper_tests() -> None:
 
 def main() -> int:
     control_tests()
+    real_queue_tests()
     helper_tests()
     print("ASRPlus all-hub ban fan-out self-test: ok")
     return 0
