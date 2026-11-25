@@ -455,14 +455,23 @@ def execute_action(config: dict, command: dict) -> dict:
         if kind not in {"node", "allstar-call", "echolink-call"} or not re.fullmatch(pattern, value):
             return {"ok": False, "exitCode": 2, "message": "moderation target validation failed"}
         actor = re.sub(r"[^A-Za-z0-9_.@+-]", "_", str(command.get("actor", "unknown")))[:80] or "unknown"
-        arguments.extend(["--kind", kind, "--value", value, "--actor", actor])
-        if action == "ban":
-            duration = str(command.get("duration", ""))
-            reason = re.sub(r"[\x00-\x1f\x7f]", " ", str(command.get("reason", ""))).strip()[:160]
-            if duration not in {"15m", "1h", "1w", "30d", "permanent"}:
-                return {"ok": False, "exitCode": 2, "message": "moderation duration validation failed"}
-            arguments.extend(["--duration", duration, "--reason", reason])
-    result = subprocess.run(arguments, capture_output=True, text=True, timeout=20, check=False)
+        duration = str(command.get("duration", ""))
+        if action == "ban" and duration not in {"15m", "1h", "1w", "30d", "permanent"}:
+            return {"ok": False, "exitCode": 2, "message": "moderation duration validation failed"}
+        if kind != "node":
+            # #291: a callsign ban is a person ban. Apply it through ASR Global
+            # Ban, which enforces AllStar (node and web-transceiver callsign),
+            # EchoLink and every digital bridge on this hub, instead of the
+            # AllStar/EchoLink list alone.
+            call = re.sub(r"-(?:L|R)$", "", value)
+            arguments = [str(config.get("globalBanHelper", "/usr/local/sbin/allscan-reimagined-global-ban")),
+                         action, call] + ([duration] if action == "ban" else []) + ["--actor", actor]
+        else:
+            arguments.extend(["--kind", kind, "--value", value, "--actor", actor])
+            if action == "ban":
+                reason = re.sub(r"[\x00-\x1f\x7f]", " ", str(command.get("reason", ""))).strip()[:160]
+                arguments.extend(["--duration", duration, "--reason", reason])
+    result = subprocess.run(arguments, capture_output=True, text=True, timeout=45, check=False)
     payload = None
     for line in reversed(result.stdout.splitlines()):
         try:
@@ -476,7 +485,27 @@ def execute_action(config: dict, command: dict) -> dict:
     outcome = {"ok": result.returncode == 0 and bool((payload or {}).get("ok")),
                "exitCode": result.returncode, "message": message}
     if action == "ban-list" and isinstance((payload or {}).get("bans"), list):
-        outcome["bans"] = payload["bans"][:200]
+        bans = list(payload["bans"])
+        # #291: callsign bans live in ASR Global Ban; show them in Manage Bans
+        # as callsign bans so they can be reviewed and removed from ASRPlus.
+        try:
+            listed = subprocess.run(
+                [str(config.get("globalBanHelper", "/usr/local/sbin/allscan-reimagined-global-ban")), "list"],
+                capture_output=True, text=True, timeout=45, check=False)
+            global_payload = json.loads(listed.stdout.strip().splitlines()[-1]) if listed.stdout.strip() else {}
+        except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+            global_payload = {}
+        if listed_ok := isinstance(global_payload, dict) and global_payload.get("ok") is True:
+            seen = {(str(row.get("kind")), str(row.get("value", "")).upper()) for row in bans if isinstance(row, dict)}
+            for row in global_payload.get("bans") or []:
+                rule = str((row or {}).get("rule", "")).upper()
+                if re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}", rule) and ("allstar-call", rule) not in seen:
+                    bans.append({"kind": "allstar-call", "value": rule, "createdAt": int(row.get("createdAt") or 0),
+                                 "expiresAt": int(row.get("expiresAt") or 0), "reason": "ASR Global Ban",
+                                 "actor": "global"})
+        outcome["bans"] = bans[:200]
+        if not listed_ok:
+            outcome["message"] = (outcome["message"] + " Global Ban list unavailable.").strip()[:300]
     return outcome
 
 
