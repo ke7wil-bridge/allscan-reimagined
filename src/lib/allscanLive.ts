@@ -273,11 +273,11 @@ export function orderedVisibleBridgeCards(
 
 export type GlobalBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
 export type GlobalBanAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
-export type GlobalBanList = { rules: string[]; bans: GlobalBan[]; audit: GlobalBanAuditEvent[]; serverEpoch: number; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
+export type GlobalBanList = { rules: string[]; bans: GlobalBan[]; audit: GlobalBanAuditEvent[]; serverEpoch: number; verified: boolean; skippedBridges: string[]; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
 
 export async function fetchGlobalBans(): Promise<GlobalBanList> {
   const response = await fetch(`${ASR_API}?action=global-ban-list`, { credentials: 'same-origin', cache: 'no-store' })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; asl?: GlobalBanList['asl'] }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; standalone?: { skipped?: unknown }; asl?: GlobalBanList['asl'] }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban list could not be loaded.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
@@ -285,11 +285,26 @@ export async function fetchGlobalBans(): Promise<GlobalBanList> {
     audit: Array.isArray(payload.audit) ? payload.audit : [],
     serverEpoch: Math.max(0, Number(payload.serverEpoch || 0)),
     asl: payload.asl,
+    verified: payload.verified === true && Array.isArray(payload.standalone?.skipped) && payload.standalone.skipped.length === 0,
+    skippedBridges: Array.isArray(payload.standalone?.skipped) ? payload.standalone.skipped.map(String) : [],
   }
 }
 
 export type TgifBanSync = { status: 'applied' | 'failed' | 'not-configured' | 'unavailable'; talkgroup?: string; added?: string[]; removed?: string[]; noDmrId?: string[]; errors?: string[]; error?: string }
-export type GlobalBanMutation = GlobalBanList & { verified: boolean; enforcement: string; reloadSeconds: number; removed: number; expiresAt: number; tgif?: TgifBanSync }
+export type GlobalBanMutation = GlobalBanList & { enforcement: string; reloadSeconds: number; removed: number; expiresAt: number; tgif?: TgifBanSync }
+
+/** #129: bridges with no ban-capable native adapter; the ban is saved but not enforced there. */
+export function globalBanPendingReason(result: Pick<GlobalBanMutation, 'skippedBridges' | 'asl'>, fallback: string): string {
+  if (result.skippedBridges.length) return `not enforced on ${result.skippedBridges.map(id => id.toUpperCase()).join(', ')} (no native ban adapter on this node)`
+  return result.asl?.error || fallback
+}
+
+/** A saved rule is not proof that every backend enforces it. */
+export function globalBanScope(result: Pick<GlobalBanList, 'verified' | 'skippedBridges' | 'asl'> | null): string {
+  if (!result) return 'Enforcement not verified'
+  if (result.skippedBridges.length || !result.verified) return `Saved policy; ${globalBanPendingReason(result, 'full enforcement not verified')}`
+  return 'Enforcement verified on supported backends'
+}
 
 export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, duration = 'permanent'): Promise<GlobalBanMutation> {
   const body = new URLSearchParams({ verb, rule, duration })
@@ -298,20 +313,21 @@ export async function updateGlobalBan(verb: 'ban' | 'unban', rule: string, durat
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': 'global-ban-control' },
     body: body.toString(),
   })
-  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl']; tgif?: TgifBanSync }
+  const payload = (await response.json()) as { ok?: boolean; error?: string; rules?: string[]; bans?: GlobalBan[]; audit?: GlobalBanAuditEvent[]; serverEpoch?: number; verified?: boolean; enforcement?: string; reloadSeconds?: number; removed?: number; expiresAt?: number; asl?: GlobalBanList['asl']; tgif?: TgifBanSync; standalone?: { skipped?: unknown } }
   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Global Ban update failed.')
   return {
     rules: Array.isArray(payload.rules) ? payload.rules : [],
     bans: Array.isArray(payload.bans) ? payload.bans : [],
     audit: Array.isArray(payload.audit) ? payload.audit : [],
     serverEpoch: Math.max(0, Number(payload.serverEpoch || 0)),
-    verified: payload.verified === true,
+    verified: payload.verified === true && Array.isArray(payload.standalone?.skipped) && payload.standalone.skipped.length === 0,
     asl: payload.asl,
     enforcement: String(payload.enforcement || ''),
     reloadSeconds: Math.max(0, Number(payload.reloadSeconds || 0)),
     removed: Math.max(0, Number(payload.removed || 0)),
     expiresAt: Math.max(0, Number(payload.expiresAt || 0)),
     tgif: payload.tgif && typeof payload.tgif === 'object' ? payload.tgif : undefined,
+    skippedBridges: Array.isArray(payload.standalone?.skipped) ? payload.standalone.skipped.map(String) : [],
   }
 }
 

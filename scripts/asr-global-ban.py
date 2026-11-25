@@ -123,8 +123,17 @@ def reconcile_standalone_bans(actor="system"):
         if isinstance(candidate, dict):
             payload = candidate
             break
-    if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("verified") is not True:
+    if completed.returncode != 0 or not isinstance(payload, dict) or payload.get("ok") is not True:
         raise RuntimeError(str((payload or {}).get("error") or "Standalone bridge Global Ban reconciliation failed."))
+    if payload.get("verified") is not True:
+        # A bridge with no ban-capable native adapter (for example a wizard
+        # YSF/P25/NXDN bridge without a native-admin proxy) is reported as
+        # skipped. That is partial enforcement, not a reconciliation failure:
+        # return it so global_enforcement_verified() reports
+        # partial_pending_enforcement instead of failing list/ban/expire (#129).
+        skipped = payload.get("skipped")
+        if not isinstance(skipped, list) or not skipped:
+            raise RuntimeError(str(payload.get("error") or "Standalone bridge Global Ban reconciliation failed."))
     return payload
 
 
@@ -475,12 +484,14 @@ def main():
     if args.action in {"expire", "list"}:
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
+        verified = global_enforcement_verified(asl, standalone)
+        enforcement = "immediate_global" if verified else "partial_pending_enforcement"
         if args.action == "expire":
-            emit(ok=True, asl=asl, action="expire", expired=expired, rules=sorted(set(rules)),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, rules=sorted(set(rules)),
                  bans=ban_payload(rules, timed), standalone=standalone, tgif=reconcile_tgif_bans(),
                  serverEpoch=int(time.time()))
         else:
-            emit(ok=True, asl=asl, rules=sorted(set(rules)), bans=ban_payload(rules, timed),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, rules=sorted(set(rules)), bans=ban_payload(rules, timed),
                  audit=read_audit_events(), standalone=standalone, serverEpoch=int(time.time()), reloadSeconds=30)
         return
     if not args.rule:

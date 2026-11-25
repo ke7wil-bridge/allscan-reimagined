@@ -159,6 +159,9 @@ restore_shared_backup() {
         [ ! -L "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" ] || continue
         scheduler_tmp=$(mktemp "/etc/allscan/.${scheduler_file}.rollback.XXXXXX")
         cp -p "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file" "$scheduler_tmp"
+        # Finalized backups are root-only 0600; the web server owns scheduler state (#129).
+        chown "$WEB_USER:$WEB_GROUP" "$scheduler_tmp"
+        chmod 660 "$scheduler_tmp"
         mv -fT "$scheduler_tmp" "/etc/allscan/$scheduler_file"
       elif [ -f "$BACKUP_DIR/runtime/allscan-scheduler/$scheduler_file.absent" ]; then
         rm -f "/etc/allscan/$scheduler_file"
@@ -738,6 +741,28 @@ ensure_tgif_python_runtime() {
     || fail "TGIF authentication Python dependencies are still unavailable after installation"
 }
 
+ensure_scheduler_cron() {
+  # Admin Scheduling uses AllScan v1.06's per-minute cron runner. Minimal
+  # Debian/ASL3 images may lack cron, which makes "Enable Scheduler" fail
+  # (#129 WARN-3). Install the package and keep the daemon running, but never
+  # add a scheduler crontab: scheduling stays disabled until an admin enables it.
+  if ! command -v crontab >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 \
+      || fail "Admin Scheduling requires cron, but cron and apt-get are unavailable"
+    echo "Installing the cron service required by Admin Scheduling (scheduling stays disabled)..."
+    DEBIAN_FRONTEND=noninteractive apt-get update \
+      || fail "Could not refresh package metadata for cron"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cron \
+      || fail "Could not install cron for Admin Scheduling"
+    command -v crontab >/dev/null 2>&1 \
+      || fail "cron is still unavailable after installation"
+  fi
+  if [ ! -e /.dockerenv ] && [ -d /run/systemd/system ]; then
+    systemctl enable --now cron.service >/dev/null 2>&1 \
+      || echo "WARNING: cron.service could not be started; Admin Scheduling cannot run until cron is active." >&2
+  fi
+}
+
 prune_old_backups() {
   local backup_root="/root/allscan-reimagined-backups" removed=0 remove_count index
   local -a backups=()
@@ -794,6 +819,7 @@ python3 "$PAYLOAD_DIR/scripts/asr-apache-listeners.py" capture \
 ensure_php_web_runtime
 ensure_php_security_updates
 ensure_tgif_python_runtime
+ensure_scheduler_cron
 STOCK_ALLSCAN_DIR="$WEB_ROOT/allscan"
 ASR_WEB_DIR="$WEB_ROOT/asr"
 [ -d "$ASR_WEB_DIR" ] && ASR_WEB_WAS_PRESENT=1

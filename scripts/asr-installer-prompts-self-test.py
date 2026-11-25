@@ -124,7 +124,7 @@ def main() -> int:
     require(
         "php_has_critical_security_fix" in installer
         and "apt-get install -y --only-upgrade" in installer
-        and "ensure_php_security_updates\nensure_tgif_python_runtime\nSTOCK_ALLSCAN_DIR=" in installer
+        and "ensure_php_security_updates\nensure_tgif_python_runtime\nensure_scheduler_cron\nSTOCK_ALLSCAN_DIR=" in installer
         and "PHP security baseline satisfied" in installer,
         "installer must refresh vulnerable native PHP runtimes before exposing ASR",
     )

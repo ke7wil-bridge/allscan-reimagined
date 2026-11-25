@@ -170,6 +170,40 @@ async function runBrowser(unauthorized = false) {
         && Boolean(longLabel && longLabel.getBoundingClientRect().right <= longLabel.closest('.allscan-bridge-card').getBoundingClientRect().right + 1);
     })()`)
     assert(mobile, 'mobile Connected Clients Kick/Ban controls are missing or clipped')
+    await (await page.context().newCDPSession(page)).send('Emulation.setDeviceMetricsOverride', { width:1440,height:1000,mobile:false,deviceScaleFactor:1 })
+    // #129: partial enforcement must remain visible after list refresh/reload,
+    // including when a ban is saved from the client-management dialog.
+    let saved = ['N2YSF']
+    const partial = () => ({ ok:true, verified:false, enforcement:'partial_pending_enforcement',
+      standalone:{skipped:['nxdn','p25','ysf']}, asl:{status:'applied'}, rules:saved,
+      bans:saved.map(rule=>({rule,createdAt:1,expiresAt:0,remainingSeconds:0})), audit:[], serverEpoch:1 })
+    await page.route('**/asr-api.php?*', async route => {
+      const action=new URL(route.request().url()).searchParams.get('action')
+      if(action==='global-ban-list') return route.fulfill({json:partial()})
+      if(action==='global-ban-control') {
+        const form=new URLSearchParams(route.request().postData() || '')
+        const rule=form.get('rule'); saved=form.get('verb')==='unban' ? saved.filter(x=>x!==rule) : [...new Set([...saved,rule])]
+        return route.fulfill({json:partial()})
+      }
+      if(action==='asl-ban-list') return route.fulfill({json:{ok:true,bans:[],applied:{}}})
+      return route.continue()
+    })
+    const dialog=page.getByRole('dialog',{name:'Manage Kicks & Bans'})
+    const releaseClose=page.getByRole('button',{name:'Close Update ASR'})
+    if(await releaseClose.count()) await releaseClose.click()
+    await page.locator('.allscan-kicks-bans-button').click()
+    await dialog.getByRole('tab',{name:'Bans'}).click()
+    await waitUntil("document.querySelector('.allscan-connection-ban-list')?.innerText.includes('not enforced on NXDN, P25, YSF')", 'saved list failed to name unsupported bridges')
+    assert(!(await dialog.innerText()).includes('Everywhere'), 'saved list falsely claimed universal enforcement')
+    await dialog.getByRole('tab',{name:'Connected clients'}).click()
+    await dialog.getByLabel('Ban callsign').fill('Q9QA129')
+    await dialog.getByRole('button',{name:'Ban',exact:true}).click()
+    await waitUntil("document.querySelector('.allscan-ban-admin-status')?.innerText.includes('not enforced on NXDN, P25, YSF')", 'client-management mutation omitted partial enforcement')
+    await dialog.getByRole('tab',{name:'Bans'}).click()
+    await waitUntil("document.querySelector('.allscan-connection-ban-list')?.innerText.includes('Q9QA129')", 'saved partial rule missing from list')
+    await dialog.getByRole('button',{name:'Close Manage Kicks & Bans'}).click()
+    console.log('PASS: partial Global Ban mutation and saved-list scope')
+
   } finally {
     await browser?.close()
     vite.kill('SIGTERM')
