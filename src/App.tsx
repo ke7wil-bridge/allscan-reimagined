@@ -4373,7 +4373,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     </div>
                   ) : null}
 
-                  {card.mode.toLowerCase() === 'm17' && !bridgeConfig?.m17AudioQualified ? (
+                  {card.mode.toLowerCase() === 'm17' && bridgeConfig?.backendMode === 'managed' && !bridgeConfig.m17AudioQualified ? (
                     <div className="allscan-bridge-repair-alert" role="status">
                       <span>M17 audio qualification: {m17QualificationState === 'qualifying' ? 'In progress — send and receive live audio' : 'Required'}</span>
                       {authStatus.canModify ? (
