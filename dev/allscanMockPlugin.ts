@@ -781,7 +781,7 @@ export function allscanMockPlugin(): Plugin {
               },
             }), 'application/json; charset=utf-8')
           }
-          if (action === 'global-ban-list') return serveText(res, jsonResponse({ ok: true, rules: globalBans, bans: globalBans.map((rule) => ({ rule, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+          if (action === 'global-ban-list') return serveText(res, jsonResponse({ ok: true, verified: true, standalone: { skipped: [] }, asl: { status: 'applied' }, rules: globalBans, bans: globalBans.map((rule) => ({ rule, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
           if (action === 'standalone-client-kick') {
             return void readFormBody(req).then((form) => {
               const callsign = String(form.get('callsign') || '').toUpperCase()
@@ -812,7 +812,7 @@ export function allscanMockPlugin(): Plugin {
               } else if (verb === 'unban') {
                 globalBans = globalBans.filter((item) => item !== rule)
               }
-              return serveText(res, jsonResponse({ ok: true, verified: true, enforcement: 'immediate', reloadSeconds: 0, removed: verb === 'ban' ? 1 : 0, rules: globalBans, bans: globalBans.map((item) => ({ rule: item, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
+              return serveText(res, jsonResponse({ ok: true, verified: true, standalone: { skipped: [] }, asl: { status: 'applied' }, enforcement: 'immediate_global', reloadSeconds: 0, removed: verb === 'ban' ? 1 : 0, rules: globalBans, bans: globalBans.map((item) => ({ rule: item, createdAt: 1, expiresAt: 0, remainingSeconds: 0 })), audit: [], serverEpoch: 1 }), 'application/json; charset=utf-8')
             })
           }
           if (action === 'bridge-destinations') {

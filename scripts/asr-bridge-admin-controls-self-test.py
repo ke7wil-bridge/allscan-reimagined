@@ -69,8 +69,8 @@ check("const canChangeDestination = bridgeCapabilities.includes('changeDestinati
 check("const canConnect = bridgeCapabilities.includes('connect')" in APP, "connect rendering is not capability-driven")
 check("const canDisconnect = bridgeCapabilities.includes('disconnect')" in APP, "disconnect rendering is not capability-driven")
 check("clientAdmin.includes('listBans')" in APP, "Manage Clients is not capability-driven")
-check("Ban is global across ASR bridges" in APP, "global-ban scope warning missing")
-check("Enforcement is applied by each supported backend" in APP, "partial global-ban enforcement warning missing")
+check("Global Ban saves a callsign policy" in APP, "global-ban scope warning missing")
+check("only supported backends can enforce it" in APP, "partial global-ban enforcement warning missing")
 check("Kick affects only the selected current bridge session" in APP, "Kick scope semantics are not explained")
 check("does not remove the upstream TGIF subscriber" in APP
       and "DMR Kick stops local forwarding until reconnect" in APP,
@@ -127,7 +127,7 @@ check("asr-dmr-standalone-admin-adapter.py" in DIRECT_DMR_INSTALL
       and "/run/asr-standalone-admin" in DIRECT_DMR_RENDER,
       "direct DMR administration adapter is not lifecycle-managed")
 check("Find connected client" in APP and "banClientFilter" in APP, "client search missing")
-check("BANNED" in APP and "Unban" in APP, "ban-state workflow missing")
+check("globalBanScope(globalBanEnforcement)" in APP and "Unban" in APP, "ban-state workflow missing")
 check("read_rules() != expected" in GLOBAL_BAN and "verified=True" in GLOBAL_BAN, "Global Ban write verification missing")
 check("unmappedGlobalRules" in ASL and "unmappedAllStarCallsigns" in ASL
       and "desired_ast.update(mapped_ast_nodes)" in ASL

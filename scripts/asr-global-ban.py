@@ -484,12 +484,14 @@ def main():
     if args.action in {"expire", "list"}:
         standalone = reconcile_standalone_bans(args.actor)
         asl = reconcile_asl_bans()
+        verified = global_enforcement_verified(asl, standalone)
+        enforcement = "immediate_global" if verified else "partial_pending_enforcement"
         if args.action == "expire":
-            emit(ok=True, asl=asl, action="expire", expired=expired, rules=sorted(set(rules)),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, rules=sorted(set(rules)),
                  bans=ban_payload(rules, timed), standalone=standalone, tgif=reconcile_tgif_bans(),
                  serverEpoch=int(time.time()))
         else:
-            emit(ok=True, asl=asl, rules=sorted(set(rules)), bans=ban_payload(rules, timed),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, rules=sorted(set(rules)), bans=ban_payload(rules, timed),
                  audit=read_audit_events(), standalone=standalone, serverEpoch=int(time.time()), reloadSeconds=30)
         return
     if not args.rule:

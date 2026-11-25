@@ -47,6 +47,8 @@ import {
   changeAslBan,
   updateGlobalBan,
   globalBanPendingReason,
+  globalBanScope,
+  type GlobalBanList,
   kickZelloClient,
   kickStandaloneClient,
   type TgifKickResult,
@@ -709,6 +711,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [authChecked, setAuthChecked] = useState(false)
   const [tgifUserStatus, setTgifUserStatus] = useState<TgifUserStatus | null>(null)
   const [banAdminOpen, setBanAdminOpen] = useState(false)
+  const [globalBanEnforcement, setGlobalBanEnforcement] = useState<Pick<GlobalBanList, 'verified' | 'skippedBridges' | 'asl'> | null>(null)
   const [globalBanRules, setGlobalBanRules] = useState<string[]>([])
   const [globalBans, setGlobalBans] = useState<GlobalBan[]>([])
   const [globalBanAudit, setGlobalBanAudit] = useState<GlobalBanAuditEvent[]>([])
@@ -1921,11 +1924,13 @@ function App({ config }: { config: RuntimeConfig }) {
     const refresh = async () => {
       try {
         const result = await fetchGlobalBans()
+        setGlobalBanEnforcement(result)
         setGlobalBanRules(result.rules)
         setGlobalBans(result.bans)
-      setGlobalBanAudit(result.audit)
-      } catch { /* Keep the current list; explicit actions report errors. */ }
+        setGlobalBanAudit(result.audit)
+      } catch { setGlobalBanEnforcement(null) /* Keep rules, but do not claim stale enforcement. */ }
     }
+    void refresh()
     const timer = window.setInterval(() => void refresh(), 15000)
     return () => window.clearInterval(timer)
   }, [banAdminOpen, authStatus.isAdmin])
@@ -2446,6 +2451,7 @@ function App({ config }: { config: RuntimeConfig }) {
     if (!authStatus.isAdmin) return
     try {
       const [result, native] = await Promise.all([fetchGlobalBans(), fetchAslBans()])
+      setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
@@ -2458,6 +2464,7 @@ function App({ config }: { config: RuntimeConfig }) {
       })
       setBanStatus('')
     } catch (error) {
+      setGlobalBanEnforcement(null)
       setBanStatus(error instanceof Error ? error.message : 'Global Ban list could not be loaded.')
     }
   }
@@ -2499,10 +2506,11 @@ function App({ config }: { config: RuntimeConfig }) {
       if (!/^[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}$/.test(value)) throw new Error('Enter a valid callsign. Every ASR ban is global.')
       if (banDialog.row && isProtectedBanConnection(banDialog.row)) throw new Error('This installed service bridge is protected and cannot be banned.')
       const result = await updateGlobalBan('ban', value, banDuration)
+      setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
-      setAslEnforcementStatus(result.asl?.status === 'applied' ? 'Global policy applied everywhere' : `Global policy pending: ${result.asl?.error || 'Adapter unavailable'}`)
+      setAslEnforcementStatus(result.asl?.status === 'applied' ? 'AllStar / EchoLink policy applied' : `AllStar / EchoLink policy pending: ${result.asl?.error || 'Adapter unavailable'}`)
       if (!result.verified || result.asl?.applied?.unmappedGlobalRules?.includes(value)) {
         throw new Error(`Global Ban was saved, but full enforcement is pending: ${globalBanPendingReason(result, 'The callsign could not be mapped.')}`)
       }
@@ -2527,7 +2535,7 @@ function App({ config }: { config: RuntimeConfig }) {
         }
       }
       setBanDialog(null)
-      setBanStatus(`Globally banned ${value} for ${GLOBAL_BAN_DURATIONS.find((option) => option.value === banDuration)?.label || banDuration}.${disconnectStatus}`)
+      setBanStatus(`Saved Global Ban for ${value}; supported backend enforcement verified for ${GLOBAL_BAN_DURATIONS.find((option) => option.value === banDuration)?.label || banDuration}.${disconnectStatus}`)
     } catch (error) {
       setBanStatus(error instanceof Error ? error.message : 'Global Ban could not be applied.')
     } finally {
@@ -2540,6 +2548,7 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanBusy(true)
       const result = await updateGlobalBan('unban', rule)
+      setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
@@ -2981,6 +2990,7 @@ function App({ config }: { config: RuntimeConfig }) {
     try {
       setBanAdminBusy(true)
       const result = await updateGlobalBan(verb, normalized, duration)
+      setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
@@ -2988,7 +2998,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const action = verb === 'ban' ? 'added to' : 'removed from'
       const durationLabel = verb === 'ban' ? ` for ${GLOBAL_BAN_DURATIONS.find((option) => option.value === duration)?.label || duration}` : ''
       const removal = verb === 'ban' && result.removed > 0 ? ` ${result.removed} active backend session${result.removed === 1 ? ' was' : 's were'} removed immediately.` : ''
-      const aslLimit = result.asl?.status !== 'applied' || result.asl?.applied?.unmappedGlobalRules?.includes(normalized) ? ` Global enforcement pending: ${result.asl?.error || 'This callsign could not be mapped.'}` : ''
+      const aslLimit = !result.verified ? ` Full enforcement pending: ${globalBanPendingReason(result, 'full enforcement not verified')}.` : ''
       const tgif = result.tgif
       const tgifNote = !tgif || tgif.status === 'unavailable' || tgif.status === 'not-configured' ? ''
         : tgif.status !== 'applied' ? ` TGIF talkgroup ban list was not updated: ${(tgif.errors || [])[0] || tgif.error || 'TGIF did not answer'}.`
@@ -4170,7 +4180,7 @@ function App({ config }: { config: RuntimeConfig }) {
               if (!banAdminOpen || !authStatus.isAdmin) return null
               return <>
                 {banAdminOpen && authStatus.isAdmin ? createPortal(<div className="allscan-ban-admin-modal" role="dialog" aria-modal="true" aria-label="Manage Kicks & Bans" onMouseDown={(event) => { if (event.target === event.currentTarget) setBanAdminOpen(false) }}><div className="allscan-ban-admin-panel"><div className="allscan-ban-admin-modal-head"><strong>Manage Kicks & Bans</strong><button type="button" className="allscan-ban-admin-close" aria-label="Close Manage Kicks & Bans" onClick={() => setBanAdminOpen(false)}>×</button></div><div className="allscan-management-tabs" role="tablist" aria-label="Connection management"><button type="button" role="tab" aria-selected={managementTab === 'clients'} onClick={() => setManagementTab('clients')}>Connected clients</button><button type="button" role="tab" aria-selected={managementTab === 'bans'} onClick={() => { setManagementTab('bans'); void loadAslBans() }}>Bans</button></div>{managementTab === 'clients' ? <>
-                  <div className="allscan-ban-admin-scope"><strong>Client administration</strong><span>Ban is global across ASR bridges. Enforcement is applied by each supported backend. Protected service and health-probe identities cannot be banned. Kick affects only the selected current bridge session. DMR Kick stops local forwarding until reconnect; it does not remove the upstream TGIF subscriber.</span></div>
+                  <div className="allscan-ban-admin-scope"><strong>Client administration</strong><span>Global Ban saves a callsign policy; only supported backends can enforce it. Protected service and health-probe identities cannot be banned. Kick affects only the selected current bridge session. DMR Kick stops local forwarding until reconnect; it does not remove the upstream TGIF subscriber.</span></div>
                   <div className="allscan-ban-admin-tools">
                     <label>Find connected client<input value={banClientFilter} onChange={(event) => setBanClientFilter(event.target.value.toUpperCase())} placeholder="Callsign or mode" maxLength={32} /></label>
                     <label>Ban callsign<input value={globalBanRule} onChange={(event) => setGlobalBanRule(event.target.value.toUpperCase())} placeholder="Callsign" maxLength={12} disabled={banAdminBusy} /></label>
@@ -4178,15 +4188,15 @@ function App({ config }: { config: RuntimeConfig }) {
                     <button type="button" disabled={banAdminBusy || !globalBanRule.trim()} onClick={() => void changeGlobalBan('ban', globalBanRule, globalBanDuration)}>Ban</button>
                   </div>
                   <div className="allscan-ban-admin-clients"><b>AllStar / EchoLink connections</b>{sortedConnectionRows.filter((row) => row.state !== 'message' && isBannableConnection(row) && !isProtectedBanConnection(row) && row.node !== config.node && !row.bridgeId && !config.bridges.some((bridge) => bridge.node === row.node) && (!banClientFilter.trim() || `${row.node} ${row.info} ${row.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase()))).map((row, index) => <span key={`${row.node}-${row.mode}-${index}`}><code>{row.node}</code><small>{row.info} · {row.mode}</small><span className="allscan-bridge-client-admin-actions"><button type="button" onClick={() => { if (/^[0-9]{3,10}$/.test(row.node)) void runCommandForNode('disconnect', row.node); else { setBanAdminOpen(false); setDropClientOpen(true); void loadDropClients() } }}>{/^[0-9]{3,10}$/.test(row.node) ? 'Disconnect' : 'Drop Client…'}</button>{isBannableConnection(row) && !isProtectedBanConnection(row) ? <button type="button" onClick={() => { setBanAdminOpen(false); openParticipantBan(row) }}>Ban…</button> : null}</span></span>)}</div>
-                  <div className="allscan-ban-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.filter((managedCard) => managedCard.mode.toUpperCase() !== 'ZELLO').flatMap((managedCard) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === managedCard.id); const clientAdmin = bridgeConfig?.adminCapabilities?.clientAdmin || []; const canKick = clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan })) }).filter((detail) => !banClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = globalBanRules.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{detail.canKick ? <button type="button" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode, detail.clientId)}>Kick</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign) : null}</span></span> })}</div>
-                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ' · BANNED' : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Mute this Zello talker on this bridge for one minute" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
+                  <div className="allscan-ban-admin-clients"><b>Digital bridge clients</b>{managedConnectedCards.filter((managedCard) => managedCard.mode.toUpperCase() !== 'ZELLO').flatMap((managedCard) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === managedCard.id); const clientAdmin = bridgeConfig?.adminCapabilities?.clientAdmin || []; const canKick = clientAdmin.includes('kickClient'); const canBan = clientAdmin.includes('banClient'); return managedCard.detailRows.filter((detail) => !detail.empty).map((detail) => ({ ...detail, mode: managedCard.mode, bridgeId: managedCard.id, canKick, canBan })) }).filter((detail) => !banClientFilter.trim() || `${detail.label} ${detail.mode}`.toUpperCase().includes(banClientFilter.trim().toUpperCase())).map((detail) => { const callsign = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase(); const banned = globalBanRules.some((rule) => rule.endsWith('*') ? callsign.startsWith(rule.slice(0, -1)) : callsign === rule); return <span key={`${detail.mode}-${detail.key}`}><code>{detail.label}</code><small>{detail.mode.toUpperCase()}{banned ? ` · ${globalBanScope(globalBanEnforcement)}` : ''}</small><span className="allscan-bridge-client-admin-actions">{detail.canKick ? <button type="button" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(callsign, detail.bridgeId, detail.mode, detail.clientId)}>Kick</button> : null}{detail.canBan && !banned ? globalBanDurationSelect(callsign) : null}</span></span> })}</div>
+                  {zelloTalkers.length ? <div className="allscan-ban-admin-clients"><b>Recent Zello Talkers</b>{zelloTalkers.filter(({ identity }) => !banClientFilter.trim() || `${identity} ZELLO`.includes(banClientFilter.trim().toUpperCase())).map(({ card, identity, active }) => { const bridgeConfig = config.bridges.find((bridge) => bridge.id === card.id); const canKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true; const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule); return <span key={`zello-${card.id}-${identity}`}><code>{identity}</code><small>ZELLO · {active ? 'CURRENT TRANSMISSION' : 'RECENT TALKER'}{banned ? ` · ${globalBanScope(globalBanEnforcement)}` : ''}</small><span className="allscan-bridge-client-admin-actions">{canKick ? <button type="button" title="Mute this Zello talker on this bridge for one minute" disabled={banAdminBusy} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode)}>Kick</button> : null}{banned ? null : globalBanDurationSelect(identity)}</span></span> })}</div> : null}
                   </> : <div className="allscan-management-bans">
                     <button type="button" className="allscan-action-button" onClick={() => { setBanAdminOpen(false); openParticipantBan() }}>Add ban…</button>
                     {aslEnforcementStatus ? <p role="status">{aslEnforcementStatus}</p> : null}
             <div className="allscan-connection-ban-list">
               <strong>Global callsigns</strong>
               {globalBans.length ? globalBans.map((ban) => <div key={`global-${ban.rule}`}>
-                <strong>{ban.rule}</strong><span>Everywhere · {formatGlobalBanRemaining(ban.expiresAt, clock)} · {formatGlobalBanExpiration(ban.expiresAt)}</span>
+                <strong>{ban.rule}</strong><span>{globalBanScope(globalBanEnforcement)} · {formatGlobalBanRemaining(ban.expiresAt, clock)} · {formatGlobalBanExpiration(ban.expiresAt)}</span>
                 <button type="button" disabled={banBusy} onClick={() => void removeGlobalBan(ban.rule)}>Unban</button>
               </div>) : <p>No global bans.</p>}
               <strong>AllStar / EchoLink native bans</strong>

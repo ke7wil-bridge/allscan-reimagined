@@ -148,6 +148,12 @@ live = (ROOT / "src/lib/allscanLive.ts").read_text(encoding="utf-8")
 app = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
 assert "skippedBridges: Array.isArray(payload.standalone?.skipped)" in live
 assert "no native ban adapter on this node" in live
-assert app.count("globalBanPendingReason(result,") >= 2
+assert app.count("globalBanPendingReason(result,") >= 3
+assert "globalBanScope(globalBanEnforcement)" in app
+assert "Global policy applied everywhere" not in app
+assert "Everywhere ·" not in app
+assert " · BANNED" not in app
+assert "setGlobalBanEnforcement(result)" in app
+assert "verified=verified, enforcement=enforcement" in (ROOT / "scripts/asr-global-ban.py").read_text()
 
 print("global ban storage self-test: ok")
