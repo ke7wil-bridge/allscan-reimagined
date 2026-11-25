@@ -17,6 +17,7 @@ python3 scripts/asr-standalone-admin-self-test.py
 python3 scripts/asr-asl-ban-self-test.py                # #291: callsign deny for web-transceiver stations
 python3 scripts/asrplus-agent-ban-routing-self-test.py  # #291: ASRPlus callsign bans use Global Ban
 python3 scripts/asrplus-ban-fanout-self-test.py         # #291: every ban/unban reaches every hub
+python3 scripts/asr-node-ban-callsign-self-test.py      # #291: a node ban also bans its owner on EchoLink and bridges
 python3 scripts/asr-global-ban-storage-self-test.py  # #129: skipped wizard bridges = partial, not failure
 python3 scripts/asr-rollback.py self-test             # #129: restored scheduler state stays web-readable
 python3 scripts/asr-native-udp-admin-self-test.py

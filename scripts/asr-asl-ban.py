@@ -19,6 +19,7 @@ GLOBAL = GLOBAL_BAN_ROOT / "global-bans.list"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
 EXTENSIONS = Path("/etc/asterisk/extensions.conf")
+GLOBAL_BAN_HELPER = os.environ.get("ASR_GLOBAL_BAN_HELPER", "/usr/local/sbin/allscan-reimagined-global-ban")
 ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"), Path("/var/www/html/supermon/astdb.txt"))
 DURATIONS = {"15m": 900, "1h": 3600, "1w": 604800, "30d": 2592000, "permanent": 0}
 NODE = re.compile(r"^[0-9]{3,10}$")
@@ -152,6 +153,64 @@ def allstar_nodes_for_calls(calls):
                 nodes.add(parts[0])
                 mapped.add(call)
     return nodes, wanted - mapped
+
+
+def owner_call_for_node(node):
+    """The callsign that owns an AllStar node, from the local ASL node list.
+
+    #291: a node ban is meant to keep that operator off the whole network, but
+    EchoLink and the digital bridges know a station only by callsign. Returns
+    "" when the owner is unknown or must never be banned (local/service calls)."""
+    try:
+        local_call = str(json.loads(CONFIG.read_text()).get("callsign", "")).strip().upper()
+    except (OSError, ValueError, AttributeError):
+        local_call = ""
+    local_base = re.sub(r"-(?:L|R)$", "", local_call) if CALL.fullmatch(local_call) else ""
+    for path in ASTDB_FILES:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            parts = line.split("|", 2)
+            if len(parts) < 2 or parts[0] != node:
+                continue
+            try:
+                call = base_call(parts[1])
+            except ValueError:
+                return ""
+            return "" if call == local_base else call
+    return ""
+
+
+def apply_linked_call(verb, call, duration, actor):
+    """Ban/unban a node owner's callsign through ASR Global Ban, which enforces
+    it on AllStar (all of that owner's nodes), EchoLink and every digital
+    bridge. Runs after the ASL ledger lock is released: Global Ban calls back
+    into this helper's `sync`."""
+    arguments = [GLOBAL_BAN_HELPER, verb, call] + ([duration] if verb == "ban" else []) + ["--actor", actor]
+    result = {"callsign": call, "action": verb, "ok": False, "error": ""}
+    if not os.access(GLOBAL_BAN_HELPER, os.X_OK):
+        result["error"] = "ASR Global Ban is not installed on this hub."
+        return result
+    try:
+        completed = subprocess.run(arguments, capture_output=True, text=True, timeout=35, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        result["error"] = "ASR Global Ban did not finish in time."
+        return result
+    payload = {}
+    for line in reversed(completed.stdout.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+            break
+    result["ok"] = completed.returncode == 0 and payload.get("ok") is True
+    if not result["ok"]:
+        result["error"] = str(payload.get("error") or completed.stderr or "ASR Global Ban failed.")[:200]
+    return result
 
 
 def echolink_available(ami):
@@ -453,6 +512,7 @@ def main():
     parser.add_argument("--actor", default="system")
     args = parser.parse_args()
     local = local_node()
+    linked = None
     with LOCK.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         data = read_state()
@@ -466,10 +526,21 @@ def main():
             if args.kind != "node" and CALL.fullmatch(own_call.upper()) and value == base_call(own_call):
                 raise ValueError("The local callsign cannot be banned.")
             now = int(time.time())
+            previous = [row for row in data["bans"] if (row["kind"], row["value"]) == (args.kind, value)]
             data["bans"] = [row for row in data["bans"] if (row["kind"], row["value"]) != (args.kind, value)]
             data["bans"].append({"kind": args.kind, "value": value, "createdAt": now,
                                  "expiresAt": now + DURATIONS[args.duration] if DURATIONS[args.duration] else 0,
                                  "reason": args.reason[:160], "actor": args.actor[:80]})
+            owner = owner_call_for_node(value) if args.kind == "node" else ""
+            if owner:
+                # Ban the operator, not just the node: the owner's callsign goes
+                # to Global Ban for EchoLink and the bridges. A Global Ban that
+                # already existed stays untouched (and is never shortened).
+                owned = any(row.get("linkedCallOwned") and row.get("linkedCall") == owner for row in previous)
+                owned = owned or owner not in global_calls()[0]
+                data["bans"][-1].update(linkedCall=owner, linkedCallOwned=owned)
+                if owned:
+                    linked = ("ban", owner, args.duration)
             data["audit"].append({"action": "ban", "kind": args.kind, "value": value, "at": now,
                                   "expiresAt": data["bans"][-1]["expiresAt"], "actor": args.actor[:80],
                                   "reason": args.reason[:160]})
@@ -479,7 +550,14 @@ def main():
             if not args.kind:
                 raise ValueError("Choose a ban target.")
             value = check_node(args.value) if args.kind == "node" else base_call(args.value)
+            lifted = [row for row in data["bans"] if (row["kind"], row["value"]) == (args.kind, value)]
             data["bans"] = [row for row in data["bans"] if (row["kind"], row["value"]) != (args.kind, value)]
+            for row in lifted:
+                owner = row.get("linkedCall", "")
+                still_linked = any(other.get("linkedCall") == owner and other.get("linkedCallOwned")
+                                   for other in data["bans"])
+                if owner and row.get("linkedCallOwned") and not still_linked:
+                    linked = ("unban", owner, "")
             data["audit"].append({"action": "unban", "kind": args.kind, "value": value, "at": int(time.time()), "actor": args.actor[:80]})
             data["audit"] = data["audit"][-250:]
             save_state(data)
@@ -498,8 +576,14 @@ def main():
         hub_fanout = None
         if args.action in ("ban", "unban"):
             hub_fanout = fan_out_to_hubs(args.action, args.kind, value, args.duration, args.actor)
-        print(json.dumps({"ok": True, "bans": data["bans"], "audit": data["audit"], "applied": applied,
-                          "localNode": local, "hubFanout": hub_fanout}))
+    # Outside the ledger lock: Global Ban re-syncs this helper.
+    linked_call = apply_linked_call(*linked, args.actor[:80]) if linked else None
+    if linked_call is not None and not linked_call["ok"]:
+        raise RuntimeError(f"Node {value} is banned, but the callsign ban for {linked_call['callsign']} "
+                           f"(EchoLink and bridges) failed: {linked_call['error']}")
+    print(json.dumps({"ok": True, "bans": data["bans"], "audit": data["audit"],
+                      "applied": applied, "localNode": local, "hubFanout": hub_fanout,
+                      "linkedCallsign": linked_call}))
 
 
 

@@ -145,6 +145,7 @@ python3 "$ROOT/scripts/asr-zello-client-management-self-test.py"
 python3 "$ROOT/scripts/asr-asl-ban-self-test.py"
 python3 "$ROOT/scripts/asrplus-agent-ban-routing-self-test.py"
 python3 "$ROOT/scripts/asrplus-ban-fanout-self-test.py"
+python3 "$ROOT/scripts/asr-node-ban-callsign-self-test.py"
 python3 "$ROOT/scripts/asr-ysf-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-stale-status-self-test.py"
 python3 "$ROOT/scripts/asr-dmr-radio-id-callsign-self-test.py"
