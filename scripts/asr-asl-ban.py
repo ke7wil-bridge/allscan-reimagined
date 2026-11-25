@@ -234,6 +234,24 @@ def echolink_calls_for_calls(ami, calls):
     return result
 
 
+def echolink_ids_for_calls(ami, calls):
+    """EchoLink node numbers registered to the banned callsigns.
+
+    chan_echolink channels list the station's EchoLink node number as the
+    caller (prefixed "3" by app_rpt) with no callsign, so a banned station that
+    is already connected can only be found by number (#291, KF8DRJ)."""
+    wanted = {re.sub(r"-(?:L|R)$", "", value.upper()) for value in calls}
+    ids = set()
+    for line in ami.command("echolink dbdump").splitlines():
+        parts = line.split("|", 2)
+        if len(parts) < 2 or not re.fullmatch(r"[0-9]{1,7}", parts[0].strip()):
+            continue
+        call = parts[1].strip().upper()
+        if CALL.fullmatch(call) and re.sub(r"-(?:L|R)$", "", call) in wanted:
+            ids.add(parts[0].strip())
+    return ids
+
+
 class AMI:
     def __init__(self):
         cfg = configparser.ConfigParser(
@@ -358,7 +376,7 @@ def update_echo_config(ami, target, has_deny):
         raise RuntimeError("Asterisk rejected EchoLink deny configuration.")
 
 
-def disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls=()):
+def disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls=(), desired_echo_ids=()):
     output = ami.command("core show channels concise")
     removed = 0
     for line in output.splitlines():
@@ -384,6 +402,12 @@ def disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls=(
             match = match or bool(caller and node and node.group(1) == local
                                   and caller.group(1).upper() in desired_ast_calls)
         match = match or (is_echo and cid_name.upper().removesuffix("-L").removesuffix("-R") in desired_echo)
+        # EchoLink channels carry the node number (app_rpt adds a leading "3"),
+        # usually with no callsign at all.
+        match = match or (is_echo and bool(desired_echo_ids) and (
+            cid_number in desired_echo_ids
+            or (len(cid_number) == 7 and cid_number.startswith("3") and cid_number[1:].lstrip("0") in
+                {item.lstrip("0") for item in desired_echo_ids})))
         if not match:
             continue
         response = ami.command("channel request hangup " + channel)
@@ -423,6 +447,7 @@ def reconcile(data, ami, local):
     unsupported = sorted(set(unsupported) | (set(global_rules) & unmapped_ast_calls))
     has_echolink = echolink_available(ami)
     desired_echo = echolink_calls_for_calls(ami, desired_echo_calls) if has_echolink else set()
+    desired_echo_ids = echolink_ids_for_calls(ami, desired_echo_calls) if has_echolink and desired_echo_calls else set()
     previous_ast = set(data.get("ownedAst", []))
     previous_echo = set(data.get("ownedEcho", []))
     existing = ast_entries(ami, local)
@@ -438,7 +463,7 @@ def reconcile(data, ami, local):
         raise RuntimeError("AllStar native deny entries did not verify.")
     data["ownedAst"] = sorted(owned_ast)
     save_state(data)
-    removed = disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls)
+    removed = disconnect_active(ami, desired_ast, desired_echo, local, desired_ast_calls, desired_echo_ids)
     if not has_echolink:
         data["bans"] = active
         save_state(data)
