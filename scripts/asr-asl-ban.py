@@ -331,7 +331,7 @@ def echo_denies(ami):
 def restart_echo_module(ami):
     channels = ami.command("core show channels concise")
     if any(line.split("!", 1)[0].upper().startswith("ECHOLINK/") for line in channels.splitlines()):
-        raise RuntimeError("EchoLink configuration was saved; an active EchoLink session prevents applying it. Retry when the session ends.")
+        raise RuntimeError("EchoLink update waits for current EchoLink users to disconnect; it is retried every minute.")
     modules = ami.command("module show like chan_echolink.so")
     match = re.search(r"(?m)^chan_echolink\.so\s+.*?\s+(\d+)\s+Running\b", modules)
     if not match or int(match.group(1)) != 0:
@@ -556,11 +556,12 @@ def main():
             data["bans"].append({"kind": args.kind, "value": value, "createdAt": now,
                                  "expiresAt": now + DURATIONS[args.duration] if DURATIONS[args.duration] else 0,
                                  "reason": args.reason[:160], "actor": args.actor[:80]})
-            owner = owner_call_for_node(value) if args.kind == "node" else ""
+            # Every ban is network-wide (#291): the callsign (for a node ban, the
+            # node owner's) also goes to Global Ban, which covers AllStar,
+            # EchoLink and every digital bridge. A Global Ban that already
+            # existed stays untouched (and is never shortened).
+            owner = owner_call_for_node(value) if args.kind == "node" else value
             if owner:
-                # Ban the operator, not just the node: the owner's callsign goes
-                # to Global Ban for EchoLink and the bridges. A Global Ban that
-                # already existed stays untouched (and is never shortened).
                 owned = any(row.get("linkedCallOwned") and row.get("linkedCall") == owner for row in previous)
                 owned = owned or owner not in global_calls()[0]
                 data["bans"][-1].update(linkedCall=owner, linkedCallOwned=owned)
@@ -592,8 +593,6 @@ def main():
                 applied = reconcile(data, ami, local)
             finally:
                 ami.close()
-            if args.kind == "echolink-call" and applied.get("pending", {}).get("echolink"):
-                raise RuntimeError(applied["pending"]["echolink"])
         except Exception as exc:
             if args.action in ("ban", "unban"):
                 raise RuntimeError(f"Ban record saved; native enforcement pending: {exc}") from exc

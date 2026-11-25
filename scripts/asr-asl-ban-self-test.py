@@ -174,7 +174,7 @@ def run():
         ]
         fake.channels = ["ECHOLINK/other-1!radio-secure!641890!1!Up!Rpt!641890!0!N0OTHER!"]
         pending = ban.reconcile(state, fake, "641890")
-        assert "active EchoLink session" in pending["pending"]["echolink"]
+        assert "waits for current EchoLink users" in pending["pending"]["echolink"]
         assert "222222" in fake.ast, "EchoLink reload failure discarded an applied AllStar node ban"
         assert "N0RETRY" in fake.echo
         fake.channels = []
