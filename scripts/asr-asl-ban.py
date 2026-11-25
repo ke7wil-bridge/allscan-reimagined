@@ -7,6 +7,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -417,6 +418,31 @@ def reconcile(data, ami, local):
             "pending": pending}
 
 
+ASRPLUS_CONTROL = os.environ.get("ASRPLUS_CONTROL", "/usr/local/sbin/asrplus-control")
+
+
+def fan_out_to_hubs(verb, kind, value, duration="", actor="system"):
+    """#291: on MasterHub, every ban/unban is also queued to every other hub.
+
+    Returns None where no hub fan-out exists (remote hubs, or a ban that a
+    fan-out already delivered), else the per-hub queue result."""
+    if os.environ.get("ASRPLUS_NO_FANOUT") == "1" or not os.access(ASRPLUS_CONTROL, os.X_OK):
+        return None
+    request = {"action": "fanout", "verb": verb, "kind": kind, "value": value,
+               "duration": duration if verb == "ban" else "", "actor": str(actor)[:80]}
+    try:
+        result = subprocess.run([ASRPLUS_CONTROL], input=json.dumps(request), capture_output=True,
+                                text=True, timeout=60, check=False)
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return {"ok": False, "error": "Hub fan-out did not complete.", "hubs": {}}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Hub fan-out returned an invalid result.", "hubs": {}}
+    return {"ok": result.returncode == 0 and payload.get("ok") is True,
+            "error": str(payload.get("error") or "")[:200], "hubs": payload.get("hubs") or {}}
+
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("list", "ban", "unban", "sync"))
@@ -469,7 +495,11 @@ def main():
             if args.action in ("ban", "unban"):
                 raise RuntimeError(f"Ban record saved; native enforcement pending: {exc}") from exc
             raise
-        print(json.dumps({"ok": True, "bans": data["bans"], "audit": data["audit"], "applied": applied, "localNode": local}))
+        hub_fanout = None
+        if args.action in ("ban", "unban"):
+            hub_fanout = fan_out_to_hubs(args.action, args.kind, value, args.duration, args.actor)
+        print(json.dumps({"ok": True, "bans": data["bans"], "audit": data["audit"], "applied": applied,
+                          "localNode": local, "hubFanout": hub_fanout}))
 
 
 
