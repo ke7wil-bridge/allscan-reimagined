@@ -460,6 +460,30 @@ def expire_timed_bans(rules, timed):
     return rules, timed, expired
 
 
+ASRPLUS_CONTROL = os.environ.get("ASRPLUS_CONTROL", "/usr/local/sbin/asrplus-control")
+
+
+def fan_out_to_hubs(verb, kind, value, duration="", actor="system"):
+    """#291: on MasterHub, every ban/unban is also queued to every other hub.
+
+    Returns None where no hub fan-out exists (remote hubs, or a ban that a
+    fan-out already delivered), else the per-hub queue result."""
+    if os.environ.get("ASRPLUS_NO_FANOUT") == "1" or not os.access(ASRPLUS_CONTROL, os.X_OK):
+        return None
+    request = {"action": "fanout", "verb": verb, "kind": kind, "value": value,
+               "duration": duration if verb == "ban" else "", "actor": str(actor)[:80]}
+    try:
+        result = subprocess.run([ASRPLUS_CONTROL], input=json.dumps(request), capture_output=True,
+                                text=True, timeout=60, check=False)
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return {"ok": False, "error": "Hub fan-out did not complete.", "hubs": {}}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Hub fan-out returned an invalid result.", "hubs": {}}
+    return {"ok": result.returncode == 0 and payload.get("ok") is True,
+            "error": str(payload.get("error") or "")[:200], "hubs": payload.get("hubs") or {}}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire"])
@@ -518,9 +542,14 @@ def main():
     verified = global_enforcement_verified(asl, standalone)
     refresh_connected_clients()
     tgif = reconcile_tgif_bans(force=True)
+    # Exact callsigns go to every hub; prefix rules (N0*) stay on this hub.
+    hub_fanout = (fan_out_to_hubs(args.action, "allstar-call", rule, duration, args.actor)
+                  if re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}", rule) else None)
+    if hub_fanout is not None and not hub_fanout["ok"]:
+        verified = False
     common = dict(ok=True, asl=asl, tgif=tgif, action=args.action, rule=rule, rules=expected,
                   bans=ban_payload(expected, timed, now), audit=None, standalone=standalone,
-                  serverEpoch=now, verified=verified,
+                  hubFanout=hub_fanout, serverEpoch=now, verified=verified,
                   enforcement="immediate_global" if verified else "partial_pending_enforcement",
                   reloadSeconds=30)
     if args.action == "ban":
