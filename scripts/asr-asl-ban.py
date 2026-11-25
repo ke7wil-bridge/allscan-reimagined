@@ -17,6 +17,7 @@ LOCK = GLOBAL_BAN_ROOT / ".asr-asl-bans.lock"
 GLOBAL = GLOBAL_BAN_ROOT / "global-bans.list"
 MANAGER = Path("/etc/asterisk/manager.conf")
 CONFIG = Path("/etc/allscan-reimagined/config.json")
+EXTENSIONS = Path("/etc/asterisk/extensions.conf")
 ASTDB_FILES = (Path("/var/lib/asterisk/astdb.txt"), Path("/var/www/html/asr/astdb.txt"), Path("/var/www/html/supermon/astdb.txt"))
 DURATIONS = {"15m": 900, "1h": 3600, "1w": 604800, "30d": 2592000, "permanent": 0}
 NODE = re.compile(r"^[0-9]{3,10}$")
@@ -117,6 +118,19 @@ def global_calls():
         else:
             unsupported.append(raw)
     return result, unsupported
+
+
+def web_transceiver_checks_callsign_denylist(path=None):
+    """True when the stock ASL3 [allstar-public] web transceiver path checks
+    denylist/<node>/<CALLSIGN>. There a callsign deny entry is real enforcement
+    for stations that connect by callsign instead of an AllStar node (#291)."""
+    try:
+        text = (path or EXTENSIONS).read_text(errors="replace")
+    except OSError:
+        return False
+    block = re.search(r"(?ms)^\[allstar-public\][^\n]*\n(.*?)(?=^\[|\Z)", text)
+    return bool(block and "denylist/${NODENUM}/${CALLSIGN}" in block.group(1)
+                and not re.search(r"(?m)^\s*;[^\n]*denylist/\$\{NODENUM\}/\$\{CALLSIGN\}", block.group(1)))
 
 
 def allstar_nodes_for_calls(calls):
@@ -340,8 +354,12 @@ def reconcile(data, ami, local):
     desired_echo_calls.update(global_rules)
     mapped_ast_nodes, unmapped_ast_calls = allstar_nodes_for_calls(desired_ast_calls)
     desired_ast.update(mapped_ast_nodes)
-    # Asterisk's rpt denylist is keyed by AllStar node number. Writing a
-    # callsign there is not enforcement and must never count as verification.
+    # Node-to-node links are keyed by AllStar node number, so a callsign there
+    # only counts when the web transceiver path checks callsign deny entries.
+    # Then a station connecting by callsign (no AllStar node) is refused (#291).
+    if web_transceiver_checks_callsign_denylist():
+        desired_ast.update(re.sub(r"-(?:L|R)$", "", call) for call in desired_ast_calls)
+        unmapped_ast_calls = set()
     unsupported = sorted(set(unsupported) | (set(global_rules) & unmapped_ast_calls))
     has_echolink = echolink_available(ami)
     desired_echo = echolink_calls_for_calls(ami, desired_echo_calls) if has_echolink else set()

@@ -68,6 +68,7 @@ def run():
         ban.GLOBAL = root / "urfd.blacklist"
         ban.CONFIG = root / "config.json"
         ban.ASTDB_FILES = (root / "astdb.txt",)
+        ban.EXTENSIONS = root / "no-extensions.conf"  # no web transceiver path
         ban.CONFIG.write_text(json.dumps({"node": "641890", "callsign": "N0OWNER", "bridges": [], "filteredStations": ["N0SERVICE"]}))
         ban.ASTDB_FILES[0].write_text("67098|N0GLOBAL|Global test node,|Test City\n")
         now = int(time.time())
@@ -103,6 +104,30 @@ def run():
         assert "N0MISSING" in missing["unmappedGlobalRules"]
         assert "N0MISSING" in missing["unmappedAllStarCallsigns"]
         assert "N0MISSING" not in fake.ast
+
+        # #291: stock ASL3 [allstar-public] (AllStarLink web transceiver) checks
+        # denylist/<node>/<CALLSIGN>. A station that connects by callsign, with
+        # no AllStar node, must get a callsign deny entry there.
+        ban.EXTENSIONS = root / "extensions.conf"
+        ban.EXTENSIONS.write_text(
+            "[radio-secure]\nexten => _X.,1,NoOp()\n"
+            "[allstar-public]\nexten => s,1,Ringing\n"
+            " same => n(denylist),GotoIf(${DB_EXISTS(denylist/${NODENUM}/${CALLSIGN})}?:connect)\n"
+            " same => n(connect),Rpt(${NODENUM},X)\n[other]\n")
+        assert ban.web_transceiver_checks_callsign_denylist()
+        ban.GLOBAL.write_text("N0MISSING\n")
+        web = ban.reconcile(state, fake, "641890")
+        assert "N0MISSING" in fake.ast, "callsign deny entry missing for the web transceiver path"
+        assert "N0MISSING" not in web["unmappedGlobalRules"]
+        assert "N0MISSING" in ban.read_state()["ownedAst"]
+        ban.GLOBAL.write_text("")
+        ban.reconcile(state, fake, "641890")
+        assert "N0MISSING" not in fake.ast, "unban did not remove the owned callsign deny entry"
+        # A commented-out check is not enforcement.
+        ban.EXTENSIONS.write_text("[allstar-public]\n; GotoIf(${DB_EXISTS(denylist/${NODENUM}/${CALLSIGN})})\n")
+        assert not ban.web_transceiver_checks_callsign_denylist()
+        ban.EXTENSIONS = root / "no-extensions.conf"
+        ban.GLOBAL.write_text("N0MISSING\n")
 
         # Expiry removes only ASR owned restrictions; manual entries remain.
         for item in state["bans"]:
