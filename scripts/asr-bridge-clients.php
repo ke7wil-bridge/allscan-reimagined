@@ -2113,8 +2113,8 @@ foreach($bridges as $bridge) {
 	if(!$usedBuiltIn) {
 		$payloadRows = asrClientRowsFromPayload($payload, $id, $ports, $feedKind);
 		$rows = asrSanitizeClientRows($payloadRows, $mode, $feedKind === 'current');
-		if($usedTgifRoster)
-			$rows = asrRemoveOneLocalBridgeSession($rows, $localCallsign);
+		// The authenticated TGIF collector excludes its own transport by
+		// session identity. Do not remove a real same-callsign radio here.
 	}
 	if($rows === [] && $mode === 'zello') {
 		$rows = asrBuiltinZelloRows();

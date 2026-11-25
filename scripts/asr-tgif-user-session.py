@@ -453,10 +453,40 @@ def is_local_bridge_session(item: dict, node_callsign: str) -> bool:
     if not callsign or callsign != node_callsign.strip().upper():
         return False
     description = ' '.join(str(item.get('description') or '').strip().lower().split())
-    return (
-        description.startswith(f'{callsign.lower()} asl to dmr b')
-        or description.startswith('asr tgif to urf bri')
-    )
+    if (description.startswith(f'{callsign.lower()} asl to dmr b')
+            or description.startswith('asr tgif to urf bri')):
+        return True
+    # Managed bridges advertise ASR and their generated bridge title. Match
+    # the configured DMR identity AND the transport metadata, not callsign
+    # alone: a personal hotspot using the same base ID must remain visible.
+    try:
+        config = json.loads(Path('/etc/allscan-reimagined/config.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return is_managed_bridge_session(item, callsign, config)
+
+
+def is_managed_bridge_session(item: dict, callsign: str, config: dict) -> bool:
+    if not isinstance(config, dict):
+        return False
+    session_id = str(item.get('dmrid') or item.get('uuid') or item.get('id') or '').strip()
+    description = ' '.join(str(item.get('description') or '').lower().split())
+    if (str(item.get('callsign') or '').strip().upper() != callsign
+            or str(item.get('location') or '').strip().upper() != 'ASR'
+            or str(item.get('package_id') or '').strip() != 'MMDVM_DMO'):
+        return False
+    for bridge in config.get('bridges', []):
+        if not isinstance(bridge, dict) or bridge.get('mode') != 'dmr' or bridge.get('backendMode') != 'managed':
+            continue
+        if str(bridge.get('dmrCallsign') or '').strip().upper() != callsign:
+            continue
+        exact = str(bridge.get('dmrNetworkId') or '').strip()
+        node = str(bridge.get('node') or '').strip()
+        title = ' '.join(str(bridge.get('title') or '').lower().split())
+        generated = f'dmr standard {node}' if bridge.get('cardType') == 'standard' else ''
+        if exact and session_id == exact and description in {title, generated} - {''}:
+            return True
+    return False
 
 
 def enrich_session_transmissions(sessions: dict[str, dict], talkgroup: str, log_dir: Path = Path('/var/log/mmdvm'), now: int | None = None) -> None:
@@ -1218,6 +1248,18 @@ def self_test() -> None:
     assert is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'ASR TGIF to URF bri'}, 'KE7WIL')
     assert not is_local_bridge_session({'callsign': 'N1ABC', 'description': 'N1ABC ASL to DMR B'}, 'KE7WIL')
     assert not is_local_bridge_session({'callsign': 'KE7WIL', 'description': 'Personal hotspot'}, 'KE7WIL')
+    fixture = {'bridges': [{'mode': 'dmr', 'backendMode': 'managed', 'cardType': 'standard',
+                            'node': '1001', 'title': 'DMR Bridge', 'dmrCallsign': 'N0CALL',
+                            'dmrId': '1234567', 'dmrNetworkId': '123456799'}]}
+    local = {'callsign': 'N0CALL', 'dmrid': '123456799', 'description': 'DMR Standard 1001',
+             'location': 'ASR', 'package_id': 'MMDVM_DMO'}
+    assert is_managed_bridge_session(local, 'N0CALL', fixture)
+    assert is_managed_bridge_session(dict(local, description='DMR Bridge'), 'N0CALL', fixture)
+    assert not is_managed_bridge_session(dict(local, dmrid='123456702'), 'N0CALL', fixture)
+    assert not is_managed_bridge_session(dict(local, description='Personal hotspot'), 'N0CALL', fixture)
+    assert not is_managed_bridge_session(dict(local, location='Home'), 'N0CALL', fixture)
+    assert not is_managed_bridge_session(dict(local, dmrid='765432199'), 'N0CALL', fixture)
+    assert not is_managed_bridge_session(dict(local, description='DMR Standard 1002'), 'N0CALL', fixture)
     original_paths = (STATE, RUNTIME, TOKENS, SNAPSHOTS, CHALLENGES, JOURNALS)
     original_login = login_to_tgif
     original_collect = collect_user

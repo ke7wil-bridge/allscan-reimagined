@@ -14,6 +14,7 @@ CONTROL_TIMEOUT_SECONDS = 120
 MAX_CONTROL_STDIN = 2 * 1024 * 1024
 NAMES = {
     "allscan-reimagined-asterisk-read": "asterisk-read",
+    "allscan-reimagined-service-status": "service-status",
     "allscan-reimagined-managed-dmr-net-control": "managed-dmr",
     "allscan-reimagined-ysf-bridge-control": "ysf",
     "allscan-reimagined-p25-bridge-control": "p25",

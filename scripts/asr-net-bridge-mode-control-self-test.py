@@ -42,12 +42,14 @@ def bridge(mode: str, destination: str) -> dict:
             "backendMode": "managed", "managedNetControl": True,
             "architecture": "direct-dvswitch",
             "managedTargetFile": f"/opt/allscan-reimagined-bridges/{bridge_id}/tgif-run/net-target",
+            "approvedDestinations": [destination],
             "setupPorts": {"usrp_rx": usrp_rx, "usrp_tx": usrp_tx},
         })
     elif mode == "m17":
         value.update({
             "m17UsrpRxPort": usrp_rx, "m17UsrpTxPort": usrp_tx,
             "m17AudioQualified": True,
+            "m17Reflector": "M17-WIL", "m17Module": "A",
         })
     else:
         value.update({
@@ -83,6 +85,9 @@ class FakeRunner:
             row = "1999 1999 0 OUT 00:00:02 ESTABLISHED\n" if self.transport_linked else ""
             output = ("NODE PEER RECONNECTS DIRECTION CONNECT TIME CONNECT STATE\n" + row)
             return subprocess.CompletedProcess(argv, 0, output, "")
+        if argv[0] == control.ASTERISK and "ilink 11" in argv[-1]:
+            self.transport_linked = False
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[0] == control.ASTERISK and argv[-1] == "rpt cmd 1999 ilink 3 641890":
             self.transport_linked = True
             return subprocess.CompletedProcess(argv, 0, "", "")
@@ -170,6 +175,10 @@ def main() -> None:
                 assert len(refreshes) >= 3 and refreshes[0] is profile
             assert runner.transport_linked is True
             assert runner.active == {mode: mode == "ysf" for mode in control.MODES}
+            assert [
+                "/usr/local/sbin/allscan-reimagined-ysf-bridge-control",
+                "--connect", "ysf_net", "64189", "--user", "mode-switch",
+            ] in runner.commands
             disconnect = [
                 command for command in runner.commands
                 if command and command[0].endswith("managed-dmr-net-control")
@@ -215,6 +224,56 @@ def main() -> None:
                     mode, next(item for item in original["bridges"] if item["mode"] == mode)
                 )
                 assert f"rxchannel = USRP/127.0.0.1:{backend_rx}:{backend_tx}" in rendered
+            direct_id = next(item["id"] for item in original["bridges"] if item["mode"] == "dmr")
+            direct_owned = (
+                "; BEGIN ASR BRIDGE " + direct_id + " " + "a" * 32 + "\n"
+                "[1999] ; Unified Net Bridge (" + direct_id + ")\n"
+                "rxchannel = USRP/127.0.0.1:52000:52001\n"
+                "; END ASR BRIDGE " + direct_id + " " + "a" * 32 + "\n"
+            )
+            rendered = control.unified_rpt(direct_owned + "[nodes]\n", {
+                item["mode"]: item for item in original["bridges"]
+            }, "ysf")
+            assert rendered.count("[1999]") == 1
+            assert "BEGIN ASR BRIDGE " + direct_id not in rendered
+
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, original = fixture(Path(temporary))
+            original["netBridgeMode"] = "ysf"
+            next(item for item in original["bridges"] if item["mode"] == "dmr").pop("fixedDestination")
+            (profile.asr_config / "config.json").write_text(json.dumps(original, indent=2) + "\n")
+            dmr_runner = FakeRunner(old_mode="ysf")
+            dmr_result = control.switch_mode("dmr", profile, dmr_runner)
+            assert dmr_result["ok"] and [
+                "/usr/local/sbin/allscan-reimagined-managed-dmr-net-control",
+                "--bridge", "dmr_net", "--connect", "86753",
+            ] in dmr_runner.commands
+
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, original = fixture(Path(temporary))
+            original["netBridgeMode"] = "ysf"
+            (profile.asr_config / "config.json").write_text(json.dumps(original, indent=2) + "\n")
+            m17_runner = FakeRunner(old_mode="ysf")
+            m17_result = control.switch_mode("m17", profile, m17_runner)
+            assert m17_result["ok"] and not m17_runner.transport_linked
+            assert not any(cmd[0].endswith("m17-bridge-control") and "connect" in cmd
+                           for cmd in m17_runner.commands)
+            assert m17_runner.active == {mode: mode == "m17" for mode in control.MODES}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, original = fixture(Path(temporary))
+            original["netBridgeMode"] = "ysf"
+            m17 = next(item for item in original["bridges"] if item["mode"] == "m17")
+            m17.update(m17AudioQualified=False, m17QualificationState="qualifying")
+            (profile.asr_config / "config.json").write_text(json.dumps(original))
+            runner = FakeRunner(old_mode="ysf")
+            result = control.switch_mode("m17", profile, runner)
+            assert result["ok"] and runner.transport_linked
+            assert [
+                "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
+                "--bridge", "m17_net", "--user", "mode-switch", "connect",
+                "--reflector", "M17-WIL", "--module", "A",
+            ] in runner.commands
 
         with tempfile.TemporaryDirectory() as temporary:
             profile, _original = fixture(Path(temporary))
@@ -261,6 +320,18 @@ def main() -> None:
             assert preserved["netBridgeMode"] == "dmr"
             assert runner.commands == []
             assert runner.active == {mode: mode == "dmr" for mode in control.MODES}
+
+        # Failed mode selection must not reconnect an explicitly disconnected M17 Net.
+        with tempfile.TemporaryDirectory() as temporary:
+            profile, original = fixture(Path(temporary))
+            original["netBridgeMode"] = "m17"
+            (profile.asr_config / "config.json").write_text(json.dumps(original))
+            runner = FakeRunner(old_mode="m17", fail_mode="dmr")
+            rejected(control.switch_mode, "dmr", profile, runner)
+            assert not runner.transport_linked
+            assert not any(cmd[0].endswith("m17-bridge-control") and "connect" in cmd
+                           for cmd in runner.commands)
+            assert json.loads((profile.asr_config / "config.json").read_text())["netBridgeMode"] == "m17"
 
         rejected(control.switch_mode, "shell", SimpleNamespace())
         bad = bridge("ysf", "64189")

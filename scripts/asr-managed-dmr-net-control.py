@@ -46,6 +46,10 @@ class ControlError(RuntimeError):
     pass
 
 
+class StaticDeviceNotReady(ControlError):
+    """TGIF explicitly rejected an operation because the device is not ready."""
+
+
 def provisioning_backend(name: str):
     source = Path(__file__).resolve().parent / "asr-provisioning-backend.py"
     if not source.is_file():
@@ -234,7 +238,8 @@ def tgif_static_request(bridge: dict, token_path: Path, method: str = "GET",
             429: "TGIF rate limited the Static TG request; try again later",
             503: "TGIF Static TG service is temporarily unavailable",
         }
-        raise ControlError(messages.get(exc.code, f"TGIF Static TG request failed ({exc.code})") + detail) from exc
+        error_type = StaticDeviceNotReady if exc.code == 409 else ControlError
+        raise error_type(messages.get(exc.code, f"TGIF Static TG request failed ({exc.code})") + detail) from exc
     except (OSError, ValueError, UnicodeDecodeError) as exc:
         raise ControlError("TGIF Static TG service could not be read") from exc
     if not isinstance(payload, dict) or payload.get("ok") is not True:
@@ -254,14 +259,26 @@ def static_membership_confirmed(payload: dict, talkgroup: int) -> bool:
 
 
 def set_static_membership(bridge: dict, token_path: Path, talkgroup: int) -> None:
-    state = tgif_static_request(bridge, token_path)
-    if not bool(state.get("enabled")) or not bool(state.get("supports_ts2")):
-        raise ControlError("TGIF Static TG is not enabled for timeslot 2 on this bridge device")
-    if not static_membership_confirmed(state, talkgroup):
-        tgif_static_request(bridge, token_path, "POST", talkgroup)
-        state = tgif_static_request(bridge, token_path)
-    if not static_membership_confirmed(state, talkgroup):
-        raise ControlError("TGIF did not confirm the requested Static TG membership")
+    # A running MMDVM service is not proof of TGIF login. Allow bounded
+    # propagation time for explicit offline responses, and re-read membership
+    # before retrying a write. Authentication and other failures fail closed.
+    deadline = time.monotonic() + 25
+    while True:
+        try:
+            state = tgif_static_request(bridge, token_path)
+            if not bool(state.get("enabled")) or not bool(state.get("supports_ts2")):
+                raise ControlError("TGIF Static TG is not enabled for timeslot 2 on this bridge device")
+            if not static_membership_confirmed(state, talkgroup):
+                tgif_static_request(bridge, token_path, "POST", talkgroup)
+                state = tgif_static_request(bridge, token_path)
+            if not static_membership_confirmed(state, talkgroup):
+                raise ControlError("TGIF did not confirm the requested Static TG membership")
+            return
+        except StaticDeviceNotReady:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(2, remaining))
 
 
 def remove_static_membership(bridge: dict, token_path: Path, talkgroup: int) -> None:

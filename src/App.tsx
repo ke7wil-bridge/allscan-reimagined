@@ -49,6 +49,7 @@ import {
   globalBanPendingReason,
   globalBanScope,
   type GlobalBanList,
+  updateM17Qualification,
   kickZelloClient,
   kickStandaloneClient,
   type TgifKickResult,
@@ -632,6 +633,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const bridgeControlBusyRef = useRef('')
   const [bridgeControlBusy, setBridgeControlBusy] = useState('')
   const availableNetBridgeModes = useMemo(() => provisionedNetBridgeModes(config.bridges), [config.bridges])
+  const m17NetConfig = config.bridges.find((bridge) => bridge.cardType === 'm17_net')
   const [bridgeControlAction, setBridgeControlAction] = useState<'connect' | 'disconnect' | ''>('')
   const [bridgeClientsOpen, setBridgeClientsOpen] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('asr.bridge.clientsOpen') || '[]')) } catch { return new Set() } })
   const [bridgeHistoryOpen, setBridgeHistoryOpen] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('asr.bridge.historyOpen') || '[]')) } catch { return new Set() } })
@@ -2775,6 +2777,39 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }
 
+  async function manageM17Qualification(
+    bridgeId: string,
+    verb: 'start' | 'complete' | 'cancel',
+  ) {
+    const owner = `m17-qualification-${bridgeId}`
+    if (!authStatus.canModify || !beginBridgeControl(owner)) return
+    if (verb === 'start' && !window.confirm(
+      'Start a bounded M17 qualification session? Send and receive real M17 audio, then select Complete qualification.',
+    )) {
+      endBridgeControl(owner)
+      return
+    }
+    if (verb === 'cancel' && !window.confirm('Cancel M17 qualification and stop its unqualified runtime?')) {
+      endBridgeControl(owner)
+      return
+    }
+    try {
+      const result = await updateM17Qualification(bridgeId, verb)
+      appendNodeMessage(
+        result.qualificationState === 'qualified'
+          ? 'M17 qualification verified fresh reflector, AllStar, RX audio, and TX audio evidence.'
+          : result.qualificationState === 'qualifying'
+            ? 'M17 qualification is active. Verify live audio in both directions, then complete qualification.'
+            : 'M17 qualification was cancelled.',
+      )
+      window.setTimeout(() => window.location.reload(), 700)
+    } catch (error) {
+      appendNodeMessage(error instanceof Error ? error.message : 'M17 qualification action failed.')
+    } finally {
+      endBridgeControl(owner)
+    }
+  }
+
   async function runNetBridgeModeSwitch(initialMode: string, owner: string) {
     let targetMode = initialMode
     setNetBridgeModeError('')
@@ -2814,6 +2849,12 @@ function App({ config }: { config: RuntimeConfig }) {
   async function selectNetBridgeMode(mode: string) {
     if (!authStatus.canModify || mode === netBridgeMode) return
     setNetBridgeModeError('')
+    // Qualification must be reachable before the guarded M17 mode switch.
+    if (mode === 'm17' && m17NetConfig && !m17NetConfig.m17AudioQualified
+        && m17NetConfig.m17QualificationState !== 'qualifying') {
+      await manageM17Qualification(m17NetConfig.id, 'start')
+      return
+    }
     setNetBridgeMode(mode)
     const owner = 'net-bridge-mode'
     if (bridgeControlBusyRef.current === owner) {
@@ -4257,6 +4298,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   && Number(dmrTalkgroupCandidate) <= 16777215
                   && Number(dmrTalkgroupCandidate) !== 4000
                 const m17ModuleInput = m17ModuleInputs[card.id] ?? String(bridgeConfig?.m17Module || 'A')
+                const m17QualificationState = bridgeConfig?.m17QualificationState || 'not_qualified'
                 const connectDestination = destinationInput.trim()
                 return (
                 <article
@@ -4292,7 +4334,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     ) : null}
                     {card.cardType !== 'standard' && card.cardType !== 'dmr_net' ? (
                       <div className="allscan-bridge-row allscan-bridge-status-row allscan-bridge-current-row">
-                        <span>{card.cardType === 'ysf_net' || card.cardType === 'm17_net' ? 'Current Reflector' : 'Current Destination'}</span>
+                        <span>{card.cardType === 'nxdn_net' ? 'Current TG' : 'Current Reflector'}</span>
                         <b title={bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || undefined) : undefined}>{bridgeLinked ? (card.currentDestinationLabel || card.currentDestination || '–') : '–'}</b>
                       </div>
                     ) : null}
@@ -4328,6 +4370,25 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)} onClick={() => void repairBridge(card)}>
                         {bridgeControlBusy === `repair-${card.id}` ? 'Repairing…' : 'Repair Bridge'}
                       </button>
+                    </div>
+                  ) : null}
+
+                  {card.mode.toLowerCase() === 'm17' && !bridgeConfig?.m17AudioQualified ? (
+                    <div className="allscan-bridge-repair-alert" role="status">
+                      <span>M17 audio qualification: {m17QualificationState === 'qualifying' ? 'In progress — send and receive live audio' : 'Required'}</span>
+                      {authStatus.canModify ? (
+                        <span className="allscan-bridge-link-buttons">
+                          {m17QualificationState === 'qualifying' ? <>
+                            <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)}
+                              onClick={() => void manageM17Qualification(card.id, 'complete')}>Complete qualification</button>
+                            <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)}
+                              onClick={() => void manageM17Qualification(card.id, 'cancel')}>Cancel</button>
+                          </> : (
+                            <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)}
+                              onClick={() => void manageM17Qualification(card.id, 'start')}>Start qualification</button>
+                          )}
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -4502,6 +4563,15 @@ function App({ config }: { config: RuntimeConfig }) {
                           </div>
                         })}
                       </div> : null}
+                    </div>
+                  ) : null}
+
+                  {card.cardType !== 'standard' && card.cardType !== 'm17_net'
+                      && m17NetConfig && !m17NetConfig.m17AudioQualified && authStatus.canModify ? (
+                    <div className="allscan-bridge-repair-alert" role="status">
+                      <span>M17 Net requires live RX/TX qualification before use.</span>
+                      <button type="button" className="allscan-action-button" disabled={Boolean(bridgeControlBusy)}
+                        onClick={() => void manageM17Qualification(m17NetConfig.id, 'start')}>Qualify M17 Net</button>
                     </div>
                   ) : null}
 
