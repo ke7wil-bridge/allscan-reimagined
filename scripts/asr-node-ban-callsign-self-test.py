@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#291: banning an AllStar node also bans its owner on EchoLink and every bridge.
+"""#291: every ban is network-wide: AllStar, EchoLink and every bridge.
 
 EchoLink and the digital bridges only know a station by callsign, so a node ban
 (KF8DRJ's node 67098) used to stop that operator on AllStar only. The AllStar
@@ -113,6 +113,19 @@ def main() -> int:
             code, result = run_helper("ban", "--kind", "node", "--value", node, "--duration", "15m", "--actor", "Thomas")
             assert code == 0 and result["linkedCallsign"] is None and len(calls()) == before, (node, calls())
             run_helper("unban", "--kind", "node", "--value", node, "--actor", "Thomas")
+
+        # #291: every ban is network-wide. An EchoLink or AllStar callsign ban
+        # made in ASR also goes to Global Ban (AllStar, EchoLink, bridges).
+        for kind in ("echolink-call", "allstar-call"):
+            code, result = run_helper("ban", "--kind", kind, "--value", "kf8drj-l", "--duration", "15m", "--actor", "Thomas")
+            assert code == 0 and result["ok"] and calls()[-1] == "ban KF8DRJ 15m --actor Thomas", (kind, calls())
+            code, result = run_helper("unban", "--kind", kind, "--value", "KF8DRJ", "--actor", "Thomas")
+            assert code == 0 and calls()[-1] == "unban KF8DRJ --actor Thomas", (kind, calls())
+        # ...but never shortens or lifts an existing Global Ban.
+        before = len(calls())
+        run_helper("ban", "--kind", "echolink-call", "--value", "KC8FQV", "--duration", "15m", "--actor", "Thomas")
+        run_helper("unban", "--kind", "echolink-call", "--value", "KC8FQV", "--actor", "Thomas")
+        assert len(calls()) == before, calls()
 
         # A failed callsign ban is reported, never silent success.
         (root / "fail").touch()
