@@ -173,6 +173,11 @@ def helper_tests() -> None:
     ban = (ROOT / "scripts/asr-global-ban.py").read_text(encoding="utf-8")
     assert "hubFanout=hub_fanout" in ban and "if hub_fanout is not None and not hub_fanout[\"ok\"]:\n        verified = False" in ban
     assert "hubFanout\": hub_fanout" in (ROOT / "scripts/asr-asl-ban.py").read_text(encoding="utf-8")
+    # One click from any hub, MasterHub included: the ASRPlus page must not
+    # send MasterHub bans back to ASR (asrplus-control handles them).
+    page = (ROOT / "ops/asrplus/asrplus.js").read_text(encoding="utf-8")
+    ban_fn = page[page.index("async function banConnection"):page.index("const banDialog")]
+    assert "masterhub" not in ban_fn, "ASRPlus still refuses MasterHub bans"
 
 
 def main() -> int:
