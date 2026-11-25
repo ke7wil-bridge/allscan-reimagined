@@ -510,7 +510,7 @@
     justify-self: center;
   }
 
-  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd) {
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd):has(+ .allscan-net-bridge-card:last-child) {
     grid-column: 1 / -1;
     width: calc((100% - 6px) / 2);
     justify-self: center;
@@ -961,7 +961,7 @@
     justify-self: center;
   }
 
-  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd) {
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card):nth-last-child(2):nth-child(odd):has(+ .allscan-net-bridge-card:last-child) {
     grid-column: 1 / -1;
     width: calc((100% - 6px) / 2);
     justify-self: center;

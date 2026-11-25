@@ -54,6 +54,26 @@ try {
     })()`)
     assert(menu.ok,name+': menu missing, empty, or clipped '+JSON.stringify(menu))
 
+    if (width < 900) {
+      const gridFixture = await evaluate(`(() => {
+        const existing=document.querySelector('.allscan-bridge-grid');
+        if(!existing) return {ok:false,reason:'missing grid'};
+        const grid=document.createElement('div');
+        grid.className='allscan-bridge-grid';
+        existing.parentElement.append(grid);
+        try {
+          const make=(isNet=false)=>{const el=document.createElement('article');el.className='allscan-bridge-card'+(isNet?' allscan-net-bridge-card':'');el.textContent='Bridge';grid.append(el);return el};
+          const cards=Array.from({length:6},()=>make());
+          const tops=cards.map(x=>x.getBoundingClientRect().top);
+          const pairs=[0,2,4].every(i=>Math.abs(tops[i]-tops[i+1])<=1)&&tops[2]>tops[0]+1&&tops[4]>tops[2]+1;
+          cards[5].classList.add('allscan-net-bridge-card');
+          const penultimate=getComputedStyle(cards[4]).gridColumn;
+          const net=getComputedStyle(cards[5]).gridColumn;
+          return {ok:pairs&&penultimate==='1 / -1'&&net==='1 / -1',tops,penultimate,net};
+        }finally{grid.remove()}
+      })()`)
+      assert(gridFixture.ok,name+': six Standard Bridge cards must pair without breaking the centered trailing Net Bridge '+JSON.stringify(gridFixture))
+    }
     if(name==='desktop') {
       const bridgeLayout=await evaluate(`(() => {
         const grid=document.querySelector('.allscan-bridge-grid');
