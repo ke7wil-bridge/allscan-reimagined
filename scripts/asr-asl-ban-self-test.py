@@ -212,6 +212,25 @@ def run():
         state["bans"].append({"kind": "echolink-call", "value": "N0ECHO", "createdAt": now,
                               "expiresAt": now + 900, "reason": "", "actor": "test"})
         assert "not loaded" in ban.reconcile(state, noecho, "641890")["pending"]["echolink"]
+        # #291 (KF8DRJ): a banned EchoLink station that is already connected is
+        # listed by node number ("3" + EchoLink node) with no callsign. It must
+        # still be dropped, and only that station.
+        class EchoAMI(FakeAMI):
+            def command(self, value):
+                if value == "echolink dbdump":
+                    return "452873|KF8DRJ|192.0.2.20\n9120|KF8DRJ-L|192.0.2.21\n777777|N0OTHER|192.0.2.22"
+                return super().command(value)
+
+        echo_fake = EchoAMI()
+        echo_fake.channels = [
+            "echolink/el0-13!radio-secure!641890!24!Up!Rpt!641890!3452873!!!3!543!!1795643698.26253",
+            "echolink/el0-14!radio-secure!641890!24!Up!Rpt!641890!3009120!!!3!543!!1795643698.26254",
+            "echolink/el0-15!radio-secure!641890!24!Up!Rpt!641890!3777777!!!3!543!!1795643698.26255",
+        ]
+        ids = ban.echolink_ids_for_calls(echo_fake, {"KF8DRJ"})
+        assert ids == {"452873", "9120"}, ids
+        removed = ban.disconnect_active(echo_fake, set(), {"KF8DRJ", "KF8DRJ-L"}, "641890", (), ids)
+        assert removed == 2 and len(echo_fake.channels) == 1 and "3777777" in echo_fake.channels[0], echo_fake.channels
     print("ASL native ban policy self-test: ok")
 
 
