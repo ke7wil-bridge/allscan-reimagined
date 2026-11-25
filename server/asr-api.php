@@ -2272,6 +2272,8 @@ function asr_m17_qualification(string $bridgeId, string $verb): array {
     if (!in_array($verb, ['start', 'complete', 'cancel'], true)) asr_error('Invalid M17 qualification action.');
     $bridge = asr_bridge_config_by_id($bridgeId);
     if (!is_array($bridge) || asr_bridge_mode($bridge) !== 'm17') asr_error('Configured M17 bridge was not found.', 404);
+    $backendMode = (string) ($bridge['backendMode'] ?? (isset($bridge['bridgePermission']) ? 'managed' : 'display_only'));
+    if ($backendMode !== 'managed') asr_error('M17 qualification is only available for ASR-managed bridges.', 409);
     if (!is_executable(ASR_M17_BRIDGE_CONTROL_HELPER)) asr_error('M17 qualification control is not installed.', 503);
     $lines = []; $status = 1;
     exec('sudo -n ' . escapeshellarg(ASR_M17_BRIDGE_CONTROL_HELPER)

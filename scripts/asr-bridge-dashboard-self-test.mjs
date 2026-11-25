@@ -623,7 +623,7 @@ try {
       && appSource.includes("manageM17Qualification(card.id, 'cancel')")
       && appSource.includes("await manageM17Qualification(m17NetConfig.id, 'start')")
       && appSource.includes('Qualify M17 Net')
-      && appSource.includes("card.mode.toLowerCase() === 'm17' && !bridgeConfig?.m17AudioQualified ? ("),
+      && appSource.includes("card.mode.toLowerCase() === 'm17' && bridgeConfig?.backendMode === 'managed' && !bridgeConfig.m17AudioQualified ? ("),
     'M17 qualification controls are missing the guarded browser workflow',
   )
   assert(

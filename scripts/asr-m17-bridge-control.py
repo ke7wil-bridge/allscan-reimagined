@@ -985,7 +985,10 @@ def qualification_bridge(config: dict[str, Any], bridge_id: str) -> dict[str, An
                if isinstance(item, dict) and item.get("id") == bridge_id]
     if len(matches) != 1 or matches[0].get("mode") != "m17":
         raise ControlError("Configured M17 bridge was not found or is duplicated.")
-    return matches[0]
+    bridge = matches[0]
+    if bridge.get("backendMode", "managed" if "bridgePermission" in bridge else "display_only") != "managed":
+        raise ControlError("M17 qualification is only available for ASR-managed bridges.")
+    return bridge
 
 
 def qualification_service(bridge: dict[str, Any]) -> str:
@@ -1348,6 +1351,18 @@ def self_test() -> None:
             record_path.chmod(0o600)
             commands = []
             globals()["run_qualification_command"] = lambda argv, label: commands.append((argv, label))
+            # External bridges cannot enter the managed qualification workflow.
+            legacy_config = {"node": "123456", "bridges": [dict(qualification_raw, backendMode="display_only")]}
+            qualification_path.write_text(json.dumps(legacy_config), encoding="utf-8")
+            before = qualification_path.read_bytes()
+            for operation in (qualification_start, qualification_complete, qualification_cancel):
+                try:
+                    operation("qualification_bridge", qualification_path, expected_uid=os.geteuid())
+                    raise AssertionError("external M17 qualification was accepted")
+                except ControlError as exc:
+                    assert "ASR-managed bridges" in str(exc)
+            assert qualification_path.read_bytes() == before and not commands
+            qualification_path.write_text(json.dumps(qualification_config), encoding="utf-8")
             started = qualification_start(
                 "qualification_bridge", qualification_path, expected_uid=os.geteuid()
             )
