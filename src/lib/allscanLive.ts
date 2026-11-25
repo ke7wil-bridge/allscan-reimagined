@@ -397,6 +397,8 @@ export type BridgeDetailItem = {
   label: string
   meta: string
   clientId?: string
+  connectedSince?: number
+  connectionTimeSource?: 'native' | 'observed'
   empty?: boolean
 }
 
@@ -1647,10 +1649,17 @@ function formatBridgeDetailRows(value: unknown, fallback: string, mode: BridgeCl
       const id = String(record.dmrid || record.dmr_id || record.id || '').trim()
       const label = mode === 'dmr' && id ? `${user} · ${id}` : user
       const age = relativeBridgeTime(bridgeClientEpoch(record))
+      const rawConnectionTimeSource = record.connection_time_source
+      const connectionTimeSource: 'native' | 'observed' | undefined =
+        rawConnectionTimeSource === 'native' || rawConnectionTimeSource === 'observed'
+          ? rawConnectionTimeSource
+          : undefined
       return {
         key: `${mode}-${label}-${id || index}`,
         label: mode === 'dmr' ? user.replace(/\s+[A-Z]$/i, '').trim() : label,
         meta: age ? `Last TX ${age}` : 'No recent TX',
+        connectedSince: connectionTimeSource ? Number(record.connected_since_epoch) || undefined : undefined,
+        connectionTimeSource,
         clientId: mode === 'dmr' && /^\d{1,9}$/.test(id) ? id : undefined,
       }
     })

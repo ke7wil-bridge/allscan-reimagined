@@ -88,6 +88,46 @@ async function runBrowser(unauthorized = false) {
       assert(coverage[mode]?.bans >= 1, `${mode} Ban was not available in the browser`)
     }
 
+    const durations = await evaluate(`(() => {
+      const row = (mode, callsign) => {
+        const card = [...document.querySelectorAll('.allscan-bridge-card:not(.allscan-net-bridge-card)')]
+          .find((item) => item.querySelector('.allscan-bridge-head-title')?.textContent.trim() === mode + ' Bridge');
+        return [...(card?.querySelectorAll('.allscan-bridge-client') || [])].find((item) => item.textContent.includes(callsign));
+      };
+      const observed = row('DMR', 'N1DMR')?.querySelector('.asr-client-duration');
+      const native = row('YSF', 'N2YSF')?.querySelector('.asr-client-duration');
+      const long = row('YSF', 'LONGCALLSIGN-12');
+      const longLabel = long?.querySelector('.asr-client-duration-line > span:first-child');
+      const zelloCard = [...document.querySelectorAll('.allscan-bridge-card:not(.allscan-net-bridge-card)')]
+        .find((item) => item.querySelector('.allscan-bridge-head-title')?.textContent.trim() === 'Zello Bridge');
+      const inherited = ['standard', 'deep-ocean-animated', 'matrix', 'lcars-frame'].every((theme) => {
+        document.documentElement.dataset.asrTheme = theme;
+        document.body.dataset.asrTheme = theme;
+        return observed && getComputedStyle(observed).color === getComputedStyle(observed.parentElement).color
+          && getComputedStyle(observed).backgroundColor === 'rgba(0, 0, 0, 0)';
+      });
+      document.documentElement.dataset.asrTheme = 'standard';
+      document.body.dataset.asrTheme = 'standard';
+      return {
+        observed: observed?.textContent || '', observedTitle: observed?.getAttribute('title') || '',
+        native: native?.textContent || '', nativeTitle: native?.getAttribute('title') || '',
+        zelloDurations: zelloCard?.querySelectorAll('.asr-client-duration').length || 0,
+        longHandled: Boolean(longLabel && getComputedStyle(longLabel).textOverflow === 'ellipsis' && getComputedStyle(longLabel).whiteSpace === 'nowrap'),
+        contained: Boolean(long && long.getBoundingClientRect().right <= long.closest('.allscan-bridge-card').getBoundingClientRect().right + 1),
+        rightAligned: Boolean(observed && Math.abs(observed.parentElement.getBoundingClientRect().right - observed.getBoundingClientRect().right) <= 1),
+        callsignCentered: Boolean(observed && Math.abs((observed.parentElement.querySelector('span:first-child').getBoundingClientRect().left + observed.parentElement.querySelector('span:first-child').getBoundingClientRect().right) / 2 - (observed.parentElement.getBoundingClientRect().left + observed.parentElement.getBoundingClientRect().right) / 2) <= 1),
+        inherited,
+      };
+    })()`)
+    assert(durations.observed.startsWith('~'), 'ASR-observed connection duration lacks the approximation prefix')
+    assert(!durations.native.startsWith('~') && durations.native.length > 0, 'native connection duration was marked approximate or omitted')
+    assert(durations.observedTitle.includes('ASR first observed') && durations.nativeTitle.includes('reported by the bridge'), 'duration provenance tooltips are missing')
+    assert(durations.zelloDurations === 0, 'activity-only Zello feed received a connection duration')
+    assert(durations.longHandled && durations.contained, 'long callsign and duration do not fit the existing card geometry')
+    assert(durations.rightAligned, 'connection duration is not aligned to the right edge of the callsign row')
+    assert(durations.callsignCentered, 'callsign is not centered independently of the duration')
+    assert(durations.inherited, 'duration text does not inherit the selected theme')
+
     const kicked = await evaluate(`(() => {
       const card = [...document.querySelectorAll('.allscan-bridge-card:not(.allscan-net-bridge-card)')]
         .find((item) => item.querySelector('.allscan-bridge-head-title')?.textContent.trim() === 'DMR Bridge');
@@ -121,10 +161,13 @@ async function runBrowser(unauthorized = false) {
     await delay(150)
     const mobile = await evaluate(`(() => {
       const rows = [...document.querySelectorAll('.allscan-bridge-client:not(.is-empty)')].filter((row) => row.querySelector('.allscan-bridge-inline-client-actions'));
-      return rows.length > 0 && rows.every((row) => {
+      const durations = [...document.querySelectorAll('.asr-client-duration')];
+      const longLabel = [...document.querySelectorAll('.asr-client-duration-line > span:first-child')].find((label) => label.textContent.includes('LONGCALLSIGN-12'));
+      return rows.length > 0 && durations.length > 0 && rows.every((row) => {
         const rect = row.getBoundingClientRect();
         return rect.left >= -2 && rect.right <= innerWidth + 2 && row.querySelector('button') && row.querySelector('select');
-      });
+      }) && durations.every((duration) => duration.getBoundingClientRect().right <= duration.closest('.allscan-bridge-card').getBoundingClientRect().right + 1)
+        && Boolean(longLabel && longLabel.getBoundingClientRect().right <= longLabel.closest('.allscan-bridge-card').getBoundingClientRect().right + 1);
     })()`)
     assert(mobile, 'mobile Connected Clients Kick/Ban controls are missing or clipped')
     await (await page.context().newCDPSession(page)).send('Emulation.setDeviceMetricsOverride', { width:1440,height:1000,mobile:false,deviceScaleFactor:1 })
