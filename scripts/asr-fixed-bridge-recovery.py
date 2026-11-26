@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import fnmatch
 import stat
 from contextlib import contextmanager
 import json
@@ -103,7 +104,7 @@ def native_permanent_nodes(text: str, main_node: str) -> set[str]:
 
 
 def read_startup_config(path: Path) -> str:
-    """Expand only bounded, literal includes inside the Asterisk config tree.
+    """Expand bounded literal and final-component wildcard includes inside the Asterisk config tree.
 
     Never execute #exec, follow symlinks, or read arbitrary host paths. An
     uninspectable configuration cannot justify a durable disconnect promise.
@@ -149,7 +150,7 @@ def read_startup_config(path: Path) -> str:
             if not match:
                 raise RecoveryError("Unsupported Asterisk startup configuration directive.")
             name = match.group(2) or match.group(3)
-            if any(char in name for char in "*?[]${}\\"):
+            if any(char in name for char in "?[]${}\\"):
                 raise RecoveryError("Dynamic Asterisk startup includes cannot be verified.")
             include = Path(name)
             if include.is_absolute():
@@ -158,13 +159,37 @@ def read_startup_config(path: Path) -> str:
                 except ValueError as exc:
                     raise RecoveryError("Asterisk startup include is outside the config directory.") from exc
             target = base / include
-            if ".." in include.parts or target.is_symlink():
+            if ".." in include.parts or not include.parts or target.is_symlink():
                 raise RecoveryError("Asterisk startup include path is unsafe.")
-            try:
-                lines.append(expand(target, (*stack, candidate)))
-            except FileNotFoundError:
-                if match.group(1).lower() != "tryinclude" or target.exists():
-                    raise
+            optional = match.group(1).lower() == "tryinclude"
+            if "*" in name:
+                # Stock ASL3 includes custom/rpt/*.conf. Limit globbing to
+                # the final filename component of a literal subdirectory.
+                if (len(include.parts) < 2 or any("*" in part for part in include.parts[:-1])
+                        or not re.fullmatch(r"[A-Za-z0-9_.-]*\*[A-Za-z0-9_.-]*", include.name)):
+                    raise RecoveryError("Dynamic Asterisk startup includes cannot be verified.")
+                directory = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    for part in include.parts[:-1]:
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                        os.close(directory); directory = child
+                    names = sorted(entry for entry in os.listdir(directory) if not entry.startswith(".")
+                                   and fnmatch.fnmatchcase(entry, include.name))
+                except FileNotFoundError:
+                    if not optional: raise
+                    names = []
+                finally:
+                    os.close(directory)
+                if len(names) > 64 or (not names and not optional):
+                    raise RecoveryError("Asterisk startup include matches cannot be verified.")
+                for entry in names:
+                    lines.append(expand(target.parent / entry, (*stack, candidate)))
+            else:
+                try:
+                    lines.append(expand(target, (*stack, candidate)))
+                except FileNotFoundError:
+                    if not optional or target.exists():
+                        raise
         return "\n".join(lines) + "\n"
 
     return expand(base / path.name, ())
@@ -874,6 +899,11 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         assert inspect_native_holds(held_config, rpt) == {"nativeManualHoldConflicts": ["1202"], "nativeManualHoldUnknown": []}
         (root / "template.conf").write_text("[template](!)\nstartup_macro = *8131201\n")
         assert inspect_native_holds(held_config, rpt) == {"nativeManualHoldConflicts": [], "nativeManualHoldUnknown": []}
+        (root / "sub" / "conflict.conf").write_text("[1202](+)\nstartup_macro = *813600000\n")
+        rpt.write_text('#include "sub/*.conf"\n#include "template.conf"\n')
+        assert inspect_native_holds(held_config, rpt)["nativeManualHoldUnknown"] == ["1202"]
+        (root / "sub" / "conflict.conf").unlink()
+        assert inspect_native_holds(held_config, rpt)["nativeManualHoldUnknown"] == []
         for bad in ('#exec "false"', '#include "missing.conf"', '#include "../outside.conf"',
                     '#include "*.conf"', '#include "rpt.conf"', '#include "alias.conf"',
                     '[1202](+)\nstartup_macro = *813600000', '[unrelated]\n;-- comment'):
