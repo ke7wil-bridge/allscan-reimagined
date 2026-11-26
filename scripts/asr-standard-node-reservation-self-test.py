@@ -54,7 +54,25 @@ with tempfile.TemporaryDirectory() as directory:
         assert module.plan(root, replace(settings, bridge_node=1998))['bridgeNode'] == 1998
         reject(lambda: module.plan(root, replace(settings, bridge_node=1999)), 'reserved for the Unified Net Bridge')
         if module is zello:
+            plan = module.plan(root, replace(settings, bridge_node=1998))
+            prior = {'id': settings.bridge_id, 'mode': 'zello', 'node': '1998', 'cardType': 'standard',
+                     'manualDisconnect': True, 'fixedBridgeRecovery': True}
+            config.write_text(json.dumps({'node': '600000', 'bridges': [prior]}))
+            updated = json.loads(module.integration_files(root, plan)[module.CONFIG][0])['bridges'][0]
+            assert updated['manualDisconnect'] is True and updated['fixedBridgeRecovery'] is True
+            config.write_text(json.dumps({'node': '600000', 'bridges': []}))
             continue
+        if module is digital:
+            spec = importlib.util.spec_from_file_location('audit_digital_install', HERE / 'asr-bridge-setup-digital-install.py')
+            installer = importlib.util.module_from_spec(spec); sys.modules[spec.name] = installer; spec.loader.exec_module(installer)
+            plan = module.plan(root, replace(settings, bridge_node=1998))
+            prior = {'id': settings.bridge_id, 'mode': settings.mode, 'node': '1998', 'cardType': 'standard',
+                     'manualDisconnect': True, 'fixedBridgeRecovery': False}
+            config.write_text(json.dumps({'node': '600000', 'bridges': [prior]}))
+            outputs = {}; installer.integration_files(root, plan, outputs)
+            updated = json.loads(outputs[module.CONFIG][0])['bridges'][0]
+            assert updated['manualDisconnect'] is True and updated['fixedBridgeRecovery'] is False
+            config.write_text(json.dumps({'node': '600000', 'bridges': []}))
         net = replace(settings, card_type='m17_net') if module is m17 else replace(settings, bridge_role='net')
         assert module.plan(root, net)['bridgeNode'] == 1999
         # Intentional Net sharing cannot mask a legacy Standard occupying 1999.

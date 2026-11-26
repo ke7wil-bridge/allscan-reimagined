@@ -3722,6 +3722,16 @@ function asr_bridge_endpoint_diagnostics(): array {
     return ['ok' => true] + $payload;
 }
 
+// Read-only recovery-plan diagnostics. Missing access is unknown, never success.
+function asr_fixed_recovery_diagnostics(): ?array {
+    $helper = '/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery';
+    if (!is_executable($helper)) return null;
+    $lines = []; $status = 1;
+    @exec('python3 -I ' . escapeshellarg($helper) . ' --plan-json 2>/dev/null', $lines, $status);
+    $plan = $status === 0 ? json_decode(implode("\n", $lines), true) : null;
+    return is_array($plan) && is_array($plan['nativeManualHoldConflicts'] ?? null) ? $plan : null;
+}
+
 function asr_bridge_diagnostics(): array {
     $config = asr_raw_runtime_config();
     $runtime = asr_runtime_config();
@@ -3734,6 +3744,13 @@ function asr_bridge_diagnostics(): array {
     $asrClientFile = asr_file_status(__DIR__ . '/asr-connected-clients.json');
     $node = (string) ($runtime['node'] ?? '');
     $linkSnapshot = asr_allstar_link_snapshot($node);
+    $recoveryPlan = null;
+    $hasManualHold = false;
+    foreach ($bridges as $candidate) {
+        if (is_array($candidate) && ($candidate['cardType'] ?? 'standard') === 'standard'
+            && ($candidate['manualDisconnect'] ?? false) === true) $hasManualHold = true;
+    }
+    if ($hasManualHold) $recoveryPlan = asr_fixed_recovery_diagnostics();
     $rows = [];
     $nextModeState = asr_next_mode_statuses();
     $controlStates = array_merge(asr_dmr_net_control_statuses(), asr_ysf_net_control_statuses(), $nextModeState['controls']);
@@ -3767,6 +3784,15 @@ function asr_bridge_diagnostics(): array {
             $exactServices[] = ['unit' => (string) ($service['unit'] ?? ''), 'state' => $state];
         }
         $warnings = [];
+        if (($bridge['cardType'] ?? 'standard') === 'standard' && ($bridge['manualDisconnect'] ?? false) === true) {
+            if ($recoveryPlan === null) {
+                $warnings[] = 'Manual disconnect is configured, but ASR cannot verify native Asterisk startup-link conflicts.';
+            } elseif (in_array($bridgeNode, $recoveryPlan['nativeManualHoldConflicts'], true)) {
+                $warnings[] = 'Manual disconnect conflicts with a native Asterisk permanent startup link. ASR will not rewrite unmanaged Asterisk configuration; review the startup link before relying on the hold.';
+            } else {
+                $warnings[] = 'Manual disconnect is configured. ASR recovery will not reconnect this bridge; external link controllers may still reconnect it.';
+            }
+        }
         if ($id === 'zello' && $clientCount === 0) {
             $zelloTalkers = asr_file_status(asrRuntimeFilePath('zello-talkers.json'));
             $zelloStatus = asr_file_status(__DIR__ . '/zello-status-data.json');

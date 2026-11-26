@@ -209,6 +209,12 @@ def integration_files(root: Path, plan: dict[str, Any]) -> dict[str, tuple[bytes
     if len(matches) > 1:
         raise PlanError("duplicate bridge identity")
     if matches:
+        previous = bridges[matches[0]]
+        if (True and previous.get("cardType", "standard") == "standard"
+                and str(previous.get("node", "")) == str(entry.get("node", ""))):
+            for key in ("fixedBridgeRecovery", "manualDisconnect"):
+                if isinstance(previous.get(key), bool):
+                    entry[key] = previous[key]
         bridges[matches[0]] = entry
     else:
         bridges.append(entry)

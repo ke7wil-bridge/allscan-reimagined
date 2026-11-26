@@ -279,6 +279,10 @@ def update_config(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, An
             entry["fixedBridgeRecovery"] = (
                 current["fixedBridgeRecovery"] if entry.get("cardType") == "standard" else False
             )
+        if (entry.get("cardType") == "standard" and current.get("cardType", "standard") == "standard"
+                and str(current.get("node", "")) == str(entry.get("node", ""))
+                and isinstance(current.get("manualDisconnect"), bool)):
+            entry["manualDisconnect"] = current["manualDisconnect"]
         bridges[matches[0]] = entry
     else:
         bridges.append(entry)

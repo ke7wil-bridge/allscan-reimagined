@@ -98,11 +98,24 @@ def native_permanent_nodes(text: str, main_node: str) -> set[str]:
     return nodes
 
 
+def manually_held_nodes(config: dict) -> set[str]:
+    main_node = str(config.get("node", "")).strip()
+    return {
+        node for bridge in config.get("bridges", [])
+        if isinstance(bridge, dict)
+        and bridge.get("cardType", "standard") == "standard"
+        and bridge.get("manualDisconnect") is True
+        and NODE_RE.fullmatch(node := str(bridge.get("node", "")).strip())
+        and node != main_node
+    }
+
+
 def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> tuple[str, list[dict], list[dict]]:
     quiesced_nodes = quiesced_nodes or set()
     main_node = str(config.get("node", "")).strip()
     if not NODE_RE.fullmatch(main_node):
         raise RecoveryError("The configured main AllStar node is invalid.")
+    held = manually_held_nodes(config)
     targets: list[dict] = []
     for bridge in config.get("bridges", []):
         if not isinstance(bridge, dict):
@@ -116,7 +129,7 @@ def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> 
         if bridge.get("manualDisconnect") is True:
             continue
         node = str(bridge.get("node", "")).strip()
-        if not NODE_RE.fullmatch(node) or node == main_node or node in quiesced_nodes:
+        if not NODE_RE.fullmatch(node) or node == main_node or node in quiesced_nodes or node in held:
             continue
         targets.append({
             "id": bridge_id or "bridge",
@@ -134,7 +147,10 @@ def configured_targets(config: dict, quiesced_nodes: set[str] | None = None) -> 
         if not NODE_RE.fullmatch(node) or node in seen:
             raise RecoveryError("requiredAllStarLinks contains an invalid or duplicate node.")
         seen.add(node)
-        required_links.append({"id": "allstar", "node": node})
+        # A second recovery policy must not bypass the explicit operator hold
+        # or a migration quiesce. Validate duplicates even for skipped nodes.
+        if node not in held and node not in quiesced_nodes:
+            required_links.append({"id": "allstar", "node": node})
     return main_node, targets, required_links
 
 
@@ -143,12 +159,7 @@ def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None =
     native = native_permanent_nodes(rpt_text, main_node)
     # A native Asterisk permanent link can defeat a manual hold even when
     # ASR's fallback timer is suppressed. Report it; never rewrite rpt.conf.
-    held_nodes = {
-        str(bridge.get("node", "")).strip()
-        for bridge in config.get("bridges", []) if isinstance(bridge, dict)
-        and bridge.get("cardType", "standard") == "standard"
-        and bridge.get("manualDisconnect") is True
-    }
+    held_nodes = manually_held_nodes(config)
     native_conflicts = sorted(held_nodes & native)
     fallback = [target for target in targets if target["node"] not in native]
     required_fallback = [target for target in required_links if target["node"] not in native]
@@ -157,6 +168,7 @@ def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None =
         "configured": targets,
         "nativePermanent": [target for target in targets if target["node"] in native],
         "nativeManualHoldConflicts": native_conflicts,
+        "manualHeldNodes": sorted(held_nodes),
         "fallback": fallback,
         "requiredLinks": required_fallback,
         "nativeRequiredLinks": [target for target in required_links if target["node"] in native],
@@ -414,6 +426,15 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
     ]}
     assert recovery_plan(native_held_config, rpt_text)["nativeManualHoldConflicts"] == ["1201"]
     assert held_plan["nativeManualHoldConflicts"] == []
+    assert held_plan["manualHeldNodes"] == ["1202"]
+    required_held = recovery_plan({**held_config, "requiredAllStarLinks": ["1202", "578990"]}, rpt_text)
+    assert [item["node"] for item in required_held["requiredLinks"]] == ["578990"]
+    assert [item["node"] for item in required_held["fallback"]] == ["1205"]
+    native_required_held = recovery_plan({**native_held_config, "requiredAllStarLinks": ["1201", "578990"]}, rpt_text)
+    assert native_required_held["nativeRequiredLinks"] == []
+    assert native_required_held["nativeManualHoldConflicts"] == ["1201"]
+    quiesced_required = recovery_plan({**config, "requiredAllStarLinks": ["1202", "578990"]}, rpt_text, {"1202"})
+    assert [item["node"] for item in quiesced_required["requiredLinks"]] == ["578990"]
     resumed_config = {**held_config, "bridges": [
         {**bridge, "manualDisconnect": False} if bridge["id"] == "ysf" else bridge
         for bridge in held_config["bridges"]
@@ -524,6 +545,10 @@ def main() -> int:
         if args.plan_json:
             print(json.dumps(plan, indent=2, sort_keys=True))
             return 0
+        if plan["nativeManualHoldConflicts"]:
+            print("Manual bridge hold conflicts with native Asterisk permanent startup links: "
+                  + ", ".join(plan["nativeManualHoldConflicts"])
+                  + ". ASR will not rewrite unmanaged Asterisk configuration.", file=sys.stderr)
         retry_state = read_retry_state(args.state)
         result = recover_once(plan, retry_state=retry_state)
         write_retry_state(args.state, retry_state)
