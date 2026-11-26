@@ -48,6 +48,35 @@ async function runBrowser(unauthorized = false) {
       throw new Error(message)
     }
 
+    // #130: exercise real frontend control requests with synthetic backend
+    // responses. This does not assert an actual Asterisk link operation.
+    const linkState = { dmr: { linked: true, held: false }, ysf: { linked: true, held: false }, p25: { linked: false, held: true } }
+    const linkRequests = []
+    let rejectLink = false
+    await page.route('**/asr-api.php?*', async route => {
+      const request = route.request()
+      const action = new URL(request.url()).searchParams.get('action')
+      if (action === 'bridge-status') {
+        const response = await route.fetch()
+        const payload = await response.json()
+        for (const [id, state] of Object.entries(linkState)) {
+          payload.controls[id] = { ...payload.controls[id], allstarLinked:state.linked,
+            manualDisconnect:state.held, standardLinkControl:id !== 'p25' }
+        }
+        return route.fulfill({response, json:payload})
+      }
+      if (action === 'standard-bridge-link') {
+        const form = new URLSearchParams(request.postData() || '')
+        const id = form.get('bridgeId'), verb = form.get('verb')
+        linkRequests.push({id,verb,method:request.method(),header:request.headers()['x-asr-requested-with']})
+        if (unauthorized || rejectLink || !['dmr','ysf'].includes(id) || !['connect','disconnect'].includes(verb)) {
+          return route.fulfill({status:409,json:{ok:false,error:'Fixture link operation rejected'}})
+        }
+        linkState[id] = {linked:verb==='connect',held:verb==='disconnect'}
+        return route.fulfill({json:{ok:true,message:'Fixture link operation completed'}})
+      }
+      return route.fallback()
+    })
     await page.goto(appUrl, {waitUntil:'domcontentloaded',timeout:20000})
     try {
       await waitUntil("document.readyState === 'complete' && document.body.textContent.includes('Connected Clients')", 'Dashboard did not load', 30000)
@@ -64,10 +93,37 @@ async function runBrowser(unauthorized = false) {
     await delay(200)
 
     if (unauthorized) {
+      assert(await page.locator('.allscan-bridge-status-row button').count() === 0, 'read-only browser received Standard Bridge link controls')
+      assert(linkRequests.length === 0, 'read-only browser issued a Standard Bridge mutation')
       assert(await evaluate("document.querySelectorAll('.allscan-bridge-inline-client-actions').length") === 0,
         'unauthorized browser received bridge client controls')
       return
     }
+
+    const standardCard = mode => page.locator('.allscan-bridge-card:not(.allscan-net-bridge-card)').filter({has:page.locator('.allscan-bridge-head-title',{hasText:new RegExp('^'+mode+' Bridge$')})})
+    const dmrLink = standardCard('DMR').locator('.allscan-bridge-status-row')
+    const ysfLink = standardCard('YSF').locator('.allscan-bridge-status-row')
+    const p25Link = standardCard('P25').locator('.allscan-bridge-status-row')
+    const closeUpdate = page.getByRole('button',{name:'Close Update ASR'})
+    if (await closeUpdate.count()) await closeUpdate.click()
+    await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
+    await dmrLink.getByText('Manually disconnected',{exact:true}).waitFor()
+    assert(await ysfLink.getByText('Linked',{exact:true}).isVisible(), 'DMR hold changed an unrelated YSF bridge')
+    assert(await p25Link.getByText('Manually disconnected · control unavailable',{exact:true}).isVisible(), 'unavailable persistent hold is not visible')
+    assert(await p25Link.getByRole('button').count() === 0, 'unavailable held bridge exposes generic reconnect')
+    rejectLink = true
+    await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
+    await page.getByText('Fixture link operation rejected',{exact:false}).first().waitFor()
+    await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).waitFor()
+    assert(await dmrLink.getByText('Manually disconnected',{exact:true}).isVisible(), 'failed reconnect cleared the saved hold')
+    rejectLink = false
+    await page.setViewportSize({width:390,height:844})
+    await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
+    await dmrLink.getByText('Linked',{exact:true}).waitFor()
+    assert(linkRequests.length===3 && linkRequests.every(r=>r.id==='dmr' && r.method==='POST' && r.header==='asr-standard-link')
+      && linkRequests.map(r=>r.verb).join(',')==='disconnect,connect,connect', 'Standard Bridge requests were not scoped or authenticated-header POSTs')
+    await page.setViewportSize({width:1440,height:1000})
+    console.log('PASS: Standard Bridge controls, independent holds, failed reconnect and mobile reconnect (fixture API)')
 
     const coverage = await evaluate(`(() => {
       const result = {};

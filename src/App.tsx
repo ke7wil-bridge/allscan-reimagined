@@ -2639,7 +2639,7 @@ function App({ config }: { config: RuntimeConfig }) {
     // A configured Standard doorway must use its dedicated persistent link
     // control rather than a generic node command from Favorites or shortcuts.
     if (action === 'connect' || action === 'disconnect') {
-      const configured = config.bridges.filter((bridge) => bridge.node === node && bridge.cardType === 'standard')
+      const configured = config.bridges.filter((bridge) => bridge.node === node && (bridge.cardType ?? 'standard') === 'standard')
       if (configured.length) {
         const card = configured.length === 1 ? bridgeState.cards.find((item) => item.id === configured[0].id) : undefined
         if (card?.standardLinkControl) {
@@ -4396,6 +4396,11 @@ function App({ config }: { config: RuntimeConfig }) {
                         onClick={() => void controlStandardLink(card, bridgeLinked ? 'disconnect' : 'connect')}>
                         {bridgeControlBusy === `standard-link-${card.id}` ? 'Working…' : bridgeLinked ? 'Disconnect' : 'Reconnect'}
                       </button>
+                    </div>
+                  ) : standardLinkMissing && card.manualDisconnect ? (
+                    <div className="allscan-bridge-row allscan-bridge-status-row">
+                      <span>AllStar link · Node {card.node}</span>
+                      <b>Manually disconnected · control unavailable</b>
                     </div>
                   ) : standardLinkMissing && authStatus.canModify ? (
                     <div className="allscan-bridge-row allscan-bridge-status-row">
