@@ -1314,9 +1314,9 @@ function asr_display_only_bridge_link_statuses(array $configuredBridges): array 
 }
 
 function asr_standard_link_control_available(): bool {
-    return !is_file('/.dockerenv') && is_executable('/usr/sbin/asterisk')
-        && is_executable('/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery')
-        && is_file('/run/lock/allscan-reimagined-fixed-bridge/recovery.lock');
+    if (!is_executable('/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery')) return false;
+    if (is_file('/.dockerenv')) return file_exists('/run/allscan-reimagined-host/bridge-setup.sock');
+    return is_executable('/usr/sbin/asterisk') && is_file('/run/lock/allscan-reimagined-fixed-bridge/recovery.lock');
 }
 
 function asr_bridge_status_payload(): array {
@@ -1376,7 +1376,8 @@ function asr_bridge_status_payload(): array {
         $id = (string) $configuredBridge['id'];
         $controls[$id] = array_merge($controls[$id] ?? [], [
             'manualDisconnect' => ($configuredBridge['manualDisconnect'] ?? false) === true,
-            'standardLinkControl' => asr_standard_link_control_available() && (string) $configuredBridge['node'] !== '1999',
+            'standardLinkControl' => asr_standard_link_control_available() && (string) $configuredBridge['node'] !== '1999'
+                && (!is_file('/.dockerenv') || ($configuredBridge['backendMode'] ?? '') === 'managed'),
         ]);
     }
     $clientState = asr_bridge_clients_state();
@@ -3741,7 +3742,7 @@ function asr_fixed_recovery_diagnostics(): ?array {
     $helper = '/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery';
     if (!is_executable($helper)) return null;
     $lines = []; $status = 1;
-    @exec('python3 -I ' . escapeshellarg($helper) . ' --plan-json 2>/dev/null', $lines, $status);
+    @exec((is_file('/.dockerenv') ? '' : 'python3 -I ') . escapeshellarg($helper) . ' --plan-json 2>/dev/null', $lines, $status);
     $plan = $status === 0 ? json_decode(implode("\n", $lines), true) : null;
     return is_array($plan) && is_array($plan['nativeManualHoldConflicts'] ?? null) ? $plan : null;
 }
@@ -4510,7 +4511,7 @@ if ($action === 'standard-bridge-link') {
     $verb = (string) ($_POST['verb'] ?? '');
     if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId) || !in_array($verb, ['connect', 'disconnect'], true)) asr_error('Invalid Standard Bridge link request.');
     $lines = []; $status = 1;
-    exec('sudo -n /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --manual-link ' . escapeshellarg($verb) . ' ' . escapeshellarg($bridgeId) . ' 2>&1', $lines, $status);
+    exec((is_file('/.dockerenv') ? '' : 'sudo -n ') . '/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --manual-link ' . escapeshellarg($verb) . ' ' . escapeshellarg($bridgeId) . ' 2>&1', $lines, $status);
     $payload = json_decode(implode("\n", $lines), true);
     if ($status !== 0 || !is_array($payload) || ($payload['ok'] ?? false) !== true) asr_error((string) ($payload['error'] ?? 'Standard Bridge link control did not complete.'), 409);
     asr_json($payload);

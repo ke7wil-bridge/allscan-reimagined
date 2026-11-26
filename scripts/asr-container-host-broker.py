@@ -38,6 +38,7 @@ PROGRAMS = {
     "nxdn": "/usr/local/sbin/allscan-reimagined-nxdn-bridge-control",
     "m17": "/usr/local/sbin/allscan-reimagined-m17-bridge-control",
     "net-mode": "/usr/local/sbin/allscan-reimagined-net-bridge-mode-control",
+    "standard-link": str(HERE / "asr-container-standard-link.py"),
 }
 DOCKER_HOME = "/var/cache/allscan-reimagined/docker-home"
 DOCKER_CONFIG = "/var/cache/allscan-reimagined/docker-config"
@@ -191,6 +192,9 @@ def validate_control(program: str, args: list[str]) -> None:
                      and args[2] == "--user" and user(args[3]) and args[4] == "connect"
                      and args[5] == "--reflector" and re.fullmatch(r"M17-[A-Z0-9]{3}", args[6])
                      and args[7] == "--module" and re.fullmatch(r"[A-Z]", args[8])))
+    elif program == "standard-link":
+        valid = args == ["--plan-json"] or (len(args) == 3 and args[0] == "--manual-link"
+                  and args[1] in {"connect", "disconnect"} and bid(args[2]))
     elif program == "net-mode":
         valid = len(args) == 2 and args[0] == "--mode" and args[1] in {"dmr", "ysf", "p25", "nxdn", "m17"}
     if not valid:
