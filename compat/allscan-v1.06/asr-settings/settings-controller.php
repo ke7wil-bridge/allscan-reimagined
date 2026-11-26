@@ -1102,30 +1102,77 @@ function asrSettingsWriteSecrets($secrets, &$error) {
 	return true;
 }
 
+function asrSettingsPreserveManualHolds(array $config, array $current): array {
+	// The manual link control owns this field. A Settings form may have
+	// loaded before a disconnect/reconnect, so use the latest saved value
+	// for the same Standard bridge identity and never transfer it to Net.
+	$prior = [];
+	foreach((array)($current['bridges'] ?? []) as $row) {
+		if(!is_array($row) || ($row['cardType'] ?? 'standard') !== 'standard') continue;
+		$id = (string)($row['id'] ?? '');
+		if($id === '') continue;
+		$prior[$id][] = $row;
+	}
+	if(!is_array($config['bridges'] ?? null)) return $config;
+	foreach($config['bridges'] as &$row) {
+		if(!is_array($row)) continue;
+		unset($row['manualDisconnect']);
+		if(($row['cardType'] ?? 'standard') !== 'standard') continue;
+		$matches = $prior[(string)($row['id'] ?? '')] ?? [];
+		if(count($matches) !== 1) continue;
+		$old = $matches[0];
+		if((string)($old['node'] ?? '') === (string)($row['node'] ?? '')
+			&& (string)($old['mode'] ?? '') === (string)($row['mode'] ?? '')
+			&& is_bool($old['manualDisconnect'] ?? null))
+			$row['manualDisconnect'] = $old['manualDisconnect'];
+	}
+	unset($row);
+	return $config;
+}
+
 function asrSettingsWriteConfig($config, &$error) {
 	$dir = dirname(ASR_SETTINGS_FILE);
 	if(!is_dir($dir)) {
 		$error = "$dir does not exist.";
 		return false;
 	}
-	$json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-	if($json === false) {
-		$error = 'Could not encode Settings.';
+	$lock = @fopen($dir, 'r');
+	if($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+		if(is_resource($lock)) fclose($lock);
+		$error = 'Bridge link control or another Settings save is active. Retry.';
 		return false;
 	}
-	$tmp = ASR_SETTINGS_FILE . '.tmp.' . getmypid();
-	if(file_put_contents($tmp, $json . PHP_EOL) === false) {
-		$error = 'Could not write temporary settings file. Check /etc/allscan-reimagined permissions.';
-		return false;
+	try {
+		if(is_file(ASR_SETTINGS_FILE)) {
+			$current = json_decode((string) @file_get_contents(ASR_SETTINGS_FILE), true);
+			if(!is_array($current)) {
+				$error = 'Current Settings could not be read safely.';
+				return false;
+			}
+			$config = asrSettingsPreserveManualHolds($config, $current);
+		}
+		$json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+		if($json === false) {
+			$error = 'Could not encode Settings.';
+			return false;
+		}
+		$tmp = ASR_SETTINGS_FILE . '.tmp.' . getmypid();
+		if(file_put_contents($tmp, $json . PHP_EOL) === false) {
+			$error = 'Could not write temporary settings file. Check /etc/allscan-reimagined permissions.';
+			return false;
+		}
+		@chmod($tmp, 0664);
+		if(!rename($tmp, ASR_SETTINGS_FILE)) {
+			@unlink($tmp);
+			$error = 'Could not replace settings file. Check /etc/allscan-reimagined permissions.';
+			return false;
+		}
+		@chmod(ASR_SETTINGS_FILE, 0664);
+		return true;
+	} finally {
+		flock($lock, LOCK_UN);
+		fclose($lock);
 	}
-	@chmod($tmp, 0664);
-	if(!rename($tmp, ASR_SETTINGS_FILE)) {
-		@unlink($tmp);
-		$error = 'Could not replace settings file. Check /etc/allscan-reimagined permissions.';
-		return false;
-	}
-	@chmod(ASR_SETTINGS_FILE, 0664);
-	return true;
 }
 
 function asrSettingsH($value) {

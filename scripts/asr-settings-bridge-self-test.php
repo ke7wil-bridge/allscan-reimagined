@@ -64,6 +64,25 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05', 'v1.06'] as $compatVersion) {
 		"$compatVersion Settings does not expose managed direct-DMR install/edit controls.");
 }
 
+// #130: the current manual hold wins over an older form, but never
+// migrates across a changed doorway, protocol, or Net Bridge identity.
+$holdBase = ['id'=>'ysf','mode'=>'ysf','node'=>'1002','cardType'=>'standard'];
+$held = ['bridges'=>[array_merge($holdBase, ['manualDisconnect'=>true])]];
+$oldForm = ['bridges'=>[array_merge($holdBase, ['manualDisconnect'=>false,'title'=>'Updated'])]];
+$merged = asrSettingsPreserveManualHolds($oldForm, $held)['bridges'][0];
+check($merged['manualDisconnect'] === true && $merged['title'] === 'Updated', 'Stale Settings form lost a newer manual hold.');
+$released = ['bridges'=>[array_merge($holdBase, ['manualDisconnect'=>false])]];
+check(asrSettingsPreserveManualHolds($held, $released)['bridges'][0]['manualDisconnect'] === false, 'Stale Settings form restored a cleared hold.');
+foreach([['node'=>'1003'], ['mode'=>'dmr'], ['cardType'=>'ysf_net'], ['id'=>'other']] as $change) {
+    $changed = ['bridges'=>[array_merge($holdBase, ['manualDisconnect'=>true], $change)]];
+    check(!array_key_exists('manualDisconnect', asrSettingsPreserveManualHolds($changed, $held)['bridges'][0]), 'Manual hold moved to a different bridge identity.');
+}
+check(!array_key_exists('manualDisconnect', asrSettingsPreserveManualHolds($held, ['bridges'=>[]])['bridges'][0]), 'Deleted bridge hold was resurrected.');
+foreach(['v1.02','v1.03','v1.04','v1.05','v1.06'] as $compatVersion) {
+    $controller = file_get_contents($root . '/compat/allscan-' . $compatVersion . '/asr-settings/settings-controller.php');
+    check(str_contains($controller, 'asrSettingsPreserveManualHolds($config, $current)') && str_contains($controller, 'flock($lock, LOCK_EX | LOCK_NB)'), "$compatVersion missing synchronized Settings hold preservation.");
+}
+
 // Issue #136: verify the v1.05 bridge editor persists validated directional gains.
 $gainController = file_get_contents($root . '/compat/allscan-v1.05/asr-settings/settings-controller.php');
 check(is_string($gainController)

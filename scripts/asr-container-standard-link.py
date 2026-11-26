@@ -83,8 +83,7 @@ def main():
         with recovery.recovery_lock():
             if sys.argv[1:] == ['--plan-json']:
                 asterisk.safe_root_json(config, profile.client_uid, profile.client_gid)
-                plan = recovery.load_plan(config, rpt)
-                result = {'nativeManualHoldConflicts': plan['nativeManualHoldConflicts']}
+                result = recovery.inspect_native_holds(recovery.read_json_object(config), rpt)
             elif len(sys.argv) == 4 and sys.argv[1] == '--manual-link' and sys.argv[2] in {'connect', 'disconnect'}:
                 verb, identity = sys.argv[2:]
                 main_node, node = owned_doorway(profile, identity)

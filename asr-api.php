@@ -3744,7 +3744,8 @@ function asr_fixed_recovery_diagnostics(): ?array {
     $lines = []; $status = 1;
     @exec((is_file('/.dockerenv') ? '' : 'python3 -I ') . escapeshellarg($helper) . ' --plan-json 2>/dev/null', $lines, $status);
     $plan = $status === 0 ? json_decode(implode("\n", $lines), true) : null;
-    return is_array($plan) && is_array($plan['nativeManualHoldConflicts'] ?? null) ? $plan : null;
+    return is_array($plan) && is_array($plan['nativeManualHoldConflicts'] ?? null)
+        && is_array($plan['nativeManualHoldUnknown'] ?? null) ? $plan : null;
 }
 
 function asr_bridge_diagnostics(): array {
@@ -3800,7 +3801,7 @@ function asr_bridge_diagnostics(): array {
         }
         $warnings = [];
         if (($bridge['cardType'] ?? 'standard') === 'standard' && ($bridge['manualDisconnect'] ?? false) === true) {
-            if ($recoveryPlan === null) {
+            if ($recoveryPlan === null || in_array($bridgeNode, $recoveryPlan['nativeManualHoldUnknown'], true)) {
                 $warnings[] = 'Manual disconnect is configured, but ASR cannot verify native Asterisk startup-link conflicts.';
             } elseif (in_array($bridgeNode, $recoveryPlan['nativeManualHoldConflicts'], true)) {
                 $warnings[] = 'Manual disconnect conflicts with a native Asterisk permanent startup link. ASR will not rewrite unmanaged Asterisk configuration; review the startup link before relying on the hold.';

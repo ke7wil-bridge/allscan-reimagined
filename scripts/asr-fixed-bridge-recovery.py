@@ -102,6 +102,153 @@ def native_permanent_nodes(text: str, main_node: str) -> set[str]:
     return nodes
 
 
+def read_startup_config(path: Path) -> str:
+    """Expand only bounded, literal includes inside the Asterisk config tree.
+
+    Never execute #exec, follow symlinks, or read arbitrary host paths. An
+    uninspectable configuration cannot justify a durable disconnect promise.
+    """
+    base = path.parent.resolve(strict=True)
+    remaining = 2 * 1024 * 1024
+    visited = 0
+
+    def expand(candidate: Path, stack: tuple[Path, ...]) -> str:
+        nonlocal remaining, visited
+        if len(stack) >= 12 or visited >= 64 or candidate in stack:
+            raise RecoveryError("Asterisk startup include depth or cycle cannot be verified.")
+        try:
+            relative = candidate.relative_to(base)
+        except ValueError as exc:
+            raise RecoveryError("Asterisk startup include is outside the config directory.") from exc
+        if ".." in relative.parts or not relative.parts:
+            raise RecoveryError("Asterisk startup include path is unsafe.")
+        directory = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in relative.parts[:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory); directory = child
+            fd = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        finally:
+            os.close(directory)
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o002:
+                raise RecoveryError("Asterisk startup config is not a safe regular file.")
+            content = handle.read(remaining + 1)
+        remaining -= len(content); visited += 1
+        if remaining < 0:
+            raise RecoveryError("Asterisk startup configuration exceeds inspection limits.")
+        lines = []
+        for line in content.decode("utf-8").splitlines():
+            if ";--" in line or "--;" in line or line.rstrip().endswith("\\"):
+                raise RecoveryError("Asterisk startup config uses unsupported multiline syntax.")
+            directive = line.strip().split(";", 1)[0].strip()
+            if not directive.startswith("#"):
+                lines.append(line); continue
+            match = re.fullmatch(r'#(include|tryinclude)\s+(?:"([^"\n]+)"|([^\s]+))', directive, re.I)
+            if not match:
+                raise RecoveryError("Unsupported Asterisk startup configuration directive.")
+            name = match.group(2) or match.group(3)
+            if any(char in name for char in "*?[]${}\\"):
+                raise RecoveryError("Dynamic Asterisk startup includes cannot be verified.")
+            include = Path(name)
+            if include.is_absolute():
+                try:
+                    include = include.relative_to("/etc/asterisk")
+                except ValueError as exc:
+                    raise RecoveryError("Asterisk startup include is outside the config directory.") from exc
+            target = base / include
+            if ".." in include.parts or target.is_symlink():
+                raise RecoveryError("Asterisk startup include path is unsafe.")
+            try:
+                lines.append(expand(target, (*stack, candidate)))
+            except FileNotFoundError:
+                if match.group(1).lower() != "tryinclude" or target.exists():
+                    raise
+        return "\n".join(lines) + "\n"
+
+    return expand(base / path.name, ())
+
+
+def verified_startup_nodes(text: str, node: str) -> set[str]:
+    """Recognize a conservative subset of app_rpt startup macro syntax."""
+    sections: dict[str, list[tuple[list[str], dict[str, list[str]]]]] = {}
+    current = None
+    for raw in text.splitlines():
+        line = uncommented(raw)
+        if not line:
+            continue
+        if line.startswith("["):
+            header = re.fullmatch(r"\[([^\]]+)\]\s*(?:\(([^)]*)\))?", line)
+            if not header:
+                raise RecoveryError("Asterisk startup section syntax cannot be verified.")
+            name = header.group(1).strip()
+            parents = [part.strip() for part in (header.group(2) or "").split(",") if part.strip()]
+            current = (parents, {})
+            sections.setdefault(name, []).append(current)
+        elif current is not None and "=" in line:
+            key, value = line.split("=", 1)
+            current[1].setdefault(key.strip().lower(), []).append(value.strip())
+
+    def effective(name: str, key: str, chain: tuple[str, ...] = ()) -> str:
+        if name in chain or len(chain) >= 12:
+            raise RecoveryError("Asterisk startup template inheritance cannot be verified.")
+        rows = sections.get(name, [])
+        if not rows:
+            raise RecoveryError("Asterisk startup section or template is missing.")
+        if len(rows) != 1:
+            raise RecoveryError("Multiple Asterisk startup section definitions cannot be verified.")
+        parents, fields = rows[0]
+        values = fields.get(key, [])
+        if len(values) > 1 or "+" in parents:
+            raise RecoveryError("Asterisk startup override is ambiguous.")
+        if values:
+            return values[0]
+        inherited = {effective(parent, key, (*chain, name)) for parent in parents if parent != "!"}
+        inherited.discard("")
+        if len(inherited) > 1:
+            raise RecoveryError("Asterisk startup template values conflict.")
+        return next(iter(inherited), "")
+
+    startup = effective(node, "startup_macro")
+    if not startup:
+        return set()
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", startup):
+        macro_section = effective(node, "macro") or "macro"
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", macro_section):
+            raise RecoveryError("Asterisk startup macro table cannot be verified.")
+        startup = effective(macro_section, startup.lower())
+        if not startup:
+            raise RecoveryError("Named Asterisk startup macro cannot be verified.")
+    pattern = re.compile(r"(?:\*?COP\s*,\s*6\s*,\s*[0-9]+\s*,\s*)?\*?ilink\s*,\s*(?:3|13)\s*,\s*([0-9]{3,10})(?=$|[\s*])|\*(?:813|3)([0-9]{3,10})(?=$|[\s*])", re.I)
+    nodes = set(); position = 0
+    while position < len(startup):
+        if startup[position].isspace():
+            position += 1; continue
+        match = pattern.match(startup, position)
+        if not match:
+            raise RecoveryError("Asterisk startup macro contains unsupported commands.")
+        nodes.add(match.group(1) or match.group(2)); position = match.end()
+    return nodes
+
+
+def inspect_native_holds(config: dict, rpt_path: Path) -> dict:
+    held = manually_held_nodes(config)
+    main = str(config.get("node", ""))
+    conflicts, unknown = [], []
+    try:
+        text = read_startup_config(rpt_path) if held else ""
+    except (RecoveryError, OSError, ValueError):
+        return {"nativeManualHoldConflicts": [], "nativeManualHoldUnknown": sorted(held)}
+    for node in sorted(held):
+        try:
+            if node in verified_startup_nodes(text, main) or main in verified_startup_nodes(text, node):
+                conflicts.append(node)
+        except RecoveryError:
+            unknown.append(node)
+    return {"nativeManualHoldConflicts": conflicts, "nativeManualHoldUnknown": unknown}
+
+
 def manually_held_nodes(config: dict) -> set[str]:
     main_node = str(config.get("node", "")).strip()
     return {
@@ -421,8 +568,30 @@ def save_manual_hold(path: Path, original: bytes, config: dict, bridge: dict, he
         Path(temporary).unlink(missing_ok=True)
 
 
+@contextmanager
+def config_directory_lock(directory: Path):
+    # Linux flock on the directory inode is shared by the native and Docker
+    # bind-mounted Settings directory. No replaceable lock file in a writable
+    # config directory is needed. Settings takes the same short-lived lock.
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RecoveryError("ASR Settings are being saved; retry bridge control.") from exc
+        yield
+    finally:
+        os.close(fd)
+
+
 def manual_link(config_path: Path, rpt_path: Path, bridge_id: str, verb: str,
                 runner=run_asterisk, sleeper=time.sleep) -> dict:
+    with config_directory_lock(config_path.parent):
+        return manual_link_locked(config_path, rpt_path, bridge_id, verb, runner, sleeper)
+
+
+def manual_link_locked(config_path: Path, rpt_path: Path, bridge_id: str, verb: str,
+                       runner, sleeper) -> dict:
     if verb not in {"connect", "disconnect"} or not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
         raise RecoveryError("Invalid Standard Bridge control request.")
     original, _ = read_control_config(config_path)
@@ -442,9 +611,14 @@ def manual_link(config_path: Path, rpt_path: Path, bridge_id: str, verb: str,
     local = listed_local_nodes(runner(["rpt", "localnodes"]))
     if not {main, node} <= local:
         raise RecoveryError("Both configured nodes must be local and available.")
-    rpt = rpt_path.read_text(encoding="utf-8", errors="replace")
-    if verb == "disconnect" and (node in native_permanent_nodes(rpt, main) or main in native_permanent_nodes(rpt, node)):
-        raise RecoveryError("Native Asterisk permanent startup link conflicts with manual disconnect. Remove or migrate that startup link first; no settings changed.")
+    if verb == "disconnect":
+        # Do not promise a persistent hold when the effective startup config
+        # is uninspectable. Leave both the current link and settings alone.
+        inspection = inspect_native_holds({"node": main, "bridges": [{**bridge, "manualDisconnect": True}]}, rpt_path)
+        if node in inspection["nativeManualHoldConflicts"]:
+            raise RecoveryError("Native Asterisk permanent startup link conflicts with manual disconnect. Remove or migrate that startup link first; no settings changed.")
+        if node in inspection["nativeManualHoldUnknown"]:
+            raise RecoveryError("Native Asterisk startup links could not be verified. Review startup macros and includes; no settings changed.")
     def linked():
         output = runner(["rpt", "lstats", main])
         if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
@@ -471,6 +645,19 @@ def manual_link(config_path: Path, rpt_path: Path, bridge_id: str, verb: str,
                 raise RecoveryError("Asterisk did not confirm the requested link state. " + ("Manual hold is retained." if not desired else "Prior recovery policy is unchanged."))
     if desired:
         save_manual_hold(config_path, original, config, bridge, False)
+    # A configuration writer outside the coordinated Settings/control path
+    # may still have replaced the file during Asterisk command execution.
+    # Never claim a durable hold when the stored identity or flag changed.
+    latest_raw, _ = read_control_config(config_path)
+    latest = json.loads(latest_raw)
+    rows = [row for row in latest.get("bridges", []) if isinstance(row, dict)
+            and row.get("id") == bridge_id] if isinstance(latest, dict) else []
+    if (len(rows) != 1 or str(latest.get("node", "")) != main
+            or str(rows[0].get("node", "")) != node
+            or rows[0].get("mode") != bridge.get("mode")
+            or rows[0].get("cardType", "standard") != "standard"
+            or rows[0].get("manualDisconnect") is not (not desired)):
+        raise RecoveryError("Bridge settings changed during link control; saved recovery policy could not be verified.")
     return {"ok": True, "bridgeId": bridge_id, "manualDisconnect": not desired,
             "linked": desired, "message": "Bridge reconnected; normal recovery policy restored." if desired else "Bridge disconnected; ASR automatic recovery paused."}
 
@@ -515,6 +702,11 @@ startup_macro = A1
 
 [macro]
 A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
+[node-main](!)
+[1201]
+[1202]
+[1203]
+[1205]
 """
     plan = recovery_plan(config, rpt_text)
     assert [item["node"] for item in plan["nativePermanent"]] == ["1201"]
@@ -633,6 +825,28 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
             raise AssertionError("invalid migration quiesce state did not fail closed")
         except RecoveryError:
             pass
+    # Inspect effective literal includes and inherited templates, without ever
+    # executing directives or editing Asterisk configuration.
+    with tempfile.TemporaryDirectory(prefix="asr-startup-inspection-") as temporary:
+        root = Path(temporary); rpt = root / "rpt.conf"
+        (root / "sub").mkdir()
+        (root / "sub" / "nodes.conf").write_text("[600000](template)\n[1202]\n")
+        (root / "template.conf").write_text("[template](!)\nstartup_macro = A1\nmacro = custom-macros\n[custom-macros]\nA1 = *8131202\n")
+        rpt.write_text('#include "sub/nodes.conf"\n#include "/etc/asterisk/template.conf"\n#tryinclude optional.conf\n')
+        assert inspect_native_holds(held_config, rpt) == {"nativeManualHoldConflicts": ["1202"], "nativeManualHoldUnknown": []}
+        (root / "template.conf").write_text("[template](!)\nstartup_macro = *8131201\n")
+        assert inspect_native_holds(held_config, rpt) == {"nativeManualHoldConflicts": [], "nativeManualHoldUnknown": []}
+        for bad in ('#exec "false"', '#include "missing.conf"', '#include "../outside.conf"',
+                    '#include "*.conf"', '#include "rpt.conf"', '#include "alias.conf"',
+                    '[1202](+)\nstartup_macro = *813600000', '[unrelated]\n;-- comment'):
+            (root / "alias.conf").unlink(missing_ok=True)
+            (root / "alias.conf").symlink_to(root / "template.conf")
+            rpt.write_text('#include "sub/nodes.conf"\n#include "template.conf"\n' + bad + "\n")
+            assert inspect_native_holds(held_config, rpt)["nativeManualHoldUnknown"] == ["1202"], bad
+        rpt.write_text('#include "sub/nodes.conf"\n#include "template.conf"\n')
+        for unsupported in ("unknown_macro", "*999", "*8131201 *999"):
+            (root / "template.conf").write_text(f"[template](!)\nstartup_macro = {unsupported}\n")
+            assert inspect_native_holds(held_config, rpt)["nativeManualHoldUnknown"] == ["1202"]
     # Explicit controls persist the exact bridge hold before unlink and clear
     # it only after observed reconnect. No production commands are executed.
     with tempfile.TemporaryDirectory(prefix="asr-manual-link-test-") as temporary:
@@ -664,11 +878,17 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
             else:
                 raise AssertionError("invalid manual control succeeded")
         before = config_path.read_bytes()
+        with config_directory_lock(root):
+            rejected("ysf", "Settings are being saved")
+        assert config_path.read_bytes() == before and not commands
         rejected("dmr", "permanent startup link")
         rejected("ysf_net", "Standard Bridge")
         assert config_path.read_bytes() == before
-        rpt_path.write_text(rpt_text + "\n[1202]\nstartup_macro = *813600000\n")
+        rpt_path.write_text(rpt_text.replace("[1202]\n", "[1202]\nstartup_macro = *813600000\n"))
         rejected("ysf", "permanent startup link")
+        assert config_path.read_bytes() == before
+        rpt_path.write_text(rpt_text + '\n#include "missing.conf"\n')
+        rejected("ysf", "startup links could not be verified")
         assert config_path.read_bytes() == before
         rpt_path.write_text(rpt_text)
         assert manual_link(config_path, rpt_path, "ysf", "disconnect", control_runner, lambda _: None)["linked"] is False
@@ -676,6 +896,17 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
         assert manual_link(config_path, rpt_path, "ysf", "connect", control_runner, lambda _: None)["linked"] is True
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == []
+        def concurrent_writer(arguments):
+            result = control_runner(arguments)
+            if tuple(arguments) == ("rpt", "cmd", "600000", "ilink", "11", "1202"):
+                config_path.write_text(json.dumps(config))
+            return result
+        try:
+            manual_link(config_path, rpt_path, "ysf", "disconnect", concurrent_writer, lambda _: None)
+            raise AssertionError("concurrent uncoordinated writer falsely reported a durable hold")
+        except RecoveryError as exc:
+            assert "saved recovery policy could not be verified" in str(exc)
+        linked.add("1202")
         reject_unlink = True
         rejected("ysf", "Manual hold is retained")
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
@@ -712,6 +943,7 @@ def main() -> int:
         if args.has_fallback_targets:
             return 0 if plan["fallback"] or plan["requiredLinks"] or plan["manualHeldNodes"] else 1
         if args.plan_json:
+            plan.update(inspect_native_holds(read_json_object(args.config), args.rpt_config))
             print(json.dumps(plan, indent=2, sort_keys=True))
             return 0
         if plan["nativeManualHoldConflicts"]:
