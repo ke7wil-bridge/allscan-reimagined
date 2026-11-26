@@ -568,6 +568,44 @@ def save_manual_hold(path: Path, original: bytes, config: dict, bridge: dict, he
         Path(temporary).unlink(missing_ok=True)
 
 
+# Existing root operation locks: provisioning, lifecycle, Net Bridge mode,
+# qualification, and install/rollback. Do not change their acquisition order
+# or take them in their nested subprocesses; only explicit manual control
+# tries the whole set, non-blocking, and releases everything on contention.
+WRITER_LOCKS = (
+    "allscan-reimagined-rollback.lock",
+    "allscan-reimagined-bridge-setup.lock",
+    "allscan-reimagined-bridge-lifecycle.lock",
+    "allscan-reimagined-m17-qualification.lock",
+    "allscan-reimagined-net-bridge-mode.lock",
+    "allscan-reimagined-container-updater.lock",
+)
+
+
+@contextmanager
+def config_writer_guard(directory: Path = Path("/run/lock"), *, expected_uid: int = 0):
+    descriptors = []
+    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name in WRITER_LOCKS:
+            fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         0o600, dir_fd=dir_fd)
+            descriptors.append(fd)
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != expected_uid
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
+                raise RecoveryError("ASR configuration operation lock is unsafe.")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RecoveryError("ASR provisioning, qualification, or maintenance is active; retry bridge control.") from exc
+        yield
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
+        os.close(dir_fd)
+
+
 @contextmanager
 def config_directory_lock(directory: Path):
     # Linux flock on the directory inode is shared by the native and Docker
@@ -912,6 +950,30 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
         assert rpt_path.read_text() == rpt_text
         assert all(cmd[2] in {"600000", "1202"} for cmd in commands if cmd[:2] == ("rpt", "cmd"))
+    # Contention on every existing writer lock must fail before any control
+    # and release the locks already acquired. Test entirely in a temp tree.
+    with tempfile.TemporaryDirectory(prefix="asr-writer-guard-") as tmp:
+        directory = Path(tmp)
+        with config_writer_guard(directory, expected_uid=os.getuid()):
+            pass
+        for name in WRITER_LOCKS:
+            with (directory / name).open("r+") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    with config_writer_guard(directory, expected_uid=os.getuid()):
+                        raise AssertionError("writer lock contention ignored")
+                except RecoveryError as exc:
+                    assert "maintenance is active" in str(exc)
+            with config_writer_guard(directory, expected_uid=os.getuid()):
+                pass
+        target = directory / WRITER_LOCKS[-1]
+        target.unlink()
+        target.symlink_to(directory / WRITER_LOCKS[0])
+        try:
+            with config_writer_guard(directory, expected_uid=os.getuid()):
+                raise AssertionError("symlink lock accepted")
+        except OSError:
+            pass
     print("ASR fixed-bridge recovery self-test: ok")
 
 
@@ -920,7 +982,7 @@ def main() -> int:
         try:
             if len(sys.argv) != 4 or os.geteuid() != 0 or Path("/.dockerenv").exists():
                 raise RecoveryError("Native Standard Bridge control is unavailable.")
-            with recovery_lock():
+            with config_writer_guard(), recovery_lock():
                 result = manual_link(DEFAULT_CONFIG, DEFAULT_RPT_CONFIG, sys.argv[3], sys.argv[2])
             print(json.dumps(result)); return 0
         except (RecoveryError, OSError, ValueError, subprocess.TimeoutExpired) as exc:

@@ -86,9 +86,10 @@ def main():
                 result = recovery.inspect_native_holds(recovery.read_json_object(config), rpt)
             elif len(sys.argv) == 4 and sys.argv[1] == '--manual-link' and sys.argv[2] in {'connect', 'disconnect'}:
                 verb, identity = sys.argv[2:]
-                main_node, node = owned_doorway(profile, identity)
-                result = recovery.manual_link(config, rpt, identity, verb,
-                                              runner=container_runner(profile, identity, main_node, node))
+                with recovery.config_writer_guard():
+                    main_node, node = owned_doorway(profile, identity)
+                    result = recovery.manual_link(config, rpt, identity, verb,
+                                                  runner=container_runner(profile, identity, main_node, node))
             else:
                 raise RuntimeError('Invalid host Standard Bridge request.')
         print(json.dumps(result)); return 0

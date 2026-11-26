@@ -2636,6 +2636,26 @@ function App({ config }: { config: RuntimeConfig }) {
     permanentLink = permanent,
   ) {
     if (!authStatus.canModify) return
+    // A configured Standard doorway must use its dedicated persistent link
+    // control rather than a generic node command from Favorites or shortcuts.
+    if (action === 'connect' || action === 'disconnect') {
+      const configured = config.bridges.filter((bridge) => bridge.node === node && bridge.cardType === 'standard')
+      if (configured.length) {
+        const card = configured.length === 1 ? bridgeState.cards.find((item) => item.id === configured[0].id) : undefined
+        if (card?.standardLinkControl) {
+          await controlStandardLink(card, action)
+          return
+        }
+        if (configured.length !== 1 || configured.some((bridge) => bridge.manualDisconnect) || card?.manualDisconnect) {
+          appendNodeMessage('Use the dedicated Standard Bridge link control to change a saved manual disconnect.')
+          return
+        }
+        if (action === 'disconnect') {
+          appendNodeMessage('Persistent manual disconnect is unavailable for this Standard Bridge. Review Bridge Diagnostics.')
+          return
+        }
+      }
+    }
     if (action === 'dropclient') {
       setDropClientOpen(true)
       void loadDropClients()
