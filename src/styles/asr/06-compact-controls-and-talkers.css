@@ -586,7 +586,18 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 .asr-whats-new::-webkit-scrollbar { width: 12px; }
 .asr-whats-new::-webkit-scrollbar-thumb { background: #9fd5ff; border: 3px solid #18344e; border-radius: 10px; }
 .asr-whats-new h3 { margin: 0 0 8px; font-size: 1.2rem; }
-.asr-whats-new ul { margin: 12px 0 0; padding-left: 22px; }
+/* Separate release-note sections without separating their headings from the text. */
+.asr-whats-new > .asr-whats-new-category,
+.asr-whats-new > .asr-contributors-callout { margin-top: 20px; }
+.asr-whats-new > .asr-whats-new-category > h4,
+.asr-whats-new > .asr-contributors-callout > h4 {
+  margin: 0 0 6px;
+  font-size: 1.15em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.asr-whats-new ul { margin: 0; padding-left: 22px; }
+.asr-whats-new > .asr-contributors-callout > h4 + p { margin-top: 6px; }
 .asr-whats-new li + li { margin-top: 9px; }
 .asr-update-dialog button {
   min-height: 38px;
