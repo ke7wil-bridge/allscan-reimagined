@@ -17,7 +17,14 @@ function asr_standard_bridge_live_statuses() { return []; }
 function asr_dmr_net_live_statuses() { return []; }
 function asr_ysf_net_live_statuses() { return []; }
 function asr_next_mode_statuses() { return ['live'=>[], 'controls'=>[]]; }
-function asr_runtime_config() { return ['bridges'=>[['id'=>'zello','mode'=>'zello','cardType'=>'standard'],['id'=>'ysf','mode'=>'ysf','cardType'=>'standard']]]; }
+// Capability probing is a host boundary; keep this API test independent of
+// installed helpers, Asterisk, and the Docker broker.
+function asr_standard_link_control_available(): bool { return false; }
+function asr_runtime_config() { return ['bridges'=>[
+    ['id'=>'zello','mode'=>'zello','node'=>'1006','cardType'=>'standard','manualDisconnect'=>true],
+    ['id'=>'ysf','mode'=>'ysf','node'=>'1002','cardType'=>'standard'],
+    ['id'=>'ysf_net','mode'=>'ysf','node'=>'1999','cardType'=>'ysf_net'],
+]]; }
 function asr_display_only_bridge_link_statuses($config) { return []; }
 function asrPublicBridgeLiveStatuses($bridge, $config) { return $bridge; }
 function asrPublicBridgeControls($controls) { return $controls; }
@@ -41,6 +48,10 @@ try {
     file_put_contents($dir.'/connected-clients.json', json_encode(['zello'=>[$fresh], 'ysf'=>[['name'=>'N0YSF','last_seen_epoch'=>$now-10]], '_asr_meta'=>['zello'=>['kind'=>'recent','mode'=>'zello'],'ysf'=>['kind'=>'current','mode'=>'ysf']]]));
     $payload = asr_bridge_status_payload();
     check($payload['clientCounts']['zello'] === 0 && $payload['clientCounts']['ysf'] === 1, 'fallback talker rows counted as connected, or YSF count changed');
+    check(($payload['controls']['zello']['manualDisconnect'] ?? null) === true, 'saved Zello hold not exposed');
+    check(($payload['controls']['ysf']['manualDisconnect'] ?? null) === false, 'manual hold leaked to another Standard Bridge');
+    check(($payload['controls']['zello']['standardLinkControl'] ?? null) === false && ($payload['controls']['ysf']['standardLinkControl'] ?? null) === false, 'control advertised without host capability');
+    check(!array_key_exists('manualDisconnect', $payload['controls']['ysf_net'] ?? []), 'Standard hold exposed on Net Bridge');
     $write = function(array $rows) use ($dir,$event) { file_put_contents($dir.'/zello-talkers.json',json_encode(['recent_users'=>$rows,'tx_events'=>[$event],'last_user'=>'N0OLD','active'=>false])); };
     $write([$old,$old2]); $payload=asr_bridge_status_payload();
     check($payload['clientCounts']['zello'] === 0 && $payload['clients']['zello'] === [] && $payload['bridge']['zello']['recent_users'] === [], 'stale Zello records survived or counted');
