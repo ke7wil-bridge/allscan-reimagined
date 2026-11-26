@@ -548,7 +548,7 @@ def test_standard_link_recovery(module):
         {"id":"qa_reverse","node":"1806","cardType":"standard","fixedBridgeRecovery":True},
     ]}
     before = json.dumps(config,sort_keys=True)
-    checked = []; commands = []; linked = {"1999"}
+    checked = []; commands = []; linked = {"1999"}; transitional = set()
     def doorway(_profile, identity):
         checked.append(identity)
         if identity not in {"qa_active","qa_reverse"}: raise RuntimeError("unowned")
@@ -557,7 +557,7 @@ def test_standard_link_recovery(module):
         def run(args):
             command=tuple(args); commands.append(command)
             if command == ("rpt","localnodes"): return "Node\n1800\n1801\n1802\n1806\n1999\n"
-            if command == ("rpt","lstats","1800"): return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 ESTABLISHED\n" for n in sorted(linked))
+            if command == ("rpt","lstats","1800"): return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 {'CONNECTING' if n in transitional else 'ESTABLISHED'}\n" for n in sorted(linked))
             if command == ("rpt","cmd","1800","ilink","3","1802"): linked.add("1802"); return ""
             if command == ("rpt","cmd","1800","ilink","3","1806"): return ""
             if command == ("rpt","cmd","1806","ilink","3","1800"): linked.add("1806"); return ""
@@ -571,6 +571,10 @@ def test_standard_link_recovery(module):
     assert json.dumps(config,sort_keys=True) == before
     commands.clear()
     assert recover()["alreadyLinked"] == ["1802","1806"]
+    assert not any(cmd[:2] == ("rpt","cmd") for cmd in commands)
+    commands.clear(); transitional.add("1802")
+    pending = recover()
+    assert pending["pending"] == ["1802"] and pending["alreadyLinked"] == ["1806"]
     assert not any(cmd[:2] == ("rpt","cmd") for cmd in commands)
 
 

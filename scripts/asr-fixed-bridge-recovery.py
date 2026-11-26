@@ -393,6 +393,26 @@ def established_nodes(output: str) -> set[str]:
     return established
 
 
+def verified_link_state(output: str, node: str) -> str:
+    """Distinguish absent, established, and transitional lstats rows.
+
+    A reconnecting IAX channel is not an established connection, but it is
+    also not a verified disconnect. Never accept an unknown response as proof.
+    """
+    if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
+        raise RecoveryError("Asterisk link status could not be verified.")
+    states = []
+    for line in output.splitlines():
+        fields = line.split()
+        if fields and fields[0] == node:
+            if len(fields) < 3:
+                raise RecoveryError("Asterisk link row could not be verified.")
+            states.append(fields[-1].upper())
+    if not states:
+        return "absent"
+    return "established" if all(state == "ESTABLISHED" for state in states) else "pending"
+
+
 def autopatch_up(output: str) -> bool:
     return re.search(r"(?im)^\s*RPT_AUTOPATCHUP\s*=\s*1\s*$", output) is not None
 
@@ -682,26 +702,24 @@ def manual_link_locked(config_path: Path, rpt_path: Path, bridge_id: str, verb: 
             raise RecoveryError("Native Asterisk permanent startup link conflicts with manual disconnect. Remove or migrate that startup link first; no settings changed.")
         if node in inspection["nativeManualHoldUnknown"]:
             raise RecoveryError("Native Asterisk startup links could not be verified. Review startup macros and includes; no settings changed.")
-    def linked():
-        output = runner(["rpt", "lstats", main])
-        if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
-            raise RecoveryError("Asterisk link status could not be verified.")
-        return node in established_nodes(output)
-    current = linked()
+    def link_state():
+        return verified_link_state(runner(["rpt", "lstats", main]), node)
+    current = link_state()
     desired = verb == "connect"
+    expected = "established" if desired else "absent"
     if not desired:
         # Durable hold must precede unlink, even if Asterisk refuses the command.
         save_manual_hold(config_path, original, config, bridge, True)
-    if current != desired:
+    if current != expected:
         runner(["rpt", "cmd", main, "ilink", "3" if desired else "11", node])
         for _ in range(12):
-            if linked() == desired:
+            if link_state() == expected:
                 break
             sleeper(0.25)
         else:
             runner(["rpt", "cmd", node, "ilink", "3" if desired else "11", main])
             for _ in range(12):
-                if linked() == desired:
+                if link_state() == expected:
                     break
                 sleeper(0.25)
             else:
@@ -921,12 +939,13 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         root = Path(temporary); config_path = root / "config.json"; rpt_path = root / "rpt.conf"
         config_path.write_text(json.dumps(config)); rpt_path.write_text(rpt_text)
         linked = {"1201", "1202"}; commands = []; reject_unlink = False
+        transitional = set()
         def control_runner(arguments):
             command = tuple(arguments); commands.append(command)
             if command == ("rpt", "localnodes"):
                 return "Local nodes: 600000 1201 1202 1203 1204 1205\n"
             if command == ("rpt", "lstats", "600000"):
-                return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 ESTABLISHED\n" for n in sorted(linked))
+                return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 {'CONNECTING' if n in transitional else 'ESTABLISHED'}\n" for n in sorted(linked))
             if command[:3] == ("rpt", "cmd", "600000") and command[3:] == ("ilink", "11", "1202"):
                 assert read_json_object(config_path)["bridges"][1]["manualDisconnect"] is True
                 if not reject_unlink: linked.discard("1202")
@@ -964,6 +983,18 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
         assert manual_link(config_path, rpt_path, "ysf", "connect", control_runner, lambda _: None)["linked"] is True
         assert load_plan(config_path, rpt_path)["manualHeldNodes"] == []
+        # A pending IAX row must be actively removed, not mistaken for an
+        # already disconnected bridge. A failed pending unlink retains hold.
+        transitional.add("1202")
+        assert verified_link_state(control_runner(["rpt", "lstats", "600000"]), "1202") == "pending"
+        reject_unlink = True
+        rejected("ysf", "Manual hold is retained")
+        assert "1202" in linked and load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
+        reject_unlink = False
+        assert manual_link(config_path, rpt_path, "ysf", "disconnect", control_runner, lambda _: None)["linked"] is False
+        assert "1202" not in linked
+        transitional.clear()
+        assert manual_link(config_path, rpt_path, "ysf", "connect", control_runner, lambda _: None)["linked"] is True
         def concurrent_writer(arguments):
             result = control_runner(arguments)
             if tuple(arguments) == ("rpt", "cmd", "600000", "ilink", "11", "1202"):

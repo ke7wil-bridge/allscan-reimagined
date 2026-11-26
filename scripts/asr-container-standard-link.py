@@ -79,7 +79,7 @@ def recover_owned_links(profile, config, quiesced, *, doorway=owned_doorway,
     """
     main_node, targets, _ = recovery.configured_targets(config, quiesced)
     report = {"checked": 0, "reconnected": [], "alreadyLinked": [],
-              "unavailable": [], "failed": [], "manualHeldNodes": sorted(recovery.manually_held_nodes(config))}
+              "pending": [], "unavailable": [], "failed": [], "manualHeldNodes": sorted(recovery.manually_held_nodes(config))}
     for target in targets:
         identity, node = target["id"], target["node"]
         if node == "1999":
@@ -93,19 +93,20 @@ def recover_owned_links(profile, config, quiesced, *, doorway=owned_doorway,
             if not {main_node, node} <= local:
                 report["unavailable"].append(node)
                 continue
-            def linked():
-                output = runner(["rpt", "lstats", main_node])
-                if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
-                    raise RuntimeError("Asterisk link status unavailable")
-                return node in recovery.established_nodes(output)
+            def link_state():
+                return recovery.verified_link_state(runner(["rpt", "lstats", main_node]), node)
             report["checked"] += 1
-            if linked():
+            state = link_state()
+            if state == "established":
                 report["alreadyLinked"].append(node)
+                continue
+            if state == "pending":
+                report["pending"].append(node)
                 continue
             for source, destination in ((main_node, node), (node, main_node)):
                 runner(["rpt", "cmd", source, "ilink", "3", destination])
                 for _ in range(6):
-                    if linked():
+                    if link_state() == "established":
                         break
                     sleeper(0.25)
                 else:
@@ -138,18 +139,18 @@ def main():
         backend.validate_active_profile(profile)
         config = profile.asr_config / 'config.json'
         rpt = profile.asterisk_config / 'rpt.conf'
-        with recovery.recovery_lock():
-            if sys.argv[1:] == ['--plan-json']:
+        if sys.argv[1:] == ['--plan-json']:
+            with recovery.recovery_lock():
                 asterisk.safe_root_json(config, profile.client_uid, profile.client_gid)
                 result = recovery.inspect_native_holds(recovery.read_json_object(config), rpt)
-            elif len(sys.argv) == 4 and sys.argv[1] == '--manual-link' and sys.argv[2] in {'connect', 'disconnect'}:
-                verb, identity = sys.argv[2:]
-                with recovery.config_writer_guard():
-                    main_node, node = owned_doorway(profile, identity)
-                    result = recovery.manual_link(config, rpt, identity, verb,
-                                                  runner=container_runner(profile, identity, main_node, node))
-            else:
-                raise RuntimeError('Invalid host Standard Bridge request.')
+        elif len(sys.argv) == 4 and sys.argv[1] == '--manual-link' and sys.argv[2] in {'connect', 'disconnect'}:
+            verb, identity = sys.argv[2:]
+            with recovery.config_writer_guard(), recovery.recovery_lock():
+                main_node, node = owned_doorway(profile, identity)
+                result = recovery.manual_link(config, rpt, identity, verb,
+                                              runner=container_runner(profile, identity, main_node, node))
+        else:
+            raise RuntimeError('Invalid host Standard Bridge request.')
         print(json.dumps(result)); return 0
     except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         print(json.dumps({'ok': False, 'error': str(exc)[:240]})); return 1
