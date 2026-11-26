@@ -31,7 +31,8 @@ HOST_FILES = (
     "asr-provisioning-backend.py", "asr-container-host-broker.py",
     "asr-container-updater.py", "asr-updater.py",
     "asr-container-netns-exec.py", "asr-container-systemctl.py",
-    "asr-container-asterisk.py", "asr-container-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
+    "asr-container-asterisk.py", "asr-container-bridge-recovery.py",
+    "asr-container-standard-link.py", "asr-fixed-bridge-recovery.py", "asr-node-diagnostics.py", "asr-bridge-setup-core.py",
     "asr-m17-hosts-update.py",
     "asr-bridge-setup-m17.py", "asr-bridge-setup-helper.py",
     "asr-bridge-runtime-sources.py", "asr-bridge-setup-digital.py",
@@ -497,7 +498,9 @@ def install(profile, *, preserve_bridge_runtime: bool = False) -> None:
         for mode in ("ysf", "p25", "nxdn")
     )
     atomic(SOCKET_TMPFILES,
-           f"d /run/allscan-reimagined-host 0750 root {group} -\n" + runtime_directories,
+           f"d /run/allscan-reimagined-host 0750 root {group} -\n"
+           "d /run/lock/allscan-reimagined-fixed-bridge 0755 root root -\n"
+           "f /run/lock/allscan-reimagined-fixed-bridge/recovery.lock 0644 root root -\n" + runtime_directories,
            0o644)
     subprocess.run(["systemd-tmpfiles", "--create", str(SOCKET_TMPFILES)], check=True)
     atomic(SOCKET_UNIT, f"""[Unit]

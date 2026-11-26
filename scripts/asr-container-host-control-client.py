@@ -21,6 +21,7 @@ NAMES = {
     "allscan-reimagined-nxdn-bridge-control": "nxdn",
     "allscan-reimagined-m17-bridge-control": "m17",
     "allscan-reimagined-net-bridge-mode-control": "net-mode",
+    "allscan-reimagined-fixed-bridge-recovery": "standard-link",
 }
 
 

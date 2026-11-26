@@ -25,6 +25,14 @@ def backend():
     return module
 
 
+def recover_standard_links(profile) -> dict:
+    spec = importlib.util.spec_from_file_location("asr_container_timer_standard_link", HERE / "asr-container-standard-link.py")
+    if not spec or not spec.loader:
+        raise RuntimeError("Standard Bridge recovery module unavailable")
+    module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    return module.recover_periodic(profile)
+
+
 def expected_units(record: dict) -> list[str]:
     bridge_id = record.get("bridgeId")
     bridge_type = record.get("bridgeType")
@@ -139,9 +147,18 @@ def main() -> int:
         for unit in recovery_units(profile):
             subprocess.run(["/usr/bin/systemctl", "try-restart", unit], check=True)
     atomic_json(STATE, current)
+    # Explicit host installation/reapply may already own the update lock.
+    # The ordinary timer handles links after that transaction completes.
+    standard = {"deferred": "explicit host reapply"}
+    if not args.restart_owned:
+        try:
+            standard = recover_standard_links(profile)
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            standard = {"deferred": str(exc)[:240]}
     print(json.dumps({"ok": True, "changed": changed,
                       "explicitRestart": args.restart_owned,
-                      "ownedUnits": owned_units(), "recoveryUnits": recovery_units(profile)}))
+                      "ownedUnits": owned_units(), "recoveryUnits": recovery_units(profile),
+                      "standardLinkRecovery": standard}))
     return 0
 
 

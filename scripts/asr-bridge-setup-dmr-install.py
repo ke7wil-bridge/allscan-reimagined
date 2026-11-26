@@ -170,6 +170,12 @@ def integration_files(root: Path, plan: dict, outputs: dict[str, tuple[bytes, in
     if len(matches) > 1:
         raise InstallError("duplicate DMR bridge identity")
     if matches:
+        previous = bridges[matches[0]]
+        if (not net and previous.get("cardType", "standard") == "standard"
+                and str(previous.get("node", "")) == str(entry.get("node", ""))):
+            for key in ("fixedBridgeRecovery", "manualDisconnect"):
+                if isinstance(previous.get(key), bool):
+                    entry[key] = previous[key]
         bridges[matches[0]] = entry
     else:
         bridges.append(entry)

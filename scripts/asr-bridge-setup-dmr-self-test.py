@@ -119,12 +119,17 @@ with tempfile.TemporaryDirectory(prefix="asr-direct-dmr-test-") as temporary:
     assert "DMR_EVIDENCE_FILE" in run_script
     admin_unit = (root / "etc/systemd/system/asr-dmr-admin-dmr_johnny2.service").read_text()
     assert "Group=asr-bridge" in admin_unit
+    bridge["manualDisconnect"] = True
+    bridge["fixedBridgeRecovery"] = False
+    (root / install.planner.CONFIG.lstrip("/")).write_text(json.dumps(config))
     changed = install.planner.DmrSettings(**{**settings.__dict__, "dmr_to_asl_gain_db": 3.0})
     edit_plan = install.planner.plan(root, changed)
     edited = install.install(root, changed, stage, "replacement-key", expected_digest=edit_plan["digest"])
     assert edited["changedFiles"] > 0
     updated_config = json.loads((root / install.planner.CONFIG.lstrip("/")).read_text())
     assert updated_config["bridges"][0]["dmrToAslGainDb"] == 3.0
+    assert updated_config["bridges"][0]["manualDisconnect"] is True
+    assert updated_config["bridges"][0]["fixedBridgeRecovery"] is False
     assert updated_config["bridges"][0]["aslToDmrGainDb"] == -4.0
     secret = root / "opt/allscan-reimagined-bridges/dmr_johnny2/secrets/master-password"
     assert secret.read_text() == "replacement-key\n"

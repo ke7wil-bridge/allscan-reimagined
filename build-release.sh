@@ -128,6 +128,7 @@ python3 "$ROOT/scripts/asr-installer-rollback-self-test.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-control.py" --self-test
 python3 "$ROOT/scripts/asr-net-bridge-mode-control-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-endpoint-collisions-self-test.py"
+python3 "$ROOT/scripts/asr-standard-node-reservation-self-test.py"
 python3 "$ROOT/scripts/asr-net-bridge-mode-self-test.py"
 python3 "$ROOT/scripts/asr-net-bridge-plumbing-acceptance.py" --self-test
 python3 "$ROOT/scripts/asr-bridge-setup-helper-self-test.py"
@@ -195,6 +196,7 @@ python3 "$ROOT/scripts/asr-bridge-ui-regression-self-test.py"
 python3 "$ROOT/scripts/asr-dashboard-auth-gate-self-test.py"
 python3 "$ROOT/scripts/asr-post-reboot-health-self-test.py"
 python3 "$ROOT/qa/disposable-node/asr-qa-gate-self-test.py"
+python3 "$ROOT/qa/issue130/qualify.py" --self-test
 bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"
@@ -312,7 +314,7 @@ install -m 755 scripts/asr-managed-dmr-net-control.py "$STAGE/payload/scripts/as
 for setup_script in asr-bridge-endpoint-collisions.py asr-bridge-setup-core.py asr-m17-hosts-update.py asr-bridge-setup-m17.py asr-bridge-setup-helper.py asr-provisioning-backend.py asr-bridge-runtime-sources.py asr-bridge-setup-digital.py asr-bridge-setup-digital-render.py asr-bridge-setup-digital-install.py asr-bridge-setup-dmr.py asr-bridge-setup-dmr-render.py asr-bridge-setup-dmr-install.py asr-bridge-setup-dmr-self-test.py asr-bridge-setup-dmr-net-self-test.py asr-dmr-standalone-admin-adapter.py asr-bridge-setup-zello.py asr-bridge-setup-zello-install.py; do
   install -m 755 "scripts/$setup_script" "$STAGE/payload/scripts/$setup_script"
 done
-for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-update-client.py asr-container-updater.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
+for container_script in asr-provisioning-detect.py asr-container-host-client.py asr-container-host-control-client.py asr-container-update-client.py asr-container-updater.py asr-container-host-broker.py asr-container-host-install.py asr-container-netns-exec.py asr-container-systemctl.py asr-container-asterisk.py asr-container-bridge-recovery.py asr-container-standard-link.py asr-net-bridge-mode-control.py asr_bridge_status.py; do
   install -m 755 "scripts/$container_script" "$STAGE/payload/scripts/$container_script"
 done
 install -m 755 scripts/asr-container-provisioning-self-test.py "$STAGE/payload/scripts/asr-container-provisioning-self-test.py"

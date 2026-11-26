@@ -96,6 +96,9 @@ def main() -> None:
             previous["fixedBridgeRecovery"] = old
         updated = m17.update_config({"bridges": [previous]}, dict(entry))
         assert updated["bridges"][0]["fixedBridgeRecovery"] is expected
+    held = {"id": "m17_test", "mode": "m17", "node": "1006", "manualDisconnect": True}
+    assert m17.update_config({"bridges": [held]}, dict(entry))["bridges"][0]["manualDisconnect"] is True
+    assert "manualDisconnect" not in m17.update_config({"bridges": [{**held, "node": "1007"}]}, dict(entry))["bridges"][0]
     net_entry_for_update = m17.bridge_entry(
         m17.M17Settings(**{**settings.__dict__, "card_type": "m17_net"}),
         1999, (17000, 52000, 52001),

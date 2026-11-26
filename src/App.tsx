@@ -56,6 +56,7 @@ import {
   provisionedNetBridgeModes,
   restartAsteriskCommand,
   repairStandardBridge,
+  setStandardBridgeLink,
   saveCustomCommands,
   summarizeConnectionTotal,
   connectBridge,
@@ -2635,6 +2636,26 @@ function App({ config }: { config: RuntimeConfig }) {
     permanentLink = permanent,
   ) {
     if (!authStatus.canModify) return
+    // A configured Standard doorway must use its dedicated persistent link
+    // control rather than a generic node command from Favorites or shortcuts.
+    if (action === 'connect' || action === 'disconnect') {
+      const configured = config.bridges.filter((bridge) => bridge.node === node && (bridge.cardType ?? 'standard') === 'standard')
+      if (configured.length) {
+        const card = configured.length === 1 ? bridgeState.cards.find((item) => item.id === configured[0].id) : undefined
+        if (card?.standardLinkControl) {
+          await controlStandardLink(card, action)
+          return
+        }
+        if (configured.length !== 1 || configured.some((bridge) => bridge.manualDisconnect) || card?.manualDisconnect) {
+          appendNodeMessage('Use the dedicated Standard Bridge link control to change a saved manual disconnect.')
+          return
+        }
+        if (action === 'disconnect') {
+          appendNodeMessage('Persistent manual disconnect is unavailable for this Standard Bridge. Review Bridge Diagnostics.')
+          return
+        }
+      }
+    }
     if (action === 'dropclient') {
       setDropClientOpen(true)
       void loadDropClients()
@@ -2756,6 +2777,21 @@ function App({ config }: { config: RuntimeConfig }) {
     if (bridgeControlBusyRef.current !== owner) return
     bridgeControlBusyRef.current = ''
     setBridgeControlBusy('')
+  }
+
+  async function controlStandardLink(card: BridgeCardView, verb: 'connect' | 'disconnect') {
+    const owner = `standard-link-${card.id}`
+    if (!authStatus.canModify || !card.standardLinkControl || !beginBridgeControl(owner)) return
+    try {
+      const result = await setStandardBridgeLink(card.id, verb)
+      appendNodeMessage(result.message)
+    } catch (error) {
+      appendNodeMessage(error instanceof Error ? error.message : 'Standard Bridge link control failed.')
+    } finally {
+      try { setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000)))) }
+      catch { /* Regular polling will refresh status. */ }
+      endBridgeControl(owner)
+    }
   }
 
   async function repairBridge(card: BridgeCardView) {
@@ -4352,7 +4388,21 @@ function App({ config }: { config: RuntimeConfig }) {
                     ) : null}
                   </div>
 
-                  {standardLinkMissing && authStatus.canModify ? (
+                  {card.cardType === 'standard' && card.standardLinkControl && authStatus.canModify && connectionFeedReady ? (
+                    <div className="allscan-bridge-row allscan-bridge-status-row">
+                      <span>AllStar link · Node {card.node}</span>
+                      <b>{card.manualDisconnect ? (bridgeLinked ? 'Hold conflict · linked' : 'Manually disconnected') : (bridgeLinked ? 'Linked' : 'Not linked')}</b>
+                      <button type="button" className="allscan-action-button" disabled={busy || Boolean(bridgeControlBusy)}
+                        onClick={() => void controlStandardLink(card, bridgeLinked ? 'disconnect' : 'connect')}>
+                        {bridgeControlBusy === `standard-link-${card.id}` ? 'Working…' : bridgeLinked ? 'Disconnect' : 'Reconnect'}
+                      </button>
+                    </div>
+                  ) : standardLinkMissing && card.manualDisconnect ? (
+                    <div className="allscan-bridge-row allscan-bridge-status-row">
+                      <span>AllStar link · Node {card.node}</span>
+                      <b>Manually disconnected · control unavailable</b>
+                    </div>
+                  ) : standardLinkMissing && authStatus.canModify ? (
                     <div className="allscan-bridge-row allscan-bridge-status-row">
                       <span>AllStar link · Node {card.node}</span>
                       <b>Not linked</b>

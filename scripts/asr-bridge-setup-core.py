@@ -189,10 +189,10 @@ class ASL3Adapter(PlatformAdapter):
         )
 
 
-def allocate_node(existing: Iterable[int], start: int = 1001, end: int = 1999) -> int:
+def allocate_node(existing: Iterable[int], start: int = 1001, end: int = 1998) -> int:
     used = set(existing)
     for candidate in range(start, end + 1):
-        if candidate not in used:
+        if candidate != 1999 and candidate not in used:
             return candidate
     raise ProvisioningError(f"no free node in {start}-{end}")
 

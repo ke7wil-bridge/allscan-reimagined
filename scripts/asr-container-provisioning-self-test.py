@@ -306,6 +306,9 @@ def test_broker(broker) -> None:
         ("m17", ["--bridge", "qa_m17", "qualification-complete"]),
         ("m17", ["--bridge", "qa_m17", "qualification-cancel"]),
         ("net-mode", ["--mode", "dmr"]),
+        ("standard-link", ["--manual-link", "disconnect", "qa_p25"]),
+        ("standard-link", ["--manual-link", "connect", "qa_m17"]),
+        ("standard-link", ["--plan-json"]),
     )
     for program, args in valid_controls:
         if program == "ysf" and args[0] == "--import-hosts":
@@ -362,6 +365,12 @@ def test_broker(broker) -> None:
     rejected(broker.read_request, io.BytesIO(b"x" * (broker.MAX_REQUEST + 1)))
     for program, args in (
         ("asterisk-read", ["-rx", "rpt lstats 641890; id"]),
+        ("standard-link", ["--manual-link", "disconnect", "../qa"]),
+        ("standard-link", ["--manual-link", "disconnect", "qa;id"]),
+        ("standard-link", ["--manual-link", "restart", "qa_p25"]),
+        ("standard-link", ["--manual-link", "connect", "qa_p25", "--config", "/tmp/file"]),
+        ("standard-link", ["--once"]),
+        ("standard-link", ["--plan-json", "--rpt-config", "/tmp/file"]),
         ("asterisk-read", ["-rx", "echolink show nodes"]),
         ("asterisk-read", ["-rx", "echolink show nodes; id"]),
         ("managed-dmr", ["--bridge", "qa_dmr;id", "--status"]),
@@ -470,6 +479,103 @@ def test_asterisk_adapter(adapter) -> None:
     reader = (HERE / "asr-asterisk-read.sh").read_text(encoding="utf-8")
     assert 'run_asterisk -rx "echolink show nodes"' not in reader
     assert 'Unsafe EchoLink CLI operation is still enabled.' in reader
+
+
+def test_standard_link(module):
+    profile = SimpleNamespace(asr_config=Path("/state/asr"), client_uid=33, client_gid=33,
+                              asterisk_container="asterisk-fixture")
+    installations = Path("/state/installations")
+    bridge = {"id": "qa_p25", "node": "1001", "mode": "p25", "cardType": "standard"}
+    record = {"bridgeId": "qa_p25", "bridgeNode": 1001, "bridgeType": "p25"}
+    config = {"node": "123456", "bridges": [bridge]}
+    def loader(path, *args):
+        if path == profile.asr_config / "config.json": return config
+        if path == installations / "qa_p25.json": return record
+        raise RuntimeError("Missing owned installation")
+    original_owned = module.owned_doorway
+    def doorway(*args): return original_owned(*args, loader=loader, installations=installations)
+    assert doorway(profile, "qa_p25") == ("123456", "1001")
+    rejected(doorway, profile, "../qa")
+    rejected(doorway, profile, "unowned")
+    for field, bad in (("cardType", "p25_net"), ("node", "1999"), ("mode", "ysf")):
+        previous = bridge[field]; bridge[field] = bad
+        rejected(doorway, profile, "qa_p25")
+        bridge[field] = previous
+    config["bridges"].append({**bridge, "id": "other"})
+    rejected(doorway, profile, "qa_p25")
+    config["bridges"].pop()
+    record["bridgeNode"] = 1002
+    rejected(doorway, profile, "qa_p25")
+    record["bridgeNode"] = 1001
+    record["role"] = "net"
+    rejected(doorway, profile, "qa_p25")
+    record.pop("role")
+    original_authorize = module.asterisk.authorize_command
+    calls = []
+    def execute(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "fixture", "")
+    try:
+        module.owned_doorway = doorway
+        module.asterisk.authorize_command = lambda command, profile: original_authorize(command, profile, lambda p: loader(p), installations)
+        run = module.container_runner(profile, "qa_p25", "123456", "1001", execute)
+        for command in (("rpt", "localnodes"), ("rpt", "lstats", "123456"),
+                        ("rpt", "cmd", "123456", "ilink", "11", "1001"),
+                        ("rpt", "cmd", "1001", "ilink", "3", "123456")):
+            assert run(command) == "fixture"
+        assert all(c[:5] == ["/usr/bin/docker", "exec", "asterisk-fixture", "/usr/sbin/asterisk", "-rx"] for c in calls)
+        for bad in (("core", "reload"), ("rpt", "cmd", "123456", "ilink", "3", "1999"),
+                    ("rpt", "lstats", "999999"), ("rpt", "cmd", "123456", "ilink", "3", "1001;id")):
+            rejected(run, bad)
+        record["bridgeNode"] = 1002
+        rejected(run, ("rpt", "localnodes"))
+        assert len(calls) == 4
+    finally:
+        module.owned_doorway = original_owned
+        module.asterisk.authorize_command = original_authorize
+
+
+def test_standard_link_recovery(module):
+    profile = SimpleNamespace()
+    config = {"node":"1800", "requiredAllStarLinks":["555555"], "bridges":[
+        {"id":"qa_held","node":"1801","cardType":"standard","fixedBridgeRecovery":True,"manualDisconnect":True},
+        {"id":"qa_active","node":"1802","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_net","node":"1999","cardType":"m17_net","fixedBridgeRecovery":True},
+        {"id":"qa_legacy","node":"1999","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_optout","node":"1803","cardType":"standard","fixedBridgeRecovery":False},
+        {"id":"qa_quiesced","node":"1804","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_unowned","node":"1805","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_reverse","node":"1806","cardType":"standard","fixedBridgeRecovery":True},
+    ]}
+    before = json.dumps(config,sort_keys=True)
+    checked = []; commands = []; linked = {"1999"}; transitional = set()
+    def doorway(_profile, identity):
+        checked.append(identity)
+        if identity not in {"qa_active","qa_reverse"}: raise RuntimeError("unowned")
+        return "1800", "1802" if identity == "qa_active" else "1806"
+    def runner_factory(_profile, identity, main, node):
+        def run(args):
+            command=tuple(args); commands.append(command)
+            if command == ("rpt","localnodes"): return "Node\n1800\n1801\n1802\n1806\n1999\n"
+            if command == ("rpt","lstats","1800"): return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 {'CONNECTING' if n in transitional else 'ESTABLISHED'}\n" for n in sorted(linked))
+            if command == ("rpt","cmd","1800","ilink","3","1802"): linked.add("1802"); return ""
+            if command == ("rpt","cmd","1800","ilink","3","1806"): return ""
+            if command == ("rpt","cmd","1806","ilink","3","1800"): linked.add("1806"); return ""
+            raise AssertionError(command)
+        return run
+    def recover(): return module.recover_owned_links(profile, config, {"1804"}, doorway=doorway, runner_factory=runner_factory, sleeper=lambda _:None)
+    result=recover()
+    assert result["reconnected"] == ["1802","1806"] and result["failed"] == ["1805"]
+    assert result["manualHeldNodes"] == ["1801"] and result["unavailable"] == ["1999"]
+    assert checked == ["qa_active","qa_unowned","qa_reverse"] and linked == {"1802","1806","1999"}
+    assert json.dumps(config,sort_keys=True) == before
+    commands.clear()
+    assert recover()["alreadyLinked"] == ["1802","1806"]
+    assert not any(cmd[:2] == ("rpt","cmd") for cmd in commands)
+    commands.clear(); transitional.add("1802")
+    pending = recover()
+    assert pending["pending"] == ["1802"] and pending["alreadyLinked"] == ["1806"]
+    assert not any(cmd[:2] == ("rpt","cmd") for cmd in commands)
 
 
 def test_payload_validators(digital, dmr_planner) -> None:
@@ -1202,6 +1308,11 @@ def main() -> int:
     test_active_profile(backend)
     test_broker(broker)
     test_asterisk_adapter(asterisk)
+    standard_link = load("asr_container_test_standard_link", "asr-container-standard-link.py")
+    test_standard_link(standard_link)
+    test_standard_link_recovery(standard_link)
+    assert control_client.NAMES["allscan-reimagined-fixed-bridge-recovery"] == "standard-link"
+    assert {"asr-container-standard-link.py", "asr-fixed-bridge-recovery.py"} <= set(host_installer.HOST_FILES)
     test_payload_validators(digital, dmr_planner)
     test_mqtt_secrets_metadata_migration(host_installer)
     test_mosquitto_credential_metadata_migration(host_installer)

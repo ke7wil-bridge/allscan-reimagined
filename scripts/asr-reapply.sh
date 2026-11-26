@@ -529,6 +529,8 @@ if [ -e "$MQTT_SECRETS_FILE" ] || [ -L "$MQTT_SECRETS_FILE" ]; then
 fi
 cat > /etc/tmpfiles.d/allscan-reimagined.conf <<EOF
 d /run/allscan-reimagined 1775 root $WEB_GROUP -
+d /run/lock/allscan-reimagined-fixed-bridge 0755 root root -
+f /run/lock/allscan-reimagined-fixed-bridge/recovery.lock 0644 root root -
 d /run/allscan-reimagined/release-check 0750 root $WEB_GROUP -
 d /run/allscan-reimagined/rollback-jobs 0700 root root -
 d /run/allscan-reimagined-standard-bridge-status 0755 root root -
@@ -1375,6 +1377,8 @@ $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --rec
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --status-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-updater --diagnostic-json [0-9]*
 $WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-standard-bridge-repair [a-z]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --manual-link connect [a-z]*
+$WEB_GROUP ALL=(root) NOPASSWD: /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --manual-link disconnect [a-z]*
 EOF
 chmod 440 /etc/sudoers.d/allscan-reimagined
 visudo -cf /etc/sudoers.d/allscan-reimagined >/dev/null

@@ -105,11 +105,13 @@ if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
     allscan-reimagined-p25-bridge-control \
     allscan-reimagined-nxdn-bridge-control \
     allscan-reimagined-m17-bridge-control \
-    allscan-reimagined-net-bridge-mode-control; do
+    allscan-reimagined-net-bridge-mode-control \
+    allscan-reimagined-fixed-bridge-recovery; do
     install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-control-client.py" \
       "/usr/local/sbin/$control_helper"
   done
 else
+  rm -f /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery
   rm -f /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py \
     /usr/local/libexec/allscan-reimagined/asr-provisioning-detect.py \
     /usr/local/libexec/allscan-reimagined/asr-container-host-control-client.py

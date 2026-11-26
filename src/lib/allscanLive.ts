@@ -195,6 +195,8 @@ export type BridgeCardView = {
   controlLinked: boolean
   digitalLinked: boolean
   allstarLinked: boolean
+  manualDisconnect?: boolean
+  standardLinkControl?: boolean
   detailTitle: string
   detailRows: BridgeDetailItem[]
   detailCount: number
@@ -645,6 +647,8 @@ type BridgeControlResponse = Record<string, {
   ready?: boolean
   digitalLinked?: boolean
   allstarLinked?: boolean
+  manualDisconnect?: boolean
+  standardLinkControl?: boolean
   abinfoAvailable?: boolean
 }>
 
@@ -1807,6 +1811,8 @@ export async function fetchBridgeCards(
       controlLinked: control.linked === true,
       digitalLinked: control.digitalLinked === true,
       allstarLinked: control.allstarLinked === true,
+      manualDisconnect: control.manualDisconnect ?? bridgeConfig.manualDisconnect,
+      standardLinkControl: control.standardLinkControl === true,
       detailTitle,
       detailRows: formatBridgeDetailRows(
         detailRows,
@@ -1868,6 +1874,17 @@ export async function fetchBridgeCards(
     : '--:--:--'
 
   return { updatedLabel, cards }
+}
+
+export async function setStandardBridgeLink(bridgeId: string, verb: 'connect' | 'disconnect'): Promise<{ message: string }> {
+  const response = await fetch(`${ASR_API}?action=standard-bridge-link`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-ASR-Requested-With': 'asr-standard-link' },
+    body: new URLSearchParams({ bridgeId, verb }).toString(),
+  })
+  const payload = await response.json() as { ok?: boolean; message?: string; error?: string }
+  if (!response.ok || payload.ok !== true) throw new Error(payload.error || 'Standard Bridge link control failed.')
+  return { message: payload.message || 'Bridge link updated.' }
 }
 
 export async function repairStandardBridge(bridgeId: string): Promise<{ ok: boolean; message: string }> {
