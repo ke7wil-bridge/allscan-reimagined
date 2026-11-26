@@ -4389,8 +4389,8 @@ function App({ config }: { config: RuntimeConfig }) {
                   </div>
 
                   {card.cardType === 'standard' && card.standardLinkControl && authStatus.canModify && connectionFeedReady ? (
-                    <div className="allscan-bridge-row allscan-bridge-status-row">
-                      <span>AllStar link · Node {card.node}</span>
+                    <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
+                      <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <b>{card.manualDisconnect ? (bridgeLinked ? 'Hold conflict · linked' : 'Manually disconnected') : (bridgeLinked ? 'Linked' : 'Not linked')}</b>
                       <button type="button" className="allscan-action-button" disabled={busy || Boolean(bridgeControlBusy)}
                         onClick={() => void controlStandardLink(card, bridgeLinked ? 'disconnect' : 'connect')}>
@@ -4398,13 +4398,13 @@ function App({ config }: { config: RuntimeConfig }) {
                       </button>
                     </div>
                   ) : standardLinkMissing && card.manualDisconnect ? (
-                    <div className="allscan-bridge-row allscan-bridge-status-row">
-                      <span>AllStar link · Node {card.node}</span>
+                    <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
+                      <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <b>Manually disconnected · control unavailable</b>
                     </div>
                   ) : standardLinkMissing && authStatus.canModify ? (
-                    <div className="allscan-bridge-row allscan-bridge-status-row">
-                      <span>AllStar link · Node {card.node}</span>
+                    <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
+                      <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <b>Not linked</b>
                       <button type="button" className="allscan-action-button" disabled={busy}
                         title={`Reconnect ${card.title} using AllStar node ${card.node}`}

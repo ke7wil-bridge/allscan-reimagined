@@ -663,3 +663,36 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
   .asr-update-versions { margin: 10px 0; }
   .asr-update-dialog footer { margin-top: 12px; }
 }
+
+/* #307: independent Standard Bridge link controls only. */
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-bridge-body .allscan-standard-link-row > span:first-child {
+  width: auto;
+  white-space: nowrap;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-bridge-body .allscan-standard-link-row > b {
+  position: static !important;
+  width: auto !important;
+  transform: none !important;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.allscan-bridge-grid .allscan-standard-link-row > button {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  max-width: 100%;
+  min-height: 32px;
+  font-size: 12px;
+}
+@media (pointer: coarse) {
+  .allscan-bridge-grid .allscan-standard-link-row > button { min-height: 44px; }
+}

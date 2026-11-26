@@ -106,6 +106,27 @@ async function runBrowser(unauthorized = false) {
     const p25Link = standardCard('P25').locator('.allscan-bridge-status-row')
     const closeUpdate = page.getByRole('button',{name:'Close Update ASR'})
     if (await closeUpdate.count()) await closeUpdate.click()
+    // #307: check the actual control geometry under each supported theme.
+    for (const [theme,mode] of [['standard','dark'],['standard','light'],['deep-ocean-animated','dark'],['matrix','dark'],['lcars-frame','dark']]) {
+      for (const width of [1920,1440,1024,768,390,320]) {
+        if (theme === 'lcars-frame' && width < 1200) continue
+        await page.setViewportSize({width,height:1000})
+        await page.evaluate(([theme,mode]) => {
+          for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme=theme; el.dataset.asrMode=mode }
+        },[theme,mode])
+        await delay(150)
+        const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
+        const geometry = await row.evaluate(el => {
+          const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()
+          return {height:r.height, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height}
+        })
+        assert(geometry.fits && geometry.buttonHeight>=30, `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
+        if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
+      }
+    }
+    await page.setViewportSize({width:1440,height:1000})
+    await page.evaluate(() => { for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme='standard'; el.dataset.asrMode='dark' } })
     await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
     await dmrLink.getByText('Manually disconnected',{exact:true}).waitFor()
     assert(await ysfLink.getByText('Linked',{exact:true}).isVisible(), 'DMR hold changed an unrelated YSF bridge')
