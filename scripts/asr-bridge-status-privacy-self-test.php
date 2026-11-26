@@ -48,4 +48,14 @@ assertPrivacy(
 );
 assertPrivacy(($live['ysf_net']['warning'] ?? 'unexpected') === '', 'empty Net Bridge warning was not normalized');
 
+if (is_file(__DIR__ . '/../asr-api.php')) {
+$api = file_get_contents(__DIR__ . '/../asr-api.php');
+$start = strpos($api, "if (\$action === 'standard-bridge-link') {");
+$end = strpos($api, "if (\$action === 'standard-bridge-repair') {", $start);
+assertPrivacy($start !== false && $end !== false, 'standard link action missing');
+$route = substr($api, $start, $end - $start);
+foreach (['asr_require_post()', 'asr_require_same_origin()', 'asr_require_modify()', 'asr-standard-link', 'escapeshellarg($verb)', 'escapeshellarg($bridgeId)'] as $guard) {
+    assertPrivacy(str_contains($route, $guard), 'standard link action missing guard: ' . $guard);
+}
+}
 echo "ASR bridge-status privacy self-test: ok\n";

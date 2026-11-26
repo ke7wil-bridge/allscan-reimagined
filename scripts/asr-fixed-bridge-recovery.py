@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
+import stat
+from contextlib import contextmanager
 import json
 import os
 import pwd
@@ -20,6 +23,7 @@ DEFAULT_CONFIG = Path("/etc/allscan-reimagined/config.json")
 DEFAULT_RPT_CONFIG = Path("/etc/asterisk/rpt.conf")
 MIGRATION_QUIESCE_STATE = Path("/var/lib/allscan-reimagined/bridge-setup/migration-quiesced.json")
 DEFAULT_STATE = Path("/run/allscan-reimagined-fixed-bridge-recovery/state.json")
+RECOVERY_LOCK = Path("/run/lock/allscan-reimagined-fixed-bridge/recovery.lock")
 ASTERISK = Path("/usr/sbin/asterisk")
 RUNUSER = Path("/usr/sbin/runuser")
 NODE_RE = re.compile(r"^[0-9]{3,10}$")
@@ -160,7 +164,8 @@ def recovery_plan(config: dict, rpt_text: str, quiesced_nodes: set[str] | None =
     # A native Asterisk permanent link can defeat a manual hold even when
     # ASR's fallback timer is suppressed. Report it; never rewrite rpt.conf.
     held_nodes = manually_held_nodes(config)
-    native_conflicts = sorted(held_nodes & native)
+    native_conflicts = sorted(node for node in held_nodes if node in native
+                              or main_node in native_permanent_nodes(rpt_text, node))
     fallback = [target for target in targets if target["node"] not in native]
     required_fallback = [target for target in required_links if target["node"] not in native]
     return {
@@ -363,6 +368,113 @@ def recover_once(plan: dict, runner: Callable[[Iterable[str]], str] = run_asteri
     }
 
 
+@contextmanager
+def recovery_lock(path: Path = RECOVERY_LOCK):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o022:
+            raise RecoveryError("Unsafe recovery lock.")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def read_control_config(path: Path) -> tuple[bytes, os.stat_result]:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o002:
+            raise RecoveryError("Unsafe ASR configuration file.")
+        content = handle.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise RecoveryError("ASR configuration exceeds size limit.")
+        return content, info
+
+
+def save_manual_hold(path: Path, original: bytes, config: dict, bridge: dict, held: bool) -> None:
+    # The config directory is shared with Settings. Never follow a substituted
+    # symlink or overwrite a configuration that changed during the operation.
+    content, info = read_control_config(path)
+    if content != original:
+        raise RecoveryError("Settings changed during bridge control; retry.")
+    bridge["manualDisconnect"] = held
+    descriptor, temporary = tempfile.mkstemp(prefix=".manual-hold.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write((json.dumps(config, indent=2, sort_keys=True) + "\n").encode())
+            os.fchmod(handle.fileno(), stat.S_IMODE(info.st_mode))
+            if os.geteuid() == 0:
+                os.fchown(handle.fileno(), info.st_uid, info.st_gid)
+            handle.flush(); os.fsync(handle.fileno())
+        content, current = read_control_config(path)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino) or content != original:
+            raise RecoveryError("Settings changed during bridge control; retry.")
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def manual_link(config_path: Path, rpt_path: Path, bridge_id: str, verb: str,
+                runner=run_asterisk, sleeper=time.sleep) -> dict:
+    if verb not in {"connect", "disconnect"} or not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", bridge_id):
+        raise RecoveryError("Invalid Standard Bridge control request.")
+    original, _ = read_control_config(config_path)
+    config = json.loads(original)
+    if not isinstance(config, dict) or not isinstance(config.get("bridges"), list):
+        raise RecoveryError("Invalid ASR configuration.")
+    main = str(config.get("node", ""))
+    bridges = config.get("bridges", [])
+    matches = [row for row in bridges if isinstance(row, dict) and row.get("id") == bridge_id]
+    if len(matches) != 1 or matches[0].get("cardType", "standard") != "standard":
+        raise RecoveryError("Configured Standard Bridge was not found.")
+    bridge = matches[0]; node = str(bridge.get("node", ""))
+    if not NODE_RE.fullmatch(main) or not NODE_RE.fullmatch(node) or node in {main, "1999"}:
+        raise RecoveryError("Invalid or reserved bridge doorway.")
+    if sum(isinstance(row, dict) and str(row.get("node", "")) == node for row in bridges) != 1:
+        raise RecoveryError("Bridge doorway is shared or ambiguous.")
+    local = listed_local_nodes(runner(["rpt", "localnodes"]))
+    if not {main, node} <= local:
+        raise RecoveryError("Both configured nodes must be local and available.")
+    rpt = rpt_path.read_text(encoding="utf-8", errors="replace")
+    if verb == "disconnect" and (node in native_permanent_nodes(rpt, main) or main in native_permanent_nodes(rpt, node)):
+        raise RecoveryError("Native Asterisk permanent startup link conflicts with manual disconnect. Remove or migrate that startup link first; no settings changed.")
+    def linked():
+        output = runner(["rpt", "lstats", main])
+        if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
+            raise RecoveryError("Asterisk link status could not be verified.")
+        return node in established_nodes(output)
+    current = linked()
+    desired = verb == "connect"
+    if not desired:
+        # Durable hold must precede unlink, even if Asterisk refuses the command.
+        save_manual_hold(config_path, original, config, bridge, True)
+    if current != desired:
+        runner(["rpt", "cmd", main, "ilink", "3" if desired else "11", node])
+        for _ in range(12):
+            if linked() == desired:
+                break
+            sleeper(0.25)
+        else:
+            runner(["rpt", "cmd", node, "ilink", "3" if desired else "11", main])
+            for _ in range(12):
+                if linked() == desired:
+                    break
+                sleeper(0.25)
+            else:
+                raise RecoveryError("Asterisk did not confirm the requested link state. " + ("Manual hold is retained." if not desired else "Prior recovery policy is unchanged."))
+    if desired:
+        save_manual_hold(config_path, original, config, bridge, False)
+    return {"ok": True, "bridgeId": bridge_id, "manualDisconnect": not desired,
+            "linked": desired, "message": "Bridge reconnected; normal recovery policy restored." if desired else "Bridge disconnected; ASR automatic recovery paused."}
+
+
 def load_quiesced_nodes(path: Path = MIGRATION_QUIESCE_STATE) -> set[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
@@ -521,10 +633,67 @@ A1 = *COP,6,12345,ilink,13,1201 *COP,6,12345,ilink,13,1203
             raise AssertionError("invalid migration quiesce state did not fail closed")
         except RecoveryError:
             pass
+    # Explicit controls persist the exact bridge hold before unlink and clear
+    # it only after observed reconnect. No production commands are executed.
+    with tempfile.TemporaryDirectory(prefix="asr-manual-link-test-") as temporary:
+        root = Path(temporary); config_path = root / "config.json"; rpt_path = root / "rpt.conf"
+        config_path.write_text(json.dumps(config)); rpt_path.write_text(rpt_text)
+        linked = {"1201", "1202"}; commands = []; reject_unlink = False
+        def control_runner(arguments):
+            command = tuple(arguments); commands.append(command)
+            if command == ("rpt", "localnodes"):
+                return "Local nodes: 600000 1201 1202 1203 1204 1205\n"
+            if command == ("rpt", "lstats", "600000"):
+                return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 ESTABLISHED\n" for n in sorted(linked))
+            if command[:3] == ("rpt", "cmd", "600000") and command[3:] == ("ilink", "11", "1202"):
+                assert read_json_object(config_path)["bridges"][1]["manualDisconnect"] is True
+                if not reject_unlink: linked.discard("1202")
+                return ""
+            if command == ("rpt", "cmd", "1202", "ilink", "11", "600000"):
+                if not reject_unlink: linked.discard("1202")
+                return ""
+            if command == ("rpt", "cmd", "600000", "ilink", "3", "1202"):
+                assert read_json_object(config_path)["bridges"][1]["manualDisconnect"] is True
+                linked.add("1202"); return ""
+            raise AssertionError(command)
+        def rejected(bridge, phrase):
+            try:
+                manual_link(config_path, rpt_path, bridge, "disconnect", control_runner, lambda _: None)
+            except RecoveryError as exc:
+                assert phrase in str(exc), str(exc)
+            else:
+                raise AssertionError("invalid manual control succeeded")
+        before = config_path.read_bytes()
+        rejected("dmr", "permanent startup link")
+        rejected("ysf_net", "Standard Bridge")
+        assert config_path.read_bytes() == before
+        rpt_path.write_text(rpt_text + "\n[1202]\nstartup_macro = *813600000\n")
+        rejected("ysf", "permanent startup link")
+        assert config_path.read_bytes() == before
+        rpt_path.write_text(rpt_text)
+        assert manual_link(config_path, rpt_path, "ysf", "disconnect", control_runner, lambda _: None)["linked"] is False
+        assert "1202" not in linked and "1201" in linked
+        assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
+        assert manual_link(config_path, rpt_path, "ysf", "connect", control_runner, lambda _: None)["linked"] is True
+        assert load_plan(config_path, rpt_path)["manualHeldNodes"] == []
+        reject_unlink = True
+        rejected("ysf", "Manual hold is retained")
+        assert load_plan(config_path, rpt_path)["manualHeldNodes"] == ["1202"]
+        assert rpt_path.read_text() == rpt_text
+        assert all(cmd[2] in {"600000", "1202"} for cmd in commands if cmd[:2] == ("rpt", "cmd"))
     print("ASR fixed-bridge recovery self-test: ok")
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["--manual-link"]:
+        try:
+            if len(sys.argv) != 4 or os.geteuid() != 0 or Path("/.dockerenv").exists():
+                raise RecoveryError("Native Standard Bridge control is unavailable.")
+            with recovery_lock():
+                result = manual_link(DEFAULT_CONFIG, DEFAULT_RPT_CONFIG, sys.argv[3], sys.argv[2])
+            print(json.dumps(result)); return 0
+        except (RecoveryError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            print(json.dumps({"ok": False, "error": str(exc)[:240]})); return 1
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--rpt-config", type=Path, default=DEFAULT_RPT_CONFIG)
@@ -541,7 +710,7 @@ def main() -> int:
     try:
         plan = load_plan(args.config, args.rpt_config)
         if args.has_fallback_targets:
-            return 0 if plan["fallback"] or plan["requiredLinks"] else 1
+            return 0 if plan["fallback"] or plan["requiredLinks"] or plan["manualHeldNodes"] else 1
         if args.plan_json:
             print(json.dumps(plan, indent=2, sort_keys=True))
             return 0
@@ -549,9 +718,12 @@ def main() -> int:
             print("Manual bridge hold conflicts with native Asterisk permanent startup links: "
                   + ", ".join(plan["nativeManualHoldConflicts"])
                   + ". ASR will not rewrite unmanaged Asterisk configuration.", file=sys.stderr)
-        retry_state = read_retry_state(args.state)
-        result = recover_once(plan, retry_state=retry_state)
-        write_retry_state(args.state, retry_state)
+        with recovery_lock():
+            # Re-read under the same lock used by explicit link controls.
+            plan = load_plan(args.config, args.rpt_config)
+            retry_state = read_retry_state(args.state)
+            result = recover_once(plan, retry_state=retry_state)
+            write_retry_state(args.state, retry_state)
         if result["reconnected"]:
             print("Restored configured fixed bridge link(s): " + ", ".join(result["reconnected"]))
         if result["reverseFallback"]:
@@ -567,7 +739,7 @@ def main() -> int:
         for node in result["unavailable"]:
             print(f"Configured fixed bridge node {node} is not available locally; not reconnecting.", file=sys.stderr)
         return 1 if result["failed"] else 0
-    except RecoveryError as exc:
+    except (RecoveryError, OSError) as exc:
         print(f"Fixed-bridge recovery failed: {exc}", file=sys.stderr)
         return 1
 

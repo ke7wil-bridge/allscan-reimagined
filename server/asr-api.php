@@ -1313,6 +1313,12 @@ function asr_display_only_bridge_link_statuses(array $configuredBridges): array 
     return $statuses;
 }
 
+function asr_standard_link_control_available(): bool {
+    return !is_file('/.dockerenv') && is_executable('/usr/sbin/asterisk')
+        && is_executable('/usr/local/sbin/allscan-reimagined-fixed-bridge-recovery')
+        && is_file('/run/lock/allscan-reimagined-fixed-bridge/recovery.lock');
+}
+
 function asr_bridge_status_payload(): array {
     $bridge = [];
     $path = asrRuntimeFilePath('bridge-live.json');
@@ -1364,6 +1370,14 @@ function asr_bridge_status_payload(): array {
             is_array($controls[$id] ?? null) ? $controls[$id] : [],
             ['allstarLinked' => (bool) ($entry['allstar_linked'] ?? false)]
         );
+    }
+    foreach ($configuredBridges as $configuredBridge) {
+        if (($configuredBridge['cardType'] ?? '') !== 'standard') continue;
+        $id = (string) $configuredBridge['id'];
+        $controls[$id] = array_merge($controls[$id] ?? [], [
+            'manualDisconnect' => ($configuredBridge['manualDisconnect'] ?? false) === true,
+            'standardLinkControl' => asr_standard_link_control_available() && (string) $configuredBridge['node'] !== '1999',
+        ]);
     }
     $clientState = asr_bridge_clients_state();
     $clients = (array) ($clientState['clients'] ?? []);
@@ -4485,6 +4499,21 @@ if ($action === 'bridge-diagnostics') {
     asr_require_same_origin();
     asr_require_admin();
     asr_json(asr_bridge_diagnostics());
+}
+if ($action === 'standard-bridge-link') {
+    asr_require_post();
+    asr_require_same_origin();
+    asr_require_modify();
+    if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'asr-standard-link') asr_error('Invalid bridge link request.', 403);
+    if (!asr_standard_link_control_available()) asr_error('Persistent Standard Bridge link control is unavailable on this installation.', 503);
+    $bridgeId = (string) ($_POST['bridgeId'] ?? '');
+    $verb = (string) ($_POST['verb'] ?? '');
+    if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $bridgeId) || !in_array($verb, ['connect', 'disconnect'], true)) asr_error('Invalid Standard Bridge link request.');
+    $lines = []; $status = 1;
+    exec('sudo -n /usr/local/sbin/allscan-reimagined-fixed-bridge-recovery --manual-link ' . escapeshellarg($verb) . ' ' . escapeshellarg($bridgeId) . ' 2>&1', $lines, $status);
+    $payload = json_decode(implode("\n", $lines), true);
+    if ($status !== 0 || !is_array($payload) || ($payload['ok'] ?? false) !== true) asr_error((string) ($payload['error'] ?? 'Standard Bridge link control did not complete.'), 409);
+    asr_json($payload);
 }
 if ($action === 'standard-bridge-repair') {
     asr_require_post();
