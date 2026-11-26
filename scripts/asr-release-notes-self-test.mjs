@@ -29,8 +29,7 @@ if (pkg.version === '1.0.0-beta.8.7.1') {
   for (const required of [/1999/, /manual disconnect/i, /Global Ban/i, /M17.*qualification/i, /Zello.*connected.client/i, /What.s New/i]) {
     assert.ok(realChanges.some(item => required.test(item)), `Maintenance change missing: ${required}`)
   }
-  assert.ok(categories.some(c => /AllStar/.test(c.title)))
-  assert.ok(categories.some(c => /Talker/.test(c.title)))
+  assert.deepEqual(categories.map(c => c.title), ['Bridges', 'AllStar', 'General'])
   assert.ok(realChanges.length >= 15, 'Incomplete maintenance change list')
 }
 
