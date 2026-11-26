@@ -535,6 +535,45 @@ def test_standard_link(module):
         module.asterisk.authorize_command = original_authorize
 
 
+def test_standard_link_recovery(module):
+    profile = SimpleNamespace()
+    config = {"node":"1800", "requiredAllStarLinks":["555555"], "bridges":[
+        {"id":"qa_held","node":"1801","cardType":"standard","fixedBridgeRecovery":True,"manualDisconnect":True},
+        {"id":"qa_active","node":"1802","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_net","node":"1999","cardType":"m17_net","fixedBridgeRecovery":True},
+        {"id":"qa_legacy","node":"1999","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_optout","node":"1803","cardType":"standard","fixedBridgeRecovery":False},
+        {"id":"qa_quiesced","node":"1804","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_unowned","node":"1805","cardType":"standard","fixedBridgeRecovery":True},
+        {"id":"qa_reverse","node":"1806","cardType":"standard","fixedBridgeRecovery":True},
+    ]}
+    before = json.dumps(config,sort_keys=True)
+    checked = []; commands = []; linked = {"1999"}
+    def doorway(_profile, identity):
+        checked.append(identity)
+        if identity not in {"qa_active","qa_reverse"}: raise RuntimeError("unowned")
+        return "1800", "1802" if identity == "qa_active" else "1806"
+    def runner_factory(_profile, identity, main, node):
+        def run(args):
+            command=tuple(args); commands.append(command)
+            if command == ("rpt","localnodes"): return "Node\n1800\n1801\n1802\n1806\n1999\n"
+            if command == ("rpt","lstats","1800"): return "NODE PEER STATE\n" + "".join(f"{n} 127.0.0.1 ESTABLISHED\n" for n in sorted(linked))
+            if command == ("rpt","cmd","1800","ilink","3","1802"): linked.add("1802"); return ""
+            if command == ("rpt","cmd","1800","ilink","3","1806"): return ""
+            if command == ("rpt","cmd","1806","ilink","3","1800"): linked.add("1806"); return ""
+            raise AssertionError(command)
+        return run
+    def recover(): return module.recover_owned_links(profile, config, {"1804"}, doorway=doorway, runner_factory=runner_factory, sleeper=lambda _:None)
+    result=recover()
+    assert result["reconnected"] == ["1802","1806"] and result["failed"] == ["1805"]
+    assert result["manualHeldNodes"] == ["1801"] and result["unavailable"] == ["1999"]
+    assert checked == ["qa_active","qa_unowned","qa_reverse"] and linked == {"1802","1806","1999"}
+    assert json.dumps(config,sort_keys=True) == before
+    commands.clear()
+    assert recover()["alreadyLinked"] == ["1802","1806"]
+    assert not any(cmd[:2] == ("rpt","cmd") for cmd in commands)
+
+
 def test_payload_validators(digital, dmr_planner) -> None:
     good = digital.DigitalSettings("p25", "qa_p25", "N0CALL", 1234567, 10200,
                                    "reflector.example", 41000, "P25", 1002, "net")
@@ -1267,6 +1306,7 @@ def main() -> int:
     test_asterisk_adapter(asterisk)
     standard_link = load("asr_container_test_standard_link", "asr-container-standard-link.py")
     test_standard_link(standard_link)
+    test_standard_link_recovery(standard_link)
     assert control_client.NAMES["allscan-reimagined-fixed-bridge-recovery"] == "standard-link"
     assert {"asr-container-standard-link.py", "asr-fixed-bridge-recovery.py"} <= set(host_installer.HOST_FILES)
     test_payload_validators(digital, dmr_planner)

@@ -69,6 +69,64 @@ def container_runner(profile, bridge_id, main, node, execute=subprocess.run):
     return run
 
 
+def recover_owned_links(profile, config, quiesced, *, doorway=owned_doorway,
+                        runner_factory=container_runner, sleeper=recovery.time.sleep):
+    """Recover opted-in, uniquely owned local Standard links only.
+
+    Called by the host timer under the writer, recovery and config locks.
+    This deliberately cannot originate a required remote AllStar link,
+    a Net Bridge link, or an arbitrary Asterisk command.
+    """
+    main_node, targets, _ = recovery.configured_targets(config, quiesced)
+    report = {"checked": 0, "reconnected": [], "alreadyLinked": [],
+              "unavailable": [], "failed": [], "manualHeldNodes": sorted(recovery.manually_held_nodes(config))}
+    for target in targets:
+        identity, node = target["id"], target["node"]
+        if node == "1999":
+            report["unavailable"].append(node)
+            continue
+        try:
+            if doorway(profile, identity) != (main_node, node):
+                raise RuntimeError("Standard Bridge ownership changed")
+            runner = runner_factory(profile, identity, main_node, node)
+            local = recovery.listed_local_nodes(runner(["rpt", "localnodes"]))
+            if not {main_node, node} <= local:
+                report["unavailable"].append(node)
+                continue
+            def linked():
+                output = runner(["rpt", "lstats", main_node])
+                if not re.search(r"(?im)^\s*NODE\s+PEER\b", output):
+                    raise RuntimeError("Asterisk link status unavailable")
+                return node in recovery.established_nodes(output)
+            report["checked"] += 1
+            if linked():
+                report["alreadyLinked"].append(node)
+                continue
+            for source, destination in ((main_node, node), (node, main_node)):
+                runner(["rpt", "cmd", source, "ilink", "3", destination])
+                for _ in range(6):
+                    if linked():
+                        break
+                    sleeper(0.25)
+                else:
+                    continue
+                report["reconnected"].append(node)
+                break
+            else:
+                report["failed"].append(node)
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+            report["failed"].append(node)
+    return report
+
+
+def recover_periodic(profile):
+    # The web request and periodic host service must serialize with each
+    # other and with configuration writers. Do not update manualDisconnect.
+    with recovery.config_writer_guard(), recovery.recovery_lock(), recovery.config_directory_lock(profile.asr_config):
+        config = asterisk.safe_root_json(profile.asr_config / "config.json", profile.client_uid, profile.client_gid)
+        return recover_owned_links(profile, config, recovery.load_quiesced_nodes())
+
+
 def main():
     try:
         if os.geteuid() != 0 or Path('/.dockerenv').exists():
