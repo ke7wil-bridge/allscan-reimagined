@@ -47,3 +47,37 @@ entry = m.public_entry(nxdn, state)
 assert entry['online'] is None and entry['linked'] is None
 assert entry['health_severity'] is None
 print('NXDN idle status does not fabricate runtime connectivity: PASS')
+
+# Issue 309: retained sampler API and strictly scoped local legacy M17 proof.
+import os
+from types import SimpleNamespace
+header = 'NODE PEER RECONNECTS DIRECTION CONNECT TIME CONNECT STATE\n---- ---- ---------- --------- ------------ -------------\n'
+text = header + '1001 127.0.0.1 0 IN 1:02:03:004 ESTABLISHED\nBCSTFY 0 IN 1:02:03:004 ESTABLISHED\n'
+with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=text)):
+    assert m.confirmed_transport_links('674982', {'1001','1002'}) == {'1001':True,'1002':False}
+with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='Unable to open socket for seeding global EID. You will have to set it manually.\n'+text)):
+    assert m.confirmed_transport_links('674982', {'1001'}) == {'1001':True}
+for rc, output in [(1,text),(0,'error'),(0,text+'unexpected row')]:
+    with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(returncode=rc, stdout=output)):
+        assert m.confirmed_transport_links('674982', {'1001'}) == {'1001':None}
+legacy={'id':'m17','mode':'m17','backendMode':'display_only',
+        'activityLogDirectory':'/var/log/m17','activityLogStem':'USRP2M17'}
+with tempfile.TemporaryDirectory() as tmp:
+    ini=Path(tmp)/'bridge.ini'; report=Path(tmp)/'report.json'
+    ini.write_text('[M17 Network]\nCallsign=AB1CD N\nAddress=127.0.0.1\nName=M17-ABC A\n')
+    ini.chmod(0o600)
+    report_data={'Callsign':'M17-ABC','Clients':[{'Callsign':'AB1CD N','Module':'A','Protocol':'M17','IP':'127.0.0.1','ListenOnly':False}]}
+    def check(data,stamp=1000,bridge=legacy):
+        report.write_text(json.dumps(data))
+        report.chmod(0o600)
+        os.utime(report,(stamp,stamp))
+        return m.confirmed_legacy_m17_state(bridge,1001,ini,report,os.getuid())
+    assert check(report_data)=={'online':True,'linked':True,'reflector':'M17-ABC','module':'A'}
+    assert check(report_data,stamp=900)=={}
+    assert check(report_data,bridge=dict(legacy,backendMode='managed'))=={}
+    assert check(dict(report_data,Clients=[]))=={}
+    assert check(dict(report_data,Clients=report_data['Clients']*2))=={}
+    assert check(dict(report_data,Clients=[dict(report_data['Clients'][0],Module='B')]))=={}
+    assert check(dict(report_data,Clients=[dict(report_data['Clients'][0],IP='192.0.2.1')]))=={}
+    assert check(dict(report_data,Callsign='M17-XYZ'))=={}
+print('Issue 309 transport compatibility and legacy M17 evidence: PASS')

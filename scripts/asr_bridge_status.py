@@ -745,6 +745,37 @@ def _safe_text(path: Path, max_bytes: int = MAX_JSON_BYTES) -> tuple[str, os.sta
         return None
 
 
+def confirmed_transport_links(local_node: str, bridge_nodes: set[str]) -> dict[str, bool | None]:
+    """Compatibility API for previously installed native transport samplers.
+
+    Query the local Asterisk socket directly; failed or malformed evidence is
+    unknown, never a fabricated disconnect.
+    """
+    unknown = dict.fromkeys(bridge_nodes)
+    if not NODE_RE.fullmatch(local_node) or any(not NODE_RE.fullmatch(n) for n in bridge_nodes):
+        return unknown
+    try:
+        r = subprocess.run(["/usr/sbin/asterisk", "-rx", f"rpt lstats {local_node}"],
+                           cwd="/", capture_output=True, text=True, timeout=3, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return unknown
+    if r.returncode != 0:
+        return unknown
+    lines = [line.strip() for line in r.stdout.splitlines() if line.strip()]
+    warning = "Unable to open socket for seeding global EID. You will have to set it manually."
+    if lines and lines[0] == warning:
+        lines.pop(0)
+    if len(lines) < 2 or lines[0].split() != ["NODE", "PEER", "RECONNECTS", "DIRECTION", "CONNECT", "TIME", "CONNECT", "STATE"] or not lines[1].startswith("----"):
+        return unknown
+    seen = {}
+    for line in lines[2:]:
+        match = re.fullmatch(r"(\w+)\s+(?:(\S+)\s+)?(\d+)\s+(IN|OUT)\s+(\d+:\d{2}:\d{2}:\d+)\s+(.+)", line)
+        if not match or match[1] in seen:
+            return unknown
+        seen[match[1]] = match[6] == "ESTABLISHED"
+    return {node: seen.get(node, False) for node in bridge_nodes}
+
+
 def astapi_bridge_evidence(
     local_node: str,
     bridge_nodes: set[str],
@@ -1148,6 +1179,58 @@ def bridge_autopatch_active(node: str) -> bool | None:
     return match.group(1) == "1" if match else None
 
 
+def confirmed_legacy_m17_state(bridge: dict[str, Any], now: int,
+                               ini_path: Path = M17_BRIDGE_INI_PATH,
+                               report_path: Path = Path("/var/log/m17/mrefd.json"),
+                               report_uid: int | None = None) -> dict[str, Any]:
+    """Confirm the fixed local reflector link using its own current client list.
+
+    This is deliberately limited to the existing display-only USRP2M17
+    integration. Managed connectors must use their own runtime state.
+    """
+    if (bridge.get("backendMode") != "display_only" or
+            bridge.get("activityLogDirectory") != "/var/log/m17" or
+            bridge.get("activityLogStem") != "USRP2M17"):
+        return {}
+    parser = read_trusted_ini(ini_path)
+    if parser is None:
+        return {}
+    try:
+        section = parser["M17 Network"]
+        identity = m17_identity(section["Callsign"])
+        if section["Address"].strip() != "127.0.0.1":
+            return {}
+        target, module = section["Name"].strip().upper().rsplit(None, 1)
+        if not identity or not re.fullmatch(r"M17-[A-Z0-9]{3}", target) or not re.fullmatch(r"[A-Z]", module):
+            return {}
+        if report_uid is None:
+            report_uid = pwd.getpwnam("m17").pw_uid
+        fd = os.open(report_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        with os.fdopen(fd, "rb") as handle:
+            st = os.fstat(handle.fileno())
+            if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != report_uid
+                    or st.st_mode & 0o022 or st.st_size > MAX_JSON_BYTES
+                    or not -1 <= now - st.st_mtime <= 30):
+                return {}
+            raw = handle.read(MAX_JSON_BYTES + 1)
+        if len(raw) > MAX_JSON_BYTES:
+            return {}
+        data = json.loads(raw)
+    except (OSError, KeyError, ValueError, TypeError, configparser.Error):
+        return {}
+    if not isinstance(data, dict) or data.get("Callsign") != target or not isinstance(data.get("Clients"), list):
+        return {}
+    matches = [row for row in data["Clients"] if isinstance(row, dict)
+               and m17_identity(row.get("Callsign")) == identity]
+    if len(matches) != 1:
+        return {}
+    client = matches[0]
+    if (client.get("Module") != module or client.get("Protocol") != "M17"
+            or client.get("IP") != "127.0.0.1" or client.get("ListenOnly") is not False):
+        return {}
+    return {"online": True, "linked": True, "reflector": target, "module": module}
+
+
 def confirmed_m17_state(bridge: dict[str, Any], now: int, runtime_dir: Path = Path("/run/allscan-reimagined-m17")) -> dict[str, Any]:
     """Use fresh authoritative M17 runtime evidence, never infer from systemd."""
     bridge_id = str(bridge.get("id", ""))
@@ -1421,7 +1504,10 @@ def standard_live_payload(
         if str(bridge.get("mode", "")).lower() == "m17":
             # Never carry forward a formerly confirmed link after telemetry expires.
             state.update({"online": None, "linked": None, "reflector": "", "module": ""})
-            state.update(confirmed_m17_state(bridge, now))
+            runtime = confirmed_m17_state(bridge, now)
+            if not runtime:
+                runtime = confirmed_legacy_m17_state(bridge, now)
+            state.update(runtime)
         # Publish explicit Idle even before the first log event. Otherwise
         # configured standard bridges disappear from the live-status feed.
         entries[bridge_id] = public_entry(bridge, state, list(cached.get("units", [])), list(cached.get("issues", [])))
