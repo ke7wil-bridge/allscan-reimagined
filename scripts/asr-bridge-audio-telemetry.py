@@ -65,16 +65,35 @@ def port_map(config: dict) -> dict[int, list[tuple[str, str]]]:
     return mapped
 
 
-def update(levels: dict, destinations: list[tuple[str, str]], pcm: bytes, epoch: float) -> None:
+def update(levels: dict, destinations: list[tuple[str, str]], pcm: bytes, epoch: float,
+           window: dict | None = None) -> None:
     peak, rms = pcm_levels(pcm)
     for bridge_id, direction in destinations:
         entry = levels.setdefault(bridge_id, {})
         entry[direction + "AudioPeak"] = peak
         entry[direction + "AudioRms"] = rms
         entry[direction + "AudioEpoch"] = epoch
+        if window is not None:
+            accumulator = window.setdefault(bridge_id, {}).setdefault(direction, [0, 0.0, 0])
+            count = len(pcm) // 2
+            accumulator[0] = max(accumulator[0], peak)
+            accumulator[1] += rms * rms * count
+            accumulator[2] += count
 
 
-def publish(levels: dict, now: float, output: Path = OUTPUT) -> None:
+def publish(levels: dict, now: float, output: Path = OUTPUT,
+            window: dict | None = None) -> None:
+    # Aggregate every observed PCM sample in the publication interval:
+    # maximum sample peak and sample-weighted RMS, independently per direction.
+    if window is not None:
+        for bridge_id, directions in window.items():
+            for direction, (peak, squared_sum, count) in directions.items():
+                if not count or bridge_id not in levels:
+                    continue
+                entry = levels[bridge_id]
+                entry[direction + "AudioPeak"] = peak
+                entry[direction + "AudioRms"] = math.sqrt(squared_sum / count)
+        window.clear()
     clean = {}
     for bridge_id, values in levels.items():
         current = {}
@@ -108,6 +127,7 @@ def run(config_path: Path = CONFIG, output_path: Path = OUTPUT) -> None:
     capture.bind(("lo", 0))
     capture.settimeout(0.2)
     levels: dict = {}
+    window: dict = {}
     mapped: dict[int, list[tuple[str, str]]] = {}
     next_config = next_publish = 0.0
     while True:
@@ -124,11 +144,11 @@ def run(config_path: Path = CONFIG, output_path: Path = OUTPUT) -> None:
             if decoded and decoded[0] in mapped:
                 pcm = usrp_pcm(decoded[1])
                 if pcm is not None:
-                    update(levels, mapped[decoded[0]], pcm, now)
+                    update(levels, mapped[decoded[0]], pcm, now, window)
         except socket.timeout:
             pass
         if now >= next_publish:
-            publish(levels, now, output_path)
+            publish(levels, now, output_path, window)
             next_publish = now + 0.2
 
 
@@ -148,6 +168,18 @@ def self_test() -> None:
         path = Path(directory) / "levels.json"; publish(levels, 100.0, path)
         saved = json.loads(path.read_text())
         assert saved["bridges"]["p25_test"]["inboundAudioPeak"] == 32768
+    # A quiet packet cannot erase a louder packet's peak in the same window.
+    window = {}
+    values = {}
+    update(values, [("p25_test", "inbound")], struct.pack("<4h", 10000, -10000, 10000, -10000), 101.0, window)
+    update(values, [("p25_test", "inbound")], struct.pack("<4h", 0, 0, 0, 0), 101.1, window)
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "window.json"
+        publish(values, 101.1, path, window)
+        sample = json.loads(path.read_text())["bridges"]["p25_test"]
+        assert sample["inboundAudioPeak"] == 10000
+        assert abs(sample["inboundAudioRms"] - math.sqrt(50000000)) < .001
+        assert window == {}
     print("bridge real-PCM telemetry self-test: PASS")
 
 

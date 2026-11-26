@@ -4865,3 +4865,11 @@ body.asr-admin-page-settings-modern .asr-reimagined-settings-form .asr-settings-
 .asr-bridge-settings-row {
 	display:grid;
 	gap:12px;
+
+/* Issue 136: measured two-direction meters live only in the opened bridge editor. */
+.asr-settings-vu{display:grid;gap:5px;margin-top:9px;padding:10px;border:1px solid #5b708259;border-radius:8px;background:#152735;min-width:0}
+.asr-settings-vu-label{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;font-size:12px;font-variant-numeric:tabular-nums}
+.asr-settings-vu-track{position:relative;height:17px;border-radius:4px;overflow:hidden;background:linear-gradient(90deg,#243c4e 0%,#305a5e 68%,#8c7138 88%,#833640 100%)}
+.asr-settings-vu-track [data-vu-rms]{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#36bbac,#83d9a8 70%,#eed75b 90%,#eb6464);width:0;transition:width .12s linear}
+.asr-settings-vu-track [data-vu-peak]{position:absolute;top:0;bottom:0;left:0;border-left:2px solid white}
+.asr-settings-vu [data-vu-state]{font-size:11px;opacity:.8}
