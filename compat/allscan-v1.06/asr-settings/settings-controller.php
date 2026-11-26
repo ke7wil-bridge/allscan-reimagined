@@ -677,6 +677,13 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			$error = "Bridge \"$id\" needs a 3-10 digit node number.";
 			return [];
 		}
+		// Allow existing legacy assignments to be saved unchanged, never a new Standard 1999.
+		$priorNode = $existingById[$id] ?? [];
+		if(ltrim($rawNode, '0') === '1999' && $rawCardType === 'standard'
+			&& !(ltrim((string)($priorNode['node'] ?? ''), '0') === '1999' && ($priorNode['cardType'] ?? 'standard') === 'standard')) {
+			$error = 'Node 1999 is reserved for the Unified Net Bridge. Choose another Standard Bridge node.';
+			return [];
+		}
 		$isUnifiedNetNode = $rawNode === '1999' && $rawCardType !== 'standard'
 			&& in_array($rawMode, ['dmr','ysf','p25','nxdn','m17'], true);
 		if(isset($seenNodes[$rawNode]) && !($isUnifiedNetNode && !empty($seenUnifiedNetNodes[$rawNode]))) {

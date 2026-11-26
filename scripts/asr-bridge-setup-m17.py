@@ -355,6 +355,18 @@ def plan(root: Path, settings: M17Settings) -> dict[str, Any]:
             raise InstallError(f"requested bridge node {node} is already in use")
     else:
         node = core.allocate_node(used)
+    # Node 1999 belongs to the unified Net Bridge. Preserve an existing
+    # Standard assignment for non-renumbering edits, but never create one.
+    prior = existing
+    is_net = settings.card_type == "m17_net"
+    legacy_standard = (prior is not None and str(prior.get("node", "")) == "1999"
+                       and prior.get("cardType", "standard") == "standard")
+    if not is_net and (node == 1999 or settings.bridge_node == 1999) and not (legacy_standard and node == 1999):
+        raise InstallError("node 1999 is reserved for the Unified Net Bridge; choose another Standard Bridge node")
+    if is_net and any(isinstance(item, dict) and str(item.get("node", "")) == "1999"
+                      and item.get("cardType", "standard") == "standard"
+                      for item in config.get("bridges", [])):
+        raise InstallError("node 1999 is occupied by a Standard Bridge; migrate it before installing Net Bridge")
     if node == main_node:
         raise InstallError("bridge node must differ from the main node")
     ports = core.derived_m17_ports(settings.bridge_id)

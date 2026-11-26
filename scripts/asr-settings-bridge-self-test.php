@@ -191,6 +191,14 @@ function postedBridge(array $values, array $existing = [], string $mainNode = '1
 	return $rows[0];
 }
 
+foreach (['dmr', 'ysf', 'p25', 'nxdn', 'm17', 'zello'] as $mode) {
+    foreach (['1999', '01999'] as $reserved) {
+        expectFailure(fn() => postedBridge(['bridgeMode'=>[$mode], 'bridgeNode'=>[$reserved]]), 'reserved for the Unified Net Bridge');
+    }
+}
+$legacy1999 = ['id'=>'dmr_legacy', 'mode'=>'dmr', 'node'=>'1999', 'cardType'=>'standard', 'title'=>'Legacy DMR'];
+$legacySaved = postedBridge(['bridgeId'=>['dmr_legacy'], 'bridgeMode'=>['dmr'], 'bridgeNode'=>['1999']], [$legacy1999]);
+check($legacySaved['node'] === '1999', 'Existing legacy Standard node 1999 was silently renumbered.');
 foreach(['dmr', 'ysf', 'zello'] as $mode) {
 	$row = postedBridge(['bridgeMode' => [$mode], 'bridgeBackendMode' => ['managed']]);
 	check($row['cardType'] === 'standard' && $row['clientSource'] === 'auto', "$mode Standard card did not preserve simple Auto behavior.");

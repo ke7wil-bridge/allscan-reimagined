@@ -147,6 +147,14 @@ def plan(root: Path, settings: ZelloSettings) -> dict[str, Any]:
         node = settings.bridge_node or core.allocate_node(used)
         if node in used:
             raise PlanError("requested private node is already in use")
+    # Node 1999 belongs to the unified Net Bridge. Preserve an existing
+    # Standard assignment for non-renumbering edits, but never create one.
+    prior = matches[0] if matches else None
+    is_net = False
+    legacy_standard = (prior is not None and str(prior.get("node", "")) == "1999"
+                       and prior.get("cardType", "standard") == "standard")
+    if not is_net and (node == 1999 or settings.bridge_node == 1999) and not (legacy_standard and node == 1999):
+        raise PlanError("node 1999 is reserved for the Unified Net Bridge; choose another Standard Bridge node")
     ports = port_block(settings.bridge_id)
     endpoint_guard = load("asr_bridge_endpoint_guard_zello", "asr-bridge-endpoint-collisions.py")
     try:
