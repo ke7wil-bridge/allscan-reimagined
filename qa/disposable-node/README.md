@@ -16,7 +16,7 @@ Host: `josh-Latitude-5420`; hypervisor: system libvirt/KVM; isolated test guest 
 
 ## Host readiness report
 
-`python3 qa/disposable-node/asr-qa-gate.py --output "$HOME/vms/asr-qa/reports/readiness.json"` checks the named disposable guest is running, the template is shut off, and the expected overlay disk is attached. It exits nonzero until ready and **always sets `releaseQualified: false`**; no installer tests are implied. The separate gate self-test runs in `build-release.sh`.
+`python3 qa/disposable-node/asr-qa-gate.py --output "$HOME/vms/asr-qa/reports/readiness.json"` checks the named disposable guest is running, the template is shut off, the expected overlay disk is attached, and its non-loopback IPv4 addresses are distinct from all observed running libvirt guests. Address queries use guest agents rather than DHCP leases. Missing agents, empty/malformed IPv4 results, duplicate addresses, or changing guest inventory/target addresses block readiness. This is a conservative point-in-time check (even guests on separate networks can block it); it does not establish network isolation or authorize SSH. It exits nonzero until ready and **always sets `releaseQualified: false`**; no installer tests are implied. The separate gate self-test runs in `build-release.sh`.
 
 ## Host storage blocker (discovered during inspection)
 
