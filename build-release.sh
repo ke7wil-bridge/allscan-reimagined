@@ -196,6 +196,7 @@ python3 "$ROOT/scripts/asr-bridge-ui-regression-self-test.py"
 python3 "$ROOT/scripts/asr-dashboard-auth-gate-self-test.py"
 python3 "$ROOT/scripts/asr-post-reboot-health-self-test.py"
 python3 "$ROOT/qa/disposable-node/asr-qa-gate-self-test.py"
+python3 "$ROOT/qa/issue130/qualify.py" --self-test
 bash "$ROOT/scripts/asr-integrity-large-asset-self-test.sh"
 python3 "$ROOT/scripts/asr-bridge-admin-controls-self-test.py"
 python3 "$ROOT/scripts/asr-standalone-admin-self-test.py"

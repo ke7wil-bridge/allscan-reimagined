@@ -1,0 +1,34 @@
+{
+  "node": "1800",
+  "callsign": "ASR130QA",
+  "headerTitle": "Issue 130 isolated qualification",
+  "browserTitle": "Issue 130 isolated qualification",
+  "requireLogin": true,
+  "maintainFriendlyNames": false,
+  "lowPowerMode": false,
+  "qualificationMarker": "preserve-across-upgrade-reapply-reboot",
+  "bridges": [
+    {
+      "id": "qa_ysf",
+      "cardType": "standard",
+      "mode": "ysf",
+      "node": "1801",
+      "fixedBridgeRecovery": true,
+      "manualDisconnect": false
+    },
+    {
+      "id": "qa_p25",
+      "cardType": "standard",
+      "mode": "p25",
+      "node": "1802",
+      "fixedBridgeRecovery": true,
+      "manualDisconnect": false
+    },
+    {
+      "id": "qa_net",
+      "cardType": "m17_net",
+      "mode": "m17",
+      "node": "1999"
+    }
+  ]
+}
