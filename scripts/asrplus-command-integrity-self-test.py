@@ -407,24 +407,26 @@ with tempfile.TemporaryDirectory() as directory:
 # Existing token/API negative authorization coverage remains part of the gate.
 subprocess.run([sys.executable, str(SCRIPTS / "asrplus-token-self-test.py")], check=True)
 
-# Existing telemetry behavior remains intact around the hardened control path.
+# Talker transport relays ASR's authoritative payload without deriving identity.
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    astdb = root / "astdb.txt"
-    astdb.write_text("641894|KE7WIL|Phoenix Hub|Phoenix, Arizona\n54340|W1ABC|Test|Mesa\n")
-    talker_config = {"node": "641894", "astdb": str(astdb),
+    cache = root / "astapi.json"
+    authoritative = {"node": "54340", "info": "W1ABC", "duration": 5}
+    cache.write_text(json.dumps({"updated": time.time(), "current": {"641894": {
+        "current_talker": {}, "last_talkers": [authoritative]}}}))
+    talker_config = {"node": "641894", "authoritativeTalkerCache": str(cache),
                      "talkerStatus": str(root / "talkers.json"),
                      "talkerEvent": str(root / "talker-event")}
-    values = iter((1000, 1005))
-    with patch.object(agent.time, "time", side_effect=lambda: next(values)):
-        state = agent.TalkerState(talker_config)
-        state.update(False, {"54340": {"keyed": True}})
-        state.update(False, {"54340": {"keyed": False}})
+    with patch.object(agent.time, "sleep", side_effect=RuntimeError("one pass")):
+        try:
+            agent.watch_talkers(talker_config)
+        except RuntimeError as error:
+            assert str(error) == "one pass"
     telemetry = json.loads((root / "talkers.json").read_text())
     assert telemetry["current_talker"] == {}
-    assert telemetry["last_talkers"][0]["duration_seconds"] == 5
+    assert telemetry["last_talkers"] == [authoritative]
+    assert telemetry["talker_authority"] == "asr"
     assert (root / "talker-event").is_file()
-assert agent.parse_alinks("0") == {}
 
 status = endpoint.sanitize_status("phoenix", {
     "hub": "phoenix", "node": "641894", "generated_epoch": int(time.time()),
