@@ -1160,7 +1160,6 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
-  max-width: 100%;
   gap: 6px;
   align-items: stretch;
 }
@@ -1218,6 +1217,12 @@
 
 /* #190 compact controls and readable file details, including theme overrides. */
 .allscan-favorites-options { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 10px; }
+/* #330: the compact column has a constrained height. Do not let the file
+   tools wrap into a second column and escape the panel when the palette opens.
+   The tools themselves still wrap horizontally within the available width. */
+@media (max-width: 720px) {
+  .allscan-favorites-options { flex-wrap: nowrap; }
+}
 .allscan-favorites-tools { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 5px; width: auto; max-width: 100%; }
 .allscan-favorites-tools > button, .allscan-favorites-tools > a { flex: 0 0 auto; width: auto; min-width: 0; min-height: 28px; height: 28px; padding: 4px 10px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
 .allscan-favorites-tools > button svg { width: 12px; height: 12px; }

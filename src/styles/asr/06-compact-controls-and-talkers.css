@@ -152,19 +152,18 @@ html[data-asr-theme] .allscan-favorite-drag-ghost > td.allscan-fav-cell-source {
 
 /* Talker cards: authoritative dashboard-native mini bridge modules. */
 .allscan-talker-cards {
-  display:grid; width:min(980px,calc(100vw - 40px)); max-width:980px;
+  display:grid; width:min(980px,calc(100vw - 40px));
   grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; margin:0 auto;
 }
 .allscan-talker-card {
   min-height:102px; padding:8px 9px 7px; border:1px solid var(--theme-border);
-  border-radius:8px; background:var(--theme-panel-solid); color:var(--theme-text);
-  font-family:inherit; font-size:12px; font-weight:400; line-height:1.2; text-align:left; box-shadow:none;
+  border-radius:8px; background:var(--theme-panel-solid); color:var(--theme-text); font-size:12px; line-height:1.2; text-align:left; box-shadow:none;
 }
-.allscan-talker-card-title { margin-bottom:5px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:800; line-height:1.1; }
+.allscan-talker-card-title { margin-bottom:5px; font:inherit; font-weight:800; line-height:1.1; }
 .allscan-talker-callsign { min-height:17px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:16px; font-weight:800; line-height:1.1; }
-.allscan-talker-source { margin-top:2px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-size:12px; font-weight:700; line-height:1.15; }
-.allscan-talker-location { margin-top:2px; color:var(--theme-text); font:inherit; font-size:12px; font-weight:600; line-height:1.15; opacity:.92; }
-.allscan-talker-duration { display:flex; justify-content:flex-start; gap:4px; margin-top:auto; padding-top:6px; color:var(--theme-text); font:inherit; font-size:11px; font-weight:700; text-align:left; opacity:.94; }
+.allscan-talker-source { margin-top:2px; color:var(--theme-bridge-text,var(--theme-text)); font:inherit; font-weight:700; }
+.allscan-talker-location { margin-top:2px; color:var(--theme-text); font:inherit; font-weight:600; opacity:.92; }
+.allscan-talker-duration { display:flex; justify-content:flex-start; gap:4px; padding-top:6px; color:var(--theme-text); font:inherit; font-weight:700; text-align:left; opacity:.94; }
 .allscan-talker-duration strong { color:var(--theme-bridge-text,var(--theme-text)); font-weight:800; font-variant-numeric:tabular-nums; }
 .allscan-talker-card.is-current { border-color:var(--theme-border-strong,var(--theme-border)); box-shadow:inset 3px 0 0 var(--theme-accent); }
 .allscan-talker-card.is-current .allscan-talker-callsign { color:var(--theme-accent); }

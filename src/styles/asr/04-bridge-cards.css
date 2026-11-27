@@ -57,7 +57,7 @@ html[data-asr-theme="lcars-frame"] .allscan-ban-admin-tools button,html[data-asr
 html[data-asr-theme="lcars-frame"] .allscan-ban-admin-tools input,html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span { background:#09080a !important; color:#f5eadc; border-color:rgba(255,255,255,.16); }
 .allscan-ban-admin-clients { display:grid; grid-template-columns:repeat(auto-fit,minmax(185px,1fr)); gap:6px; margin-top:9px; font-size:13px; }
 .allscan-ban-admin-clients > b { grid-column:1/-1; }
-.allscan-ban-admin-clients > span { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 6px; align-items:center; padding:5px 6px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-panel); }
+.allscan-ban-admin-clients > span { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 6px; align-items:center; padding:5px 6px; border:1px solid var(--theme-border); border-radius:5px; }
 .allscan-ban-admin-clients code { overflow:hidden; text-overflow:ellipsis; font-size:13px; }
 .allscan-ban-admin-clients small { grid-column:1; opacity:.7; font-size:11px; line-height:1.2; }
 .allscan-ban-admin-clients > span > button { grid-column:2; grid-row:1/3; }
@@ -261,14 +261,13 @@ html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span { backgroun
     max-width:calc(100vw - 40px);
     margin-left:calc(-50vw + 20px);
     margin-right:0;
-  }
-  .allscan-bridge-grid {
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr)) !important;
     gap:6px;
     align-items:start;
+    padding:6px;
+    box-sizing:border-box;
   }
-  .allscan-bridge-grid { padding:6px; box-sizing:border-box; }
   .allscan-bridge-grid > .allscan-bridge-card {
     width:100%;
     max-width:100%;

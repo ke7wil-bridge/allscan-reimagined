@@ -56,11 +56,6 @@
   display: contents;
 }
 
-.allscan-bridge-grid .allscan-net-bridge-controls label {
-  min-width: 0;
-  white-space: nowrap;
-}
-
 .allscan-bridge-grid .allscan-net-bridge-controls select,
 .allscan-bridge-grid .allscan-net-bridge-controls input {
   min-width: 0;

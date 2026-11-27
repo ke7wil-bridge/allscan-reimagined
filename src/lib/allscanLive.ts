@@ -1967,9 +1967,11 @@ export async function repairStandardBridge(bridgeId: string): Promise<{ ok: bool
   return { ok: true, message: payload.message || 'Bridge repair completed.' }
 }
 
-export async function fetchFastStandardActivity(signal?: AbortSignal): Promise<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>> {
-  const response = await fetch(`${ASR_API}?action=fast-standard-activity`, { credentials: 'same-origin', cache: 'no-store', signal })
-  if (!response.ok) throw new Error('Fast standard bridge activity unavailable')
+type FastCardActivity = Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>
+
+async function fetchFastCardActivity(action: 'fast-standard-activity' | 'fast-ysf-net-activity', errorMessage: string, signal?: AbortSignal): Promise<FastCardActivity> {
+  const response = await fetch(`${ASR_API}?action=${action}`, { credentials: 'same-origin', cache: 'no-store', signal })
+  if (!response.ok) throw new Error(errorMessage)
   const payload = await response.json() as { cards?: Record<string, { role?: string; callsign?: string }> }
   const cards: Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }> = {}
   for (const [id, raw] of Object.entries(payload.cards || {})) {
@@ -1979,16 +1981,12 @@ export async function fetchFastStandardActivity(signal?: AbortSignal): Promise<R
   return cards
 }
 
-export async function fetchFastYsfNetActivity(signal?: AbortSignal): Promise<Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }>> {
-  const response = await fetch(`${ASR_API}?action=fast-ysf-net-activity`, { credentials: 'same-origin', cache: 'no-store', signal })
-  if (!response.ok) throw new Error('Fast YSF Net Bridge activity unavailable')
-  const payload = await response.json() as { cards?: Record<string, { role?: string; callsign?: string }> }
-  const cards: Record<string, { role: 'idle' | 'source' | 'relay'; callsign: string }> = {}
-  for (const [id, raw] of Object.entries(payload.cards || {})) {
-    const role = raw?.role === 'source' || raw?.role === 'relay' ? raw.role : 'idle'
-    cards[id] = { role, callsign: String(raw?.callsign || '') }
-  }
-  return cards
+export function fetchFastStandardActivity(signal?: AbortSignal): Promise<FastCardActivity> {
+  return fetchFastCardActivity('fast-standard-activity', 'Fast standard bridge activity unavailable', signal)
+}
+
+export function fetchFastYsfNetActivity(signal?: AbortSignal): Promise<FastCardActivity> {
+  return fetchFastCardActivity('fast-ysf-net-activity', 'Fast YSF Net Bridge activity unavailable', signal)
 }
 
 export type FastNextModeTalker = {

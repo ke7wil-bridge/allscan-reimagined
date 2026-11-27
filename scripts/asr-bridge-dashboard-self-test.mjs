@@ -937,16 +937,18 @@ try {
       && appSource.includes('relay.updatedEpochMs < appliedEpochMs'),
     'Zello fast relay polling must reject responses older than the producer event',
   )
+  const fastCardPollSource = readFileSync('src/lib/fastCardPoll.ts', 'utf8')
   assert(
     appSource.includes('const FAST_ACTIVITY_POLL_MS = 250')
-      && (appSource.match(/Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4
+      && (appSource.match(/startFastCardPoll\(/g) || []).length === 3
+      && ['NextMode', 'YsfNet', 'Standard'].every((mode) => appSource.includes('startFastCardPoll(\n    fetchFast' + mode + 'Activity,'))
+      && fastCardPollSource.includes('document.hidden ? 1000 : Math.max(0, pollMs - (performance.now() - started))')
+      && fastCardPollSource.includes('if (!cancelled) timer = window.setTimeout(() => void tick()')
+      && fastCardPollSource.includes('if (cancelled || sequence < appliedSequence) return')
+      && fastCardPollSource.includes('if (timer !== undefined) window.clearTimeout(timer)')
+      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 1
       && !appSource.includes('window.setInterval(tick, 100)'),
-    'Every fast activity feed must remain single-flight at the bounded shared cadence',
-  )
-  assert(
-    !appSource.includes('window.setInterval(tick, 100)')
-      && (appSource.match(/document\.hidden \? 1000 : Math\.max\(0, FAST_ACTIVITY_POLL_MS - \(performance\.now\(\) - started\)\)/g) || []).length === 4,
-    'all four fast bridge feeds must remain single-flight and back off while the page is hidden',
+    'All four fast feeds must remain independent, single-flight, cancellable, with the same visible and hidden cadence',
   )
   assert(
     asrApiSource.includes("function asr_m17_runtime_status(string $bridgeId): array")
