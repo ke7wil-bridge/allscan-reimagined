@@ -158,11 +158,12 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     const scopedBan = zelloRow('Taurus 78').getByLabel('Ban TAURUS 78 (Zello only)')
     await scopedBan.waitFor()
     assert(await zelloRow('Taurus 78').locator('button').isEnabled() && await scopedBan.isEnabled(), 'Spaced Zello identity lost moderation controls')
+    assert((await scopedBan.locator('option[value=""]').innerText()).trim()==='Ban', 'Scoped Ban label must match standard Ban')
     assert((await scopedBan.locator('option[value="15m"]').innerText()).includes('Zello only'), 'Exact-name scope not explicit')
     await scopedBan.selectOption('15m')
     await zelloRow('Taurus 78').locator('[data-status="banned"]').waitFor()
     assert(exactRequests.length===1 && exactRequests[0].identity==='TAURUS 78' && exactRequests[0].verb==='ban' && exactRequests[0].method==='POST' && exactRequests[0].header==='zello-exact-ban-control','Wrong exact-name mutation')
-    assert((await zelloRow('Taurus 78').innerText()).includes('Z Ban saved'), 'Saved-only status missing')
+    assert((await zelloRow('Taurus 78').innerText()).includes('Ban saved'), 'Saved-only status missing')
 
     assert(!/Last TX|No recent TX/.test(await zelloRoster.innerText()), 'Redundant Zello TX timestamp remains')
     // #307: check the actual control geometry under each supported theme.

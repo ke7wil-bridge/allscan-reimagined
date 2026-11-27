@@ -2445,13 +2445,13 @@ function App({ config }: { config: RuntimeConfig }) {
   function exactZelloBanSelect(identity: string) {
     if (exactZelloBans === null || !/^[A-Z0-9 @._#/+:-]{1,48}$/.test(identity)) return null
     if (exactZelloBans.some(ban => ban.rule === identity && (!ban.expiresAt || ban.expiresAt > clock.getTime() / 1000))) {
-      return <span className="asr-zello-moderation-status" data-status="banned" title="Zello-only policy saved; live enforcement unverified; no linked radio callsign">Z Ban saved</span>
+      return <span className="asr-zello-moderation-status" data-status="banned" title="Zello-only policy saved; live enforcement unverified; no linked radio callsign">Ban saved</span>
     }
     return <select value="" aria-label={`Ban ${identity} (Zello only)`} title="Zello-only saved policy; no linked radio callsign" disabled={banAdminBusy} onChange={(event) => {
       const duration = event.target.value as GlobalBanDuration
       if (duration) void changeExactZelloBan('ban', identity, duration)
     }}>
-      <option value="" disabled>Z Ban</option>
+      <option value="" disabled>Ban</option>
       {GLOBAL_BAN_DURATIONS.map(option => <option key={option.value} value={option.value}>{option.label} (Zello only)</option>)}
     </select>
   }
