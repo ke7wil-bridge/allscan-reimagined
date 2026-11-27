@@ -259,6 +259,36 @@ def execute(request: dict, profile_path: Path = PROFILE) -> dict:
             "stdout": stdout, "stderr": stderr}
 
 
+def write_response(response: dict) -> int:
+    """Deliver one response; a disconnected peer cannot receive a retry."""
+    payload = (json.dumps(response, separators=(",", ":")) + "\n").encode("ascii")
+    fd = sys.stdout.fileno()
+    try:
+        sys.stdout.flush()
+        # Bypass TextIOWrapper: an unbuffered short write can otherwise be
+        # reported as a complete text write. Only advance by bytes accepted.
+        pending = memoryview(payload)
+        while pending:
+            count = os.write(fd, pending)
+            if count == 0:
+                raise OSError("broker response write made no progress")
+            pending = pending[count:]
+    except (BrokenPipeError, ConnectionResetError):
+        # A failed flush can leave bytes in Python's buffered stdout. Replace
+        # its descriptor so interpreter shutdown cannot flush to the dead peer
+        # and turn this expected transport event into exit status 120.
+        with open(os.devnull, "wb") as sink:
+            os.dup2(sink.fileno(), fd)
+        # Log only the numeric result, never the request or helper output.
+        # This is a transport exit status, not an operation success signal.
+        print(
+            f"ASR broker: client disconnected during response; "
+            f"response not delivered (exitCode={response['exitCode']})",
+            file=sys.stderr, flush=True,
+        )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", type=Path, default=PROFILE)
@@ -268,8 +298,7 @@ def main() -> int:
     except (BrokerError, OSError, ValueError) as exc:
         response = {"schema": 1, "exitCode": 1, "stdout": "",
                     "stderr": json.dumps({"ok": False, "error": str(exc)}) + "\n"}
-    sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
-    return 0
+    return write_response(response)
 
 
 if __name__ == "__main__":
