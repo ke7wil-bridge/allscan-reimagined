@@ -11,6 +11,7 @@ import { nextSort, hslToFavoriteHex, pickFavoriteHex, type SortDirection } from 
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
+import { replaceDashboardQuery } from './lib/dashboardQuery'
 import { startFastCardPoll } from './lib/fastCardPoll'
 import { matchingRecentTalker } from './lib/recentTalkerIdentity'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -1409,8 +1410,7 @@ function App({ config }: { config: RuntimeConfig }) {
     reportBugParamHandled.current = true
     params.delete('reportBug')
     params.delete('supportFeedback')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    replaceDashboardQuery(params)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSupportFeedbackOpen(true)
   }, [])
@@ -1421,8 +1421,7 @@ function App({ config }: { config: RuntimeConfig }) {
     if (params.get('updateAsr') !== '1') return
     updateAsrParamHandled.current = true
     params.delete('updateAsr')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    replaceDashboardQuery(params)
     // Opening the requested admin dialog is the purpose of this URL-driven effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setUpdateDialogView('update')
