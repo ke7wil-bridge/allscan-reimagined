@@ -97,8 +97,9 @@ try {
               if(rows.some(row=>Math.abs((row.left+row.right-g.left-g.right)/2)>2))
                 return {ok:false,count,slot,reason:'uncentered Standard row'};
             }
-            if(shared||!centered||!contained||r.width<Math.min(280,g.width-16))
-              return {ok:false,count,slot,shared,centered,contained,width:r.width,grid:g.width};
+            const equalWidth=standards.every(card=>Math.abs(card.getBoundingClientRect().width-r.width)<=2);
+            if(shared||!centered||!contained||!equalWidth)
+              return {ok:false,count,slot,shared,centered,contained,equalWidth,width:r.width,standardWidths:standards.map(c=>c.getBoundingClientRect().width),grid:g.width};
           }
         }
         return {ok:true};

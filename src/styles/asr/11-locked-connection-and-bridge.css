@@ -534,15 +534,67 @@
     min-width:0;
   }
 }
-/* #343: consume a complete flex line (or grid row) without stretching the
-   card itself. Explicit side margins participate in flex line breaking. */
+/* #343: Net Bridge occupies one complete row but matches Standard card width.
+   The shared width follows the existing responsive Standard layout. */
+.allscan-bridge-grid { --asr-net-card-width: calc((100% - 6px) / 2); }
+@media (min-width:1201px) {
+  .allscan-bridge-grid { --asr-net-card-width: max(220px,calc((100% - 30px) / 6)); }
+}
+@media (min-width:701px) and (max-width:1199px) and (orientation:portrait) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 18px) / 4); }
+}
+@media (min-width:901px) and (max-width:1199px) and (orientation:landscape) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 24px) / 5); }
+}
+@media (width:1200px) and (orientation:landscape) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 12px) / 3); }
+}
+@media (orientation:landscape) and (pointer:coarse) and (max-height:520px) and (max-width:900px) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 18px) / 4); }
+}
 .allscan-bridge-grid > .allscan-bridge-card.allscan-net-bridge-card {
   box-sizing: border-box !important;
-  flex: 0 0 min(100%, 460px) !important;
-  width: min(100%, 460px) !important;
+  flex: 0 0 var(--asr-net-card-width) !important;
+  width: var(--asr-net-card-width) !important;
   min-width: 0 !important;
-  max-width: 460px !important;
-  margin-inline: max(0px, calc((100% - 460px) / 2)) !important;
+  max-width: 100% !important;
+  margin-inline: calc((100% - var(--asr-net-card-width)) / 2) !important;
   grid-column: 1 / -1 !important;
   justify-self: center !important;
+  container-type: inline-size;
+}
+/* Equal card widths must not squeeze reflector/module or talkgroup inputs.
+   Stack editable fields only when their shared row would be too narrow. */
+@container (max-width: 315px) {
+  .allscan-bridge-grid .allscan-net-bridge-controls {
+    grid-template-columns: max-content minmax(0,1fr) !important;
+    grid-template-rows: repeat(3,minmax(28px,auto)) !important;
+    justify-content: stretch !important;
+    column-gap: 5px !important;
+    padding-inline: 6px !important;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-controls.allscan-net-bridge-m17 {
+    grid-template-rows: repeat(4,minmax(28px,auto)) !important;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-destination-row > label:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-controls .allscan-net-bridge-destination-row > :is(input,select):first-of-type {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .allscan-bridge-grid .allscan-m17-net-tune > label:nth-of-type(2) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .allscan-bridge-grid .allscan-m17-net-tune > input:nth-of-type(2) {
+    grid-column: 2;
+    grid-row: 3;
+    max-width: 40px;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-mode-row .allscan-bridge-link-buttons { grid-row: 3; }
+  .allscan-bridge-grid .allscan-net-bridge-m17 > .allscan-m17-link-buttons { grid-row: 4; }
+  .allscan-bridge-grid .allscan-net-bridge-controls .allscan-bridge-link-buttons { gap: 4px; }
+  .allscan-bridge-grid .allscan-net-bridge-controls .allscan-action-button { padding-inline: 2px; font-size: 10px; }
 }
