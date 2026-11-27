@@ -44,6 +44,7 @@ def write_image_context(path: Path, version: str, base: str) -> None:
 
 def build_image(context: Path, tag: str, dockerfile: str = "Dockerfile") -> None:
     command(["/usr/bin/docker", "build", "--pull=false", "--network=none",
+             "--memory=768m", "--memory-swap=768m", "--cpuset-cpus=0",
              "-f", str(context / dockerfile), "-t", tag, str(context)])
 
 
@@ -53,6 +54,12 @@ def compose_model(project: str, service: str, container: str, image: str,
         "image": image,
         "container_name": container,
         "restart": "unless-stopped",
+        "network_mode": "none",
+        "mem_limit": "640m",
+        "memswap_limit": "640m",
+        "cpus": 1,
+        "pids_limit": 256,
+        "security_opt": ["no-new-privileges:true"],
         "environment": {"ASR_UPDATE_MODE": "container"},
         "volumes": [{"type": "bind", "source": item["source"],
                      "target": item["destination"]} for item in mounts],

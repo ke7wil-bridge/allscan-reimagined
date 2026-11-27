@@ -24,6 +24,25 @@ The browser API requires an authenticated AllScan administrator. State-changing 
 
 The host updater accepts only the fixed GitHub release assets already enforced by the native updater. It verifies the companion SHA-256, validates the archive, requires a packaged container Dockerfile, and derives the Compose project/service/config files from Docker labels on the uniquely configured ASR container.
 
+## Packaged stock AllScan
+
+Both the source-tree development image and the staged release image package the exact
+AllScan commit in `stock-allscan.json` at image-build time. The shared packager validates
+the manifest, checks out the immutable commit, verifies the Git object graph and confirms
+the upstream version before either Dockerfile sets `ASR_PACKAGED_ALLSCAN=1`. At startup,
+the entrypoint rejects a packaged image whose `/opt/upstream-allscan` commit does not match
+the manifest; it never fetches the upstream repository in packaged mode. Network access is
+therefore required while building the image, not while initializing fresh or restored
+persistent volumes.
+
+`python3 scripts/asr-packaged-allscan-self-test.py` is part of the release gate and checks
+both Docker build paths and the entrypoint contract. After building a uniquely tagged QA
+image, run the opt-in real-image gate with
+`python3 scripts/asr-packaged-allscan-self-test.py --image <qa-tag>`. It uses no network,
+publishes no ports, applies CPU/memory/PID limits, creates disposable volumes, checks HTTP,
+SQLite, PHP and JSON, then recreates the container to verify persisted data. Never point
+this test at production volumes or replace a production image tag.
+
 ## Update sequence
 
 1. **Check for Update** reads release metadata without changing the host.
