@@ -409,6 +409,122 @@ def test_broker(broker) -> None:
             broker.load_backend, broker.peer_uid, broker.HELPER = original_backend, original_peer, original_helper
 
 
+def test_broker_response_transport() -> None:
+    """Exercise actual buffered Python stdout, socket EOF and process exit."""
+    fixture = """
+import errno, importlib.util, os, subprocess, sys
+from pathlib import Path
+from types import SimpleNamespace
+spec = importlib.util.spec_from_file_location("broker_fixture", sys.argv[1])
+broker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(broker)
+mode = sys.argv[2]
+sys.argv = [sys.argv[1]]
+if mode == "prebuffered":
+    sys.stdout.write("fixture-private-buffer")
+if mode == "write-error":
+    def fail_write(*args):
+        raise OSError(errno.EIO, "fixture output failure")
+    broker.os.write = fail_write
+if mode in {"success", "helper-failure", "large", "unauthorized", "unexpected", "timeout"}:
+    broker.HELPER = Path("/usr/bin/true").resolve()
+    broker.load_backend = lambda: SimpleNamespace(
+        load_profile=lambda _: SimpleNamespace(
+            client_uid=os.getuid() + (mode == "unauthorized")),
+        validate_active_profile=lambda _: None,
+    )
+    def run(*args, **kwargs):
+        if mode == "unexpected":
+            raise RuntimeError("fixture unexpected failure")
+        if mode == "timeout":
+            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+        assert kwargs["timeout"] == 1200
+        return subprocess.CompletedProcess(
+            args[0], 17 if mode == "helper-failure" else 0,
+            "fixture-private-output" * (40000 if mode == "large" else 1),
+            "fixture-private-error" if mode == "helper-failure" else "",
+        )
+    broker.subprocess.run = run
+raise SystemExit(broker.main())
+"""
+    request_bytes = b'{"schema":1,"command":"dmr-plan","payload":{}}'
+
+    def exchange(mode, disconnect=None, unbuffered=False):
+        client, server = socket.socketpair()
+        with client, server:
+            client.settimeout(10)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+            client.sendall(b"{" if mode in {"invalid", "prebuffered", "write-error"} else request_bytes)
+            client.shutdown(socket.SHUT_WR)
+            if disconnect == "before":
+                client.close()
+            argv = [sys.executable]
+            if unbuffered:
+                argv.append("-u")
+            argv += ["-c", fixture, str(HERE / "asr-container-host-broker.py"), mode]
+            with subprocess.Popen(argv, stdin=server, stdout=server,
+                                  stderr=subprocess.PIPE) as process:
+                server.close()
+                try:
+                    received = b""
+                    if disconnect == "during":
+                        received = client.recv(1024)
+                        assert received and b"fixture-private-output" in received
+                        client.close()
+                    elif disconnect is None:
+                        while chunk := client.recv(65536):
+                            received += chunk
+                    _, error = process.communicate(timeout=10)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                return process.returncode, received, error.decode()
+
+    def delivered(mode, expected, unbuffered=False):
+        status, raw, diagnostic = exchange(mode, unbuffered=unbuffered)
+        assert status == 0 and not diagnostic, (status, diagnostic)
+        response = json.loads(raw)
+        assert set(response) == {"schema", "exitCode", "stdout", "stderr"}
+        assert response["schema"] == 1 and response["exitCode"] == expected, response
+        return response
+
+    def abandoned(mode, expected, when, unbuffered=False):
+        status, _, diagnostic = exchange(mode, when, unbuffered)
+        assert status == 0, (status, diagnostic)
+        assert diagnostic == (
+            "ASR broker: client disconnected during response; "
+            f"response not delivered (exitCode={expected})\n"
+        ), diagnostic
+
+    assert "not valid JSON" in delivered("invalid", 1)["stderr"]
+    # Even malformed requests may be abandoned before the buffered flush.
+    abandoned("invalid", 1, "before")
+    abandoned("invalid", 1, "before", unbuffered=True)
+    abandoned("prebuffered", 1, "before")
+    status, _, diagnostic = exchange("write-error", "before")
+    assert status != 0 and "fixture output failure" in diagnostic
+    if not hasattr(socket, "SO_PEERCRED") or not Path("/usr/bin/true").is_file():
+        print("broker peer/helper socket cases skipped: Linux fixture unavailable")
+        return
+    assert delivered("success", 0)["stdout"] == "fixture-private-output"
+    assert "not authorized" in delivered("unauthorized", 1)["stderr"]
+    assert delivered("helper-failure", 17)["stderr"] == "fixture-private-error"
+    abandoned("success", 0, "before")
+    abandoned("unauthorized", 1, "before")
+    abandoned("helper-failure", 17, "before")
+    abandoned("large", 0, "during")
+    abandoned("large", 0, "during", unbuffered=True)
+    assert delivered("large", 0)["stdout"] == "fixture-private-output" * 40000
+    assert delivered("large", 0, unbuffered=True)["stdout"] == "fixture-private-output" * 40000
+    # An unrelated execution failure still exits nonzero, even if abandoned.
+    status, _, diagnostic = exchange("unexpected", "before")
+    assert status != 0 and "fixture unexpected failure" in diagnostic
+    status, _, diagnostic = exchange("timeout", "before")
+    assert status != 0 and "TimeoutExpired" in diagnostic
+    assert delivered("success", 0)["stdout"] == "fixture-private-output"
+
+
 def test_asterisk_adapter(adapter) -> None:
     assert adapter.HOST_COMMAND_TIMEOUT <= 5
     assert adapter.CLIENT_SOCKET_TIMEOUT <= 6
@@ -1082,20 +1198,26 @@ class FakeClientSocket:
         self.response = response
         self.sent = b""
         self.connected = ""
+        self.connect_count = 0
+        self.send_count = 0
 
     def __enter__(self): return self
     def __exit__(self, *_args): return False
     def settimeout(self, _seconds): pass
-    def connect(self, path): self.connected = path
-    def sendall(self, data): self.sent += data
+    def connect(self, path):
+        self.connected = path
+        self.connect_count += 1
+    def sendall(self, data):
+        self.sent += data
+        self.send_count += 1
     def shutdown(self, _how): pass
     def recv(self, _size):
         result, self.response = self.response, b""
         return result
 
 
-def run_client(module, argv: list[str], response: dict, payload: bytes = b"{}"):
-    fake = FakeClientSocket(json.dumps(response).encode())
+def run_client(module, argv: list[str], response: dict | bytes, payload: bytes = b"{}"):
+    fake = FakeClientSocket(response if isinstance(response, bytes) else json.dumps(response).encode())
     stdout, stderr = io.StringIO(), io.StringIO()
     old = (sys.argv, sys.stdin, sys.stdout, sys.stderr,
            module.socket.socket, os.environ.get("ASR_BROKER_TESTING"),
@@ -1150,6 +1272,28 @@ def test_client_error_forwarding(setup_client, control_client) -> None:
         assert code == response["exitCode"] and stdout == "" and stderr == expected
         sent = json.loads(fake.sent)
         assert sent["program"] == "p25" and sent["args"] == ["status", "qa_p25"]
+
+
+def test_client_lost_mutating_response(setup_client, control_client, update_client) -> None:
+    # An empty or truncated response is not a successful operation and must
+    # never cause the client to send the mutating request a second time.
+    cases = (
+        (setup_client, ["asr-container-host-client.py", "net-bridge-reset"],
+         {"schema": 1, "command": "net-bridge-reset", "payload": {}}, False),
+        (control_client, ["allscan-reimagined-fixed-bridge-recovery",
+                          "--manual-link", "disconnect", "qa_p25"],
+         {"schema": 1, "program": "standard-link",
+          "args": ["--manual-link", "disconnect", "qa_p25"]}, False),
+        (update_client, ["asr-container-update-client.py", "--queue-update"],
+         {"schema": 1, "update": "queue"}, True),
+    )
+    for module, argv, expected, updater in cases:
+        for partial in (b"", b'{"schema":1,"exitCode":0'):
+            code, stdout, stderr, fake = run_client(module, argv, partial)
+            assert code == 1
+            assert json.loads(stdout if updater else stderr)["ok"] is False
+            assert fake.connect_count == 1 and fake.send_count == 1
+            assert json.loads(fake.sent) == expected
 
 
 def test_recovery(recovery) -> None:
@@ -1307,6 +1451,7 @@ def main() -> int:
     test_discovery(backend)
     test_active_profile(backend)
     test_broker(broker)
+    test_broker_response_transport()
     test_asterisk_adapter(asterisk)
     standard_link = load("asr_container_test_standard_link", "asr-container-standard-link.py")
     test_standard_link(standard_link)
@@ -1323,6 +1468,8 @@ def main() -> int:
     test_zello_qualified_runtime(zello_installer)
     test_p25_no_emulator_topology(digital, renderer)
     test_client_error_forwarding(setup_client, control_client)
+    update_client = load("asr_container_test_update_client", "asr-container-update-client.py")
+    test_client_lost_mutating_response(setup_client, control_client, update_client)
     test_recovery(recovery)
     test_adapter_allowlists(systemctl)
     print("container provisioning self-test passed")
