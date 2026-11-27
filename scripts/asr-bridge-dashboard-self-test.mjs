@@ -659,7 +659,7 @@ try {
   assert(
     indexCssSource.includes('justify-content:space-evenly;')
       && !indexCssSource.includes('column-gap:calc((100% - 24px) / 10)'),
-    'desktop bridge grid does not preserve five-across spacing',
+    'desktop bridge grid does not preserve uniform spacing',
   )
   assert(
     indexCssSource.includes('@media (min-width: 1201px)')
