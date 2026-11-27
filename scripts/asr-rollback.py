@@ -1448,6 +1448,15 @@ def rollback(backup_id: str, *, confirm_legacy_overlay: bool = False) -> dict[st
             reconcile_fixed_bridge_recovery_wiring(release_target)
             reconcile_standard_bridge_status_wiring(release_target)
             reconcile_bridge_lifecycle_wiring(release_target)
+            # Older releases do not support the continuous ASTAPI collector.
+            collector_unit = Path("/etc/systemd/system/allscan-reimagined-astapi.service")
+            collector_reapply = release_target / "scripts/asr-reapply.sh"
+            if collector_unit.exists() and (not collector_reapply.is_file() or
+                    "allscan-reimagined-astapi.service" not in collector_reapply.read_text(encoding="utf-8")):
+                subprocess.run(["systemctl", "disable", "--now", collector_unit.name], check=True)
+                collector_unit.unlink()
+                run_checked(["systemctl", "daemon-reload"])
+
             ensure_manager_wiring()
             if detect_version(active_web / "asr-api.php") != version:
                 raise RollbackError("Served ASR version did not match after rollback")

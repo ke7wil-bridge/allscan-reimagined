@@ -352,7 +352,54 @@ stage_asr_web() {
 echo "Staging AllScan Reimagined beside untouched stock AllScan..."
 stage_asr_web
 ALLSCAN_DIR="$ASR_WEB_DIR"
-[ "$WEB_ONLY" = "1" ] && exit 0
+
+collector_fingerprint() {
+  {
+    find "$ASR_WEB_DIR/astapi" "$ASR_WEB_DIR/include" -type f -name '*.php' -print0 \
+      | LC_ALL=C sort -z | xargs -0 -r sha256sum
+    for collector_config in /etc/asterisk/manager.conf /etc/asterisk/rpt.conf; do
+      [ -f "$collector_config" ] && sha256sum "$collector_config"
+    done
+    # Only AMI/node settings affect the long-running collector. Hashing the
+    # entire database would restart it after unrelated user/account changes.
+    if [ -r /etc/allscan/allscan.db ]; then
+      php -r '$db=new SQLite3("/etc/allscan/allscan.db", SQLITE3_OPEN_READONLY); $q=$db->query("SELECT cfg_id,val FROM cfg WHERE cfg_id BETWEEN 7 AND 11 ORDER BY cfg_id"); while($r=$q->fetchArray(SQLITE3_NUM)) echo $r[0],"=",$r[1],"\n";'
+    fi
+    sha256sum /etc/systemd/system/allscan-reimagined-astapi.service
+  } | sha256sum | cut -d ' ' -f 1
+}
+
+reconcile_collector_service() {
+  local collector_stamp=/run/allscan-reimagined/astapi-service.sha256
+  local collector_hash collector_previous='' collector_tmp
+  [ -f /etc/systemd/system/allscan-reimagined-astapi.service ] || return 0
+  collector_hash=$(collector_fingerprint)
+  # The shared runtime directory is writable by the web group. Trust only a
+  # root-owned regular stamp, and replace it atomically with a root-only file.
+  if [ ! -L "$collector_stamp" ] && [ -f "$collector_stamp" ] \
+    && [ "$(stat -c '%u:%a' "$collector_stamp" 2>/dev/null || true)" = '0:600' ]; then
+    collector_previous=$(cat "$collector_stamp" 2>/dev/null || true)
+  fi
+  if ! systemctl is-active --quiet allscan-reimagined-astapi.service \
+    || [ "$collector_previous" != "$collector_hash" ]; then
+    systemctl restart allscan-reimagined-astapi.service
+    collector_tmp=$(mktemp /run/allscan-reimagined/.astapi-service.sha256.XXXXXX)
+    printf '%s\n' "$collector_hash" > "$collector_tmp"
+    chown root:root "$collector_tmp"
+    chmod 600 "$collector_tmp"
+    mv -Tf "$collector_tmp" "$collector_stamp"
+  fi
+}
+
+# A web-only integrity repair can replace collector PHP underneath an already
+# running service. Reconcile it, but never create host services in that mode.
+if [ "$WEB_ONLY" = "1" ]; then
+  if [ ! -e /.dockerenv ] && [ -f /etc/systemd/system/allscan-reimagined-astapi.service ]; then
+    reconcile_collector_service
+  fi
+  exit 0
+fi
+
 
 install -o root -g root -m 755 "$MASTER_DIR/bin/allscan_wt_clients.sh" /usr/local/bin/allscan_wt_clients.sh
 install -o root -g root -m 755 "$MASTER_DIR/scripts/asr-asterisk-read.sh" /usr/local/sbin/allscan-reimagined-asterisk-read
@@ -547,6 +594,31 @@ systemd-tmpfiles --create /etc/tmpfiles.d/allscan-reimagined.conf
 chmod 1775 /run/allscan-reimagined
 install -d -o root -g "$WEB_GROUP" -m 750 /run/allscan-reimagined/release-check
 install -d -o root -g root -m 700 /run/allscan-reimagined/rollback-jobs
+# The headless ASTAPI service shares the browser collector lock.
+if [ ! -e /.dockerenv ]; then
+  cat > /etc/systemd/system/allscan-reimagined-astapi.service <<EOF
+[Unit]
+Description=ASR authoritative continuous ASTAPI collector
+After=network-online.target asterisk.service
+
+[Service]
+Type=simple
+User=$WEB_GROUP
+Group=$WEB_GROUP
+ExecStart=/usr/bin/php $ASR_WEB_DIR/astapi/server.php --asr-collector
+Restart=always
+RestartSec=5s
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable allscan-reimagined-astapi.service
+  reconcile_collector_service
+fi
+
 if [ "$ROLLBACK_MODE" != "1" ] && [ "${ASR_INSTALL_LOCK_HELD:-0}" != "1" ] \
   && [ -x /usr/local/sbin/allscan-reimagined-bridge-lifecycle ]; then
   if ! /usr/local/sbin/allscan-reimagined-bridge-lifecycle reconcile; then

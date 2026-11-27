@@ -9,13 +9,11 @@ import json
 import os
 from pathlib import Path
 import re
-import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-import uuid
 
 from asrplus_command_integrity import (
     IntegrityError, legacy_digest, load_agent_config, sign_acknowledgment,
@@ -23,8 +21,6 @@ from asrplus_command_integrity import (
 )
 
 
-TALKER_FRESH_SECONDS = 20
-TALKER_HISTORY_LIMIT = 25
 TALKER_HEARTBEAT_SECONDS = 5
 LEDGER_RETENTION_SECONDS = 7 * 86400
 LEDGER_MAX_RECORDS = 1000
@@ -54,18 +50,6 @@ def labels(path: str) -> dict[str, str]:
     return result
 
 
-def node_metadata(path: str, node: str) -> dict[str, str]:
-    try:
-        for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-            parts = line.split("|")
-            if len(parts) >= 4 and parts[0] == node:
-                return {"callsign": parts[1].strip()[:32], "description": parts[2].strip()[:80],
-                    "location": parts[3].strip()[:80]}
-    except OSError:
-        pass
-    return {"callsign": "", "description": "", "location": ""}
-
-
 def atomic_json(path: Path, payload: dict, mode: int = 0o640) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -78,222 +62,6 @@ def atomic_json(path: Path, payload: dict, mode: int = 0o640) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-
-
-def manager_credentials(path: str) -> tuple[str, str]:
-    section = ""
-    values: dict[str, dict[str, str]] = {}
-    for raw in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip().replace("\u00a0", "")
-        if not line or line.startswith((";", "#")):
-            continue
-        match = re.fullmatch(r"\[([^]]+)\]", line)
-        if match:
-            section = match.group(1).strip()
-            values.setdefault(section, {})
-        elif "=" in line and section and section != "general":
-            key, value = line.split("=", 1)
-            values[section][key.strip().lower()] = value.split(";", 1)[0].strip()
-    for username, settings in values.items():
-        if settings.get("secret"):
-            return username, settings["secret"]
-    raise RuntimeError("no AMI account is available")
-
-
-class AmiClient:
-    def __init__(self, config: dict):
-        self.config = config
-        self.sock: socket.socket | None = None
-        self.buffer = b""
-
-    def close(self) -> None:
-        if self.sock is not None:
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-        self.sock = None
-        self.buffer = b""
-
-    def read_quiet(self, first: float = 1.0, quiet: float = 0.12) -> str:
-        if self.sock is None:
-            raise RuntimeError("AMI is disconnected")
-        chunks = []
-        self.sock.settimeout(first)
-        while True:
-            try:
-                chunk = self.sock.recv(65536)
-            except TimeoutError:
-                break
-            if not chunk:
-                raise ConnectionError("AMI closed the connection")
-            chunks.append(chunk)
-            self.sock.settimeout(quiet)
-        return b"".join(chunks).decode("utf-8", errors="replace")
-
-    def action(self, action: str, **fields: str) -> str:
-        if self.sock is None:
-            raise RuntimeError("AMI is disconnected")
-        lines = [f"Action: {action}", f"ActionID: asrplus-{int(time.time() * 1000)}"]
-        lines.extend(f"{key}: {value}" for key, value in fields.items())
-        self.sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
-        return self.read_quiet()
-
-    def connect(self) -> None:
-        self.close()
-        username, secret = manager_credentials(self.config.get("managerConf", "/etc/asterisk/manager.conf"))
-        self.sock = socket.create_connection(("127.0.0.1", 5038), timeout=2)
-        self.read_quiet(0.5)
-        response = self.action("Login", Username=username, Secret=secret, Events="off")
-        if not re.search(r"(?im)^Response:\s*Success\s*$", response):
-            raise RuntimeError("AMI login failed")
-
-    def status(self, command: str) -> str:
-        return self.action("RptStatus", Command=command, Node=str(self.config["node"]))
-
-    def enable_events(self) -> None:
-        response = self.action("Events", EventMask="on")
-        if not re.search(r"(?im)^Response:\s*Success\s*$", response):
-            raise RuntimeError("AMI event subscription failed")
-
-    def events(self) -> list[dict[str, str]]:
-        if self.sock is None:
-            raise RuntimeError("AMI is disconnected")
-        self.sock.settimeout(1.0)
-        try:
-            chunk = self.sock.recv(65536)
-        except TimeoutError:
-            return []
-        if not chunk:
-            raise ConnectionError("AMI closed the connection")
-        self.buffer += chunk
-        events = []
-        while b"\r\n\r\n" in self.buffer:
-            raw, self.buffer = self.buffer.split(b"\r\n\r\n", 1)
-            frame = {}
-            for line in raw.decode(errors="replace").split("\r\n"):
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    frame[key.strip()] = value.strip()
-            if frame.get("Event"):
-                frame["_received_epoch_ms"] = str(time.time_ns() // 1_000_000)
-                events.append(frame)
-        return events
-
-
-def parse_talker_status(xstat: str, sawstat: str) -> tuple[bool, dict[str, dict]]:
-    match = re.search(r"(?im)^Var:\s*RPT_RXKEYED=(\d+)", xstat)
-    local_keyed = bool(match and match.group(1) != "0")
-    remotes = {}
-    for line in sawstat.splitlines():
-        match = re.match(r"^Conn:\s*(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", line.strip(), re.I)
-        if match:
-            remotes[match.group(1)] = {"keyed": match.group(2) != "0",
-                "last_keyed_seconds": int(match.group(3)), "last_unkeyed_seconds": int(match.group(4))}
-    return local_keyed, remotes
-
-
-def parse_alinks(value: str) -> dict[str, dict]:
-    remotes = {}
-    for token in [part.strip() for part in value.split(",") if part.strip()][1:]:
-        match = re.fullmatch(r"(.+?)([TRC]?)([KU])", token, re.I)
-        if match:
-            node, mode, state = match.groups()
-            remotes[node] = {"keyed": state.upper() == "K", "mode": mode.upper() or "T"}
-    return remotes
-
-
-class TalkerState:
-    def __init__(self, config: dict):
-        self.config = config
-        self.path = Path(config.get("talkerStatus", "/run/asrplus/talkers.json"))
-        self.metadata = node_metadata(config.get("astdb", "/var/lib/asterisk/astdb.txt"), str(config["node"]))
-        self.labels = labels(config.get("astdb", "/var/lib/asterisk/astdb.txt"))
-        self.keyed: dict[str, bool] = {}
-        self.started: dict[str, int] = {}
-        self.history: list[dict] = []
-        self.last_write = 0
-        self.heartbeat_seconds = int(config.get("talkerHeartbeatSeconds", TALKER_HEARTBEAT_SECONDS))
-        if not 1 <= self.heartbeat_seconds <= 60:
-            raise ValueError("talkerHeartbeatSeconds must be 1..60")
-        self.sequence = 0
-        self.healthy = False
-        self.watcher_instance = uuid.uuid4().hex
-        self.event_times = {"asterisk_event_epoch_ms": 0, "watcher_detected_epoch_ms": 0,
-            "state_published_epoch_ms": 0}
-        try:
-            saved = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(saved.get("last_talkers"), list):
-                self.history = saved["last_talkers"][:TALKER_HISTORY_LIMIT]
-            self.sequence = max(0, int(saved.get("talker_sequence") or 0))
-        except (OSError, ValueError, AttributeError):
-            pass
-
-    def entry(self, talker_id: str, started: int, ended: int | None = None) -> dict:
-        local = talker_id == "local-rf"
-        node = str(self.config["node"]) if local else talker_id
-        label = " ".join(value for value in (self.metadata.get("callsign"), self.metadata.get("description")) if value) if local else self.labels.get(node, f"Node {node}")
-        entry = {"node": node, "label": label, "keyed_started_epoch": started,
-            "event_epoch": ended or started, "originated_locally": local}
-        if local:
-            entry.update(self.metadata)
-        if ended is not None:
-            entry["duration_seconds"] = max(0, ended - started)
-            entry["last_keyed"] = f"{entry['duration_seconds'] // 60:02d}:{entry['duration_seconds'] % 60:02d}"
-        return entry
-
-    def publish(self, payload: dict, changed: bool, now: int | None = None) -> None:
-        now = int(time.time()) if now is None else now
-        now_ms = time.time_ns() // 1_000_000
-        if changed:
-            self.event_times["state_published_epoch_ms"] = now_ms
-        atomic_json(self.path, payload | {"healthy": self.healthy, "updated_epoch": now,
-            "talker_sequence": self.sequence, "watcher_instance": self.watcher_instance} | self.event_times)
-        self.last_write = now
-        if changed:
-            event_path = Path(self.config.get("talkerEvent", "/run/asrplus/talker-event"))
-            event_path.parent.mkdir(parents=True, exist_ok=True)
-            event_path.touch()
-
-    def update(self, local_keyed: bool, remotes: dict[str, dict], detected_epoch_ms: int = 0,
-            asterisk_epoch_ms: int = 0) -> bool:
-        now = int(time.time())
-        observed = {node: bool(info.get("keyed")) for node, info in remotes.items()}
-        observed["local-rf"] = local_keyed
-        changed = observed != self.keyed or not self.healthy
-        for talker_id in set(self.keyed) | set(observed):
-            was_keyed, is_keyed = bool(self.keyed.get(talker_id)), bool(observed.get(talker_id))
-            if is_keyed and not was_keyed:
-                seconds = int(remotes.get(talker_id, {}).get("last_keyed_seconds", 0) or 0)
-                self.started[talker_id] = now - seconds if 0 < seconds < 86400 else now
-            elif was_keyed and not is_keyed:
-                started = self.started.pop(talker_id, now)
-                self.history.insert(0, self.entry(talker_id, started, now))
-                self.history = self.history[:TALKER_HISTORY_LIMIT]
-        self.keyed = observed
-        self.healthy = True
-        if changed:
-            self.sequence += 1
-            self.event_times["asterisk_event_epoch_ms"] = max(0, int(asterisk_epoch_ms or 0))
-            self.event_times["watcher_detected_epoch_ms"] = max(0, int(detected_epoch_ms or time.time_ns() // 1_000_000))
-        active = sorted((node for node, keyed in observed.items() if keyed),
-            key=lambda node: self.started.get(node, now), reverse=True)
-        current = self.entry(active[0], self.started.get(active[0], now)) if active else {}
-        if current:
-            current["last_keyed"] = f"{(now - current['keyed_started_epoch']) // 60:02d}:{(now - current['keyed_started_epoch']) % 60:02d}"
-        if changed or now - self.last_write >= self.heartbeat_seconds:
-            self.publish({"current_talker": current, "last_talkers": self.history}, changed, now)
-        return changed
-
-    def failed(self, error: Exception) -> bool:
-        changed = self.healthy
-        self.healthy = False
-        if changed:
-            self.sequence += 1
-            self.event_times["watcher_detected_epoch_ms"] = time.time_ns() // 1_000_000
-        self.publish({"error": str(error)[:160], "current_talker": {},
-            "last_talkers": self.history}, changed)
-        return changed
 
 
 class EventPublisher:
@@ -332,42 +100,56 @@ class EventPublisher:
 
 
 def watch_talkers(config: dict) -> int:
-    state, client, publisher, backoff = TalkerState(config), AmiClient(config), EventPublisher(config), 1.0
-    local_keyed, remotes = False, {}
+    """Relay authoritative ASR snapshots; never interpret AMI talker events."""
+    publisher = EventPublisher(config)
+    previous = None
+    last_write = 0.0
+    heartbeat = int(config.get("talkerHeartbeatSeconds", TALKER_HEARTBEAT_SECONDS))
+    if not 1 <= heartbeat <= 60:
+        raise ValueError("talkerHeartbeatSeconds must be 1..60")
+    status_path = Path(config.get("talkerStatus", "/run/asrplus/talkers.json"))
+    event_path = Path(config.get("talkerEvent", "/run/asrplus/talker-event"))
     while True:
-        try:
-            if client.sock is None:
-                client.connect()
-                local_keyed, remotes = parse_talker_status(client.status("XStat"), client.status("SawStat"))
-                if state.update(local_keyed, remotes):
-                    publisher.trigger()
-                client.enable_events()
-                backoff = 1.0
-            for event in client.events():
-                if event.get("Node") != str(config["node"]):
-                    continue
-                if event.get("Event") == "RPT_ALINKS":
-                    parsed = parse_alinks(event.get("EventValue", ""))
-                    remotes = parsed
-                elif event.get("Event") == "RPT_RXKEYED":
-                    local_keyed = event.get("EventValue", "").strip().lower() not in {"", "0", "false"}
-                else:
-                    continue
-                event_tv = event.get("EventTV") or event.get("Timestamp") or ""
-                try:
-                    asterisk_epoch_ms = int(float(event_tv) * 1000)
-                except (TypeError, ValueError):
-                    asterisk_epoch_ms = 0
-                if state.update(local_keyed, remotes, int(event.get("_received_epoch_ms") or 0), asterisk_epoch_ms):
-                    publisher.trigger()
-            if state.update(local_keyed, remotes):
-                publisher.trigger()
-        except Exception as error:
-            if state.failed(error):
-                publisher.trigger()
-            client.close()
-            time.sleep(backoff)
-            backoff = min(30.0, backoff * 2)
+        snapshot = read_asr_talkers(config)
+        signature = json.dumps([bool(snapshot), snapshot.get("current_talker", {}), snapshot.get("last_talkers", [])], sort_keys=True)
+        changed = signature != previous
+        now = time.time()
+        if changed or now - last_write >= heartbeat:
+            atomic_json(status_path, snapshot | {
+                "healthy": bool(snapshot), "updated_epoch": int(now),
+                "talker_authority": "asr" if snapshot else "unavailable",
+            })
+            last_write = now
+        if changed:
+            previous = signature
+            event_path.parent.mkdir(parents=True, exist_ok=True)
+            event_path.touch()
+            publisher.trigger()
+        time.sleep(0.5)
+
+
+def read_asr_talkers(config: dict) -> dict:
+    try:
+        path = Path(config.get("authoritativeTalkerCache",
+            f"/run/allscan-reimagined/astapi-{config['node']}.json"))
+        cache = json.loads(path.read_text(encoding="utf-8"))
+        if 0 <= time.time() - float(cache.get("updated", 0)) <= 10:
+            local = cache.get("current", {}).get(str(config["node"]))
+            if isinstance(local, dict):
+                instance = str(cache.get("talker_source_instance") or "")
+                sequence = cache.get("talker_event_sequence")
+                events = cache.get("origin_events")
+                telemetry = {}
+                if (re.fullmatch(r"[a-f0-9]{64}", instance) and type(sequence) is int
+                        and sequence >= 0 and isinstance(events, list) and len(events) <= 100):
+                    telemetry = {"watcher_instance": instance, "talker_sequence": sequence,
+                                 "origin_events": events}
+                return {"talker_source_epoch": float(cache["updated"]),
+                        "current_talker": local.get("current_talker") or {},
+                        "last_talkers": local.get("last_talkers") or []} | telemetry
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return {}
 
 
 def collect(config: dict) -> dict:
@@ -399,13 +181,8 @@ def collect(config: dict) -> dict:
             bridges = public["bridges"]
     except (OSError, ValueError):
         pass
-    talkers = {}
-    try:
-        candidate = json.loads(Path(config.get("talkerStatus", "/run/asrplus/talkers.json")).read_text(encoding="utf-8"))
-        if candidate.get("healthy") is True and int(time.time()) - int(candidate.get("updated_epoch") or 0) <= TALKER_FRESH_SECONDS:
-            talkers = candidate
-    except (OSError, ValueError, TypeError, AttributeError):
-        pass
+    # Consume only the local ASR collector snapshot; never infer a talker.
+    talkers = read_asr_talkers(config)
     current_node = str(talkers.get("current_talker", {}).get("node", ""))
     for row in rows:
         if row["node"] == current_node:
@@ -414,7 +191,7 @@ def collect(config: dict) -> dict:
     telemetry = {key: talkers.get(key) for key in ("talker_sequence", "watcher_instance",
         "asterisk_event_epoch_ms", "watcher_detected_epoch_ms", "state_published_epoch_ms")}
     return {"hub": config["hub"], "node": str(config["node"]), "generated_epoch": int(time.time()),
-        "connections": rows, "bridges": bridges, "current_talker": talkers.get("current_talker", {}),
+        "connections": rows, "bridges": bridges, "talker_authority": "asr", "talker_source_epoch": talkers.get("talker_source_epoch", 0), "current_talker": talkers.get("current_talker", {}),
         "last_talkers": talkers.get("last_talkers", [])} | telemetry
 
 
@@ -463,14 +240,19 @@ def execute_action(config: dict, command: dict) -> dict:
         if kind not in {"node", "allstar-call", "echolink-call"} or not re.fullmatch(pattern, value):
             return {"ok": False, "exitCode": 2, "message": "moderation target validation failed"}
         actor = re.sub(r"[^A-Za-z0-9_.@+-]", "_", str(command.get("actor", "unknown")))[:80] or "unknown"
-        arguments.extend(["--kind", kind, "--value", value, "--actor", actor])
-        if action == "ban":
-            duration = str(command.get("duration", ""))
-            reason = re.sub(r"[\x00-\x1f\x7f]", " ", str(command.get("reason", ""))).strip()[:160]
-            if duration not in {"15m", "1h", "1w", "30d", "permanent"}:
-                return {"ok": False, "exitCode": 2, "message": "moderation duration validation failed"}
-            arguments.extend(["--duration", duration, "--reason", reason])
-    result = subprocess.run(arguments, capture_output=True, text=True, timeout=20, check=False)
+        duration = str(command.get("duration", ""))
+        if action == "ban" and duration not in {"15m", "1h", "1w", "30d", "permanent"}:
+            return {"ok": False, "exitCode": 2, "message": "moderation duration validation failed"}
+        if kind != "node":
+            call = re.sub(r"-(?:L|R)$", "", value)
+            arguments = [str(config.get("globalBanHelper", "/usr/local/sbin/allscan-reimagined-global-ban")),
+                         action, call] + ([duration] if action == "ban" else []) + ["--actor", actor]
+        else:
+            arguments.extend(["--kind", kind, "--value", value, "--actor", actor])
+            if action == "ban":
+                reason = re.sub(r"[\x00-\x1f\x7f]", " ", str(command.get("reason", ""))).strip()[:160]
+                arguments.extend(["--duration", duration, "--reason", reason])
+    result = subprocess.run(arguments, capture_output=True, text=True, timeout=45, check=False)
     payload = None
     for line in reversed(result.stdout.splitlines()):
         try:
@@ -484,7 +266,28 @@ def execute_action(config: dict, command: dict) -> dict:
     outcome = {"ok": result.returncode == 0 and bool((payload or {}).get("ok")),
                "exitCode": result.returncode, "message": message}
     if action == "ban-list" and isinstance((payload or {}).get("bans"), list):
-        outcome["bans"] = payload["bans"][:200]
+        bans = list(payload["bans"])
+        try:
+            listed = subprocess.run(
+                [str(config.get("globalBanHelper", "/usr/local/sbin/allscan-reimagined-global-ban")), "list"],
+                capture_output=True, text=True, timeout=45, check=False)
+            global_payload = json.loads(listed.stdout.strip().splitlines()[-1]) if listed.stdout.strip() else {}
+        except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+            global_payload = {}
+        if listed_ok := isinstance(global_payload, dict) and global_payload.get("ok") is True:
+            seen = {(str(row.get("kind")), str(row.get("value", "")).upper())
+                    for row in bans if isinstance(row, dict)}
+            for row in global_payload.get("bans") or []:
+                rule = str((row or {}).get("rule", "")).upper()
+                if re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}", rule) \
+                        and ("allstar-call", rule) not in seen:
+                    bans.append({"kind": "allstar-call", "value": rule,
+                        "createdAt": int(row.get("createdAt") or 0),
+                        "expiresAt": int(row.get("expiresAt") or 0),
+                        "reason": "ASR Global Ban", "actor": "global"})
+        outcome["bans"] = bans[:200]
+        if not listed_ok:
+            outcome["message"] = (outcome["message"] + " Global Ban list unavailable.").strip()[:300]
     return outcome
 
 

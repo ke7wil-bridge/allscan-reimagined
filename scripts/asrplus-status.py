@@ -446,13 +446,19 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
     key = text(hub.get("stateKey"), 32)
     status = read_json_file(text(hub.get("statusFile"), 512)) if hub.get("statusFile") else read_json_url(text(hub.get("statusUrl"), 1024))
     connection_status = status.get("connection_status") if isinstance(status.get("connection_status"), dict) else {}
-    live_path = text(hub.get("talkerStatusFile"), 512)
-    live = read_json_file(live_path) if live_path else {}
-    live_generated = epoch(live.get("updated_epoch"))
-    live_fresh_seconds = max(2, min(30, int(live.get("fresh_for_seconds") or 15)))
-    live_fresh = bool(live_path and live.get("healthy") is True and live_generated > 0
-        and max(0, now - live_generated) <= live_fresh_seconds)
-    live_nodes = live.get("node_states") if live_fresh and isinstance(live.get("node_states"), dict) else {}
+    # ASR is the sole talker authority. Remote snapshots must explicitly
+    # identify the ASR collector as their source.
+    local_node_id = str(hub.get("node", ""))
+    if hub.get("id") == "masterhub":
+        cache = read_json_file(f"/run/allscan-reimagined/astapi-{local_node_id}.json")
+        live_fresh = 0 <= now - epoch(cache.get("updated")) <= 10
+        authoritative = cache.get("current", {}).get(local_node_id, {}) if live_fresh else {}
+    else:
+        live_fresh = status.get("talker_authority") == "asr" and 0 <= now - epoch(status.get("talker_source_epoch")) <= 15
+        authoritative = connection_status if live_fresh else {}
+    live_path = "asr"
+    live = {}
+    live_nodes = authoritative.get("remote_nodes", {}) if isinstance(authoritative.get("remote_nodes"), dict) else {}
     state_links = state.get(f"{key}_links") if isinstance(state.get(f"{key}_links"), list) else []
     source_rows = connection_status.get("nodes") if isinstance(connection_status.get("nodes"), list) else []
     if hub.get("id") == "masterhub":
@@ -530,91 +536,28 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
         })
     connection_labels = {connection["node"]: connection["label"] for connection in connections}
     talkers = []
-    current_talker = (live.get("current_talker") if live_fresh else {}) if live_path else connection_status.get("current_talker")
-    if isinstance(current_talker, dict) and text(current_talker.get("node"), 16):
-        active_node = text(current_talker.get("node"), 16)
-        # The event feed is authoritative for a live inbound hub relay.
-        # Some Asterisk node-state snapshots omit keyed=yes for these links;
-        # reflect the actual active event on the matching connection row.
+    current_talker = authoritative.get("current_talker")
+    history = authoritative.get("last_talkers") or []
+    def render_asr(row, current):
+        seconds = max(0, int(row.get("duration") or row.get("duration_seconds") or 0))
+        return {"node": text(row.get("node"), 16),
+                "callsign": text(row.get("info") or row.get("callsign"), 140),
+                "description": text(row.get("description"), 80),
+                "location": text(row.get("location"), 80),
+                "source": text(row.get("source"), 32),
+                "duration": f"{seconds // 60:02d}:{seconds % 60:02d}",
+                "eventEpoch": epoch(row.get("event_epoch")),
+                "startedEpoch": epoch(row.get("started_epoch") or row.get("keyed_started_epoch")),
+                "current": current, "originatedLocally": row.get("originated_locally") is True}
+    if isinstance(current_talker, dict) and current_talker.get("node"):
+        talkers.append(render_asr(current_talker, True))
         for connection in connections:
-            if connection["node"] == active_node or (connection["mode"] == "IAX" and connection["node"] == active_node + "-IAX"):
+            if connection["node"] == str(current_talker["node"]):
                 connection["keyed"] = True
-                if current_talker.get("last_keyed"):
-                    connection["received"] = text(current_talker.get("last_keyed"), 24)
-                started = epoch(current_talker.get("keyed_started_epoch"))
-                if started and 0 <= now - started < 86400:
-                    connection["receivedStartedEpoch"] = started
-        # Current digital identity must be verified just like completed ASR talker history.
-        # The fast watcher can supply only the transport label ("DMR"/"YSF").
-        if active_node in BRIDGE_CONNECTION_NODES.values() and hub.get("id") == "masterhub":
-            verified = ""
-            mode = next((key for key, value in BRIDGE_CONNECTION_NODES.items() if value == active_node), "")
-            bridge_live = read_json_file("/run/allscan-reimagined-standard-bridge-status/bridge-live.json")
-            live_age = now - int(bridge_live.get("updated_epoch") or 0)
-            if 0 <= live_age <= 10:
-                entries = bridge_live.get("bridges", {})
-                for bridge_id, bridge in entries.items() if isinstance(entries, dict) else ():
-                    if not isinstance(bridge, dict) or str(bridge.get("node")) != active_node:
-                        continue
-                    if bridge.get("active") is not True or bridge.get("role") != "source":
-                        continue
-                    candidate = text(bridge.get("current_user"), 32).upper()
-                    if re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[0-9]{1,2})?", candidate):
-                        verified = candidate
-                        break
-            if mode == "m17":
-                verified = re.sub(r"-[0-9]{1,2}$", "", verified)
-            if verified:
-                current_talker = dict(current_talker, info=verified, callsign=verified,
-                                      source=mode.upper(), identity_provenance="bridge_runtime")
-            else:
-                # No verified station yet: never label the transport as the operator.
-                current_talker = dict(current_talker, info="", callsign="", source=mode.upper())
-        talkers.append(talker_entry(current_talker, connection_labels, astdb, astdb_details, True))
-    if live_path:
-        history = live.get("history") if live_fresh and isinstance(live.get("history"), list) else []
-    else:
-        history = connection_status.get("last_talkers") if isinstance(connection_status.get("last_talkers"), list) else []
-    # Remote snapshots omit last_keyed for idle connections. The live
-    # watcher history records when TX ended, so compute "Received" as time
-    # since that event, matching the Master Hub's idle-column semantics.
-    last_received = {}
-    for row in history:
-        if not isinstance(row, dict):
-            continue
-        node = text(row.get("node"), 16)
-        ended = epoch(row.get("event_epoch"))
-        if node and ended and 0 <= now - ended < 86400:
-            last_received[node] = max(last_received.get(node, 0), ended)
-    if (live_fresh if live_path else True):
-        for connection in connections:
-            if not connection["keyed"] and connection["node"] in last_received:
-                seconds = now - last_received[connection["node"]]
-                connection["received"] = f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
-                connection["lastReceivedEpoch"] = last_received[connection["node"]]
-    # The fast link watcher records transport node/timing only. Correlate
-    # each digital event with the ASR validated bridge-runtime identity feed.
-    # Do not promote the bridge label (DMR/NXDN/etc.) into a callsign.
-    bridge_identity = read_json_file("/run/allscan-reimagined/talkers-674982.json") if hub.get("id") == "masterhub" else {}
-    evidence = bridge_identity.get("last_talkers", []) if isinstance(bridge_identity.get("last_talkers"), list) else []
-    digital_nodes = set(BRIDGE_CONNECTION_NODES.values())
-    for row in history:
-        if not isinstance(row, dict) or not text(row.get("node"), 16):
-            continue
-        if text(row.get("node"), 16) in digital_nodes:
-            end = epoch(row.get("event_epoch"))
-            candidates = [e for e in evidence if isinstance(e, dict)
-                          and text(e.get("node"), 16) == text(row.get("node"), 16)
-                          and abs(epoch(e.get("event_epoch")) - end) <= 3
-                          and text(e.get("identity_provenance"), 32) == "bridge_runtime"
-                          and text(e.get("info"), 32)]
-            if not candidates:
-                continue  # Unverified transport event is not a station.
-            row = dict(row)
-            row.update({key: candidates[0][key] for key in ("info", "source", "description", "location") if key in candidates[0]})
-        talkers.append(talker_entry(row, connection_labels, astdb, astdb_details, False))
-        if len(talkers) >= 6:
-            break
+                connection["receivedStartedEpoch"] = talkers[0]["startedEpoch"]
+    for row in history[:50]:
+        if isinstance(row, dict) and row.get("node"):
+            talkers.append(render_asr(row, False))
     bridges = []
     connected_nodes = {connection["node"] for connection in connections}
     source_bridges = status.get("bridges") if isinstance(status.get("bridges"), dict) else {}
@@ -711,7 +654,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
         })
     generated = epoch(status.get("generated_epoch")) or epoch(state.get("utc"))
     age = max(0, now - generated) if generated else -1
-    talker_age = max(0, now - live_generated) if live_path and live_generated else age
+    talker_age = 0 if live_fresh else 86401
     # Hub telemetry availability is independent of geo-admission readiness.
     # Admission requires a live inter-hub link, but an isolated hub can be online.
     stale_after = max(10, min(600, int(hub.get("staleAfterSeconds") or 180)))
@@ -735,8 +678,8 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
         "directLinks": max(0, int(connection_status.get("direct_link_count") or len(state_links))),
         "adjacentLinks": max(0, int(connection_status.get("adjacent_link_count") or 0)),
         "currentTalker": text(current.get("person") or current.get("callsign") or current.get("info") or current.get("description"), 80),
-        "txState": ("tx" if current.get("originatedLocally") else "relay") if current else "idle",
-        "txLabel": (("TX · " if current.get("originatedLocally") else "RELAY · ") + text(current.get("callsign") or current.get("description") or current.get("node"), 80)) if current else "Idle",
+        "txState": ("tx" if current.get("originatedLocally") else "relay") if current else ("idle" if live_fresh else "unknown"),
+        "txLabel": (("TX · " if current.get("originatedLocally") else "RELAY · ") + text(current.get("callsign") or current.get("description") or current.get("node"), 80)) if current else ("Idle" if live_fresh else "Unavailable"),
         "statusGeneratedEpoch": generated,
         "talkerSequence": max(0, int(status.get("talker_sequence") or 0)),
         "watcherInstance": text(status.get("watcher_instance"), 64),
