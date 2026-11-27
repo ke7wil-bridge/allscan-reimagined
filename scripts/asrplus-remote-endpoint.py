@@ -104,6 +104,10 @@ def sanitize_status(hub: str, payload: dict) -> dict:
             return {}
         if not current and (event <= 0 or event > generated + 30 or generated - event > 86400):
             return {}
+        raw_duration = row.get("duration")
+        if type(raw_duration) not in (int, float):
+            raw_duration = row.get("duration_seconds")
+        seconds = max(0, min(86400, int(raw_duration))) if type(raw_duration) in (int, float) and 0 <= raw_duration <= 86400 else 0
         return {
             "node": node, "network_node": network_node,
             "label": str(row.get("label", ""))[:140],
@@ -115,7 +119,7 @@ def sanitize_status(hub: str, payload: dict) -> dict:
             "description": str(row.get("description", ""))[:80],
             "location": str(row.get("location", ""))[:80],
             "event_epoch": event, "keyed_started_epoch": started,
-            "duration_seconds": max(0, min(86400, int(row.get("duration") or row.get("duration_seconds") or 0))),
+            "duration_seconds": seconds,
             "last_keyed": str(row.get("last_keyed", ""))[:24],
             "originated_locally": row.get("originated_locally") is True,
         }
