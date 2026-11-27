@@ -19,10 +19,14 @@ for start in recent_starts:
 client_starts = [m.start() for m in re.finditer(r"card\.detailRows\.map", app)]
 if not client_starts:
     errors.append("Connected Clients rendering path missing")
-elif not any("supportsKick ?" in app[start:start + 2600]
-             and ">Kick</button>" in app[start:start + 2600]
-             for start in client_starts):
-    errors.append("Connected Clients lost capability-gated Kick")
+else:
+    # Bound the check to the actual client renderer, not an arbitrary byte
+    # window that shrinks as moderation validation/status UI grows.
+    client_chunks = [app[start:app.find("card.recentRows.map", start) if app.find("card.recentRows.map", start) >= 0 else len(app)] for start in client_starts]
+    if not any("supportsKick ?" in chunk and ">Kick</button>" in chunk
+               and "const kickAvailable = supportsKick" in chunk
+               and "disabled={banAdminBusy || !kickAvailable}" in chunk for chunk in client_chunks):
+        errors.append("Connected Clients lost capability-gated Kick")
 
 link_status_start = app.find("const allstarTransportLinked")
 link_status = app[link_status_start:app.find("const dashboardStatusLabel", link_status_start)]

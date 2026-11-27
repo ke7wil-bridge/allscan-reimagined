@@ -277,6 +277,25 @@ export function orderedVisibleBridgeCards(
 }
 
 export type GlobalBan = { rule: string; createdAt: number; expiresAt: number; remainingSeconds: number }
+export type ExactZelloBan = GlobalBan & { scope: 'zello-only'; verified: false }
+
+export async function exactZelloBanPolicy(verb: 'list' | 'ban' | 'unban' = 'list', identity = '', duration = 'permanent'): Promise<ExactZelloBan[]> {
+  const action = verb === 'list' ? 'zello-exact-ban-list' : 'zello-exact-ban-control'
+  const response = await fetch(`${ASR_API}?action=${action}`, verb === 'list'
+    ? { credentials: 'same-origin', cache: 'no-store' }
+    : { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-ASR-Requested-With': action },
+        body: new URLSearchParams({ verb, identity, duration }).toString() })
+  const payload = await response.json()
+  if (!response.ok || payload.ok !== true || payload.scope !== 'zello-only' || !Array.isArray(payload.bans)) {
+    throw new Error(payload.error || 'Exact Zello policy unavailable.')
+  }
+  if (payload.bans.some((ban: ExactZelloBan) => ban.scope !== 'zello-only' || ban.verified !== false || typeof ban.rule !== 'string')) {
+    throw new Error('Invalid exact Zello policy response.')
+  }
+  return payload.bans
+}
+
 export type GlobalBanAuditEvent = { timestamp: number; action: 'kick' | 'ban' | 'unban' | 'expire'; actor: string; rule?: string; callsign?: string; protocol?: string; duration?: string; expiresAt?: number; removed?: number }
 export type GlobalBanList = { rules: string[]; bans: GlobalBan[]; audit: GlobalBanAuditEvent[]; serverEpoch: number; verified: boolean; skippedBridges: string[]; asl?: { status?: string; error?: string; applied?: { externalAst?: string[]; externalEcho?: string[]; unmappedGlobalRules?: string[] } } }
 
