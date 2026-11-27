@@ -445,6 +445,19 @@ def status_payload(generated: int, sequence: int = 1, hub: str = "phoenix",
     }
 
 now = int(time.time())
+# Active ASR talkers use a presentation placeholder; completed rows use seconds.
+active = {"node": "3069556", "network_node": "69556", "source": "EchoLink",
+          "started_epoch": now - 8, "duration": "&nbsp;"}
+payload = status_payload(now) | {"talker_authority": "asr", "talker_source_epoch": now,
+    "current_talker": active, "last_talkers": [dict(active, event_epoch=now, duration=8)]}
+cleaned = endpoint.sanitize_status("phoenix", payload)
+assert cleaned["talker_authority"] == "asr"
+assert cleaned["connection_status"]["current_talker"]["duration_seconds"] == 0
+assert cleaned["connection_status"]["current_talker"]["network_node"] == "69556"
+assert cleaned["connection_status"]["last_talkers"][0]["duration_seconds"] == 8
+for invalid in ("&nbsp;", "NaN", float("inf"), -1, True):
+    payload["last_talkers"] = [dict(active, event_epoch=now, duration=invalid)]
+    assert endpoint.sanitize_status("phoenix", payload)["connection_status"]["last_talkers"][0]["duration_seconds"] == 0
 for bad_payload, expected in (
     (status_payload(now, hub="texas", node="674984"), "identity mismatch"),
     (status_payload(now, node="674984"), "identity mismatch"),
