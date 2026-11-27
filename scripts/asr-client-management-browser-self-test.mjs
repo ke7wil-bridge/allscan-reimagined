@@ -26,7 +26,7 @@ async function waitFor(url, timeout = 15000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
-async function runBrowser(unauthorized = false) {
+async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = false) {
   const port = await freePort()
   const appUrl = `http://127.0.0.1:${port}/asr/`
   const vite = spawn('./node_modules/.bin/vite', ['--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
@@ -56,6 +56,13 @@ async function runBrowser(unauthorized = false) {
     await page.route('**/asr-api.php?*', async route => {
       const request = route.request()
       const action = new URL(request.url()).searchParams.get('action')
+      if (action === 'runtime-config') {
+        const response=await route.fetch()
+        const payload=await response.json()
+        for (const bridge of payload.bridges) if (bridge.cardType?.endsWith('_net')) bridge.node='1999'
+        payload.netBridgeMode=netMode
+        return route.fulfill({response,json:payload})
+      }
       if (action === 'bridge-status') {
         const response = await route.fetch()
         const payload = await response.json()
@@ -128,14 +135,24 @@ async function runBrowser(unauthorized = false) {
           const unlinkedFits=label.scrollWidth<=label.clientWidth+1 && button.getBoundingClientRect().right<=r.right+1
           label.textContent=oldLabel; label.dataset.linkState=oldState; button.textContent=oldButton
           const colorOK=green=== (document.documentElement.dataset.asrMode==='light'?'rgb(21, 128, 61)':'rgb(74, 222, 128)') && red===(document.documentElement.dataset.asrMode==='light'?'rgb(185, 28, 28)':'rgb(248, 113, 113)')
-          const peers=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')].map(row=>row.getBoundingClientRect().height)
-          return {height:r.height, peers, unlinkedFits, unlinkedWidths, colorOK, green, red, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===4 && dot.height===4 && dot.left-node.right>=4 && dot.left-node.right<=7 && status.left-dot.right>=4 && status.left-dot.right<=7, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
+          const peerRows=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')]
+          const peers=peerRows.map(row=>row.getBoundingClientRect().height)
+          const fonts=[...el.querySelectorAll('span,b,button'),...peerRows.flatMap(row=>[...row.querySelectorAll('span,b')])].map(x=>getComputedStyle(x).fontSize)
+          const equalFonts=fonts.every(f=>f===fonts[0])
+          return {height:r.height, peers, fonts, equalFonts, unlinkedFits, unlinkedWidths, colorOK, green, red, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===4 && dot.height===4 && dot.left-node.right>=4 && dot.left-node.right<=7 && status.left-dot.right>=4 && status.left-dot.right<=7, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
         })
-        assert(geometry.unlinkedFits && geometry.colorOK && geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        assert(geometry.equalFonts && geometry.unlinkedFits && geometry.colorOK && geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && geometry.peers.every(h=>h===27) && (width===320 || geometry.height===27), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
         console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
+        const netRows=await page.locator('.allscan-net-bridge-card').evaluateAll(cards=>cards.map(card=>{
+          const rows=[...card.querySelectorAll('.allscan-bridge-body > .allscan-bridge-status-row')]
+          return {rows:rows.map(row=>({label:row.querySelector('span')?.textContent,height:row.getBoundingClientRect().height,fonts:[...row.querySelectorAll('span,b')].map(x=>getComputedStyle(x).fontSize)}))}
+        }))
+        assert(netRows.length>0 && netRows.every(card=>card.rows.length===2 && card.rows[0].label===(netMode==='ysf'?'Current Reflector':'Current TG') && card.rows[1].label==='Talking' && card.rows.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]))), `#307 Net Bridge information row mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(netRows)}`)
+        console.log('NET LAYOUT',netMode,theme,mode,width,JSON.stringify(netRows))
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }
     }
+    if (layoutOnly) return
     await page.setViewportSize({width:1440,height:1000})
     await page.evaluate(() => { for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme='standard'; el.dataset.asrMode='dark' } })
     await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
@@ -301,6 +318,7 @@ async function runBrowser(unauthorized = false) {
 }
 
 await runBrowser(false)
+await runBrowser(false,'ysf',true)
 await delay(250)
 await runBrowser(true)
 console.log('Connected Clients/Kick/Ban browser self-test: ok')

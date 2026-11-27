@@ -746,3 +746,38 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #f87171; }
 html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="linked"] { color: #15803d; }
 html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #b91c1c; }
+
+/* #307: equal visible bands and typography on Standard Bridges and Net Bridge information rows only.
+   Each band includes its leading divider. The body no longer adds a separate one. */
+.allscan-bridge-grid > .allscan-bridge-card {
+  --asr-bridge-info-height: 27px;
+  --asr-bridge-info-font: 13px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body {
+  border-top: 0;
+}
+.allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row,
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body > .allscan-bridge-row.allscan-bridge-status-row {
+  box-sizing: border-box;
+  min-height: var(--asr-bridge-info-height);
+  height: var(--asr-bridge-info-height);
+  padding-block: 0;
+  border-top: 1px solid rgba(255,255,255,.16);
+  font-size: var(--asr-bridge-info-font) !important;
+  line-height: 1.2;
+}
+.allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row > :is(span,b,button),
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body > .allscan-bridge-row.allscan-bridge-status-row > :is(span,b) {
+  font-size: var(--asr-bridge-info-font) !important;
+}
+@media (max-width:1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card {
+    --asr-bridge-info-font: 10px;
+  }
+}
+@media (max-width:360px) {
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row:has(> button) {
+    height: auto;
+    padding-block: 2px;
+  }
+}
