@@ -324,6 +324,22 @@ def main() -> int:
             assert (Path(source) / "sentinel.txt").read_bytes() == content
             assert not (Path(source) / "new-file").exists()
 
+        # Older Debian Python versions have no PEP 706 extraction filter.
+        # Simulate that API and verify the same validated archive restores.
+        real_extractall = up.tarfile.TarFile.extractall
+        legacy_filter = getattr(up.tarfile, "fully_trusted_filter", None)
+        def legacy_extractall(archive, path=".", members=None, *, numeric_owner=False):
+            if legacy_filter is None:
+                return real_extractall(archive, path, members, numeric_owner=numeric_owner)
+            return real_extractall(archive, path, members, numeric_owner=numeric_owner, filter=legacy_filter)
+        with mock.patch.object(up.tarfile, "fully_trusted_filter", None, create=True), mock.patch.object(
+                up.tarfile.TarFile, "extractall", legacy_extractall), mock.patch.object(
+                up, "run", return_value=completed()), mock.patch.object(
+                up, "docker_compose", return_value=completed()), mock.patch.object(
+                up, "healthy", return_value=True), mock.patch.object(
+                up, "profile", return_value=SimpleNamespace(web_container="asr-web")):
+            assert up.restore_backup(backup, "sha256:" + "1" * 64, "1.0.0-beta.8.6.1")
+
         # A failure after one volume was replaced rolls every touched volume
         # back to its exact pre-restore contents instead of leaving a mixture.
         for mount in mounts:

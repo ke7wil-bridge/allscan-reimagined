@@ -713,8 +713,15 @@ def restore_backup(backup: Path, image: str, version: str) -> bool:
                     if hashlib.file_digest(handle, "sha256").hexdigest() != hashes[index]:
                         raise UpdateError("Rollback volume checksum mismatch")
             with tarfile.open(archive_path, "r:gz") as archive:
+                # Our strict allowlist rejects links, special files and paths
+                # outside this new private staging directory before extraction.
+                # Debian 12 Python builds predating PEP 706 backports do not
+                # accept filter=. Retain the same validation on those hosts.
                 safe_archive_members(archive, temporary)
-                archive.extractall(temporary, filter="fully_trusted", numeric_owner=True)
+                if callable(getattr(tarfile, "fully_trusted_filter", None)):
+                    archive.extractall(temporary, filter="fully_trusted", numeric_owner=True)
+                else:
+                    archive.extractall(temporary, numeric_owner=True)
             if not (temporary / "data").is_dir():
                 raise UpdateError("Rollback archive lacks volume root")
         if not stop_for_restore(meta["webContainer"]):
@@ -735,7 +742,10 @@ def restore_backup(backup: Path, image: str, version: str) -> bool:
         result = docker_compose(meta, image, "up", "-d", "--no-deps", "--force-recreate",
                                 meta["service"], timeout=300)
         return result.returncode == 0 and healthy(profile().web_container, version)
-    except (OSError, ValueError, KeyError, UpdateError, tarfile.TarError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, KeyError, TypeError, UpdateError, tarfile.TarError, subprocess.TimeoutExpired) as exc:
+        # A bounded diagnostic identifies the failed class without emitting
+        # paths, archive contents, or Docker credentials to the journal.
+        print("ASR container rollback failed: " + type(exc).__name__, file=sys.stderr)
         # Once all original files are restored, never undo them if starting
         # or checking the original image fails. A later retry can use the backup.
         if restored_files:
