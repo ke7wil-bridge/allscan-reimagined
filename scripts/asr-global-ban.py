@@ -40,6 +40,30 @@ def normalize(value: str) -> str:
     return rule
 
 
+# Zello Kick is an exact identity in the existing JSON session store,
+# not a global policy token. Encode whitespace across the sudo boundary.
+ZELLO_KICK_TOKEN_PREFIX = "ZELLO_EXACT_HEX_"
+ZELLO_NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9_./ -]{0,63}$")
+
+
+def decode_zello_kick_identity(value):
+    if value.startswith(ZELLO_KICK_TOKEN_PREFIX):
+        encoded = value[len(ZELLO_KICK_TOKEN_PREFIX):]
+        if not re.fullmatch(r"[A-F0-9]{2,128}", encoded) or len(encoded) % 2:
+            raise ValueError("Invalid encoded Zello identity.")
+        try:
+            name = bytes.fromhex(encoded).decode("ascii")
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError("Invalid encoded Zello identity.") from exc
+        if name != name.strip().upper() or not ZELLO_NAME_RE.fullmatch(name):
+            raise ValueError("Invalid exact Zello identity.")
+        return name
+    name = normalize(value)
+    if name.endswith("*"):
+        raise ValueError("Kick requires one exact callsign, not a prefix.")
+    return name
+
+
 def protected_identities():
     identities = set(PROTECTED_IDENTITIES)
     try:
@@ -497,9 +521,7 @@ def main():
         # Only Zello, which has no remote disconnect, is kicked here.
         if not args.rule or (args.protocol or "").strip().upper() != "ZELLO":
             raise ValueError("Kick requires CALLSIGN ZELLO; other bridges use their own Kick.")
-        callsign = normalize(args.rule)
-        if callsign.endswith("*"):
-            raise ValueError("Kick requires one exact callsign, not a prefix.")
+        callsign = decode_zello_kick_identity(args.rule)
         write_zello_kick(callsign, args.actor)
         return
     rules = read_rules()

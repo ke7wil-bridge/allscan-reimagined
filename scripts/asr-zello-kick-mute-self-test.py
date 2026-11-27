@@ -91,4 +91,33 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not is_kicked("KE7WIL"), "mute outlived the one-minute hold")
     clear("KE7WIL")
     check(json.loads(kicks.read_text())["sessions"] == {}, "an ended mute was not cleaned up")
+# #319: encoded identity is used solely by Zello Kick, not global rule parsing.
+spec2 = importlib.util.spec_from_file_location("global_ban", ROOT / "scripts/asr-global-ban.py")
+policy = importlib.util.module_from_spec(spec2)
+spec2.loader.exec_module(policy)
+token = policy.ZELLO_KICK_TOKEN_PREFIX + "TAURUS 78".encode("ascii").hex().upper()
+check(policy.decode_zello_kick_identity(token) == "TAURUS 78", "exact spaced name lost")
+for invalid in ("TAURUS 78", policy.ZELLO_KICK_TOKEN_PREFIX + "00", policy.ZELLO_KICK_TOKEN_PREFIX + "2A", policy.ZELLO_KICK_TOKEN_PREFIX + "FF", "TAURUS*"):
+    try:
+        policy.decode_zello_kick_identity(invalid)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unsafe Zello Kick target accepted: " + invalid)
+with tempfile.TemporaryDirectory() as tmp:
+    policy.ZELLO_TALKERS = str(Path(tmp) / "talkers.json")
+    policy.ZELLO_KICKS = str(Path(tmp) / "kicks.json")
+    policy.AUDIT_LOG = str(Path(tmp) / "audit.jsonl")
+    now = int(time.time())
+    Path(policy.ZELLO_TALKERS).write_text(json.dumps({"active": False, "recent_users": [{"name":"TAURUS 78","last_seen_epoch":now},{"name":"TAURUS","last_seen_epoch":now}]}))
+    policy.write_zello_kick(policy.decode_zello_kick_identity(token), "fixture")
+    state = json.loads(Path(policy.ZELLO_KICKS).read_text())
+    check(set(state["sessions"]) == {"TAURUS 78"}, "Kick targeted a different identity")
+    os.environ["ZELLO_SESSION_KICKS"] = policy.ZELLO_KICKS
+    namespace = {}
+    exec(compile(fresh, "patched-zello-bridge", "exec"), namespace)
+    check(namespace["_ke7wil_zello_is_kicked"]("Taurus 78"), "spaced target not muted")
+    namespace["_ke7wil_zello_clear_kick"]("Taurus 78")
+    check(namespace["_ke7wil_zello_is_kicked"]("Taurus 78"), "rekey ended hold")
+    check(not namespace["_ke7wil_zello_is_kicked"]("TAURUS"), "prefix neighbor incorrectly muted")
 print("Zello Kick one-minute mute self-test: ok")
