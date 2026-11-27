@@ -261,14 +261,13 @@ html[data-asr-theme="lcars-frame"] .allscan-ban-admin-clients > span { backgroun
     max-width:calc(100vw - 40px);
     margin-left:calc(-50vw + 20px);
     margin-right:0;
-  }
-  .allscan-bridge-grid {
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr)) !important;
     gap:6px;
     align-items:start;
+    padding:6px;
+    box-sizing:border-box;
   }
-  .allscan-bridge-grid { padding:6px; box-sizing:border-box; }
   .allscan-bridge-grid > .allscan-bridge-card {
     width:100%;
     max-width:100%;
