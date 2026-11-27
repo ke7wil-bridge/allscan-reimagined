@@ -135,6 +135,16 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
           for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme=theme; el.dataset.asrMode=mode }
         },[theme,mode])
         await delay(150)
+        const grid = await page.locator('.allscan-bridge-grid').evaluate(el => {
+          const cards = [...el.querySelectorAll(':scope > .allscan-bridge-card')]
+          const first = cards[0].getBoundingClientRect()
+          return {count: cards.filter(card=>Math.abs(card.getBoundingClientRect().top-first.top)<2).length,
+            width: first.width, gridWidth: el.clientWidth, gap: parseFloat(getComputedStyle(el).columnGap),
+            contained: cards.every(card=>card.getBoundingClientRect().right<=el.getBoundingClientRect().right+1)}
+        })
+        assert(grid.contained, '#320 bridge grid overflow')
+        if (width >= 1440 && grid.gridWidth >= 1350) assert(grid.count===6, '#320 expected six desktop cards: '+JSON.stringify(grid))
+        console.log('GRID WIDTH', netMode,theme,mode,width,JSON.stringify(grid))
         const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
         const geometry = await row.evaluate(el => {
           const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()

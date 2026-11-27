@@ -910,3 +910,11 @@ html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="TX"] { color:
     gap: 3px;
   }
 }
+
+/* #320: six desktop columns need a slightly tighter shared information font.
+   Retain 27px bands and 24px control hit areas. */
+@media (min-width: 1201px) and (max-width: 1600px) {
+  .allscan-bridge-grid > .allscan-bridge-card {
+    --asr-bridge-info-font: 11px;
+  }
+}
