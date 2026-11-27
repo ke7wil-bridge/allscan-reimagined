@@ -9,6 +9,7 @@ import SupportAsrDialog from './components/SupportAsrDialog'
 import AllStarBubbleDialog from './components/AllStarBubbleDialog'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
+import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
@@ -1242,6 +1243,9 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   const sortedFavorites = favorites
+  const favoriteNames = useMemo(() => favoriteConnectionNames(favorites), [favorites])
+  const bridgeTransportNodes = useMemo(() => new Set(config.bridges.flatMap((bridge) => [bridge.node, bridge.linkAlias || ''])), [config.bridges])
+  const connectionName = useCallback((row: LiveConnectionRow) => connectionDisplayName(row, config.node, bridgeTransportNodes, favoriteNames), [config.node, bridgeTransportNodes, favoriteNames])
 
   const sortedConnectionRows = useMemo(() => {
     const pinnedRows = rows
@@ -1266,12 +1270,12 @@ function App({ config }: { config: RuntimeConfig }) {
         if (av !== bv) return (av - bv) * dir
       }
 
-      const result = compareText(String(a.row[key] || ''), String(b.row[key] || ''), connectionSort.direction)
+      const result = compareText(key === 'info' ? connectionName(a.row) : String(a.row[key] || ''), key === 'info' ? connectionName(b.row) : String(b.row[key] || ''), connectionSort.direction)
       return result || a.index - b.index
     })
 
     return [...pinnedRows, ...items].map((item) => item.row)
-  }, [rows, connectionSort, config.node])
+  }, [rows, connectionSort, config.node, connectionName])
 
   const faviconStatus = useMemo<'idle' | 'ptt' | 'cos' | 'both'>(() => {
     const localState = backgroundNodeState
@@ -3229,7 +3233,7 @@ function App({ config }: { config: RuntimeConfig }) {
             <select
               id="allscan-favsfile"
               value={selectedFavoriteFile}
-              onChange={(event) => setSelectedFavoriteFile(event.target.value)}
+              onChange={(event) => { setFavorites([]); setSelectedFavoriteFile(event.target.value) }}
             >
               {favoriteFiles.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -4167,6 +4171,7 @@ function App({ config }: { config: RuntimeConfig }) {
                   </thead>
                   <tbody>
                     {sortedConnectionRows.map((row) => {
+                      const displayName = connectionName(row)
                       const isLocalRow = row.node === config.node
                       const configuredBridgeState = row.bridgeId
                         ? bridgeConnectionStates.byId.get(row.bridgeId)
@@ -4243,10 +4248,10 @@ function App({ config }: { config: RuntimeConfig }) {
                                     className="allscan-connection-network-map-link"
                                     href={asrPath()}
                                     onClick={(event) => { event.preventDefault(); setBubbleNode(row.node) }}
-                                    title={`View network bubble chart for AllStar node ${row.node}`}
-                                    aria-label={`View network bubble chart for AllStar node ${row.node}${row.info ? `: ${row.info}` : ''}`}
-                                  >{row.info || `View network map for ${row.node}`}</a>
-                                ) : row.info}
+                                    title={displayName !== row.info ? `Original node info: ${row.info} — View network bubble chart for AllStar node ${row.node}` : `View network bubble chart for AllStar node ${row.node}`}
+                                    aria-label={`View network bubble chart for AllStar node ${row.node}${row.info ? `: ${row.info}` : ''}${displayName !== row.info ? ` (Favorite: ${displayName})` : ''}`}
+                                  >{displayName || `View network map for ${row.node}`}</a>
+                                ) : displayName}
                               </td>
                               <td className="border-r border-[rgba(255,255,255,.14)] px-4 py-[5px]">
                                 {row.received}
