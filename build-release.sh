@@ -189,6 +189,7 @@ bash -n "$ROOT/install.sh"
 sh -n "$ROOT/scripts/asr-asterisk-read.sh"
 sh "$ROOT/scripts/asr-asterisk-read.sh" --self-test
 node "$ROOT/scripts/asr-bridge-dashboard-self-test.mjs"
+node "$ROOT/scripts/asr-325-flicker-browser-self-test.mjs"
 node "$ROOT/scripts/asr-client-management-browser-self-test.mjs"
 python3 "$ROOT/scripts/beta86-talker-parity-self-test.py"
 node "$ROOT/scripts/asr-bridge-recent-activity-self-test.mjs"

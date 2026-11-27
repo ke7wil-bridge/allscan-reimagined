@@ -34,6 +34,7 @@ try {
     bridgeDashboardStatusLabel,
     bridgeCardWarningText,
     bridgeLastActivityEpoch,
+    retainBridgeActivity,
     bridgeTalkerFeed,
     isNodeMessageAuthNotice,
     normalizedBridgeMode,
@@ -72,6 +73,16 @@ try {
         `${card.mode} audio telemetry was not normalized or was suppressed`)
       }
     }
+    // Normalized relay role can synthesize a start for duration display, but
+    // the module activity label must not treat that as a real event.
+    globalThis.fetch = async () => ({ json: async () => ({
+      bridge: { dmr: { role: 'source' }, zello: { role: 'idle' }, updated_epoch: Date.now() / 1000 },
+    }) })
+    const noHistory = await fetchBridgeCards({ node: '1999', bridges: ['dmr', 'zello'].map(mode => ({
+      id: mode, mode, node: '1999', title: mode, detailTitle: 'Clients', cardType: 'standard',
+    })) })
+    assert(noHistory.activityEpoch === 0 && noHistory.updatedLabel === '--:--:--',
+      'synthetic relay or collector refresh time was presented as real activity')
     // Invalid backend values, silence and independently missing directions
     // cannot produce nonzero bars or affect the other direction.
     globalThis.fetch = async () => ({ json: async () => ({ bridge: {
@@ -327,13 +338,22 @@ try {
     { current_user: 'OUTBOUND', last_source_user: 'SOURCE' }, 'Relay', config,
   ) === '-', 'relay displayed a source caller')
   assert(
-    bridgeLastActivityEpoch({ activity_epoch: 2_000_000_123, last_source_epoch: 0 }) === 2_000_000_123,
+    bridgeLastActivityEpoch({ activity_epoch: 2_000_000_123, last_source_epoch: 0 }, 2_000_000_200) === 2_000_000_123,
     'real outbound activity was discarded when no inbound talker existed',
   )
   assert(
-    bridgeLastActivityEpoch({ last_time_epoch: 2_000_000_124 }) === 2_000_000_124,
+    bridgeLastActivityEpoch({ last_time_epoch: 2_000_000_124 }, 2_000_000_200) === 2_000_000_124,
     'collector-persisted last activity was not consumed by the production UI path',
   )
+  assert(bridgeLastActivityEpoch({ activity_epoch: 'bad', last_time_epoch: 100, active_start_epoch: Infinity,
+    tx_events: [null, {epoch: 'bad', event_epoch: 105}, {epoch: 9999}], client_events: [{epoch: 106}] }, 200) === 106,
+    'invalid event fields poisoned valid history or a future event was accepted')
+  const snapshot = (activityScope, activityEpoch) => ({activityScope, activityEpoch, updatedLabel: String(activityEpoch), cards: []})
+  const verified = snapshot('node-a', 100)
+  assert(retainBridgeActivity(verified, snapshot('node-a', 0)).activityEpoch === 100, 'missing snapshot erased valid history')
+  assert(retainBridgeActivity(verified, snapshot('node-a', 90)).activityEpoch === 100, 'older response regressed history')
+  assert(retainBridgeActivity(verified, snapshot('node-a', 110)).activityEpoch === 110, 'newer activity was not accepted')
+  assert(retainBridgeActivity(verified, snapshot('node-b', 0)).activityEpoch === 0, 'history leaked across configuration scope')
   assert(bridgeCardShowsClientDetails('standard'), 'standard bridge client details were hidden')
   for (const runtimeOnline of [null, true, false]) {
     assert(

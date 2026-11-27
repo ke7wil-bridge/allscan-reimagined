@@ -22,6 +22,9 @@ import {
   disconnectBridge,
   dropClientChannel,
   fetchBridgeCards,
+  bridgeActivityScope,
+  retainBridgeActivity,
+  type BridgeCardsSnapshot,
   fetchFastNextModeActivity,
   fetchFastStandardActivity,
   fetchFastYsfNetActivity,
@@ -586,7 +589,9 @@ function App({ config }: { config: RuntimeConfig }) {
   const [linkedNodeCounts, setLinkedNodeCounts] = useState<Record<string, number>>({})
   const [cpuValue, setCpuValue] = useState('--°F / --°C')
   const [cpuBgColor, setCpuBgColor] = useState('#59461c')
-  const [bridgeState, setBridgeState] = useState<{ updatedLabel: string; cards: BridgeCardView[] }>(() => ({
+  const [bridgeState, setBridgeState] = useState<BridgeCardsSnapshot>(() => ({
+    activityScope: bridgeActivityScope(config),
+    activityEpoch: 0,
     updatedLabel: '--:--:--',
     cards: config.bridges.map((bridge): BridgeCardView => ({
       id: bridge.id,
@@ -624,6 +629,9 @@ function App({ config }: { config: RuntimeConfig }) {
       audioMeter: null,
     })),
   }))
+  const acceptBridgeSnapshot = useCallback((next: BridgeCardsSnapshot) => {
+    setBridgeState((previous) => retainBridgeActivity(previous, next))
+  }, [])
   const [bridgeStatusLoaded, setBridgeStatusLoaded] = useState(false)
   const [dmrTalkgroupInputs, setDmrTalkgroupInputs] = useState<Record<string, string>>({})
   const [bridgeDestinationInputs, setBridgeDestinationInputs] = useState<Record<string, string>>({})
@@ -1052,7 +1060,7 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [banAdminOpen])
 
-  const applyBridgeConnectionOverrides = useCallback((next: { updatedLabel: string; cards: BridgeCardView[] }) => {
+  const applyBridgeConnectionOverrides = useCallback((next: BridgeCardsSnapshot) => {
     const rowsByNode = new Map(
       connectionRowsRef.current
         .filter((row) => !row.configuredTransport)
@@ -1686,22 +1694,24 @@ function App({ config }: { config: RuntimeConfig }) {
     let cancelled = false
     let timer: number | undefined
     let failureNotified = false
+    let activeController: AbortController | undefined
 
     if (config.bridges.length === 0) {
       const resetTimer = window.setTimeout(() => {
-        setBridgeState({ updatedLabel: '--:--:--', cards: [] })
+        setBridgeState({ activityScope: bridgeActivityScope(config), activityEpoch: 0, updatedLabel: '--:--:--', cards: [] })
       }, 0)
       return () => window.clearTimeout(resetTimer)
     }
 
     const refreshBridgeCards = async () => {
-      if (document.hidden) return
+      if (document.hidden || cancelled || activeController) return
       const controller = new AbortController()
+      activeController = controller
       const timeout = window.setTimeout(() => controller.abort(), BRIDGE_REFRESH_TIMEOUT_MS)
       try {
         const next = await fetchBridgeCards(config, controller.signal)
         if (!cancelled) {
-          setBridgeState(applyBridgeConnectionOverrides(next))
+          acceptBridgeSnapshot(applyBridgeConnectionOverrides(next))
           setBridgeStatusLoaded(true)
           failureNotified = false
         }
@@ -1726,6 +1736,7 @@ function App({ config }: { config: RuntimeConfig }) {
         }
       } finally {
         window.clearTimeout(timeout)
+        activeController = undefined
         if (!cancelled) {
           timer = window.setTimeout(
             refreshBridgeCards,
@@ -1746,10 +1757,11 @@ function App({ config }: { config: RuntimeConfig }) {
     document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       cancelled = true
+      activeController?.abort()
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [config, applyBridgeConnectionOverrides, effectiveThemeSettings.reduceBrowserActivity])
+  }, [config, applyBridgeConnectionOverrides, acceptBridgeSnapshot, effectiveThemeSettings.reduceBrowserActivity])
 
   useEffect(() => {
     let cancelled = false
@@ -2820,7 +2832,7 @@ function App({ config }: { config: RuntimeConfig }) {
         && card.controlLinked === linked
         && (!linked || !destination || card.currentDestination === destination)
       if (confirmed) {
-        setBridgeState(last)
+        acceptBridgeSnapshot(last)
         return card
       }
       const remaining = deadline - Date.now()
@@ -2832,7 +2844,7 @@ function App({ config }: { config: RuntimeConfig }) {
         AbortSignal.timeout(requestBudget),
       ))
     }
-    setBridgeState(last)
+    acceptBridgeSnapshot(last)
     throw new Error('The bridge command completed, but canonical status did not confirm it in time.')
   }
 
@@ -2858,7 +2870,7 @@ function App({ config }: { config: RuntimeConfig }) {
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'Standard Bridge link control failed.')
     } finally {
-      try { setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000)))) }
+      try { acceptBridgeSnapshot(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000)))) }
       catch { /* Regular polling will refresh status. */ }
       endBridgeControl(owner)
     }
@@ -2875,7 +2887,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const result = await repairStandardBridge(card.id)
       appendNodeMessage(result.message)
       await new Promise<void>((resolve) => window.setTimeout(resolve, 1500))
-      setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000))))
+      acceptBridgeSnapshot(applyBridgeConnectionOverrides(await fetchBridgeCards(config, AbortSignal.timeout(10_000))))
     } catch (error) {
       appendNodeMessage(error instanceof Error ? error.message : 'Bridge repair failed.')
     } finally {
@@ -2925,7 +2937,7 @@ function App({ config }: { config: RuntimeConfig }) {
         const selected = String(result.mode || '').toLowerCase()
         if (selected !== targetMode || result.node !== 1999) throw new Error('Net Bridge mode control returned an invalid result.')
         activeNetBridgeModeRef.current = selected
-        setBridgeState(applyBridgeConnectionOverrides(await fetchBridgeCards(
+        acceptBridgeSnapshot(applyBridgeConnectionOverrides(await fetchBridgeCards(
           config,
           AbortSignal.timeout(10_000),
         )))
@@ -3084,7 +3096,7 @@ function App({ config }: { config: RuntimeConfig }) {
         // bridge backend; the regular single-flight poll will reconcile the
         // card, and this bounded refresh merely makes that happen sooner.
         void fetchBridgeCards(config, AbortSignal.timeout(BRIDGE_REFRESH_TIMEOUT_MS))
-          .then((next) => setBridgeState(applyBridgeConnectionOverrides(next)))
+          .then((next) => acceptBridgeSnapshot(applyBridgeConnectionOverrides(next)))
           .catch(() => undefined)
         return
       }
