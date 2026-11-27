@@ -910,3 +910,22 @@ html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="TX"] { color:
     gap: 3px;
   }
 }
+
+/* #317: reserve the Ban slot for an honest Zello moderation status. */
+.allscan-bridge-grid .asr-bridge-roster .asr-zello-moderation-status {
+  box-sizing: border-box;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 64px;
+  flex: 0 0 64px;
+  min-height: 24px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+}
+.asr-zello-moderation-status[data-status="banned"] { color: #c3a09b; }
+html[data-asr-mode="light"] .asr-zello-moderation-status[data-status="banned"] { color: #875a55; }
+.asr-zello-moderation-status[data-status="unavailable"] { opacity: .65; }
