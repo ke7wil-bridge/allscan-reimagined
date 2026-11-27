@@ -387,6 +387,20 @@ $m17Net = postedBridge([
 ]);
 check($m17Net['cardType'] === 'm17_net' && count($m17Net['approvedDestinations']) === 1, 'M17 Net approved target was not preserved.');
 
+// #342: re-posting an existing Net target must not add it to the allowlist.
+$existingNet = array_replace($m17Net, ['m17Reflector'=>'M17-NET','m17Host'=>'127.0.0.2','m17Port'=>17001,'m17Module'=>'A']);
+$repostedNet = postedBridge([
+    'bridgeId'=>[$existingNet['id']], 'bridgeMode'=>['m17'], 'bridgeCardType'=>['net'],
+    'bridgePermission'=>['approved'], 'bridgeM17Callsign'=>['N0CALL'],
+    'bridgeM17BindPort'=>[(string)$existingNet['m17BindPort']],
+    'bridgeM17UsrpRxPort'=>[(string)$existingNet['m17UsrpRxPort']],
+    'bridgeM17UsrpTxPort'=>[(string)$existingNet['m17UsrpTxPort']],
+    'bridgeM17Reflector'=>['M17-NET'], 'bridgeM17Host'=>['127.0.0.2'],
+    'bridgeM17Port'=>['17001'], 'bridgeM17Module'=>['A'],
+    'bridgeApprovedDestinations'=>['M17-TST | 127.0.0.1 | 17000 | A'],
+], [$existingNet]);
+check($repostedNet['approvedDestinations'] == $existingNet['approvedDestinations'], 'Reordering expanded the existing M17 Net allowlist.');
+
 $preserved = postedBridge([
 	'bridgeId' => ['p25_primary'], 'bridgeMode' => ['p25'], 'bridgeBackendMode' => ['display_only'],
 	'bridgeTitle' => ['My P25 Card'], 'bridgeDetailTitle' => ['My Linked Clients'],

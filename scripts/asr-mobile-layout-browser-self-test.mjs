@@ -66,6 +66,7 @@ try {
     const dedicatedNetRows = await evaluate(`(() => {
       const existing=document.querySelector('.allscan-bridge-grid');
       if(!existing) return {ok:false,reason:'missing grid'};
+      const widthForDesktop=()=>matchMedia('(min-width:1201px)').matches;
       const grid=document.createElement('div');
       grid.className='allscan-bridge-grid';
       existing.parentElement.append(grid);
@@ -85,6 +86,17 @@ try {
             const shared=standards.some(card=>{const c=card.getBoundingClientRect();return c.top<r.bottom-1&&c.bottom>r.top+1});
             const centered=Math.abs((r.left+r.right-g.left-g.right)/2)<=2;
             const contained=r.left>=g.left-1&&r.right<=g.right+1;
+            if(widthForDesktop()) {
+              const rows=[];
+              for(const card of standards) {
+                const c=card.getBoundingClientRect();
+                let row=rows.find(x=>Math.abs(x.top-c.top)<=1);
+                if(!row){row={top:c.top,left:c.left,right:c.right};rows.push(row)}
+                else {row.left=Math.min(row.left,c.left);row.right=Math.max(row.right,c.right)}
+              }
+              if(rows.some(row=>Math.abs((row.left+row.right-g.left-g.right)/2)>2))
+                return {ok:false,count,slot,reason:'uncentered Standard row'};
+            }
             if(shared||!centered||!contained||r.width<Math.min(280,g.width-16))
               return {ok:false,count,slot,shared,centered,contained,width:r.width,grid:g.width};
           }

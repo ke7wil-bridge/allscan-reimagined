@@ -847,7 +847,14 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			if($rawMode === 'm17') {
 				$approvedDestinations = asrSettingsParseM17Destinations($rawApprovedDestinations, $error, "M17 bridge \"$id\"");
 				if($error !== '') return [];
-				if($rawCardType === 'm17_net' && $rawM17Reflector !== '' && $rawM17Host !== '' && $rawM17Port !== '' && $rawM17Module !== '') {
+				// #342: the saved Net target is not a new allowlist entry just because
+				// Settings re-posted it during a card reorder.
+				$unchangedM17Target = ($existingForMode['cardType'] ?? '') === 'm17_net'
+					&& (string)($existingForMode['m17Reflector'] ?? '') === $rawM17Reflector
+					&& (string)($existingForMode['m17Host'] ?? '') === $rawM17Host
+					&& (string)($existingForMode['m17Port'] ?? '') === $rawM17Port
+					&& (string)($existingForMode['m17Module'] ?? '') === $rawM17Module;
+				if($rawCardType === 'm17_net' && !$unchangedM17Target && $rawM17Reflector !== '' && $rawM17Host !== '' && $rawM17Port !== '' && $rawM17Module !== '') {
 					$selectedM17 = asrSettingsParseM17Destinations("$rawM17Reflector | $rawM17Host | $rawM17Port | $rawM17Module", $error, "M17 bridge \"$id\"");
 					if($error !== '') return [];
 					foreach($selectedM17 as $selectedTarget)

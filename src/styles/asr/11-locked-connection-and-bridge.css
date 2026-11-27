@@ -518,6 +518,22 @@
 .asr-audio-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) { .asr-audio-meter-rms { transition: none; } }
 
+/* #343: desktop Standard partial rows are centered, not left-aligned in
+   a six-track grid when the Net Bridge consumes a separate row. */
+@media (min-width:1201px) {
+  .allscan-bridge-grid {
+    display:flex !important;
+    flex-wrap:wrap;
+    justify-content:center !important;
+    align-items:flex-start;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex:0 0 max(220px,calc((100% - 30px) / 6));
+    width:max(220px,calc((100% - 30px) / 6));
+    max-width:100%;
+    min-width:0;
+  }
+}
 /* #343: consume a complete flex line (or grid row) without stretching the
    card itself. Explicit side margins participate in flex line breaking. */
 .allscan-bridge-grid > .allscan-bridge-card.allscan-net-bridge-card {
