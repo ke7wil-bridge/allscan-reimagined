@@ -36,7 +36,7 @@ export default function RuntimeBootstrap() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => { void checkRuntime(true) }, 0)
-    const retry = window.setInterval(() => { if (!verified) void checkRuntime(true) }, 5_000)
+    const retry = verified ? undefined : window.setInterval(() => { void checkRuntime(true) }, 5_000)
     const onFocus = () => { void checkRuntime() }
     const onVisibility = () => { if (document.visibilityState === 'visible') void checkRuntime() }
     window.addEventListener('focus', onFocus)
@@ -44,7 +44,7 @@ export default function RuntimeBootstrap() {
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.clearTimeout(initial)
-      window.clearInterval(retry)
+      if (retry !== undefined) window.clearInterval(retry)
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('pageshow', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)

@@ -1382,6 +1382,11 @@ function App({ config }: { config: RuntimeConfig }) {
     if (dashboardDragScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
     }
+    const pending = pendingDashboardDragRef.current
+    if (pending) {
+      window.clearTimeout(pending.timer)
+      pendingDashboardDragRef.current = null
+    }
   }, [])
 
   useEffect(() => {
