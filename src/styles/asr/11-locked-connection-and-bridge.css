@@ -517,3 +517,109 @@
 .asr-audio-meter-rms { display: block; height: 100%; background: currentColor; opacity: .65; transition: width 160ms linear; }
 .asr-audio-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) { .asr-audio-meter-rms { transition: none; } }
+
+/* #343: desktop Standard partial rows are centered, not left-aligned in
+   a six-track grid when the Net Bridge consumes a separate row. */
+@media (min-width:1201px) {
+  .allscan-bridge-grid {
+    display:flex !important;
+    flex-wrap:wrap;
+    justify-content:center !important;
+    align-items:flex-start;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) {
+    flex:0 0 max(220px,calc((100% - 30px) / 6));
+    width:max(220px,calc((100% - 30px) / 6));
+    max-width:100%;
+    min-width:0;
+  }
+}
+/* #343: Net Bridge occupies one complete row but matches Standard card width.
+   The shared width follows the existing responsive Standard layout. */
+.allscan-bridge-grid { --asr-net-card-width: calc((100% - 6px) / 2); }
+@media (min-width:1201px) {
+  .allscan-bridge-grid { --asr-net-card-width: max(220px,calc((100% - 30px) / 6)); }
+}
+@media (min-width:701px) and (max-width:1199px) and (orientation:portrait) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 18px) / 4); }
+}
+@media (min-width:901px) and (max-width:1199px) and (orientation:landscape) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 24px) / 5); }
+}
+@media (width:1200px) and (orientation:landscape) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 12px) / 3); }
+}
+@media (orientation:landscape) and (pointer:coarse) and (max-height:520px) and (max-width:900px) {
+  .allscan-bridge-grid { --asr-net-card-width: calc((100% - 18px) / 4); }
+}
+.allscan-bridge-grid > .allscan-bridge-card.allscan-net-bridge-card {
+  box-sizing: border-box !important;
+  flex: 0 0 var(--asr-net-card-width) !important;
+  width: var(--asr-net-card-width) !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  margin-inline: calc((100% - var(--asr-net-card-width)) / 2) !important;
+  grid-column: 1 / -1 !important;
+  justify-self: center !important;
+  container-type: inline-size;
+}
+/* #343: collapsed Net and Standard cards share five information bands.
+   Net has two information bands plus two control rows occupying three bands.
+   Keep Mode/Ref/Mod on one line, including at narrow card widths. */
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls {
+  box-sizing: border-box;
+  height: calc(3 * var(--asr-bridge-info-height));
+  grid-template-rows: repeat(2, minmax(0,1fr)) !important;
+  grid-template-columns: max-content 52px max-content minmax(0,1fr) !important;
+  justify-content: stretch !important;
+  column-gap: 3px !important;
+  padding: 0 5px !important;
+}
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls.allscan-net-bridge-m17 {
+  grid-template-columns: max-content 52px max-content minmax(0,1fr) max-content 23px !important;
+}
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls label {
+  font-size: 10px !important;
+  white-space: nowrap;
+}
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls :is(input,select) {
+  font-size: 11px !important;
+  height: 26px !important;
+  min-height: 26px !important;
+  padding-inline: 2px !important;
+}
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls .allscan-bridge-link-buttons {
+  height: 100% !important;
+  min-height: 0 !important;
+  align-items: center;
+  gap: 4px;
+  padding: 0 !important;
+}
+.allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls .allscan-action-button {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding-inline: 2px !important;
+  font-size: 11px !important;
+}
+@container (max-width: 200px) {
+  .allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls {
+    grid-template-columns: max-content 44px max-content minmax(0,1fr) !important;
+    column-gap: 2px !important;
+    padding-inline: 3px !important;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls.allscan-net-bridge-m17 {
+    grid-template-columns: max-content 44px max-content minmax(0,1fr) max-content 19px !important;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls :is(label,input,select) {
+    font-size: 9px !important;
+  }
+  .allscan-bridge-grid .allscan-net-bridge-card .allscan-net-bridge-controls .allscan-action-button {
+    font-size: 10px !important;
+  }
+}
+/* On the narrowest phones Standard's link button uses an extra line. */
+@media (max-width:360px) {
+  .allscan-bridge-grid:has(> .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row > button) .allscan-net-bridge-card .allscan-net-bridge-controls {
+    height: calc(3 * var(--asr-bridge-info-height) + 16px);
+  }
+}

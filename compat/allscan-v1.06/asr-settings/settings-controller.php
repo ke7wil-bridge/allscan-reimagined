@@ -848,7 +848,14 @@ function asrSettingsBridgeRowsFromPost(&$error, $existingBridges = [], $localNod
 			if($rawMode === 'm17') {
 				$approvedDestinations = asrSettingsParseM17Destinations($rawApprovedDestinations, $error, "M17 bridge \"$id\"");
 				if($error !== '') return [];
-				if($rawCardType === 'm17_net' && $rawM17Reflector !== '' && $rawM17Host !== '' && $rawM17Port !== '' && $rawM17Module !== '') {
+				// #342: the saved Net target is not a new allowlist entry just because
+				// Settings re-posted it during a card reorder.
+				$unchangedM17Target = ($existingForMode['cardType'] ?? '') === 'm17_net'
+					&& (string)($existingForMode['m17Reflector'] ?? '') === $rawM17Reflector
+					&& (string)($existingForMode['m17Host'] ?? '') === $rawM17Host
+					&& (string)($existingForMode['m17Port'] ?? '') === $rawM17Port
+					&& (string)($existingForMode['m17Module'] ?? '') === $rawM17Module;
+				if($rawCardType === 'm17_net' && !$unchangedM17Target && $rawM17Reflector !== '' && $rawM17Host !== '' && $rawM17Port !== '' && $rawM17Module !== '') {
 					$selectedM17 = asrSettingsParseM17Destinations("$rawM17Reflector | $rawM17Host | $rawM17Port | $rawM17Module", $error, "M17 bridge \"$id\"");
 					if($error !== '') return [];
 					foreach($selectedM17 as $selectedTarget)
@@ -1130,7 +1137,44 @@ function asrSettingsPreserveManualHolds(array $config, array $current): array {
 	return $config;
 }
 
-function asrSettingsWriteConfig($config, &$error) {
+// #342: qualification is runtime-owned, never supplied by the Settings form.
+function asrSettingsPreserveM17Qualification(array $config, array $current): array {
+    $prior = [];
+    foreach((array)($current['bridges'] ?? []) as $row) {
+        if(is_array($row)) $prior[(string)($row['id'] ?? '')][] = $row;
+    }
+    if(!is_array($config['bridges'] ?? null)) return $config;
+    foreach($config['bridges'] as &$row) {
+        if(!is_array($row)) continue;
+        foreach(array_keys($row) as $key) {
+            if($key === 'm17AudioQualified' || str_starts_with($key, 'm17Qualification')) unset($row[$key]);
+        }
+        if(($row['mode'] ?? '') !== 'm17' || ($row['backendMode'] ?? '') !== 'managed') continue;
+        $row['m17AudioQualified'] = false;
+        $row['m17QualificationState'] = 'not_qualified';
+        $matches = $prior[(string)($row['id'] ?? '')] ?? [];
+        if(count($matches) !== 1 || ($current['node'] ?? '') != ($config['node'] ?? '')) continue;
+        $old = $matches[0];
+        // Compare all audio-path identity, socket, permission, target and gain fields.
+        $fields = ['id','mode','node','cardType','backendMode','bridgePermission',
+            'm17Callsign','m17BindAddress','m17BindPort','m17UsrpBindAddress',
+            'm17UsrpRxPort','m17UsrpRemoteAddress','m17UsrpTxPort','m17Reflector',
+            'm17Host','m17Port','m17Module','m17Encrypted','approvedDestinations'];
+        foreach($fields as $key) {
+            if(($row[$key] ?? null) != ($old[$key] ?? null)) continue 2;
+        }
+        foreach(['digitalToAslGainDb','aslToDigitalGainDb'] as $key) {
+            if((float)($row[$key] ?? 0) !== (float)($old[$key] ?? 0)) continue 2;
+        }
+        foreach($old as $key => $value) {
+            if($key === 'm17AudioQualified' || str_starts_with($key, 'm17Qualification')) $row[$key] = $value;
+        }
+    }
+    unset($row);
+    return $config;
+}
+
+function asrSettingsWriteConfig(&$config, &$error) {
 	$dir = dirname(ASR_SETTINGS_FILE);
 	if(!is_dir($dir)) {
 		$error = "$dir does not exist.";
@@ -1150,6 +1194,7 @@ function asrSettingsWriteConfig($config, &$error) {
 				return false;
 			}
 			$config = asrSettingsPreserveManualHolds($config, $current);
+			$config = asrSettingsPreserveM17Qualification($config, $current);
 		}
 		$json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 		if($json === false) {
