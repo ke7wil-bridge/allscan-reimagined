@@ -22,14 +22,9 @@ COPY payload/personalization /opt/asr-source/personalization
 COPY payload/web /opt/asr-ui-dist
 COPY container/layered-entrypoint.sh /usr/local/bin/layered-entrypoint.sh
 COPY container/layered-reapply.sh /usr/local/sbin/allscan-reimagined-docker-reapply
-RUN commit="$(php -r '$v=json_decode(file_get_contents("/opt/asr-source/stock-allscan.json"),true,512,JSON_THROW_ON_ERROR);echo $v["commit"];')" \
-  && test "${#commit}" -eq 40 \
-  && git init -q /opt/upstream-allscan \
-  && git -C /opt/upstream-allscan remote add origin https://github.com/davidgsd/AllScan.git \
-  && git -C /opt/upstream-allscan fetch --depth 1 origin "$commit" \
-  && git -C /opt/upstream-allscan checkout --detach --force FETCH_HEAD \
-  && test "$(git -C /opt/upstream-allscan rev-parse HEAD)" = "$commit" \
-  && chmod +x /usr/local/bin/layered-entrypoint.sh /usr/local/sbin/allscan-reimagined-docker-reapply \
+COPY container/package-upstream-allscan.sh /usr/local/sbin/allscan-reimagined-package-upstream
+RUN chmod +x /usr/local/bin/layered-entrypoint.sh /usr/local/sbin/allscan-reimagined-docker-reapply /usr/local/sbin/allscan-reimagined-package-upstream \
+  && /usr/local/sbin/allscan-reimagined-package-upstream /opt/asr-source/stock-allscan.json /opt/upstream-allscan \
   && install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/local/sbin/allscan-reimagined-node-db-link \
   && /usr/local/sbin/allscan-reimagined-node-db-link --self-test
 
