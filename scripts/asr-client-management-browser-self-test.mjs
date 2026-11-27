@@ -162,6 +162,15 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         assert(grid.contained, '#320 bridge grid overflow')
         if (width >= 1440 && grid.gridWidth >= 1350) assert(grid.count===6, '#320 expected six desktop cards: '+JSON.stringify(grid))
         console.log('GRID WIDTH', netMode,theme,mode,width,JSON.stringify(grid))
+        const banGeometry = await page.locator('.asr-bridge-roster .allscan-bridge-inline-client-actions > select').evaluateAll(selects => selects.map(el => ({
+          appearance:getComputedStyle(el).appearance,
+          background:getComputedStyle(el).backgroundImage,
+          width:el.getBoundingClientRect().width,
+          options:el.options.length,
+          label:el.options[0]?.textContent
+        })))
+        assert(banGeometry.length>0 && banGeometry.every(x=>x.appearance==='none' && x.background==='none' && x.width===32 && x.options>1 && x.label==='Ban'), '#320 arrowless Ban control mismatch: '+JSON.stringify(banGeometry))
+
         const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
         const geometry = await row.evaluate(el => {
           const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()

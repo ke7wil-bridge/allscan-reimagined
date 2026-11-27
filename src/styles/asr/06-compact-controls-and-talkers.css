@@ -966,8 +966,14 @@ html[data-asr-mode="light"] .asr-zello-moderation-status[data-status="banned"] {
   width: 32px;
 }
 .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions > select {
-  width: 50px;
+  /* Keep the native duration menu and keyboard behavior, but hide its arrow. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: none;
+  width: 32px;
   padding-inline: 2px;
+  text-align: center;
+  text-align-last: center;
 }
 .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .asr-zello-moderation-status {
   width: 58px;
