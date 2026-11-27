@@ -12,6 +12,7 @@ import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
 import { replaceDashboardQuery } from './lib/dashboardQuery'
+import { startReadRefresh } from './lib/readRefresh'
 import { startFastCardPoll } from './lib/fastCardPoll'
 import { matchingRecentTalker } from './lib/recentTalkerIdentity'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
@@ -1868,32 +1869,24 @@ function App({ config }: { config: RuntimeConfig }) {
   const zelloRosterExpanded = bridgeClientsOpen.has('zello')
   useEffect(() => {
     if (!authStatus.isAdmin || !zelloRosterExpanded) return
-    let active = true
-    const refresh = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const response = await fetch(asrPath('asr-api.php') + '?action=global-ban-saved-rules', { credentials: 'same-origin', cache: 'no-store' })
         const payload = await response.json()
         if (!response.ok || payload.ok !== true || !Array.isArray(payload.rules)) throw new Error('Saved policy unavailable')
-        if (active) setZelloSavedBanRules(payload.rules)
-      } catch { if (active) setZelloSavedBanRules(null) }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 15000)
-    return () => { active = false; window.clearInterval(timer) }
+        if (isActive()) setZelloSavedBanRules(payload.rules)
+      } catch { if (isActive()) setZelloSavedBanRules(null) }
+    }, { intervalMs: 15000 })
   }, [authStatus.isAdmin, zelloRosterExpanded])
 
   useEffect(() => {
     if (!authStatus.isAdmin || (!zelloRosterExpanded && !banAdminOpen)) return
-    let active = true
-    const refresh = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const bans = await exactZelloBanPolicy()
-        if (active) setExactZelloBans(bans)
-      } catch { if (active) setExactZelloBans(null) }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 15000)
-    return () => { active = false; window.clearInterval(timer) }
+        if (isActive()) setExactZelloBans(bans)
+      } catch { if (isActive()) setExactZelloBans(null) }
+    }, { intervalMs: 15000 })
   }, [authStatus.isAdmin, zelloRosterExpanded, banAdminOpen])
 
   useEffect(() => {
