@@ -4415,6 +4415,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 return (
                 <article
                   key={card.id}
+                  data-bridge-mode={card.mode.toLowerCase()}
                   className={`allscan-bridge-card${card.cardType !== 'standard' ? ' allscan-net-bridge-card' : ''}${bridgeClientsOpen.has(card.id) || bridgeHistoryOpen.has(card.id) ? ' is-detail-expanded' : ''} ${bridgeRoleClasses[card.status]}`}
                 >
                   <div className="allscan-bridge-head">
