@@ -1,5 +1,5 @@
 /* Node Controls: action group, options, and administrator management row. */
-.allscan-controls-lower-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.allscan-controls-lower-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; margin-top: 8px; }
 .allscan-controls-action-group { display: flex; align-items: center; gap: 5px; }
 .allscan-kicks-bans-button { min-width: 112px; justify-self: end; padding-right: 12px; padding-left: 12px; white-space: nowrap; }
 @media (max-width: 900px) {
@@ -28,7 +28,6 @@
   box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
 }
 .allscan-favorites-options {
-  display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 10px;
@@ -78,8 +77,6 @@
   background: rgba(255, 255, 255, .035);
 }
 .allscan-favorites-tools {
-  display: flex;
-  flex-wrap: wrap;
   gap: 7px;
 }
 .allscan-favorites-status {
@@ -147,7 +144,6 @@
   border: 0;
   border-radius: 9px;
   background: rgba(255,255,255,.055);
-  cursor: grab;
 }
 .allscan-favorite-drag svg { width: 18px; height: 18px; }
 .allscan-favorite-description { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -197,7 +193,6 @@
   overflow: visible;
 }
 .allscan-favorites-inner {
-  position: relative;
   gap: 8px;
   padding: 10px;
   border-radius: 12px;
@@ -1020,9 +1015,6 @@
 .allscan-favorites-legend {
   justify-content: center;
 }
-.allscan-favorites-options {
-  align-items: center;
-}
 
 
 /* Favorites content surface: title remains outside, content gets the same contained dark surface. */
@@ -1099,10 +1091,5 @@ html[data-asr-theme] .allscan-favorites-table tbody td.allscan-fav-cell-networke
     position: relative;
     margin-top: 16px;
     margin-bottom: 16px;
-  }
-
-  html[data-asr-theme="lcars-frame"] .allscan-favorites-inner > * {
-    position: relative;
-    z-index: 1;
   }
 }
