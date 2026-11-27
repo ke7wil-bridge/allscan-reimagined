@@ -101,8 +101,15 @@ def sanitize_status(hub: str, payload: dict) -> dict:
             return {}
         if not current and (event <= 0 or event > generated + 30 or generated - event > 86400):
             return {}
+        network_node = str(row.get("network_node", ""))[:16]
+        if network_node and not re.fullmatch(r"[A-Za-z0-9*#-]{1,16}", network_node):
+            network_node = ""
+        raw_duration = row.get("duration")
+        if type(raw_duration) not in (int, float):
+            raw_duration = row.get("duration_seconds")
+        seconds = max(0, min(86400, int(raw_duration))) if type(raw_duration) in (int, float) and 0 <= raw_duration <= 86400 else 0
         return {
-            "node": node, "label": str(row.get("label", ""))[:140],
+            "node": node, "network_node": network_node, "label": str(row.get("label", ""))[:140],
             "callsign": str(row.get("callsign", ""))[:80],
             "info": str(row.get("info", ""))[:140],
             "source": str(row.get("source", ""))[:32],
@@ -111,7 +118,7 @@ def sanitize_status(hub: str, payload: dict) -> dict:
             "description": str(row.get("description", ""))[:80],
             "location": str(row.get("location", ""))[:80],
             "event_epoch": event, "keyed_started_epoch": started,
-            "duration_seconds": max(0, min(86400, int(row.get("duration") or row.get("duration_seconds") or 0))),
+            "duration_seconds": seconds,
             "last_keyed": str(row.get("last_keyed", ""))[:24],
             "originated_locally": row.get("originated_locally") is True,
         }

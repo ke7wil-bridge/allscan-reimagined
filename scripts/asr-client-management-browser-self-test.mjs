@@ -52,6 +52,8 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     // responses. This does not assert an actual Asterisk link operation.
     const linkState = { dmr: { linked: true, held: false }, ysf: { linked: true, held: false }, p25: { linked: false, held: true } }
     const linkRequests = []
+    let exactBans = []
+    const exactRequests = []
     let rejectLink = false
     await page.route('**/asr-api.php?*', async route => {
       const request = route.request()
@@ -62,6 +64,18 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         for (const bridge of payload.bridges) if (bridge.cardType?.endsWith('_net')) bridge.node='1999'
         payload.netBridgeMode=netMode
         return route.fulfill({response,json:payload})
+      }
+      if (action === 'zello-exact-ban-list' || action === 'zello-exact-ban-control') {
+        if (unauthorized) return route.fulfill({status:403,json:{ok:false}})
+        if (action === 'zello-exact-ban-control') {
+          const form = new URLSearchParams(request.postData() || '')
+          const verb = form.get('verb'), identity = form.get('identity'), duration = form.get('duration')
+          exactRequests.push({verb,identity,duration,method:request.method(),header:request.headers()['x-asr-requested-with']})
+          const now = Math.floor(Date.now()/1000)
+          if (verb === 'ban') exactBans = [{rule:identity,scope:'zello-only',verified:false,createdAt:now,expiresAt:now+900,remainingSeconds:900}]
+          else if (verb === 'unban') exactBans = exactBans.filter(ban=>ban.rule!==identity)
+        }
+        return route.fulfill({json:{ok:true,scope:'zello-only',verified:false,bans:exactBans}})
       }
       if (action === 'global-ban-saved-rules') {
         return route.fulfill({json:{ok:true,rules:['TESTBANNED']}})
@@ -141,7 +155,16 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     assert(await zelloRow('K6ZELLO').getByRole('button',{name:'Kick',exact:true}).isEnabled(), 'Valid Zello station lost Kick')
     assert(await zelloRow('K6ZELLO').locator('select').count()===1, 'Valid Zello station lost Ban')
     assert(await zelloRow('TESTBANNED').locator('[data-status="banned"]').count()===1 && await zelloRow('TESTBANNED').locator('select').count()===0, 'Banned Zello station status missing')
-    assert(await zelloRow('Taurus 78').locator('button').isDisabled() && await zelloRow('Taurus 78').locator('[data-status="unavailable"]').count()===1, 'Unsupported Zello identity presents misleading action')
+    const scopedBan = zelloRow('Taurus 78').getByLabel('Ban TAURUS 78 (Zello only)')
+    await scopedBan.waitFor()
+    assert(await zelloRow('Taurus 78').locator('button').isEnabled() && await scopedBan.isEnabled(), 'Spaced Zello identity lost moderation controls')
+    assert((await scopedBan.locator('option[value=""]').innerText()).trim()==='Ban', 'Scoped Ban label must match standard Ban')
+    assert((await scopedBan.locator('option[value="15m"]').innerText()).includes('Zello only'), 'Exact-name scope not explicit')
+    await scopedBan.selectOption('15m')
+    await zelloRow('Taurus 78').locator('[data-status="banned"]').waitFor()
+    assert(exactRequests.length===1 && exactRequests[0].identity==='TAURUS 78' && exactRequests[0].verb==='ban' && exactRequests[0].method==='POST' && exactRequests[0].header==='zello-exact-ban-control','Wrong exact-name mutation')
+    assert((await zelloRow('Taurus 78').innerText()).includes('Ban saved'), 'Saved-only status missing')
+
     assert(!/Last TX|No recent TX/.test(await zelloRoster.innerText()), 'Redundant Zello TX timestamp remains')
     // #307: check the actual control geometry under each supported theme.
     for (const [theme,mode] of [['standard','dark'],['standard','light'],['deep-ocean-animated','dark'],['matrix','dark'],['lcars-frame','dark']]) {
@@ -378,7 +401,7 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         return route.fulfill({json:partial()})
       }
       if(action==='asl-ban-list') return route.fulfill({json:{ok:true,bans:[],applied:{}}})
-      return route.continue()
+      return route.fallback()
     })
     const dialog=page.getByRole('dialog',{name:'Manage Kicks & Bans'})
     const releaseClose=page.getByRole('button',{name:'Close Update ASR'})
@@ -387,6 +410,13 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     await dialog.getByRole('tab',{name:'Bans'}).click()
     await waitUntil("document.querySelector('.allscan-connection-ban-list')?.innerText.includes('not enforced on NXDN, P25, YSF')", 'saved list failed to name unsupported bridges')
     assert(!(await dialog.innerText()).includes('Everywhere'), 'saved list falsely claimed universal enforcement')
+    const exactEntry = dialog.locator('.allscan-connection-ban-list > div').filter({has:page.getByText('TAURUS 78',{exact:true})})
+    await exactEntry.waitFor()
+    assert((await exactEntry.innerText()).includes('live enforcement not verified'), 'Exact-name policy overclaimed enforcement')
+    await exactEntry.getByRole('button',{name:'Unban',exact:true}).click()
+    await exactEntry.waitFor({state:'detached'})
+    assert(exactRequests.at(-1)?.verb==='unban' && exactRequests.at(-1)?.identity==='TAURUS 78','Exact-name unban changed wrong identity')
+
     await dialog.getByRole('tab',{name:'Connected clients'}).click()
     await dialog.getByLabel('Ban callsign').fill('Q9QA129')
     await dialog.getByRole('button',{name:'Ban',exact:true}).click()
