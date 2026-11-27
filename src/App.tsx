@@ -11,6 +11,7 @@ import { nextSort, hslToFavoriteHex, pickFavoriteHex, type SortDirection } from 
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
+import { startFastCardPoll } from './lib/fastCardPoll'
 import { matchingRecentTalker } from './lib/recentTalkerIdentity'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
@@ -1757,68 +1758,19 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [config, applyBridgeConnectionOverrides, acceptBridgeSnapshot, effectiveThemeSettings.reduceBrowserActivity])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastNextModeActivity()
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastNextModeActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge and connection status remain the fallback */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastNextModeActivity,
+    fastNextModeActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastYsfNetActivity()
-        // The 100 ms poll may overlap when a request is slow. Never let an
-        // older Relay response arrive after and overwrite a newer direct EOT.
-        // A real re-key is a newer request and is therefore applied at once.
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastYsfNetActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge status remains available */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastYsfNetActivity,
+    fastYsfNetActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1860,35 +1812,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [config, applyBridgeConnectionOverrides])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastStandardActivity()
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastStandardActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge status remains available if the fast feed fails */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastStandardActivity,
+    fastStandardActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
 
   useEffect(() => {
