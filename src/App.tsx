@@ -7,6 +7,7 @@ import { ASR_WHATS_NEW } from './config/whatsNew'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
 import AllStarBubbleDialog from './components/AllStarBubbleDialog'
+import { nextSort, hslToFavoriteHex, pickFavoriteHex, type SortDirection } from './lib/dashboardInteraction'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
@@ -515,7 +516,6 @@ const connectionColumns = [
 ] as const
 
 type ConnectionSortKey = (typeof connectionColumns)[number]['key']
-type SortDirection = 'asc' | 'desc'
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
 
@@ -2095,11 +2095,7 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function toggleFavoriteSort(key: 'index' | 'node' | 'name' | 'desc' | 'location') {
-    setFavoriteSort((current) => (
-      current.key === key
-        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
-    ))
+    setFavoriteSort((current) => nextSort(current, key))
   }
 
   async function reloadFavorites() {
@@ -2455,11 +2451,7 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function toggleConnectionSort(key: ConnectionSortKey) {
-    setConnectionSort((current) => (
-      current.key === key
-        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
-    ))
+    setConnectionSort((current) => nextSort(current, key))
   }
 
   function isProtectedBanConnection(row: LiveConnectionRow) {
@@ -3487,32 +3479,14 @@ function App({ config }: { config: RuntimeConfig }) {
                             event.preventDefault()
                             event.stopPropagation()
                             event.currentTarget.setPointerCapture(event.pointerId)
-                            const pick = (clientX: number, clientY: number) => {
-                              const rect = event.currentTarget.getBoundingClientRect()
-                              const saturation = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-                              const lightness = Math.max(0, Math.min(1, 1 - ((clientY - rect.top) / rect.height)))
-                              const hue = favoriteColorHue
-                              const a = saturation * Math.min(lightness, 1 - lightness)
-                              const f = (n: number) => {
-                                const k = (n + hue / 30) % 12
-                                return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
-                              }
-                              const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
-                              setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
-                            }
-                            pick(event.clientX, event.clientY)
+                            const hex = pickFavoriteHex(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect(), favoriteColorHue)
+                            setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                           }}
                           onPointerMove={(event) => {
                             if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
                             event.preventDefault()
                             event.stopPropagation()
-                            const rect = event.currentTarget.getBoundingClientRect()
-                            const saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-                            const lightness = Math.max(0, Math.min(1, 1 - ((event.clientY - rect.top) / rect.height)))
-                            const hue = favoriteColorHue
-                            const a = saturation * Math.min(lightness, 1 - lightness)
-                            const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
-                            const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                            const hex = pickFavoriteHex(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect(), favoriteColorHue)
                             setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                           }}
                           onPointerUp={(event) => { event.preventDefault(); event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
@@ -3522,11 +3496,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           const slider = Number(event.target.value)
                           const hue = (360 - slider) % 360
                           setFavoriteColorHue(hue)
-                          const lightness = 0.5
-                          const saturation = 1
-                          const a = saturation * Math.min(lightness, 1 - lightness)
-                          const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
-                          const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                          const hex = hslToFavoriteHex(hue, 1, 0.5)
                           setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                         }} onPointerDown={(event) => event.stopPropagation()} />
                         <span className="allscan-favorite-color-palette">
