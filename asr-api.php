@@ -1294,7 +1294,6 @@ function asr_display_only_bridge_link_statuses(array $configuredBridges): array 
     // lnodes, and link direction is irrelevant to an established transport.
     $snapshot = asrLinkStateSnapshot($node, '/run/allscan-reimagined');
     if (($snapshot['available'] ?? false) !== true) return [];
-    $links = is_array($snapshot['nodes'] ?? null) ? $snapshot['nodes'] : [];
     $statuses = [];
     foreach ($configuredBridges as $config) {
         if (!is_array($config) || (string) ($config['cardType'] ?? 'standard') !== 'standard'
@@ -1303,7 +1302,7 @@ function asr_display_only_bridge_link_statuses(array $configuredBridges): array 
         $remote = (string) ($config['node'] ?? '');
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/D', $id)
             || !preg_match('/^[0-9]{3,10}$/D', $remote)) continue;
-        $linked = $links[$remote] ?? false;
+        $linked = asrBridgeLinkNodes($snapshot, $config)[$remote] ?? false;
         $statuses[$id] = [
             'active' => false, 'role' => 'idle',
             'state' => $linked ? 'AllStar linked' : 'AllStar disconnected',
@@ -3778,7 +3777,7 @@ function asr_bridge_diagnostics(): array {
         if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $id)) continue;
         $bridgeNode = (string) ($bridge['node'] ?? '');
         $linked = $bridgeNode !== '' && !empty($linkSnapshot['available'])
-            ? (isset($linkSnapshot['nodes'][$bridgeNode]) ? 'connected' : 'disconnected')
+            ? (isset(asrBridgeLinkNodes($linkSnapshot, $bridge)[$bridgeNode]) ? 'connected' : 'disconnected')
             : 'unknown';
         $source = (string) ($bridge['clientSource'] ?? 'auto');
         if ($source === 'disabled') $source = 'auto';

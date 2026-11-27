@@ -248,6 +248,9 @@ if command -v php >/dev/null 2>&1; then
 			php -l "$ROOT/compat/allscan-$compat_version/astapi/$compat_file" >/dev/null
 		done
 	done
+	for compat_version in $COMPAT_VERSIONS; do
+		php -d zend.assertions=1 -d assert.exception=1 "$ROOT/scripts/asr-link-state-self-test.php" "$ROOT/compat/allscan-$compat_version/include/asrLinkState.php"
+	done
 	php "$ROOT/scripts/asr-bridge-clients.php" --self-test
   php "$ROOT/scripts/asr-settings-bridge-self-test.php"
   php "$ROOT/scripts/asr-bridge-status-privacy-self-test.php"

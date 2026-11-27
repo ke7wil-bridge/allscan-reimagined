@@ -27,6 +27,9 @@ ASTERISK_SERVICE_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-a
 UPDATE_SERVICE_UNIT = Path("/etc/systemd/system/allscan-reimagined-container-update@.service")
 SOCKET_TMPFILES = Path("/etc/tmpfiles.d/allscan-reimagined-container-provisioning.conf")
 
+# Bump only with a qualified migration for changes to the updater's host
+# infrastructure contract (worker sandbox, recovery service, tmpfiles).
+HOST_UPDATER_INFRASTRUCTURE_SCHEMA = 1
 HOST_FILES = (
     "asr-provisioning-backend.py", "asr-container-host-broker.py",
     "asr-container-updater.py", "asr-updater.py",
@@ -547,6 +550,7 @@ MemoryMax=2G
 Description=ASR verified container update %i
 After=docker.service network-online.target
 Requires=docker.service
+OnFailure=allscan-reimagined-container-update-recovery.service
 
 [Service]
 Type=oneshot
@@ -559,8 +563,32 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=full
+ReadWritePaths={DEST} /usr/local/sbin
 BindReadOnlyPaths={PROFILE}
 TimeoutStartSec=45min
+""", 0o644)
+    atomic(Path("/etc/systemd/system/allscan-reimagined-container-update-recovery.service"), f"""[Unit]
+Description=Recover an interrupted ASR container update
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=ASR_CONTAINER_PROVISIONING_PROFILE={PROFILE}
+ExecStart={DEST}/asr-container-updater.py recover-interrupted
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths={DEST} /usr/local/sbin
+BindReadOnlyPaths={PROFILE}
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target
 """, 0o644)
     atomic(ASTERISK_SOCKET_UNIT, f"""[Unit]
 Description=ASR constrained Asterisk command socket
@@ -767,6 +795,7 @@ WantedBy=timers.target
     # This command is an explicit administrator reapply boundary.  Restart the
     # host-side entry points so newly installed validation and sandbox policy is
     # effective immediately; no web request can invoke this installer.
+    subprocess.run(["systemctl", "enable", "allscan-reimagined-container-update-recovery.service"], check=True)
     subprocess.run(["systemctl", "enable", SOCKET_UNIT.name], check=True)
     subprocess.run(["systemctl", "restart", SOCKET_UNIT.name], check=True)
     subprocess.run(["systemctl", "enable", ASTERISK_SOCKET_UNIT.name], check=True)
