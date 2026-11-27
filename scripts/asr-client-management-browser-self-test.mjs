@@ -26,7 +26,7 @@ async function waitFor(url, timeout = 15000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
-async function runBrowser(unauthorized = false) {
+async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = false) {
   const port = await freePort()
   const appUrl = `http://127.0.0.1:${port}/asr/`
   const vite = spawn('./node_modules/.bin/vite', ['--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
@@ -56,6 +56,13 @@ async function runBrowser(unauthorized = false) {
     await page.route('**/asr-api.php?*', async route => {
       const request = route.request()
       const action = new URL(request.url()).searchParams.get('action')
+      if (action === 'runtime-config') {
+        const response=await route.fetch()
+        const payload=await response.json()
+        for (const bridge of payload.bridges) if (bridge.cardType?.endsWith('_net')) bridge.node='1999'
+        payload.netBridgeMode=netMode
+        return route.fulfill({response,json:payload})
+      }
       if (action === 'bridge-status') {
         const response = await route.fetch()
         const payload = await response.json()
@@ -106,16 +113,66 @@ async function runBrowser(unauthorized = false) {
     const p25Link = standardCard('P25').locator('.allscan-bridge-status-row')
     const closeUpdate = page.getByRole('button',{name:'Close Update ASR'})
     if (await closeUpdate.count()) await closeUpdate.click()
+    // #307: check the actual control geometry under each supported theme.
+    for (const [theme,mode] of [['standard','dark'],['standard','light'],['deep-ocean-animated','dark'],['matrix','dark'],['lcars-frame','dark']]) {
+      for (const width of [1920,1440,1024,768,390,320]) {
+        if (theme === 'lcars-frame' && width < 1200) continue
+        await page.setViewportSize({width,height:1000})
+        await page.evaluate(([theme,mode]) => {
+          for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme=theme; el.dataset.asrMode=mode }
+        },[theme,mode])
+        await delay(150)
+        const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
+        const geometry = await row.evaluate(el => {
+          const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()
+          const dot=el.querySelector('.allscan-standard-link-dot').getBoundingClientRect(), node=el.querySelector('span').getBoundingClientRect(), status=el.querySelector('b').getBoundingClientRect()
+          const label=el.querySelector('b'), button=el.querySelector('button')
+          const oldLabel=label.textContent, oldButton=button.textContent, oldState=label.dataset.linkState
+          const green=getComputedStyle(label).color
+          label.textContent='Unlinked'; label.dataset.linkState='unlinked'; button.textContent='Reconnect'
+          const red=getComputedStyle(label).color
+          const unlinkedWidths=[label.scrollWidth,label.clientWidth,button.getBoundingClientRect().width]
+          const unlinkedFits=label.scrollWidth<=label.clientWidth+1 && button.getBoundingClientRect().right<=r.right+1
+          label.textContent=oldLabel; label.dataset.linkState=oldState; button.textContent=oldButton
+          const colorOK=green=== (document.documentElement.dataset.asrMode==='light'?'rgb(21, 128, 61)':'rgb(74, 222, 128)') && red===(document.documentElement.dataset.asrMode==='light'?'rgb(185, 28, 28)':'rgb(248, 113, 113)')
+          const peerRows=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')]
+          const peers=peerRows.map(row=>row.getBoundingClientRect().height)
+          const fonts=[...el.querySelectorAll('span,b,button'),...peerRows.flatMap(row=>[...row.querySelectorAll('span,b')])].map(x=>getComputedStyle(x).fontSize)
+          const equalFonts=fonts.every(f=>f===fonts[0])
+          return {height:r.height, peers, fonts, equalFonts, unlinkedFits, unlinkedWidths, colorOK, green, red, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===4 && dot.height===4 && dot.left-node.right>=4 && dot.left-node.right<=7 && status.left-dot.right>=4 && status.left-dot.right<=7, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
+        })
+        assert(geometry.equalFonts && geometry.unlinkedFits && geometry.colorOK && geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && geometry.peers.every(h=>h===27) && (width===320 || geometry.height===27), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
+        const netRows=await page.locator('.allscan-net-bridge-card').evaluateAll(cards=>cards.map(card=>{
+          const rows=[...card.querySelectorAll('.allscan-bridge-body > .allscan-bridge-status-row')]
+          return {rows:rows.map(row=>({label:row.querySelector('span')?.textContent,height:row.getBoundingClientRect().height,fonts:[...row.querySelectorAll('span,b')].map(x=>getComputedStyle(x).fontSize)}))}
+        }))
+        assert(netRows.length>0 && netRows.every(card=>card.rows.length===2 && card.rows[0].label===(netMode==='ysf'?'Current Reflector':'Current TG') && card.rows[1].label==='Talking' && card.rows.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]))), `#307 Net Bridge information row mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(netRows)}`)
+        console.log('NET LAYOUT',netMode,theme,mode,width,JSON.stringify(netRows))
+        const detailBands = await page.locator('.allscan-bridge-card > .allscan-bridge-detail-wrap').evaluateAll(wraps=>wraps.map(wrap=>{
+          const button=wrap.querySelector('.allscan-bridge-detail-toggle'), r=button.getBoundingClientRect(), w=wrap.getBoundingClientRect()
+          const border=parseFloat(getComputedStyle(wrap).borderTopWidth)
+          return {label:button.querySelector('span').textContent, height:r.height+border, expanded:button.getAttribute('aria-expanded')==='true', wrapHeight:w.height, fonts:[button,...button.querySelectorAll('span,b')].map(x=>getComputedStyle(x).fontSize), fits:[...button.children].every(x=>{const box=x.getBoundingClientRect();return box.left>=w.left-1&&box.right<=w.right+1&&box.top>=r.top-1&&box.bottom<=r.bottom+1&&x.scrollWidth<=x.clientWidth+1})}
+        }))
+        assert(detailBands.length>0 && detailBands.some(row=>row.label==='Connected Clients') && detailBands.some(row=>row.label==='Recent Activity') && detailBands.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]) && row.fits && (row.expanded || row.wrapHeight===27)), `#307 detail header mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(detailBands)}`)
+        console.log('DETAIL LAYOUT',netMode,theme,mode,width,JSON.stringify(detailBands))
+
+        if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
+      }
+    }
+    if (layoutOnly) return
+    await page.setViewportSize({width:1440,height:1000})
+    await page.evaluate(() => { for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme='standard'; el.dataset.asrMode='dark' } })
     await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
-    await dmrLink.getByText('Manually disconnected',{exact:true}).waitFor()
+    await dmrLink.locator('b[title="Manually disconnected"]').filter({hasText:/^Unlinked$/}).waitFor()
     assert(await ysfLink.getByText('Linked',{exact:true}).isVisible(), 'DMR hold changed an unrelated YSF bridge')
-    assert(await p25Link.getByText('Manually disconnected · control unavailable',{exact:true}).isVisible(), 'unavailable persistent hold is not visible')
+    assert(await p25Link.locator('b[title="Manually disconnected · control unavailable"]').filter({hasText:/^Unlinked$/}).isVisible(), 'unavailable persistent hold is not visible')
     assert(await p25Link.getByRole('button').count() === 0, 'unavailable held bridge exposes generic reconnect')
     rejectLink = true
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
     await page.getByText('Fixture link operation rejected',{exact:false}).first().waitFor()
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).waitFor()
-    assert(await dmrLink.getByText('Manually disconnected',{exact:true}).isVisible(), 'failed reconnect cleared the saved hold')
+    assert(await dmrLink.locator('b[title="Manually disconnected"]').filter({hasText:/^Unlinked$/}).isVisible(), 'failed reconnect cleared the saved hold')
     rejectLink = false
     await page.setViewportSize({width:390,height:844})
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
@@ -269,6 +326,7 @@ async function runBrowser(unauthorized = false) {
 }
 
 await runBrowser(false)
+await runBrowser(false,'ysf',true)
 await delay(250)
 await runBrowser(true)
 console.log('Connected Clients/Kick/Ban browser self-test: ok')

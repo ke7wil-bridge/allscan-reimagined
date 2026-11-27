@@ -663,3 +663,175 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
   .asr-update-versions { margin: 10px 0; }
   .asr-update-dialog footer { margin-top: 12px; }
 }
+
+/* #307: independent Standard Bridge link controls only. */
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px 5px;
+  min-height: 27px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > span:first-child {
+  width: auto;
+  white-space: nowrap;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-dot {
+  display: block;
+  flex: 0 0 4px;
+  width: 4px;
+  height: 4px;
+  margin-inline: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .65;
+  white-space: nowrap;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b {
+  flex: 0 1 auto;
+  width: auto;
+  text-align: left;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  max-width: 100%;
+  min-height: 24px;
+  height: 24px;
+  width: auto;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 1px 5px;
+  font-size: 11px;
+  line-height: 14px;
+}
+@media (max-width: 1199px) {
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
+    gap: 2px 2px;
+    min-height: 26px;
+    padding-inline: 2px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > span,
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b {
+    font-size: 10px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
+    padding-inline: 1px;
+    font-size: 10px;
+  }
+}
+/* Very narrow cards: use a deliberate second line for the complete button,
+   not automatic wrapping of labels or button text. */
+@media (max-width: 360px) {
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row:has(> button) {
+    display: grid;
+    grid-template-columns: auto 8px minmax(0, 1fr);
+    gap: 2px 4px;
+    padding-block: 2px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="linked"] { color: #4ade80; }
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #f87171; }
+html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="linked"] { color: #15803d; }
+html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #b91c1c; }
+
+/* #307: equal visible bands and typography on Standard Bridges and Net Bridge information rows only.
+   Each band includes its leading divider. The body no longer adds a separate one. */
+.allscan-bridge-grid > .allscan-bridge-card {
+  --asr-bridge-info-height: 27px;
+  --asr-bridge-info-font: 13px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body {
+  border-top: 0;
+}
+.allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row,
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body > .allscan-bridge-row.allscan-bridge-status-row {
+  box-sizing: border-box;
+  min-height: var(--asr-bridge-info-height);
+  height: var(--asr-bridge-info-height);
+  padding-block: 0;
+  border-top: 1px solid rgba(255,255,255,.16);
+  font-size: var(--asr-bridge-info-font) !important;
+  line-height: 1.2;
+}
+.allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row > :is(span,b,button),
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body > .allscan-bridge-row.allscan-bridge-status-row > :is(span,b) {
+  font-size: var(--asr-bridge-info-font) !important;
+}
+@media (max-width:1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card {
+    --asr-bridge-info-font: 10px;
+  }
+}
+@media (max-width:360px) {
+  .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row:has(> button) {
+    height: auto;
+    padding-block: 2px;
+  }
+}
+/* #307: the collapsible client/activity header is another compact information
+   band. Keep expanded content independently sized (including Kick/Ban). */
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap {
+  box-sizing: border-box;
+  padding-block: 0 !important;
+  border-top-width: 1px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+  box-sizing: border-box;
+  height: calc(var(--asr-bridge-info-height) - 1px);
+  min-height: calc(var(--asr-bridge-info-height) - 1px);
+  margin-block: 0 !important;
+  padding-block: 0;
+  font-size: var(--asr-bridge-info-font) !important;
+  line-height: 1.2;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > :is(span,b) {
+  font-size: var(--asr-bridge-info-font) !important;
+  white-space: nowrap;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-box {
+  margin-block: 3px 5px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+  grid-template-columns: max-content var(--asr-bridge-activity-count-width) var(--asr-bridge-activity-chevron-width);
+  justify-content: center;
+  transform: none !important;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > :is(b,svg) {
+  translate: none;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > b {
+  transform: none !important;
+}
+@media (max-width:1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap {
+    padding-inline: 3px;
+    --asr-bridge-activity-count-width: 24px;
+    --asr-bridge-activity-chevron-width: 12px;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+    column-gap: 3px;
+    padding-inline: 0;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > b {
+    padding-inline: 2px;
+  }
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > svg {
+  transform: none !important;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > svg.is-open {
+  transform: rotate(180deg) !important;
+}
