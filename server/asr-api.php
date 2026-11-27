@@ -1246,7 +1246,7 @@ function asr_zello_kick_command(string $callsign): array {
     global $user;
     if (!is_executable(ASR_GLOBAL_BAN_HELPER)) asr_error('Zello client administration helper is unavailable.', 503);
     $callsign = strtoupper(trim($callsign));
-    if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/ -]{0,63}$/D', $callsign)) asr_error('Invalid Zello client identity.');
+    if (!preg_match('/^[A-Z0-9 @._#\/+:-]{1,48}$/D', $callsign)) asr_error('Invalid Zello client identity.');
     $target = preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign) ? $callsign : 'ZELLO_EXACT_HEX_' . strtoupper(bin2hex($callsign));
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
     $command = 'sudo -n ' . escapeshellarg(ASR_GLOBAL_BAN_HELPER) . ' kick ' . escapeshellarg($target)

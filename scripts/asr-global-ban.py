@@ -43,13 +43,13 @@ def normalize(value: str) -> str:
 # Zello Kick is an exact identity in the existing JSON session store,
 # not a global policy token. Encode whitespace across the sudo boundary.
 ZELLO_KICK_TOKEN_PREFIX = "ZELLO_EXACT_HEX_"
-ZELLO_NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9_./ -]{0,63}$")
+ZELLO_NAME_RE = re.compile(r"^[A-Z0-9 @._#/+:-]{1,48}$")
 
 
 def decode_zello_kick_identity(value):
     if value.startswith(ZELLO_KICK_TOKEN_PREFIX):
         encoded = value[len(ZELLO_KICK_TOKEN_PREFIX):]
-        if not re.fullmatch(r"[A-F0-9]{2,128}", encoded) or len(encoded) % 2:
+        if not re.fullmatch(r"[A-F0-9]{2,96}", encoded) or len(encoded) % 2:
             raise ValueError("Invalid encoded Zello identity.")
         try:
             name = bytes.fromhex(encoded).decode("ascii")

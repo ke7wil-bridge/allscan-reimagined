@@ -97,6 +97,10 @@ policy = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(policy)
 token = policy.ZELLO_KICK_TOKEN_PREFIX + "TAURUS 78".encode("ascii").hex().upper()
 check(policy.decode_zello_kick_identity(token) == "TAURUS 78", "exact spaced name lost")
+for name in ("@NET OP", "TAURUS #78", "USER+ONE:2"):
+    encoded = policy.ZELLO_KICK_TOKEN_PREFIX + name.encode("ascii").hex().upper()
+    check(policy.decode_zello_kick_identity(encoded) == name, "supported runtime punctuation lost")
+
 for invalid in ("TAURUS 78", policy.ZELLO_KICK_TOKEN_PREFIX + "00", policy.ZELLO_KICK_TOKEN_PREFIX + "2A", policy.ZELLO_KICK_TOKEN_PREFIX + "FF", "TAURUS*"):
     try:
         policy.decode_zello_kick_identity(invalid)
