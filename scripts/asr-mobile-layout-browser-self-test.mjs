@@ -19,7 +19,7 @@ try {
   const page=await browser.newPage()
   const cdp=await page.context().newCDPSession(page)
   const evaluate=expression=>page.evaluate(expression)
-  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['narrow-boundary',361,740],['narrow-middle',375,812],['narrow-upper',388,844],['compact-boundary',389,844],['desktop',1440,900]]) {
+  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['narrow-boundary',361,740],['narrow-middle',375,812],['narrow-upper',388,844],['compact-boundary',389,844],['tablet-portrait',768,1024],['tablet-landscape',1024,768],['desktop',1440,900]]) {
     await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<1000})
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:20000})
     let loaded=false
@@ -63,7 +63,38 @@ try {
     })()`)
     assert(menu.ok,name+': menu missing, empty, or clipped '+JSON.stringify(menu))
 
-    if (width < 900) {
+    const dedicatedNetRows = await evaluate(`(() => {
+      const existing=document.querySelector('.allscan-bridge-grid');
+      if(!existing) return {ok:false,reason:'missing grid'};
+      const grid=document.createElement('div');
+      grid.className='allscan-bridge-grid';
+      existing.parentElement.append(grid);
+      try {
+        for(let count=0;count<=6;count++) {
+          for(let slot=0;slot<=count;slot++) {
+            grid.replaceChildren();
+            const standards=Array.from({length:count},(_,i)=>{
+              const el=document.createElement('article');el.className='allscan-bridge-card';
+              el.textContent='Standard '+i;return el;
+            });
+            const net=document.createElement('article');
+            net.className='allscan-bridge-card allscan-net-bridge-card';
+            net.textContent='Net Bridge';
+            const cards=[...standards];cards.splice(slot,0,net);grid.append(...cards);
+            const r=net.getBoundingClientRect(),g=grid.getBoundingClientRect();
+            const shared=standards.some(card=>{const c=card.getBoundingClientRect();return c.top<r.bottom-1&&c.bottom>r.top+1});
+            const centered=Math.abs((r.left+r.right-g.left-g.right)/2)<=2;
+            const contained=r.left>=g.left-1&&r.right<=g.right+1;
+            if(shared||!centered||!contained||r.width<Math.min(280,g.width-16))
+              return {ok:false,count,slot,shared,centered,contained,width:r.width,grid:g.width};
+          }
+        }
+        return {ok:true};
+      }finally{grid.remove()}
+    })()`)
+    assert(dedicatedNetRows.ok,name+': #343 dedicated Net Bridge row '+JSON.stringify(dedicatedNetRows))
+
+    if (width < 900 && name !== 'tablet-portrait') {
       const gridFixture = await evaluate(`(() => {
         const existing=document.querySelector('.allscan-bridge-grid');
         if(!existing) return {ok:false,reason:'missing grid'};
