@@ -633,17 +633,48 @@ type BridgeEntry = {
   linked_clients?: Array<Record<string, unknown>>
 }
 
-export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined): number {
+// The module label uses only actual, independently valid event epochs. A
+// malformed field must not poison another valid event in the same snapshot.
+export function bridgeLastActivityEpoch(entry: BridgeEntry | undefined, maxEpoch = Math.floor(Date.now() / 1000) + 300): number {
   if (!entry) return 0
+  const valid = (value: unknown): number => {
+    if (typeof value !== 'number' && typeof value !== 'string') return 0
+    const epoch = Number(value)
+    return Number.isFinite(epoch) && epoch > 0 && epoch <= maxEpoch ? epoch : 0
+  }
+  const events = (rows: unknown, includeStart: boolean): number[] => Array.isArray(rows)
+    ? rows.map((row) => row && typeof row === 'object'
+      ? valid(row.epoch) || valid(row.event_epoch) || (includeStart ? valid(row.start_epoch) : 0)
+      : 0)
+    : []
   return Math.max(
     0,
-    Number(entry.activity_epoch || 0),
-    Number(entry.last_time_epoch || 0),
-    Number(entry.last_source_epoch || 0),
-    Number(entry.active_start_epoch || 0),
-    ...(Array.isArray(entry.tx_events) ? entry.tx_events.map((event) => Number(event.epoch || event.event_epoch || event.start_epoch || 0)) : []),
-    ...(Array.isArray(entry.client_events) ? entry.client_events.map((event) => Number(event.epoch || event.event_epoch || 0)) : []),
+    valid(entry.activity_epoch),
+    valid(entry.last_time_epoch),
+    valid(entry.last_source_epoch),
+    valid(entry.active_start_epoch),
+    ...events(entry.tx_events, true),
+    ...events(entry.client_events, false),
   )
+}
+
+export type BridgeCardsSnapshot = {
+  activityScope: string
+  activityEpoch: number
+  updatedLabel: string
+  cards: BridgeCardView[]
+}
+
+export function bridgeActivityScope(config: RuntimeConfig): string {
+  return JSON.stringify([config.node, config.bridges.map((bridge) =>
+    JSON.stringify([bridge.id, bridge.node, bridge.mode, bridge.cardType])).sort()])
+}
+
+export function retainBridgeActivity(previous: BridgeCardsSnapshot, next: BridgeCardsSnapshot): BridgeCardsSnapshot {
+  // Scope to the current dashboard configuration; never carry a timestamp
+  // across node/bridge changes. Missing history on a fresh page stays empty.
+  if (previous.activityScope !== next.activityScope || next.activityEpoch >= previous.activityEpoch) return next
+  return { ...next, activityEpoch: previous.activityEpoch, updatedLabel: previous.updatedLabel }
 }
 
 export function bridgeDashboardStatusLabel(
@@ -1785,16 +1816,20 @@ export function safeAudioMeterLevel(value: unknown): number {
 export async function fetchBridgeCards(
   config: RuntimeConfig,
   signal?: AbortSignal,
-): Promise<{ updatedLabel: string; cards: BridgeCardView[] }> {
+): Promise<BridgeCardsSnapshot> {
   const response = await fetch(`${ASR_API}?action=bridge-status`, { credentials: 'same-origin', cache: 'no-store', signal })
   const payload = (await response.json()) as {
+    ok?: boolean
+    error?: string
     bridge?: BridgeLiveResponse
     clients?: ConnectedClientsResponse
     clientCounts?: Record<string, number>
     clientMeta?: Record<string, { kind?: string; mode?: string }>
     controls?: BridgeControlResponse
   }
-  const bridge = normalizeBridgeRoles(payload.bridge || {})
+  if (response.ok === false || payload.ok === false) throw new Error(payload.error || 'Bridge status could not be loaded.')
+  const rawBridge = payload.bridge || {}
+  const bridge = normalizeBridgeRoles(rawBridge)
   const clients = payload.clients || {}
   const clientCounts = payload.clientCounts || {}
   const clientMeta = payload.clientMeta || {}
@@ -1896,7 +1931,8 @@ export async function fetchBridgeCards(
   // configured bridge so the value is consistent on every layout/device.
   let latestActivityEpoch = 0
   for (const bridgeConfig of config.bridges) {
-    const value = bridge[bridgeConfig.id]
+    // Normalized relay roles can synthesize a start time for display only.
+    const value = rawBridge[bridgeConfig.id]
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue
     const entry = value as BridgeEntry
     latestActivityEpoch = Math.max(latestActivityEpoch, bridgeLastActivityEpoch(entry))
@@ -1905,7 +1941,7 @@ export async function fetchBridgeCards(
     ? new Date(latestActivityEpoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '--:--:--'
 
-  return { updatedLabel, cards }
+  return { activityScope: bridgeActivityScope(config), activityEpoch: latestActivityEpoch, updatedLabel, cards }
 }
 
 export async function setStandardBridgeLink(bridgeId: string, verb: 'connect' | 'disconnect'): Promise<{ message: string }> {
@@ -2165,8 +2201,16 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
     signal: AbortSignal.timeout(10000),
   })
   const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
-  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')
-  return payload
+  const permissionValue = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value)
+    || typeof value === 'string' && /^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+  if (!response.ok || payload?.ok !== true
+    || typeof payload.username !== 'string'
+    || !permissionValue(payload.permission) || !permissionValue(payload.publicPermission)
+    || [payload.loggedIn, payload.canRead, payload.canModify, payload.canWrite, payload.isAdmin].some((value) => typeof value !== 'boolean')
+    || (!payload.loggedIn && (payload.canModify || payload.canWrite || payload.isAdmin))) {
+    throw new Error(payload?.error || 'Login status could not be checked.')
+  }
+  return { ...payload, permission: Number(payload.permission), publicPermission: Number(payload.publicPermission) }
 }
 
 export type TgifUserStatus = {
