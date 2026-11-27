@@ -19,6 +19,17 @@ $nodeDatabase = [
 	'63916' => ['63916', 'NY7S', '147.300', 'Sun City West, Arizona'],
 	'53430' => ['53430', 'KE7WIL', 'Full-Duplex 4 Life', 'Phoenix, Arizona'],
 ];
+$echo = asrSelectCurrentTalker([
+    ['node'=>'3069556', 'info'=>'*HAM* [EchoLink 69556]', 'keyed'=>'yes'],
+], '674982', '', ['3069556'=>['3069556','WRONG','Wrong','Wrong']], 100);
+check($echo['info'] === '*HAM*' && $echo['source'] === 'EchoLink' && $echo['description'] === 'EchoLink 69556', 'EchoLink conference attribution failed');
+check(asrEnrichAllStarTalker($echo, []) === $echo, 'EchoLink enrichment is not idempotent');
+$unknownEcho = asrEnrichAllStarTalker(['node'=>'3069556','info'=>'WRONG [EchoLink 123]','source'=>'AllStar'], []);
+check($unknownEcho['info'] === 'Unknown EchoLink', 'unverified EchoLink identity accepted');
+$echoState = asrAdvanceTalkerState(null, $echo, [], 100);
+$echoState = asrAdvanceTalkerState($echoState['current'], null, [], 105);
+check($echoState['history'][0]['duration'] === 5 && $echoState['history'][0]['source'] === 'EchoLink', 'EchoLink duration or history source lost');
+
 $ordinaryCurrent = asrEnrichAllStarTalker([
 	'node'=>'63916', 'info'=>'NY7S 147.300 Sun City West, Arizona',
 	'source'=>'AllStar', 'started_epoch'=>1791322064,

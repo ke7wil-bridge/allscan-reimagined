@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . "/asrEchoLink.php";
+
 function asrBridgeIdentityText($value) {
 	$value = strtoupper(trim((string)$value));
 	return in_array($value, ['', '-', '--', 'UNKNOWN', 'NONE', 'N/A', 'NULL'], true) ? '' : $value;
@@ -136,6 +138,21 @@ function asrEnrichAllStarTalker($row, $astdb) {
 	// These private transport nodes have a separate evidence-based identity
 	// path. Never replace their real digital caller with an ASTDB label.
 	if($node === '' || in_array($node, ['1001', '1999'], true)) return $row;
+	$echoNumber = asrEchoLinkNodeNumber($node);
+	if($echoNumber !== '' && in_array(strtoupper(trim((string)($row['source'] ?? ''))), ['', 'ALLSTAR', 'ECHOLINK'], true)) {
+		$info = trim(strip_tags((string)($row['info'] ?? '')));
+		$label = '';
+		if(preg_match('/^([A-Z0-9*][A-Z0-9*\/-]{1,10})\s+\[EchoLink ' . preg_quote($echoNumber, '/') . '\]$/iD', $info, $match)
+			&& preg_match('/[A-Z*]/i', $match[1])) $label = strtoupper($match[1]);
+		elseif(($row['source'] ?? '') === 'EchoLink' && ($row['identity_provenance'] ?? '') === 'echolink_label'
+			&& preg_match('/^[A-Z0-9*][A-Z0-9*\/-]{1,10}$/iD', $info) && preg_match('/[A-Z*]/i', $info)) $label = strtoupper($info);
+		$row['source'] = 'EchoLink';
+		$row['info'] = $label !== '' ? $label : 'Unknown EchoLink';
+		$row['description'] = 'EchoLink ' . $echoNumber;
+		$row['location'] = '';
+		$row['identity_provenance'] = $label !== '' ? 'echolink_label' : 'echolink_transport';
+		return $row;
+	}
 	$record = $astdb[$node] ?? null;
 	if(!is_array($record) || count($record) < 4) return $row;
 

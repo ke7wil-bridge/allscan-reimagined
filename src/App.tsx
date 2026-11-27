@@ -3814,7 +3814,7 @@ function App({ config }: { config: RuntimeConfig }) {
                 >
                   <div className="allscan-talker-card-title">{index === 0 ? 'Current Talker' : `Last Talker ${index} · ${talker ? talkerLastHeard(talker, index) : '--:--'}`}</div>
                   <div className="allscan-talker-callsign">{talker ? (talker.info || talker.node) : '\u00a0'}</div>
-                  <div className="allscan-talker-source">{talker ? `${talker.source}${talker.node ? ` · ${talker.node}` : ''}` : (index === 0 ? 'No one talking' : 'No recent talker')}</div>
+                  <div className="allscan-talker-source">{talker ? `${talker.source}${talker.node ? ` · ${talker.source === 'EchoLink' && /^3\d{6}$/.test(talker.node) ? Number(talker.node.slice(1)) : talker.node}` : ''}` : (index === 0 ? 'No one talking' : 'No recent talker')}</div>
                   <div className="allscan-talker-description">{talker?.description || '\u00a0'}</div>
                   <div className="allscan-talker-location">{talker?.location || '\u00a0'}</div>
                   <div className="allscan-talker-duration"><span>Duration</span><strong>{talkerDuration(talker, index)}</strong></div>
