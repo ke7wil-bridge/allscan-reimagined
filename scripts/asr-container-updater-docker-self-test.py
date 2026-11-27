@@ -52,6 +52,7 @@ def compose_model(project: str, service: str, container: str, image: str,
     return {"name": project, "services": {service: {
         "image": image,
         "container_name": container,
+        "restart": "unless-stopped",
         "environment": {"ASR_UPDATE_MODE": "container"},
         "volumes": [{"type": "bind", "source": item["source"],
                      "target": item["destination"]} for item in mounts],
@@ -131,6 +132,27 @@ def main() -> int:
         write_image_context(stage, new_version, base)
         (stage / "container").mkdir()
         shutil.move(stage / "Dockerfile", stage / "container/Dockerfile.layered")
+        up.HOST_DEST = root / "host-helpers"
+        up.CONTROL_DEST = root / "host-controls"
+        up.HOST_DEST.mkdir(mode=0o755); up.CONTROL_DEST.mkdir(mode=0o755)
+        (up.HOST_DEST / "bridge-relays").mkdir(mode=0o755)
+        for name, (relative, target, mode) in up.host_inventory().items():
+            source = stage / relative
+            source.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative.removeprefix("payload/"), source)
+            if name != "asr-container-standard-link.py":
+                target.write_text("# old:" + name)
+                target.chmod(mode)
+        inventory = up.release_inventory(stage)
+        expected = up.host_payload(stage, inventory)
+        def assert_host_state(*, migrated):
+            for name, (_, target, mode) in inventory.items():
+                if not migrated and name == "asr-container-standard-link.py":
+                    assert not target.exists()
+                else:
+                    assert target.read_bytes() == (expected[name] if migrated else ("# old:" + name).encode()), name
+                    assert target.stat().st_mode & 0o777 == mode, name
+                    assert target.stat().st_uid == os.geteuid(), name
         build_image(old_context, old_image)
 
         mounts = []
@@ -184,6 +206,7 @@ def main() -> int:
                              stage, payload, health=fail_new_health)
             assert failed["state"] == "failed" and failed["restoration"] == "succeeded", failed
             assert up.inspect(container)["Image"] == old_image_id
+            assert_host_state(migrated=False)
             assert up.installed_version(container) == old_version
 
             # A bad checksum cannot stop or replace the running container.
@@ -192,6 +215,7 @@ def main() -> int:
                                checks("0" * 64), stage, payload)
             assert rejected["state"] == "failed" and rejected["restoration"] == "not_needed"
             assert up.inspect(container)["Id"] == before
+            assert_host_state(migrated=False)
 
             # Failure after the consistent stop must start and verify the
             # original container without changing its identity.
@@ -199,13 +223,43 @@ def main() -> int:
                                     checks(good_sha), stage, payload, backup_error=True)
             assert backup_failed["restoration"] == "succeeded"
             assert up.inspect(container)["Id"] == before
+            assert_host_state(migrated=False)
             assert up.installed_version(container) == old_version
+
+            # Interrupt a real Docker update after the old container stops
+            # and after some (but not all) host helper replacements. A separate
+            # recovery invocation must restore the original exact helper set.
+            class Interrupted(BaseException):
+                pass
+            real_write = up.atomic_host_file
+            def interrupt_host_write(target, content, mode):
+                if target == inventory["asr-fixed-bridge-recovery.py"][1]:
+                    raise Interrupted()
+                return real_write(target, content, mode)
+            interrupted_job = f"20261124-130006-{suffix[-8:].zfill(8)}"
+            with mock.patch.object(up, "atomic_host_file", side_effect=interrupt_host_write):
+                try:
+                    run_job(up, interrupted_job, checks(good_sha), stage, payload)
+                except Interrupted:
+                    pass
+                else:
+                    raise AssertionError("interruption was not injected")
+            assert up.read_status(interrupted_job)["state"] == "installing"
+            assert up.read_transaction(interrupted_job)["phase"] == "backup_ready"
+            assert not up.inspect(container)["State"]["Running"]
+            assert inventory["asr-container-standard-link.py"][1].exists()
+            assert up.recover()["status"] == "restored"
+            assert up.read_status(interrupted_job)["restoration"] == "succeeded"
+            assert up.inspect(container)["Image"] == old_image_id
+            assert up.healthy(container, old_version)
+            assert_host_state(migrated=False)
 
             completed = run_job(up, f"20261124-130004-{suffix[-8:].zfill(8)}",
                                 checks(good_sha), stage, payload)
             assert completed["state"] == "complete"
             assert completed["currentVersion"] == new_version
             assert up.installed_version(container) == new_version
+            assert_host_state(migrated=True)
             assert up.healthy(container, new_version)
             for item in mounts:
                 assert (Path(item["source"]) / "sentinel.txt").is_file()
@@ -216,6 +270,7 @@ def main() -> int:
                                checks(good_sha, new_version), stage, payload)
             assert repeated["state"] == "complete"
             assert up.installed_version(container) == new_version
+            assert_host_state(migrated=True)
             assert up.healthy(container, new_version)
             print("real Docker container updater acceptance passed")
         finally:

@@ -60,6 +60,10 @@ def exercise_job(up, root: Path, *, health: bool, restored: bool | None, backup_
         mock.patch.object(up, "run", return_value=completed()),
         mock.patch.object(up, "profile", return_value=selected),
         mock.patch.object(up, "create_backup", side_effect=OSError("simulated backup failure") if backup_failure else None, return_value=backup),
+        mock.patch.object(up, "release_inventory", return_value={}),
+        mock.patch.object(up, "host_payload", return_value={}),
+        mock.patch.object(up, "backup_host_helpers"),
+        mock.patch.object(up, "install_host_helpers"),
         mock.patch.object(up, "docker_compose", return_value=completed()),
         mock.patch.object(up, "healthy", return_value=health),
     ]
@@ -69,6 +73,9 @@ def exercise_job(up, root: Path, *, health: bool, restored: bool | None, backup_
         item.start()
     try:
         assert up.run_job(job) == (0 if health and not backup_failure else 1)
+        if not backup_failure:
+            up.backup_host_helpers.assert_called_once_with(backup, {})
+            up.install_host_helpers.assert_called_once_with({}, {})
         if backup_failure:
             up.run.assert_any_call(["/usr/bin/docker", "start", "asr-web"], timeout=120)
         if restored is not None:
@@ -106,6 +113,129 @@ def main() -> int:
                     release_for_update=lambda _version: (_ for _ in ()).throw(FakeUpdateError("ASR is up to date")))):
             current = up.release_check("asr-web")
             assert not current["updateAvailable"] and current["availableVersion"] == "1.0.0-beta.8.7"
+
+        # The supported restart policy must also match the approved snapshot.
+        model = {"service": "web", "approvedModel": {"services": {"web": {"restart": "unless-stopped"}}}}
+        def restart(name):
+            return {"HostConfig": {"RestartPolicy": {"Name": name}}}
+        up.validate_restart_policy(restart("unless-stopped"), model)
+        for bad in ("always", "on-failure", "no"):
+            try:
+                up.validate_restart_policy(restart(bad), model)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("unsafe or mismatched restart policy accepted")
+        with mock.patch.object(up, "run", side_effect=[
+                completed(1), subprocess.CompletedProcess([], 1, "[]", "Error response from daemon: No such container: asr-web")]):
+            assert up.stop_for_restore("asr-web")
+        with mock.patch.object(up, "run", side_effect=[
+                completed(1), subprocess.CompletedProcess([], 1, "", "Docker daemon unavailable")]):
+            assert not up.stop_for_restore("asr-web")
+
+        # A verified upgrade adds absent host helpers, replaces stale ones,
+        # and restores both old bytes and absent files on rollback.
+        host = root / "host"
+        control = root / "control"
+        host.mkdir(mode=0o755); control.mkdir(mode=0o755); (host / "bridge-relays").mkdir(mode=0o755)
+        stage = root / "host-stage"
+        with mock.patch.object(up, "HOST_DEST", host), mock.patch.object(up, "CONTROL_DEST", control):
+            inventory = up.host_inventory()
+            installer = stage / "payload/scripts/asr-container-host-install.py"
+            installer.parent.mkdir(parents=True, exist_ok=True)
+            source = (HERE / "asr-container-host-install.py").read_text()
+            installer.write_text(source)
+            assert up.release_inventory(stage) == inventory
+            installer.write_text(source.replace("HOST_UPDATER_INFRASTRUCTURE_SCHEMA = 1", "HOST_UPDATER_INFRASTRUCTURE_SCHEMA = 2"))
+            try:
+                up.release_inventory(stage)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("unqualified host infrastructure migration accepted")
+            for name, (relative, target, mode) in inventory.items():
+                source = stage / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(("# new:" + name).encode())
+                if name != "asr-container-standard-link.py":
+                    target.write_bytes(("# old:" + name).encode())
+                    target.chmod(mode)
+            transaction = root / "host-transaction"
+            transaction.mkdir()
+            data = up.host_payload(stage)
+            up.backup_host_helpers(transaction)
+            up.install_host_helpers(data)
+            assert (host / "asr-container-standard-link.py").is_file()
+            assert all(target.read_bytes() == data[name] for name, (_, target, _) in inventory.items())
+            up.restore_host_helpers(transaction)
+            assert not (host / "asr-container-standard-link.py").exists()
+            assert all(target.read_bytes() == ("# old:" + name).encode() for name, (_, target, _) in inventory.items() if name != "asr-container-standard-link.py")
+            # A partial replacement must restore stale bytes and remove newly
+            # introduced files. Also reject corrupt backups before touching live files.
+            backup2 = root / "partial-host-transaction"
+            backup2.mkdir()
+            up.backup_host_helpers(backup2)
+            real_write = up.atomic_host_file
+            def fail_mid_install(target, content, mode):
+                if target.name == "asr-fixed-bridge-recovery.py":
+                    raise OSError("simulated partial host install")
+                return real_write(target, content, mode)
+            with mock.patch.object(up, "atomic_host_file", side_effect=fail_mid_install):
+                try:
+                    up.install_host_helpers(data)
+                except OSError:
+                    pass
+                else:
+                    raise AssertionError("partial host installation did not fail")
+            assert (host / "asr-container-standard-link.py").exists()
+            up.restore_host_helpers(backup2)
+            assert not (host / "asr-container-standard-link.py").exists()
+            assert all(target.read_bytes() == ("# old:" + name).encode()
+                       for name, (_, target, _) in inventory.items()
+                       if name != "asr-container-standard-link.py")
+            up.install_host_helpers(data)
+            damaged = backup2 / "host-helpers/asr-container-host-broker.py"
+            damaged.write_bytes(b"corrupt")
+            try:
+                up.restore_host_helpers(backup2)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("corrupt host backup accepted")
+            assert all(target.read_bytes() == data[name] for name, (_, target, _) in inventory.items())
+            # Repeated install is idempotent; required files and modes match.
+            up.install_host_helpers(data)
+            assert all(target.read_bytes() == data[name] and target.stat().st_mode & 0o777 == mode
+                       for name, (_, target, mode) in inventory.items())
+            # Reject malformed Python and symlink targets before downtime.
+            invalid = stage / inventory["asr-container-standard-link.py"][0]
+            original = invalid.read_bytes()
+            invalid.write_text("def invalid syntax")
+            try:
+                up.host_payload(stage)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("malformed host helper accepted")
+            invalid.write_bytes(original)
+            target = inventory["asr-container-standard-link.py"][1]
+            target.unlink()
+            target.symlink_to(invalid)
+            try:
+                up.host_payload(stage)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("symlink host helper target accepted")
+            target.unlink()
+            missing = stage / inventory["asr-container-standard-link.py"][0]
+            missing.unlink()
+            try:
+                up.host_payload(stage)
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("Missing release host helper was accepted")
 
         successful = exercise_job(up, root, health=True, restored=None)
         assert successful["state"] == "complete"
@@ -233,6 +363,65 @@ def main() -> int:
             docker.assert_not_called()
         for source, content in expected.items():
             assert (Path(source) / "sentinel.txt").read_bytes() == content
+
+        # Provisioning/lifecycle operations must not overlap host replacement.
+        writer_lock = up.GATE.parent / "allscan-reimagined-bridge-setup.lock"
+        with writer_lock.open("a+") as writer:
+            up.fcntl.flock(writer, up.fcntl.LOCK_EX | up.fcntl.LOCK_NB)
+            try:
+                with up.maintenance_writer_guard():
+                    raise AssertionError("concurrent provisioning was not excluded")
+            except up.UpdateError:
+                pass
+        with up.maintenance_writer_guard():
+            pass
+
+        # Interrupted jobs are recovered from the durable phase, not inferred
+        # from a browser-visible status. Failure remains retryable and blocks queue.
+        job = restart_failed["jobId"]
+        assert up.active_jobs()
+        with mock.patch.object(up, "profile", return_value=SimpleNamespace(web_container="asr-web")), mock.patch.object(
+                up, "inspect", return_value={"Image": meta["imageId"]}), mock.patch.object(
+                up, "run", return_value=completed()), mock.patch.object(up, "healthy", return_value=True):
+            assert up.recover()["status"] == "restored"
+            up.run.assert_called_once_with(["/usr/bin/docker", "start", "asr-web"], timeout=120)
+        assert not up.active_jobs()
+        assert up.recover()["status"] == "nothing_to_recover"
+        early_job = "20261124-120010-aabbccdd"
+        up.status(early_job, "building")
+        assert up.recover()["status"] == "not_needed"
+        queued_job = "20261124-120011-aabbccdd"
+        up.status(queued_job, "queued")
+        with mock.patch.object(up, "run", return_value=completed(stdout="ActiveState=activating\nJob=123\n")):
+            try:
+                up.recover()
+            except up.UpdateError:
+                pass
+            else:
+                raise AssertionError("active queued job was canceled")
+        with mock.patch.object(up, "run", return_value=completed(stdout="ActiveState=inactive\nJob=\n")):
+            assert up.recover()["status"] == "not_needed"
+        assert not up.active_jobs()
+
+        # Older state without a journal must not be guessed safe or cleared.
+        legacy_job = "20261124-120012-aabbccdd"
+        legacy_status = up.status(legacy_job, "installing")
+        legacy_status.pop("transactionSchema")
+        (up.STATE / f"{legacy_job}.json").write_text(json.dumps(legacy_status))
+        try:
+            up.recover()
+        except up.UpdateError:
+            assert up.active_jobs()
+        else:
+            raise AssertionError("unverified interrupted legacy update accepted")
+        up.status(legacy_job, "failed", manualInterventionRequired=False)
+        # Root-only recovery command is not a broker capability.
+        try:
+            broker.read_request(__import__("io").BytesIO(b'{"schema":1,"update":"recover-interrupted"}'))
+        except broker.BrokerError:
+            pass
+        else:
+            raise AssertionError("root-only recovery was exposed to the broker")
 
         # The broker rejects an otherwise valid update request from any UID
         # other than the installed web identity.
