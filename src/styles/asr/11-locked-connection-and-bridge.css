@@ -517,3 +517,16 @@
 .asr-audio-meter-rms { display: block; height: 100%; background: currentColor; opacity: .65; transition: width 160ms linear; }
 .asr-audio-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: currentColor; }
 @media (prefers-reduced-motion: reduce) { .asr-audio-meter-rms { transition: none; } }
+
+/* #343: consume a complete flex line (or grid row) without stretching the
+   card itself. Explicit side margins participate in flex line breaking. */
+.allscan-bridge-grid > .allscan-bridge-card.allscan-net-bridge-card {
+  box-sizing: border-box !important;
+  flex: 0 0 min(100%, 460px) !important;
+  width: min(100%, 460px) !important;
+  min-width: 0 !important;
+  max-width: 460px !important;
+  margin-inline: max(0px, calc((100% - 460px) / 2)) !important;
+  grid-column: 1 / -1 !important;
+  justify-self: center !important;
+}

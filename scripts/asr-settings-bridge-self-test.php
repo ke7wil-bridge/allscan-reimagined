@@ -83,6 +83,28 @@ foreach(['v1.02','v1.03','v1.04','v1.05','v1.06'] as $compatVersion) {
     check(str_contains($controller, 'asrSettingsPreserveManualHolds($config, $current)') && str_contains($controller, 'flock($lock, LOCK_EX | LOCK_NB)'), "$compatVersion missing synchronized Settings hold preservation.");
 }
 
+// #342: a reordered save preserves only the latest same-instance qualification.
+$standard = ['id'=>'m17_standard','node'=>'1005','mode'=>'m17','cardType'=>'standard','backendMode'=>'managed',
+    'm17AudioQualified'=>true,'m17QualificationState'=>'qualified','m17QualificationEvidence'=>['inboundAudioEpoch'=>10,'outboundAudioEpoch'=>11]];
+$net = array_replace($standard, ['id'=>'m17_net','node'=>'1999','cardType'=>'m17_net',
+    'm17AudioQualified'=>false,'m17QualificationState'=>'qualifying','m17QualificationStartedEpoch'=>20]);
+unset($net['m17QualificationEvidence']);
+$current = ['node'=>'123456','bridges'=>[$standard,$net]];
+$posted = ['node'=>'123456','bridges'=>[$net,$standard]];
+$posted['bridges'][0]['m17AudioQualified'] = true;
+$posted['bridges'][1]['m17AudioQualified'] = false;
+$actual = asrSettingsPreserveM17Qualification($posted,$current)['bridges'];
+check($actual === [$net,$standard] || ($actual[0] == $net && $actual[1] == $standard), 'Reorder changed independent M17 qualification.');
+foreach(['m17Callsign'=>'N1TEST','m17UsrpRxPort'=>50001,'m17Module'=>'B','digitalToAslGainDb'=>3,'node'=>'1006','id'=>'new'] as $key=>$value) {
+    $changed = ['node'=>'123456','bridges'=>[array_replace($standard,[$key=>$value])]];
+    $result = asrSettingsPreserveM17Qualification($changed,$current)['bridges'][0];
+    check($result['m17AudioQualified'] === false && $result['m17QualificationState'] === 'not_qualified' && !isset($result['m17QualificationEvidence']), "M17 qualification survived changed $key.");
+}
+foreach(['v1.02','v1.03','v1.04','v1.05','v1.06'] as $version) {
+    $source = file_get_contents($root . '/compat/allscan-' . $version . '/asr-settings/settings-controller.php');
+    check(str_contains($source, '$config = asrSettingsPreserveM17Qualification($config, $current);'), "$version missing locked M17 qualification preservation.");
+}
+
 // Issue #136: verify the v1.05 bridge editor persists validated directional gains.
 $gainController = file_get_contents($root . '/compat/allscan-v1.05/asr-settings/settings-controller.php');
 check(is_string($gainController)
