@@ -402,6 +402,9 @@ export type BridgeDetailItem = {
   label: string
   meta: string
   clientId?: string
+  activityType?: 'CONN' | 'DISC' | 'TX'
+  activityTime?: string
+  activityDuration?: string
   connectedSince?: number
   connectionTimeSource?: 'native' | 'observed'
   empty?: boolean
@@ -1744,14 +1747,15 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
       const duration = Number(record.duration_seconds)
       // DMR network registration produces spurious 0.1s voice frames.
       if (kind === 'TX' && (!Number.isFinite(duration) || duration < (normalizedMode === 'dmr' ? 1 : Number.EPSILON))) return
-      const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+      const time = new Date(epoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       rows.push({ key: `${mode}-${action}-${label}-${epoch}-${index}`, label,
-        meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '), epoch })
+        meta: [action, time, kind === 'TX' ? `${Math.round(duration)}s` : ''].filter(Boolean).join(' · '),
+        activityType: action, activityTime: time, activityDuration: kind === 'TX' ? `${Math.round(duration)}s` : undefined, epoch })
     })
   }
   rows.sort((a, b) => b.epoch - a.epoch)
   if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
-  return rows.slice(0, 100).map(({ key, label, meta }) => ({ key, label, meta }))
+  return rows.slice(0, 100).map(({ epoch: _epoch, ...row }) => row)
 }
 
 export function safeAudioMeterLevel(value: unknown): number {

@@ -4601,7 +4601,7 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button type="button" className="allscan-bridge-detail-title allscan-bridge-detail-toggle" aria-expanded={bridgeClientsOpen.has(card.id)} onClick={() => setBridgeClientsOpen((value) => { const next = new Set(value); if (next.has(card.id)) next.delete(card.id); else next.add(card.id); localStorage.setItem('asr.bridge.clientsOpen', JSON.stringify([...next])); return next })}>
                         <span>{compactBridgeDetailTitle(card.detailTitle)}</span><b>{!bridgeStatusLoaded ? '…' : card.detailAvailable ? card.detailCount : '–'}</b><ChevronDown className={bridgeClientsOpen.has(card.id) ? 'is-open' : ''} aria-hidden="true" />
                       </button>
-                      {bridgeClientsOpen.has(card.id) ? <div className="allscan-bridge-detail-box">
+                      {bridgeClientsOpen.has(card.id) ? <div className="allscan-bridge-detail-box asr-bridge-roster">
                         {card.detailRows.map((detail) => {
                           const identity = detail.label.replace(/\s+[A-Z]$/i, '').trim().toUpperCase()
                           const supportsKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true
@@ -4611,7 +4611,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule)
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user asr-client-duration-line"><span>{detail.label}</span>{detail.connectedSince && detail.connectionTimeSource ? <span className="asr-client-duration" title={detail.connectionTimeSource === 'native' ? 'Time connected reported by the bridge' : 'Approximate time since ASR first observed this connection'}>{formatConnectionDuration(detail.connectedSince, detail.connectionTimeSource)}</span> : null}</div>
-                            {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
+                            {detail.meta && compactBridgeDetailTitle(card.detailTitle) !== 'Connected Clients' && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
                             {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Mute this Zello talker on this bridge for one minute' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity) : null}</div> : null}
                           </div>
                         })}
@@ -4639,11 +4639,14 @@ function App({ config }: { config: RuntimeConfig }) {
                       <button type="button" className="allscan-bridge-detail-title allscan-bridge-detail-toggle" aria-expanded={bridgeHistoryOpen.has(card.id)} onClick={() => setBridgeHistoryOpen((value) => { const next = new Set(value); if (next.has(card.id)) next.delete(card.id); else next.add(card.id); localStorage.setItem('asr.bridge.historyOpen', JSON.stringify([...next])); return next })}>
                         <span>Recent Activity</span><b>{card.recentRows.filter((detail) => !detail.empty).length}</b><ChevronDown className={bridgeHistoryOpen.has(card.id) ? 'is-open' : ''} aria-hidden="true" />
                       </button>
-                      {bridgeHistoryOpen.has(card.id) ? <div className="allscan-bridge-detail-box">
+                      {bridgeHistoryOpen.has(card.id) ? <div className="allscan-bridge-detail-box asr-bridge-activity-list">
                         {card.recentRows.map((detail) => (
                           <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
-                            <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>
-                            {detail.meta && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
+                            {detail.activityType ? <>
+                              <span className="asr-bridge-activity-time">{detail.activityTime}</span>
+                              <span className="asr-bridge-activity-label" data-event={detail.activityType}>{detail.activityType}</span>
+                              <span className="asr-bridge-activity-detail">{detail.label}{detail.activityDuration ? ` — ${detail.activityDuration}` : ''}</span>
+                            </> : <div className="allscan-bridge-client-user"><span>{detail.label}</span></div>}
                           </div>
                         ))}
                       </div> : null}

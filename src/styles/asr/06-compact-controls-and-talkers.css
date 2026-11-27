@@ -835,3 +835,78 @@ html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-s
 .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > svg.is-open {
   transform: rotate(180deg) !important;
 }
+
+/* #317: ASRPlus-style compact lists. Event label only is colored; exact
+   palette from the deployed ASRPlus stylesheet, 2026-11-26. */
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster,
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-activity-list {
+  gap: 3px;
+  min-height: 0;
+  text-align: left;
+}
+.allscan-bridge-grid > .allscan-bridge-card :is(.asr-bridge-roster,.asr-bridge-activity-list) > .allscan-bridge-client {
+  display: grid;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  padding: 2px 0;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  align-items: baseline;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster > .allscan-bridge-client {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-client-user {
+  display: flex;
+  flex: 1 1 100px;
+  width: auto;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px !important;
+  font-weight: 600;
+  text-align: left;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-client-user > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .asr-client-duration {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions {
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+  justify-content: flex-end;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-activity-list > .allscan-bridge-client:not(.is-empty) {
+  grid-template-columns: auto 3.4em minmax(0,1fr);
+}
+.asr-bridge-activity-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.asr-bridge-activity-detail { min-width: 0; overflow-wrap: anywhere; }
+.asr-bridge-activity-label { font-weight: 750; white-space: nowrap; }
+html .asr-bridge-activity-label[data-event="CONN"] { color: #91b5b2; }
+html .asr-bridge-activity-label[data-event="DISC"] { color: #c3a09b; }
+html .asr-bridge-activity-label[data-event="TX"] { color: #b5aecb; font-weight: 800; }
+html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="CONN"] { color: #426967; }
+html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="DISC"] { color: #875a55; }
+html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="TX"] { color: #675c80; }
+@media (max-width: 1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card :is(.asr-bridge-roster,.asr-bridge-activity-list) > .allscan-bridge-client,
+  .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-client-user { font-size: 10px !important; }
+  .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-activity-list > .allscan-bridge-client:not(.is-empty) {
+    grid-template-columns: auto 3.4em minmax(0,1fr);
+    gap: 3px;
+  }
+}

@@ -70,6 +70,15 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
           payload.controls[id] = { ...payload.controls[id], allstarLinked:state.linked,
             manualDisconnect:state.held, standardLinkControl:id !== 'p25' }
         }
+        // #317: known authoritative events, independent of moderation roster identities.
+        const now = Math.floor(Date.now()/1000)
+        payload.clientMeta ||= {}
+        for (const id of ['dmr','ysf','p25','nxdn','m17','zello']) {
+          if (!payload.bridge[id]) continue
+          payload.bridge[id].tx_events = [{callsign:'TEST-TX',epoch:now-10,duration_seconds:12,direction:'incoming',source_protocol:id.toUpperCase()}]
+          payload.bridge[id].client_events = [{callsign:'TEST-CONN',epoch:now-30,event:'connect'},{callsign:'TEST-DISC',epoch:now-20,event:'disconnect'}]
+          if (id !== 'zello') payload.clientMeta[id] = {kind:'current'}
+        }
         return route.fulfill({response, json:payload})
       }
       if (action === 'standard-bridge-link') {
@@ -113,6 +122,10 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     const p25Link = standardCard('P25').locator('.allscan-bridge-status-row')
     const closeUpdate = page.getByRole('button',{name:'Close Update ASR'})
     if (await closeUpdate.count()) await closeUpdate.click()
+    await page.evaluate(() => {
+      for (const button of document.querySelectorAll('.allscan-bridge-recent > button[aria-expanded="false"]')) button.click()
+    })
+    await page.locator('.asr-bridge-activity-label[data-event="CONN"]').first().waitFor()
     // #307: check the actual control geometry under each supported theme.
     for (const [theme,mode] of [['standard','dark'],['standard','light'],['deep-ocean-animated','dark'],['matrix','dark'],['lcars-frame','dark']]) {
       for (const width of [1920,1440,1024,768,390,320]) {
@@ -156,11 +169,35 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         }))
         assert(detailBands.length>0 && detailBands.some(row=>row.label==='Connected Clients') && detailBands.some(row=>row.label==='Recent Activity') && detailBands.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]) && row.fits && (row.expanded || row.wrapHeight===27)), `#307 detail header mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(detailBands)}`)
         console.log('DETAIL LAYOUT',netMode,theme,mode,width,JSON.stringify(detailBands))
+        const entries = await page.evaluate(() => {
+          const palette = document.documentElement.dataset.asrMode==='light'
+            ? {CONN:'rgb(66, 105, 103)',DISC:'rgb(135, 90, 85)',TX:'rgb(103, 92, 128)'}
+            : {CONN:'rgb(145, 181, 178)',DISC:'rgb(195, 160, 155)',TX:'rgb(181, 174, 203)'}
+          const cards=[...document.querySelectorAll('.allscan-bridge-card:not(.allscan-net-bridge-card)')]
+          return cards.map(card=>{
+            const mode=card.querySelector('.allscan-bridge-head-title').textContent
+            const rows=[...card.querySelectorAll('.asr-bridge-activity-list .allscan-bridge-client:not(.is-empty)')]
+            const types=rows.map(row=>row.querySelector('[data-event]')?.dataset.event)
+            const roster=card.querySelector('.asr-bridge-roster')
+            const current=roster?.previousElementSibling?.textContent.includes('Connected Clients')
+            const fits=(row,child)=>{const r=row.getBoundingClientRect(),c=child.getBoundingClientRect();return c.left>=r.left-1 && c.right<=r.right+1 && c.bottom<=r.bottom+1}
+            return {mode,types,colors:rows.every(row=>{const label=row.querySelector('[data-event]');return label&&getComputedStyle(label).color===palette[label.dataset.event]}),
+              detail:rows.every(row=>row.querySelector('.asr-bridge-activity-time')?.textContent && row.querySelector('.asr-bridge-activity-detail')?.textContent.startsWith('TEST-') && (row.querySelector('[data-event]').dataset.event!=='TX'||row.querySelector('.asr-bridge-activity-detail').textContent.endsWith('12s'))),
+              fit:rows.every(row=>[...row.children].every(c=>fits(row,c))),
+              noLastTx:!current||!/(Last TX|No recent TX)/.test(roster.textContent),
+              rosterFit:[...(roster?.querySelectorAll('.allscan-bridge-client:not(.is-empty)')||[])].every(row=>[...row.querySelectorAll('.asr-client-duration-line > span, .allscan-bridge-inline-client-actions > *')].every(c=>fits(row,c))),
+              rosterHeights:current?[...roster.querySelectorAll('.allscan-bridge-client:not(.is-empty)')].map(row=>row.getBoundingClientRect().height):[]}
+          })
+        })
+        assert(entries.length===6 && entries.every(card=>card.colors && card.detail && card.fit && card.noLastTx && card.rosterFit && card.rosterHeights.every(h=>h<=70) && card.types.join(',')===(card.mode==='Zello Bridge'?'TX':'TX,DISC,CONN')), `#317 entry mismatch ${theme}/${mode}/${width}: ${JSON.stringify(entries)}`)
+        console.log('ENTRY LAYOUT',netMode,theme,mode,width,JSON.stringify(entries))
+
 
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }
     }
     if (layoutOnly) return
+    await page.evaluate(() => { for (const button of document.querySelectorAll('.allscan-bridge-recent > button[aria-expanded="true"]')) button.click() })
     await page.setViewportSize({width:1440,height:1000})
     await page.evaluate(() => { for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme='standard'; el.dataset.asrMode='dark' } })
     await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
@@ -225,10 +262,10 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         observed: observed?.textContent || '', observedTitle: observed?.getAttribute('title') || '',
         native: native?.textContent || '', nativeTitle: native?.getAttribute('title') || '',
         zelloDurations: zelloCard?.querySelectorAll('.asr-client-duration').length || 0,
-        longHandled: Boolean(longLabel && getComputedStyle(longLabel).textOverflow === 'ellipsis' && getComputedStyle(longLabel).whiteSpace === 'nowrap'),
+        longHandled: Boolean(longLabel && getComputedStyle(longLabel).overflowWrap === 'anywhere' && getComputedStyle(longLabel).whiteSpace === 'normal'),
         contained: Boolean(long && long.getBoundingClientRect().right <= long.closest('.allscan-bridge-card').getBoundingClientRect().right + 1),
         rightAligned: Boolean(observed && Math.abs(observed.parentElement.getBoundingClientRect().right - observed.getBoundingClientRect().right) <= 1),
-        callsignCentered: Boolean(observed && Math.abs((observed.parentElement.querySelector('span:first-child').getBoundingClientRect().left + observed.parentElement.querySelector('span:first-child').getBoundingClientRect().right) / 2 - (observed.parentElement.getBoundingClientRect().left + observed.parentElement.getBoundingClientRect().right) / 2) <= 1),
+        callsignLeftAligned: Boolean(observed && Math.abs(observed.parentElement.querySelector('span:first-child').getBoundingClientRect().left - observed.parentElement.getBoundingClientRect().left) <= 1),
         inherited,
       };
     })()`)
@@ -238,7 +275,7 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
     assert(durations.zelloDurations === 0, 'activity-only Zello feed received a connection duration')
     assert(durations.longHandled && durations.contained, 'long callsign and duration do not fit the existing card geometry')
     assert(durations.rightAligned, 'connection duration is not aligned to the right edge of the callsign row')
-    assert(durations.callsignCentered, 'callsign is not centered independently of the duration')
+    assert(durations.callsignLeftAligned, 'ASRPlus-style callsign is not left aligned')
     assert(durations.inherited, 'duration text does not inherit the selected theme')
 
     const kicked = await evaluate(`(() => {
