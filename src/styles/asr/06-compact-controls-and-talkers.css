@@ -667,32 +667,66 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 /* #307: independent Standard Bridge link controls only. */
 .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 3px 6px;
-  padding: 3px 6px;
+  gap: 2px 4px;
+  min-height: 27px;
+  padding: 0 6px;
   font-size: 12px;
+  line-height: 1.2;
 }
-.allscan-bridge-grid .allscan-bridge-card .allscan-bridge-body .allscan-standard-link-row > span:first-child {
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > span:first-child {
   width: auto;
   white-space: nowrap;
 }
-.allscan-bridge-grid .allscan-bridge-card .allscan-bridge-body .allscan-standard-link-row > b {
-  position: static !important;
-  width: auto !important;
-  transform: none !important;
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b {
   flex: 1 1 auto;
+  width: auto;
+  text-align: center;
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.allscan-bridge-grid .allscan-standard-link-row > button {
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
   flex: 0 0 auto;
   margin-inline-start: auto;
   max-width: 100%;
-  min-height: 32px;
-  font-size: 12px;
+  min-height: 24px;
+  height: 24px;
+  width: auto;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 1px 5px;
+  font-size: 11px;
+  line-height: 14px;
 }
-@media (pointer: coarse) {
-  .allscan-bridge-grid .allscan-standard-link-row > button { min-height: 44px; }
+@media (max-width: 1199px) {
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
+    gap: 2px 3px;
+    min-height: 26px;
+    padding-inline: 3px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > span,
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b {
+    font-size: 10px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
+    padding-inline: 3px;
+    font-size: 10px;
+  }
+}
+/* Very narrow cards: use a deliberate second line for the complete button,
+   not automatic wrapping of labels or button text. */
+@media (max-width: 360px) {
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row:has(> button) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 4px;
+    padding-block: 2px;
+  }
+  .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
 }

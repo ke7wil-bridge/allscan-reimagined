@@ -118,9 +118,10 @@ async function runBrowser(unauthorized = false) {
         const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
         const geometry = await row.evaluate(el => {
           const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()
-          return {height:r.height, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height}
+          const peers=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')].map(row=>row.getBoundingClientRect().height)
+          return {height:r.height, peers, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
         })
-        assert(geometry.fits && geometry.buttonHeight>=30, `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        assert(geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
         console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }
