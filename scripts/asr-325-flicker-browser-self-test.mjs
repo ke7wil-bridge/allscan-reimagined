@@ -19,7 +19,7 @@ try {
   for(const width of [1440,390]){
     const page=await browser.newPage({viewport:{width,height:900}})
     await page.addInitScript(version=>localStorage.setItem('asrWhatsNewSeenVersion.v1',version),version)
-    let epoch=0, phase='initial', bridgeRequests=0, bridgeError=false, authError=false, authRequests=0, holdBridge=false, activeBridgeRequests=0, maxOverlap=0
+    let epoch=0, phase='initial', bridgeRequests=0, bridgeError=false, authError=false, authMode='admin', authRequests=0, holdBridge=false, activeBridgeRequests=0, maxOverlap=0
     const activity=Math.floor(Date.now()/1000)-60
     const log=[]
     await page.route('**/asr-api.php?*',async route=>{
@@ -41,6 +41,9 @@ try {
         authRequests++
         log.push({action,authError,at:Date.now()})
         if(authError)return route.fulfill({status:503,json:{ok:false,error:'fixture unavailable'}})
+        if(authMode==='malformed')return route.fulfill({json:{ok:true,canRead:'true',canModify:'true'}})
+        if(authMode==='read-only')return route.fulfill({json:{ok:true,loggedIn:true,username:'mock-admin',permission:'2',publicPermission:0,canRead:true,canModify:false,canWrite:false,isAdmin:false}})
+        if(authMode==='denied')return route.fulfill({json:{ok:true,loggedIn:false,username:'',permission:0,publicPermission:0,canRead:false,canModify:false,canWrite:false,isAdmin:false}})
       }
       return route.continue()
     })
@@ -98,17 +101,50 @@ try {
     assert.equal(maxOverlap,1,'visibility events started overlapping poll chains')
     await pollSamples(2)
     assert.equal(await activityLabel.innerText(),newer)
-    // The existing fail-closed gate must still hide protected dashboard content (#111).
-    // This deliberately does not assert visual continuity under uncertainty.
+    // Identical verified auth snapshots must not remount controls or change
+    // layout across normal polling and focus/visibility refreshes.
+    const connect=controls.locator('.allscan-connect-button')
+    const before=await controls.boundingBox()
+    const element=await controls.elementHandle()
+    const count=authRequests
+    for(let i=0;i<5;i++){
+      await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+      await page.waitForTimeout(300)
+    }
+    assert(authRequests>count,'auth refresh not observed')
+    assert(await element.evaluate(el=>el.isConnected && el===document.querySelector('[data-dashboard-module="controls"]')))
+    assert.deepEqual(await controls.boundingBox(),before,'verified auth polling moved Node Controls')
+    assert(await connect.isEnabled())
+    // A real permission downgrade must take effect immediately.
+    authMode='read-only'
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await page.waitForFunction(()=>document.querySelector('.allscan-connect-button')?.disabled===true)
+    assert.equal(await controls.getByRole('button',{name:'Manage Kicks & Bans'}).count(),0)
+    authMode='admin'
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await page.waitForFunction(()=>document.querySelector('.allscan-connect-button')?.disabled===false)
+    // Uncertainty still closes the whole gate immediately. First transient
+    // failure automatically retries quickly, without focus/wake assistance.
     authError=true
     await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
     await page.getByText('Verifying dashboard access…').waitFor()
     assert.equal(await controls.count(),0,'protected controls must not remain rendered on auth error')
     if(process.env.ASR_EVIDENCE_DIR)await page.screenshot({path:`${process.env.ASR_EVIDENCE_DIR}/${width}-auth-error.png`})
     authError=false
-    await page.evaluate(()=>window.dispatchEvent(new Event('online')))
-    await controls.waitFor()
+    await controls.waitFor({timeout:4000})
+    assert(await connect.isEnabled())
+    authMode='malformed'
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await page.getByText('Verifying dashboard access…').waitFor()
+    assert.equal(await controls.count(),0,'malformed authorization must fail closed')
+    authMode='admin'
+    await controls.waitFor({timeout:4000})
+    assert(await connect.isEnabled())
     console.log(JSON.stringify({width,verified,missing,newer,maxOverlap,authRequests,network:log,dom:await page.evaluate(()=>window.__flickerTrace)}))
+    authMode='denied'
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await page.waitForURL('**/asr/user/')
+    assert.equal(await controls.count(),0,'explicit denial did not remove protected controls')
     await page.close()
   }
 } finally {await browser?.close();vite.kill('SIGTERM')}

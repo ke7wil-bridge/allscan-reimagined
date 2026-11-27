@@ -2201,8 +2201,16 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
     signal: AbortSignal.timeout(10000),
   })
   const payload = (await response.json()) as AuthStatus & { ok?: boolean; error?: string }
-  if (!response.ok || payload.ok === false) throw new Error(payload.error || 'Login status could not be checked.')
-  return payload
+  const permissionValue = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value)
+    || typeof value === 'string' && /^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+  if (!response.ok || payload?.ok !== true
+    || typeof payload.username !== 'string'
+    || !permissionValue(payload.permission) || !permissionValue(payload.publicPermission)
+    || [payload.loggedIn, payload.canRead, payload.canModify, payload.canWrite, payload.isAdmin].some((value) => typeof value !== 'boolean')
+    || (!payload.loggedIn && (payload.canModify || payload.canWrite || payload.isAdmin))) {
+    throw new Error(payload?.error || 'Login status could not be checked.')
+  }
+  return { ...payload, permission: Number(payload.permission), publicPermission: Number(payload.publicPermission) }
 }
 
 export type TgifUserStatus = {

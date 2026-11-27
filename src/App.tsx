@@ -142,7 +142,7 @@ const loggedOutAuth: AuthStatus = {
   username: '',
   permission: 0,
   publicPermission: 2,
-  canRead: true,
+  canRead: false,
   canModify: false,
   canWrite: false,
   isAdmin: false,
@@ -1517,6 +1517,7 @@ function App({ config }: { config: RuntimeConfig }) {
     let cancelled = false
     let retryTimer: number | undefined
     let inFlight = false
+    let consecutiveFailures = 0
 
     const refreshAuthStatus = async () => {
       // Polling, focus and wake events share one request. Previously each event
@@ -1527,7 +1528,16 @@ function App({ config }: { config: RuntimeConfig }) {
       try {
         const next = await fetchAuthStatus()
         if (!cancelled) {
-          setAuthStatus(next)
+          // A repeated, identical verified permission snapshot should not
+          // invalidate the controls or any auth-dependent effects.
+          setAuthStatus((current) => (
+            current.loggedIn === next.loggedIn && current.username === next.username
+            && current.permission === next.permission && current.publicPermission === next.publicPermission
+            && current.canRead === next.canRead && current.canModify === next.canModify
+            && current.canWrite === next.canWrite && current.isAdmin === next.isAdmin
+              ? current : next
+          ))
+          consecutiveFailures = 0
           setAuthChecked(true)
           if (!next.canRead) window.location.assign(asrPath('user/'))
         }
@@ -1536,7 +1546,10 @@ function App({ config }: { config: RuntimeConfig }) {
           // Fail closed on uncertain authentication, but recover automatically.
           setAuthStatus(loggedOutAuth)
           setAuthChecked(false)
-          retryTimer = window.setTimeout(() => void refreshAuthStatus(), 10000)
+          consecutiveFailures += 1
+          // Keep the gate closed throughout uncertainty. Recover quickly
+          // from one transient failure, then back off on repeated failures.
+          retryTimer = window.setTimeout(() => void refreshAuthStatus(), consecutiveFailures === 1 ? 1000 : 10000)
         }
       } finally {
         inFlight = false
