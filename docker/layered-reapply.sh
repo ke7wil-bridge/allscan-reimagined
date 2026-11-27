@@ -87,7 +87,11 @@ install -o root -g root -m 644 "$SOURCE_DIR/scripts/asr_bridge_status.py" /usr/l
 # socket.  Never install the native root helper in the web container and never
 # expose the Docker socket to Apache.
 install -d -o root -g root -m 755 /usr/local/libexec/allscan-reimagined
-if [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
+# A fresh host install or reboot may bring up the web service before the
+# broker socket. In container mode install the narrow clients immediately;
+# requests fail closed until the real socket is available. Never fall back to
+# a local bridge-control implementation merely because the host is starting.
+if [ "$UPDATE_MODE" = "container" ] || [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
   install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-container-host-client.py" \
     /usr/local/libexec/allscan-reimagined/asr-bridge-setup-helper.py
   install -o root -g root -m 755 "$SOURCE_DIR/scripts/asr-provisioning-detect.py" \
@@ -126,15 +130,27 @@ install -d -o root -g root -m 700 \
   /run/allscan-reimagined/tgif-users/tokens \
   /run/allscan-reimagined/tgif-users/snapshots \
   /run/allscan-reimagined/tgif-users/challenges
-install -d -o root -g root -m 755 \
-  /run/allscan-reimagined-bridge-control \
-  /run/allscan-reimagined-standard-bridge-status
+# Host-owned status mounts are read-only by design, including during the
+# first bootstrap when the broker socket does not yet exist. Only initialize
+# local directories. Exact read-only mounts are detected from mountinfo;
+# ownership and permissions of the host directory remain the host's job.
+runtime_directory() {
+  directory=$1
+  owner_group=$2
+  directory_mode=$3
+  if awk -v path="$directory" '$5 == path && $6 ~ /(^|,)ro(,|$)/ { found=1 } END { exit !found }' /proc/self/mountinfo; then
+    test -d "$directory" && test ! -L "$directory"
+  else
+    install -d -o root -g "$owner_group" -m "$directory_mode" "$directory"
+  fi
+}
+runtime_directory /run/allscan-reimagined-bridge-control root 755
+install -d -o root -g root -m 755 /run/allscan-reimagined-standard-bridge-status
 if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then
-  install -d -o root -g root -m 755 /run/allscan-reimagined-ysf-bridge-control
-  install -d -o root -g "$WEB_GROUP" -m 2750 \
-    /run/allscan-reimagined-p25-bridge-control \
-    /run/allscan-reimagined-nxdn-bridge-control
-	install -d -o root -g root -m 755 /run/allscan-reimagined-m17
+  runtime_directory /run/allscan-reimagined-ysf-bridge-control root 755
+  runtime_directory /run/allscan-reimagined-p25-bridge-control "$WEB_GROUP" 2750
+  runtime_directory /run/allscan-reimagined-nxdn-bridge-control "$WEB_GROUP" 2750
+  runtime_directory /run/allscan-reimagined-m17 root 755
 fi
 install -d -o root -g root -m 755 /run/asr-standalone-admin
 install -d -o root -g root -m 750 /var/log/allscan-reimagined

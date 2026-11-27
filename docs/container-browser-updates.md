@@ -14,7 +14,9 @@ environment:
   ASR_UPDATE_MODE: ${ASR_UPDATE_MODE:-external}
 ```
 
-Set `ASR_UPDATE_MODE=container` only after the Beta 8.7 host broker has been installed. Startup rejects unknown values. The setting survives restarts through Compose/environment state; startup and release checks do not edit tracked source.
+Set `ASR_UPDATE_MODE=container` only for a deployment using the supported host broker. Startup rejects unknown values. The setting survives restarts through Compose/environment state; startup and release checks do not edit tracked source. The #316-capable layered image can start before the host broker socket exists: it installs only the narrow host clients for delegated operations, leaves read-only host status mounts unchanged, and rejects host control/update requests until the authorized broker is available. A missing socket does not grant a local substitute for delegated controls.
+
+On a clean deployment, supply the authoritative ASL node-database directory, all four writable persistent volumes, and the read-only runtime/socket directory mounts. Start the isolated web and Asterisk services, run the verified host installer below, then validate the broker and approve the Compose configuration from the host. Do not make host runtime directories writable to solve startup ordering. Older images without the cold-start correction may require a staged first startup without the host status mounts, followed by host installation and recreation using the final read-only mounts.
 
 ## Security boundary
 
@@ -66,3 +68,8 @@ For planned rollback testing, use a disposable candidate/version pair or an appr
 - node number, Favorites, users, uploaded assets, and ASR settings;
 - Standard and Net Bridge configuration, service health, and exclusive USRP ownership;
 - no Asterisk container recreation and no retired URF runtime.
+
+
+## Cold-start smoke test
+
+Development hosts with the local Beta 8.7.1 image and Docker can run `python3 scripts/asr-container-cold-start-docker-self-test.py`. The test uses the real layered entrypoint, current reapply script, fresh disposable volumes, read-only runtime directories, an offline node-database fixture and an isolated network namespace. It checks that startup succeeds, mount permissions/content remain unchanged, a missing broker fails closed, and a late fixed read-only protocol responder can be reached without recreating the web container. This is not a substitute for the full clean host installer or an authenticated browser upgrade with a real root broker.

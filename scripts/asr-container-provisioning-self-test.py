@@ -1404,8 +1404,10 @@ def main() -> int:
     assert "allscan-reimagined-tgif-user-session status [0-9]*" not in layered_reapply
     host_boundary = "if [ ! -S /run/allscan-reimagined-host/bridge-setup.sock ]; then"
     assert layered_reapply.index(host_boundary) < layered_reapply.index(
-        "install -d -o root -g root -m 755 /run/allscan-reimagined-m17"
+        "runtime_directory /run/allscan-reimagined-m17 root 755"
     ) < layered_reapply.index("\nfi\n", layered_reapply.index(host_boundary))
+    assert 'if [ "$UPDATE_MODE" = "container" ] || [ -S /run/allscan-reimagined-host/bridge-setup.sock ]; then' in layered_reapply
+    assert '$5 == path && $6 ~ /(^|,)ro(,|$)/' in layered_reapply
     m17_exec = "--proc-root {profile.host_proc} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector"
     assert m17_exec in installer_source
     assert "--user {SERVICE_USER} -- /usr/local/sbin/allscan-reimagined-m17-usrp-connector" not in installer_source
