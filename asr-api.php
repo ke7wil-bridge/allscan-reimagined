@@ -4268,6 +4268,25 @@ if ($action === 'asl-ban-control') {
         (string) ($_POST['reason'] ?? '')
     ));
 }
+// #317: read-only saved policy indicator; never run reconciliation here.
+if ($action === 'global-ban-saved-rules') {
+    asr_require_admin();
+    $raw = @file_get_contents(ASR_GLOBAL_BAN_ROOT . '/global-bans.list');
+    $timedRaw = @file_get_contents(ASR_GLOBAL_BAN_ROOT . '/asr-timed-bans.json');
+    $timed = is_string($timedRaw) ? json_decode($timedRaw, true) : null;
+    if (!is_string($raw) || !is_array($timed)) asr_error('Saved Global Ban policy is unavailable.', 503);
+    $rules = [];
+    foreach (preg_split('/\R/', $raw) as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#')) continue;
+        $rule = strtoupper(preg_split('/[\s,]+/', $line, 2)[0]);
+        if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}\*?$/D', $rule)) continue;
+        $expires = (int) ($timed[$rule]['expiresAt'] ?? 0);
+        if ($expires > 0 && $expires <= time()) continue;
+        $rules[] = $rule;
+    }
+    asr_json(['ok' => true, 'rules' => array_values(array_unique($rules))]);
+}
 if ($action === 'global-ban-list') {
     asr_require_admin();
     asr_json(asr_global_ban_command('list'));

@@ -63,6 +63,9 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         payload.netBridgeMode=netMode
         return route.fulfill({response,json:payload})
       }
+      if (action === 'global-ban-saved-rules') {
+        return route.fulfill({json:{ok:true,rules:['TESTBANNED']}})
+      }
       if (action === 'bridge-status') {
         const response = await route.fetch()
         const payload = await response.json()
@@ -73,6 +76,12 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         // #317: known authoritative events, independent of moderation roster identities.
         const now = Math.floor(Date.now()/1000)
         payload.clientMeta ||= {}
+        payload.bridge.zello.recent_users = [
+          {name:'K6ZELLO',last_tx_epoch:now-10},
+          {name:'TESTBANNED',last_tx_epoch:now-20},
+          {name:'Taurus 78',last_tx_epoch:now-30}
+        ]
+
         for (const id of ['dmr','ysf','p25','nxdn','m17','zello']) {
           if (!payload.bridge[id]) continue
           payload.bridge[id].tx_events = [{callsign:'TEST-TX',epoch:now-10,duration_seconds:12,direction:'incoming',source_protocol:id.toUpperCase()}]
@@ -126,6 +135,14 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
       for (const button of document.querySelectorAll('.allscan-bridge-recent > button[aria-expanded="false"]')) button.click()
     })
     await page.locator('.asr-bridge-activity-label[data-event="CONN"]').first().waitFor()
+    const zelloRoster = standardCard('Zello').locator('.asr-bridge-roster')
+    await zelloRoster.locator('[data-status="banned"]').waitFor()
+    const zelloRow = name => zelloRoster.locator('.allscan-bridge-client').filter({hasText:name})
+    assert(await zelloRow('K6ZELLO').getByRole('button',{name:'Kick',exact:true}).isEnabled(), 'Valid Zello station lost Kick')
+    assert(await zelloRow('K6ZELLO').locator('select').count()===1, 'Valid Zello station lost Ban')
+    assert(await zelloRow('TESTBANNED').locator('[data-status="banned"]').count()===1 && await zelloRow('TESTBANNED').locator('select').count()===0, 'Banned Zello station status missing')
+    assert(await zelloRow('Taurus 78').locator('button').isEnabled() && await zelloRow('Taurus 78').locator('[data-status="unavailable"]').count()===1, 'Spaced Zello identity must support Kick but not unsupported Ban')
+    assert(!/Last TX|No recent TX/.test(await zelloRoster.innerText()), 'Redundant Zello TX timestamp remains')
     // #307: check the actual control geometry under each supported theme.
     for (const [theme,mode] of [['standard','dark'],['standard','light'],['deep-ocean-animated','dark'],['matrix','dark'],['lcars-frame','dark']]) {
       for (const width of [1920,1440,1024,768,390,320]) {
@@ -315,7 +332,10 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
       const longLabel = [...document.querySelectorAll('.asr-client-duration-line > span:first-child')].find((label) => label.textContent.includes('LONGCALLSIGN-12'));
       return rows.length > 0 && durations.length > 0 && rows.every((row) => {
         const rect = row.getBoundingClientRect();
-        return rect.left >= -2 && rect.right <= innerWidth + 2 && row.querySelector('button') && row.querySelector('select');
+        const actions = row.querySelector('.allscan-bridge-inline-client-actions')
+        const control = actions.querySelector('select, [data-status="banned"], [data-status="unavailable"]')
+        return rect.left >= -2 && rect.right <= innerWidth + 2 && row.querySelector('button') && control
+          && [...actions.children].every(child => { const r = child.getBoundingClientRect(); return r.left >= rect.left-1 && r.right <= rect.right+1 && r.bottom <= rect.bottom+1 });
       }) && durations.every((duration) => duration.getBoundingClientRect().right <= duration.closest('.allscan-bridge-card').getBoundingClientRect().right + 1)
         && Boolean(longLabel && longLabel.getBoundingClientRect().right <= longLabel.closest('.allscan-bridge-card').getBoundingClientRect().right + 1);
     })()`)

@@ -716,6 +716,7 @@ function App({ config }: { config: RuntimeConfig }) {
   const [banAdminOpen, setBanAdminOpen] = useState(false)
   const [globalBanEnforcement, setGlobalBanEnforcement] = useState<Pick<GlobalBanList, 'verified' | 'skippedBridges' | 'asl'> | null>(null)
   const [globalBanRules, setGlobalBanRules] = useState<string[]>([])
+  const [zelloSavedBanRules, setZelloSavedBanRules] = useState<string[] | null>(null)
   const [globalBans, setGlobalBans] = useState<GlobalBan[]>([])
   const [globalBanAudit, setGlobalBanAudit] = useState<GlobalBanAuditEvent[]>([])
   const [globalBanRule, setGlobalBanRule] = useState('')
@@ -1922,6 +1923,24 @@ function App({ config }: { config: RuntimeConfig }) {
     return () => window.clearInterval(timer)
   }, [])
 
+  // #317: reading saved policy must not trigger native bridge reconciliation.
+  const zelloRosterExpanded = bridgeClientsOpen.has('zello')
+  useEffect(() => {
+    if (!authStatus.isAdmin || !zelloRosterExpanded) return
+    let active = true
+    const refresh = async () => {
+      try {
+        const response = await fetch(asrPath('asr-api.php') + '?action=global-ban-saved-rules', { credentials: 'same-origin', cache: 'no-store' })
+        const payload = await response.json()
+        if (!response.ok || payload.ok !== true || !Array.isArray(payload.rules)) throw new Error('Saved policy unavailable')
+        if (active) setZelloSavedBanRules(payload.rules)
+      } catch { if (active) setZelloSavedBanRules(null) }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 15000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [authStatus.isAdmin, zelloRosterExpanded])
+
   useEffect(() => {
     if (!banAdminOpen || !authStatus.isAdmin) return
     const refresh = async () => {
@@ -2456,6 +2475,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const [result, native] = await Promise.all([fetchGlobalBans(), fetchAslBans()])
       setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
+      setZelloSavedBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
       setAslBans(native.bans)
@@ -2511,6 +2531,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const result = await updateGlobalBan('ban', value, banDuration)
       setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
+      setZelloSavedBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
       setAslEnforcementStatus(result.asl?.status === 'applied' ? 'AllStar / EchoLink policy applied' : `AllStar / EchoLink policy pending: ${result.asl?.error || 'Adapter unavailable'}`)
@@ -2553,6 +2574,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const result = await updateGlobalBan('unban', rule)
       setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
+      setZelloSavedBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
       setBanStatus(result.verified ? `Removed global ban for ${rule}.` : `Global Ban removal is pending full enforcement: ${globalBanPendingReason(result, 'Retrying.')}`)
@@ -3069,6 +3091,7 @@ function App({ config }: { config: RuntimeConfig }) {
       const result = await updateGlobalBan(verb, normalized, duration)
       setGlobalBanEnforcement(result)
       setGlobalBanRules(result.rules)
+      setZelloSavedBanRules(result.rules)
       setGlobalBans(result.bans)
       setGlobalBanAudit(result.audit)
       setGlobalBanRule('')
@@ -3107,6 +3130,8 @@ function App({ config }: { config: RuntimeConfig }) {
         setBanAdminStatus(`${callsign} was disconnected from TGIF${tgif.talkgroup ? ` talkgroup ${tgif.talkgroup}` : ''}.${blocked}`)
       } else if (tgif) {
         setBanAdminStatus(`${callsign}'s audio is blocked on this node, but TGIF did not disconnect the station: ${tgif.error || 'unknown TGIF error'}`)
+      } else if (mode.toUpperCase() === 'ZELLO') {
+        setBanAdminStatus(`${callsign} is muted on this Zello bridge for one minute. Rekeying does not end the mute.`)
       } else {
         setBanAdminStatus(`${callsign} was kicked from ${mode.toUpperCase()} and backend enforcement was verified. The client may reconnect immediately unless banned.`)
       }
@@ -4607,12 +4632,15 @@ function App({ config }: { config: RuntimeConfig }) {
                           const supportsKick = bridgeConfig?.adminCapabilities?.clientAdmin.includes('kickClient') === true
                           const supportsBan = bridgeConfig?.adminCapabilities?.clientAdmin.includes('banClient') === true
                           const isZello = card.mode.toUpperCase() === 'ZELLO'
+                          // Zello display names can contain characters the moderation API cannot accept.
+                          // Never present an actionable control for an unsupported identity.
+                          const zelloBanSupported = !isZello || /^[A-Z0-9][A-Z0-9_./-]{0,14}$/.test(identity)
                           const kickAvailable = supportsKick && (!isZello || /^[A-Z0-9][A-Z0-9_./ -]{0,63}$/.test(identity))
-                          const banned = globalBanRules.some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule)
+                          const banned = (isZello ? zelloSavedBanRules ?? globalBanRules : globalBanRules).some((rule) => rule.endsWith('*') ? identity.startsWith(rule.slice(0, -1)) : identity === rule)
                           return <div key={detail.key} className={`allscan-bridge-client${detail.empty ? ' is-empty' : ''}`}>
                             <div className="allscan-bridge-client-user asr-client-duration-line"><span>{detail.label}</span>{detail.connectedSince && detail.connectionTimeSource ? <span className="asr-client-duration" title={detail.connectionTimeSource === 'native' ? 'Time connected reported by the bridge' : 'Approximate time since ASR first observed this connection'}>{formatConnectionDuration(detail.connectedSince, detail.connectionTimeSource)}</span> : null}</div>
-                            {detail.meta && compactBridgeDetailTitle(card.detailTitle) !== 'Connected Clients' && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
-                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Mute this Zello talker on this bridge for one minute' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan && !banned ? globalBanDurationSelect(identity, isZello) : null}</div> : null}
+                            {detail.meta && !isZello && compactBridgeDetailTitle(card.detailTitle) !== 'Connected Clients' && <div className="allscan-bridge-client-meta">{detail.meta}</div>}
+                            {!detail.empty && authStatus.isAdmin && (supportsKick || supportsBan) ? <div className="allscan-bridge-inline-client-actions">{supportsKick ? <button type="button" title={card.mode.toUpperCase() === 'DMR' ? 'Disconnect this station from TGIF and mute it on this bridge for one minute' : (isZello ? 'Mute this Zello talker on this bridge for one minute' : 'Disconnect this station and refuse it for one minute')} disabled={banAdminBusy || !kickAvailable} aria-label={isZello && !kickAvailable ? 'Kick unavailable for this Zello name' : undefined} onClick={() => void kickBridgeConnectedClient(identity, card.id, card.mode, detail.clientId)}>Kick</button> : null}{supportsBan ? (isZello && banned ? <span className="asr-zello-moderation-status" data-status="banned" title="Saved Global Ban policy; live enforcement is not verified by this read-only status">Ban saved</span> : isZello && !zelloBanSupported ? <span className="asr-zello-moderation-status" data-status="unavailable" title="Global Ban does not yet support this Zello identity">N/A</span> : !banned ? globalBanDurationSelect(identity, isZello) : null) : null}</div> : null}
                           </div>
                         })}
                       </div> : null}
