@@ -11,6 +11,7 @@ import { nextSort, hslToFavoriteHex, pickFavoriteHex, type SortDirection } from 
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
+import { matchingRecentTalker } from './lib/recentTalkerIdentity'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
@@ -834,17 +835,7 @@ function App({ config }: { config: RuntimeConfig }) {
     if (transportNode === '1999' && modeCard
         && (modeCard.cardType === 'p25_net' || modeCard.cardType === 'nxdn_net')) {
       const fast = fastNextModeActivityRef.current[modeCard.id]
-      const eventTime = talker.eventEpoch || talker.startedEpoch
-      const recentIdentity = fast?.recentTalkers
-        .map((entry) => ({
-          entry,
-          distance: Math.min(
-            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
-            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
-          ),
-        }))
-        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
-        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const recentIdentity = matchingRecentTalker(fast?.recentTalkers, talker)
       const liveMatchesTransmission = fast?.role === 'source'
         && fast.eventEpoch > 0
         && talker.startedEpoch > 0
@@ -863,17 +854,7 @@ function App({ config }: { config: RuntimeConfig }) {
       }
     }
     if (transportNode === '1999' && modeCard?.cardType === 'm17_net') {
-      const eventTime = talker.eventEpoch || talker.startedEpoch
-      const recentIdentity = modeCard.recentTalkers
-        .map((entry) => ({
-          entry,
-          distance: Math.min(
-            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
-            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
-          ),
-        }))
-        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
-        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const recentIdentity = matchingRecentTalker(modeCard.recentTalkers, talker)
       const liveCallsign = isCurrentTalker && sourceCard
         ? String(sourceCard.lastCaller || sourceCard.lastTransmitter || '').trim()
         : ''
