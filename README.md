@@ -1,7 +1,7 @@
 # AllScan Reimagined
 
 AllScan Reimagined is a configurable interface and security layer for David
-Gleason's AllScan. Beta 8.7.1 supports the current official AllScan v1.06
+Gleason's AllScan. Beta 8.7.2 supports the current official AllScan v1.06
 backend at
 `/allscan/` and installs the Reimagined interface separately at `/asr/`.
 The two interfaces share the node's existing AllScan accounts and data without
@@ -11,7 +11,7 @@ AllScan Reimagined is customized by KE7WIL.
 
 If you're using AllScan Reimagined, I'd appreciate a quick email letting me know you're running it. It helps me understand how ASR is being used and support its continued development. [Email KE7WIL](mailto:ke7wil@gmail.com).
 
-This archive is **Beta 8.7.1**, a maintenance update to Beta 8.7. It improves independent bridge transport recovery, manual link controls, Global Ban enforcement, M17 qualification warnings, Zello connected-client counts, and the What's New dialog. It retains the existing scheduling, Favorites, and container update features. This remains a release candidate until qualification and separate owner approval are complete.
+This archive is **Beta 8.7.2**, a maintenance update to Beta 8.7.1. It improves bridge and talker controls, dashboard reliability, responsive layout, and Docker updater host-helper migration and recovery. It retains existing scheduling and Favorites features. This remains a release candidate until qualification and separate owner approval are complete.
 
 Beta 8.5 improves installer recovery, Favorites management, Support and
 Feedback, read-only diagnostics, and release-note accessibility. It preserves
