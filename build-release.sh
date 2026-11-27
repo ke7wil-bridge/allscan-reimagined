@@ -214,6 +214,7 @@ node --experimental-strip-types "$ROOT/scripts/asr-fast-card-poll-self-test.mjs"
 node --experimental-strip-types "$ROOT/scripts/asr-recent-talker-identity-self-test.mjs"
 node "$ROOT/scripts/asr-fast-card-api-self-test.mjs"
 node "$ROOT/scripts/asr-favorite-connection-names-browser-self-test.mjs"
+node "$ROOT/scripts/asr-favorites-palette-browser-self-test.mjs"
 node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
 bash "$ROOT/scripts/asr-side-by-side-self-test.sh"
