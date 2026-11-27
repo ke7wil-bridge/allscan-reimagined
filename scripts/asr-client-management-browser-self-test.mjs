@@ -149,6 +149,14 @@ async function runBrowser(unauthorized = false, netMode = 'dmr', layoutOnly = fa
         }))
         assert(netRows.length>0 && netRows.every(card=>card.rows.length===2 && card.rows[0].label===(netMode==='ysf'?'Current Reflector':'Current TG') && card.rows[1].label==='Talking' && card.rows.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]))), `#307 Net Bridge information row mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(netRows)}`)
         console.log('NET LAYOUT',netMode,theme,mode,width,JSON.stringify(netRows))
+        const detailBands = await page.locator('.allscan-bridge-card > .allscan-bridge-detail-wrap').evaluateAll(wraps=>wraps.map(wrap=>{
+          const button=wrap.querySelector('.allscan-bridge-detail-toggle'), r=button.getBoundingClientRect(), w=wrap.getBoundingClientRect()
+          const border=parseFloat(getComputedStyle(wrap).borderTopWidth)
+          return {label:button.querySelector('span').textContent, height:r.height+border, expanded:button.getAttribute('aria-expanded')==='true', wrapHeight:w.height, fonts:[button,...button.querySelectorAll('span,b')].map(x=>getComputedStyle(x).fontSize), fits:[...button.children].every(x=>{const box=x.getBoundingClientRect();return box.left>=w.left-1&&box.right<=w.right+1&&box.top>=r.top-1&&box.bottom<=r.bottom+1&&x.scrollWidth<=x.clientWidth+1})}
+        }))
+        assert(detailBands.length>0 && detailBands.some(row=>row.label==='Connected Clients') && detailBands.some(row=>row.label==='Recent Activity') && detailBands.every(row=>row.height===27 && row.fonts.every(f=>f===geometry.fonts[0]) && row.fits && (row.expanded || row.wrapHeight===27)), `#307 detail header mismatch: ${theme}/${mode}/${width}: ${JSON.stringify(detailBands)}`)
+        console.log('DETAIL LAYOUT',netMode,theme,mode,width,JSON.stringify(detailBands))
+
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }
     }

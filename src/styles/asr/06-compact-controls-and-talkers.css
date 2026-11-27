@@ -781,3 +781,57 @@ html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-s
     padding-block: 2px;
   }
 }
+/* #307: the collapsible client/activity header is another compact information
+   band. Keep expanded content independently sized (including Kick/Ban). */
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap {
+  box-sizing: border-box;
+  padding-block: 0 !important;
+  border-top-width: 1px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+  box-sizing: border-box;
+  height: calc(var(--asr-bridge-info-height) - 1px);
+  min-height: calc(var(--asr-bridge-info-height) - 1px);
+  margin-block: 0 !important;
+  padding-block: 0;
+  font-size: var(--asr-bridge-info-font) !important;
+  line-height: 1.2;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > :is(span,b) {
+  font-size: var(--asr-bridge-info-font) !important;
+  white-space: nowrap;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-box {
+  margin-block: 3px 5px;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+  grid-template-columns: max-content var(--asr-bridge-activity-count-width) var(--asr-bridge-activity-chevron-width);
+  justify-content: center;
+  transform: none !important;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > :is(b,svg) {
+  translate: none;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > b {
+  transform: none !important;
+}
+@media (max-width:1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap {
+    padding-inline: 3px;
+    --asr-bridge-activity-count-width: 24px;
+    --asr-bridge-activity-chevron-width: 12px;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle {
+    column-gap: 3px;
+    padding-inline: 0;
+  }
+  .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > b {
+    padding-inline: 2px;
+  }
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > svg {
+  transform: none !important;
+}
+.allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-detail-wrap > .allscan-bridge-detail-toggle > svg.is-open {
+  transform: rotate(180deg) !important;
+}
