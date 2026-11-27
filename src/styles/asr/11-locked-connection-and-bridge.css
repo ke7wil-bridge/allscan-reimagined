@@ -226,6 +226,21 @@
   }
 }
 
+/* #329: the compact portrait action row needs more than 388px of viewport
+   space. Keep the accepted 390px layout and narrow fallback unchanged, and
+   wrap just the administrator action onto its own row in between. */
+@media (min-width: 361px) and (max-width: 388px) and (orientation: portrait) {
+  .allscan-controls-lower-row {
+    flex-wrap: wrap;
+  }
+
+  .allscan-controls-shell .allscan-kicks-bans-button {
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 @media (max-width: 340px) {
   .allscan-controls-shell > .allscan-controls-row:first-child {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;

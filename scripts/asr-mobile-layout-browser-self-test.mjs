@@ -19,7 +19,7 @@ try {
   const page=await browser.newPage()
   const cdp=await page.context().newCDPSession(page)
   const evaluate=expression=>page.evaluate(expression)
-  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['desktop',1440,900]]) {
+  for (const [name,width,height] of [['galaxy-s25',360,780],['galaxy-s25-landscape',780,360],['portrait',390,844],['landscape',844,390],['narrow',360,740],['narrow-boundary',361,740],['narrow-middle',375,812],['narrow-upper',388,844],['compact-boundary',389,844],['desktop',1440,900]]) {
     await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<1000})
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:20000})
     let loaded=false
@@ -36,6 +36,15 @@ try {
       const clientLists=[...document.querySelectorAll('.allscan-bridge-detail-box')].map(e=>getComputedStyle(e).overflowY);
       return {viewport,scrollWidth:document.documentElement.scrollWidth,buttons:visible.length,clientLists,clipped:visible.filter(e=>{const r=e.getBoundingClientRect();return r.left < -2 || r.right > viewport+2}).slice(0,8).map(e=>e.textContent.trim().slice(0,60))};
     })()`)
+    if (width >= 361 && width <= 388 && height > width) {
+      const manage = await page.locator('.allscan-kicks-bans-button').evaluate(button => {
+        const rect=button.getBoundingClientRect();
+        const row=button.closest('.allscan-controls-lower-row').getBoundingClientRect();
+        const action=button.parentElement.querySelector('.allscan-controls-action-group').getBoundingClientRect();
+        return {height:rect.height, width:rect.width, contained:rect.left>=row.left-1&&rect.right<=row.right+1, separateRow:rect.top>=action.bottom};
+      });
+      assert(manage.contained&&manage.separateRow&&manage.height>=29,name+': #329 management action overflow or lost touch target '+JSON.stringify(manage));
+    }
     assert(result.buttons>0,name+': no visible controls')
     assert(result.scrollWidth<=result.viewport+2,name+': horizontal page overflow '+JSON.stringify(result))
     assert(result.clipped.length===0,name+': clipped controls '+JSON.stringify(result.clipped))
