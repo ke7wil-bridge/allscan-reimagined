@@ -7,9 +7,14 @@ import { ASR_WHATS_NEW } from './config/whatsNew'
 import SupportFeedbackDialog from './components/SupportFeedbackDialog'
 import SupportAsrDialog from './components/SupportAsrDialog'
 import AllStarBubbleDialog from './components/AllStarBubbleDialog'
+import { nextSort, hslToFavoriteHex, pickFavoriteHex, type SortDirection } from './lib/dashboardInteraction'
 import { canPopulateNodeControl } from './lib/nodeNumbers'
 import { canPreviewFavoriteBackup } from './lib/favoritesRecovery'
 import { favoriteConnectionNames, connectionDisplayName } from './lib/favoriteConnectionNames'
+import { replaceDashboardQuery } from './lib/dashboardQuery'
+import { startReadRefresh } from './lib/readRefresh'
+import { startFastCardPoll } from './lib/fastCardPoll'
+import { matchingRecentTalker } from './lib/recentTalkerIdentity'
 import { identityFromConnection, isBannableConnection } from './lib/participantIdentity'
 import {
   actionOptions,
@@ -515,7 +520,6 @@ const connectionColumns = [
 ] as const
 
 type ConnectionSortKey = (typeof connectionColumns)[number]['key']
-type SortDirection = 'asc' | 'desc'
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
 
@@ -834,17 +838,7 @@ function App({ config }: { config: RuntimeConfig }) {
     if (transportNode === '1999' && modeCard
         && (modeCard.cardType === 'p25_net' || modeCard.cardType === 'nxdn_net')) {
       const fast = fastNextModeActivityRef.current[modeCard.id]
-      const eventTime = talker.eventEpoch || talker.startedEpoch
-      const recentIdentity = fast?.recentTalkers
-        .map((entry) => ({
-          entry,
-          distance: Math.min(
-            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
-            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
-          ),
-        }))
-        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
-        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const recentIdentity = matchingRecentTalker(fast?.recentTalkers, talker)
       const liveMatchesTransmission = fast?.role === 'source'
         && fast.eventEpoch > 0
         && talker.startedEpoch > 0
@@ -863,17 +857,7 @@ function App({ config }: { config: RuntimeConfig }) {
       }
     }
     if (transportNode === '1999' && modeCard?.cardType === 'm17_net') {
-      const eventTime = talker.eventEpoch || talker.startedEpoch
-      const recentIdentity = modeCard.recentTalkers
-        .map((entry) => ({
-          entry,
-          distance: Math.min(
-            talker.startedEpoch > 0 ? Math.abs(entry.startEpoch - talker.startedEpoch) : Number.MAX_SAFE_INTEGER,
-            talker.eventEpoch > 0 ? Math.abs(entry.eventEpoch - talker.eventEpoch) : Number.MAX_SAFE_INTEGER,
-          ),
-        }))
-        .filter(({ entry, distance }) => Boolean(entry.callsign) && eventTime > 0 && distance <= 3)
-        .sort((left, right) => left.distance - right.distance)[0]?.entry
+      const recentIdentity = matchingRecentTalker(modeCard.recentTalkers, talker)
       const liveCallsign = isCurrentTalker && sourceCard
         ? String(sourceCard.lastCaller || sourceCard.lastTransmitter || '').trim()
         : ''
@@ -1398,6 +1382,11 @@ function App({ config }: { config: RuntimeConfig }) {
     if (dashboardDragScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(dashboardDragScrollFrameRef.current)
     }
+    const pending = pendingDashboardDragRef.current
+    if (pending) {
+      window.clearTimeout(pending.timer)
+      pendingDashboardDragRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -1427,8 +1416,7 @@ function App({ config }: { config: RuntimeConfig }) {
     reportBugParamHandled.current = true
     params.delete('reportBug')
     params.delete('supportFeedback')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    replaceDashboardQuery(params)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSupportFeedbackOpen(true)
   }, [])
@@ -1439,8 +1427,7 @@ function App({ config }: { config: RuntimeConfig }) {
     if (params.get('updateAsr') !== '1') return
     updateAsrParamHandled.current = true
     params.delete('updateAsr')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+    replaceDashboardQuery(params)
     // Opening the requested admin dialog is the purpose of this URL-driven effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setUpdateDialogView('update')
@@ -1576,44 +1563,28 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     if (!authStatus.canRead) return
-    let cancelled = false
-    const refreshCustomCommands = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchCustomCommands()
-        if (cancelled) return
+        if (!isActive()) return
         setCustomCommandsEnabled(next.enabled)
         setCustomCommands(next.commands)
       } catch (error) {
-        if (!cancelled) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
+        if (isActive()) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
       }
-    }
-    void refreshCustomCommands()
-    window.addEventListener('focus', refreshCustomCommands)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', refreshCustomCommands)
-    }
+    }, { onFocus: true })
   }, [authStatus.canRead])
 
   useEffect(() => {
     if (!authStatus.loggedIn || !config.tgifSessionRequired) return
-    let cancelled = false
-    const refreshTgifStatus = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchTgifUserStatus()
-        if (!cancelled) setTgifUserStatus(next)
+        if (isActive()) setTgifUserStatus(next)
       } catch {
         // A transient status request failure is not proof that another login is required.
       }
-    }
-    void refreshTgifStatus()
-    window.addEventListener('focus', refreshTgifStatus)
-    const timer = window.setInterval(refreshTgifStatus, 60000)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', refreshTgifStatus)
-      window.clearInterval(timer)
-    }
+    }, { onFocus: true, intervalMs: 60000 })
   }, [authStatus.loggedIn, config.tgifSessionRequired])
 
   useEffect(() => {
@@ -1673,34 +1644,26 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [config.node, netBridgeMode])
 
   useEffect(() => {
-    let cancelled = false
     let failureNotified = false
 
-    const refreshCpu = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchCpuTemp()
-        if (!cancelled && next) {
+        if (isActive() && next) {
           setCpuValue(next.value)
           setCpuBgColor(next.bgColor)
           clearNodeMessage('CPU temperature request failed.')
           failureNotified = false
         }
       } catch {
-        if (!cancelled) {
+        if (isActive()) {
           setCpuValue('--°F / --°C')
           setCpuBgColor('#59461c')
           if (!failureNotified) appendNodeMessage('CPU temperature request failed.')
           failureNotified = true
         }
       }
-    }
-
-    void refreshCpu()
-    const timer = window.setInterval(refreshCpu, effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
+    }, { intervalMs: effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000 })
   }, [effectiveThemeSettings.reduceBrowserActivity])
 
   useEffect(() => {
@@ -1776,68 +1739,19 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [config, applyBridgeConnectionOverrides, acceptBridgeSnapshot, effectiveThemeSettings.reduceBrowserActivity])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastNextModeActivity()
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastNextModeActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge and connection status remain the fallback */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastNextModeActivity,
+    fastNextModeActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastYsfNetActivity()
-        // The 100 ms poll may overlap when a request is slow. Never let an
-        // older Relay response arrive after and overwrite a newer direct EOT.
-        // A real re-key is a newer request and is therefore applied at once.
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastYsfNetActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge status remains available */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastYsfNetActivity,
+    fastYsfNetActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
   useEffect(() => {
     let cancelled = false
@@ -1879,35 +1793,12 @@ function App({ config }: { config: RuntimeConfig }) {
     }
   }, [config, applyBridgeConnectionOverrides])
 
-  useEffect(() => {
-    let cancelled = false
-    let previous = ''
-    let requestSequence = 0
-    let appliedSequence = 0
-    let timer: number | undefined
-    const tick = async () => {
-      const started = performance.now()
-      const sequence = ++requestSequence
-      try {
-        const cards = await fetchFastStandardActivity()
-        if (cancelled || sequence < appliedSequence) return
-        appliedSequence = sequence
-        const fingerprint = JSON.stringify(cards)
-        fastStandardActivityRef.current = cards
-        if (fingerprint === previous) return
-        previous = fingerprint
-        setBridgeState((current) => applyBridgeConnectionOverrides(current))
-      } catch { /* full bridge status remains available if the fast feed fails */ }
-      finally {
-        if (!cancelled) timer = window.setTimeout(() => void tick(), document.hidden ? 1000 : Math.max(0, FAST_ACTIVITY_POLL_MS - (performance.now() - started)))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [config, applyBridgeConnectionOverrides])
+  useEffect(() => startFastCardPoll(
+    fetchFastStandardActivity,
+    fastStandardActivityRef,
+    () => setBridgeState((current) => applyBridgeConnectionOverrides(current)),
+    FAST_ACTIVITY_POLL_MS,
+  ), [config, applyBridgeConnectionOverrides])
 
 
   useEffect(() => {
@@ -1959,32 +1850,24 @@ function App({ config }: { config: RuntimeConfig }) {
   const zelloRosterExpanded = bridgeClientsOpen.has('zello')
   useEffect(() => {
     if (!authStatus.isAdmin || !zelloRosterExpanded) return
-    let active = true
-    const refresh = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const response = await fetch(asrPath('asr-api.php') + '?action=global-ban-saved-rules', { credentials: 'same-origin', cache: 'no-store' })
         const payload = await response.json()
         if (!response.ok || payload.ok !== true || !Array.isArray(payload.rules)) throw new Error('Saved policy unavailable')
-        if (active) setZelloSavedBanRules(payload.rules)
-      } catch { if (active) setZelloSavedBanRules(null) }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 15000)
-    return () => { active = false; window.clearInterval(timer) }
+        if (isActive()) setZelloSavedBanRules(payload.rules)
+      } catch { if (isActive()) setZelloSavedBanRules(null) }
+    }, { intervalMs: 15000 })
   }, [authStatus.isAdmin, zelloRosterExpanded])
 
   useEffect(() => {
     if (!authStatus.isAdmin || (!zelloRosterExpanded && !banAdminOpen)) return
-    let active = true
-    const refresh = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const bans = await exactZelloBanPolicy()
-        if (active) setExactZelloBans(bans)
-      } catch { if (active) setExactZelloBans(null) }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 15000)
-    return () => { active = false; window.clearInterval(timer) }
+        if (isActive()) setExactZelloBans(bans)
+      } catch { if (isActive()) setExactZelloBans(null) }
+    }, { intervalMs: 15000 })
   }, [authStatus.isAdmin, zelloRosterExpanded, banAdminOpen])
 
   useEffect(() => {
@@ -2095,11 +1978,7 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function toggleFavoriteSort(key: 'index' | 'node' | 'name' | 'desc' | 'location') {
-    setFavoriteSort((current) => (
-      current.key === key
-        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
-    ))
+    setFavoriteSort((current) => nextSort(current, key))
   }
 
   async function reloadFavorites() {
@@ -2455,11 +2334,7 @@ function App({ config }: { config: RuntimeConfig }) {
   }
 
   function toggleConnectionSort(key: ConnectionSortKey) {
-    setConnectionSort((current) => (
-      current.key === key
-        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: 'asc' }
-    ))
+    setConnectionSort((current) => nextSort(current, key))
   }
 
   function isProtectedBanConnection(row: LiveConnectionRow) {
@@ -3487,32 +3362,14 @@ function App({ config }: { config: RuntimeConfig }) {
                             event.preventDefault()
                             event.stopPropagation()
                             event.currentTarget.setPointerCapture(event.pointerId)
-                            const pick = (clientX: number, clientY: number) => {
-                              const rect = event.currentTarget.getBoundingClientRect()
-                              const saturation = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-                              const lightness = Math.max(0, Math.min(1, 1 - ((clientY - rect.top) / rect.height)))
-                              const hue = favoriteColorHue
-                              const a = saturation * Math.min(lightness, 1 - lightness)
-                              const f = (n: number) => {
-                                const k = (n + hue / 30) % 12
-                                return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
-                              }
-                              const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
-                              setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
-                            }
-                            pick(event.clientX, event.clientY)
+                            const hex = pickFavoriteHex(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect(), favoriteColorHue)
+                            setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                           }}
                           onPointerMove={(event) => {
                             if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
                             event.preventDefault()
                             event.stopPropagation()
-                            const rect = event.currentTarget.getBoundingClientRect()
-                            const saturation = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-                            const lightness = Math.max(0, Math.min(1, 1 - ((event.clientY - rect.top) / rect.height)))
-                            const hue = favoriteColorHue
-                            const a = saturation * Math.min(lightness, 1 - lightness)
-                            const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
-                            const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                            const hex = pickFavoriteHex(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect(), favoriteColorHue)
                             setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                           }}
                           onPointerUp={(event) => { event.preventDefault(); event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
@@ -3522,11 +3379,7 @@ function App({ config }: { config: RuntimeConfig }) {
                           const slider = Number(event.target.value)
                           const hue = (360 - slider) % 360
                           setFavoriteColorHue(hue)
-                          const lightness = 0.5
-                          const saturation = 1
-                          const a = saturation * Math.min(lightness, 1 - lightness)
-                          const f = (n: number) => { const k = (n + hue / 30) % 12; return lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
-                          const hex = '#' + [f(0), f(8), f(4)].map((v) => Math.round(255 * v).toString(16).padStart(2, '0')).join('')
+                          const hex = hslToFavoriteHex(hue, 1, 0.5)
                           setFavoriteColorDrafts((current) => ({ ...current, [favorite.node]: hex }))
                         }} onPointerDown={(event) => event.stopPropagation()} />
                         <span className="allscan-favorite-color-palette">

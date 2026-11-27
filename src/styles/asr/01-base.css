@@ -922,9 +922,6 @@ body {
 }
 
 @media (max-width: 760px) {
-  .allscan-bridge-grid {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
 
   .allscan-bridge-tune {
     grid-template-columns: minmax(0, 1fr);
@@ -1073,7 +1070,6 @@ body {
   flex-wrap: wrap;
   gap: 6px 12px;
   align-items: center;
-  justify-content: center;
   margin: 8px auto 6px;
   padding: 0 8px;
   color: rgb(186, 196, 202);
@@ -1149,7 +1145,6 @@ body {
   line-height: 16.8px;
   text-align: center;
   color: rgb(234, 244, 248);
-  background: transparent;
 }
 
 .allscan-favorites-table th,
@@ -1225,10 +1220,6 @@ body {
   cursor: pointer;
 }
 
-.allscan-favorites-table tbody td:nth-child(2) {
-  cursor: pointer;
-}
-
 .allscan-favorites-sort-button {
   display: inline-flex;
   align-items: center;
@@ -1289,28 +1280,20 @@ body {
 }
 
 .allscan-favorites-file-form {
-  display: flex;
-  align-items: center;
   justify-content: center;
   gap: 8px;
-  flex-wrap: nowrap;
   color: rgb(214, 222, 228);
   font-size: 12px;
   padding: 2px 0 2px;
 }
 
 .allscan-favorites-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
   gap: 5px 18px;
   padding: 2px 6px 0;
 }
 
 .allscan-favorites-placement {
   display: inline-flex;
-  min-height: 30px;
   align-items: center;
   gap: 6px;
   color: rgb(214, 222, 228);
@@ -1333,9 +1316,7 @@ body {
 }
 
 .allscan-favorites-file-form label {
-  flex: 0 0 auto;
   font-weight: 700;
-  white-space: nowrap;
 }
 
 .allscan-favorites-file-form select {
