@@ -102,6 +102,32 @@ try {
               return {ok:false,count,slot,shared,centered,contained,equalWidth,width:r.width,standardWidths:standards.map(c=>c.getBoundingClientRect().width),grid:g.width};
           }
         }
+        // Render the actual control class structure rather than testing empty card boxes only.
+        const base=existing.querySelector('.allscan-bridge-card:not(.allscan-net-bridge-card)');
+        const standard=document.createElement('article');
+        standard.className='allscan-bridge-card';
+        standard.innerHTML=base.querySelector('.allscan-bridge-head').outerHTML+
+          '<div class="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row"><span>Node 1005</span><i class="allscan-standard-link-dot"></i><b data-link-state="linked">Linked</b><button class="allscan-action-button">Disconnect</button></div>'+
+          '<div class="allscan-bridge-body"><div class="allscan-bridge-row allscan-bridge-status-row"><span>Talking</span><b>–</b></div><div class="allscan-bridge-row allscan-bridge-status-row"><span>Last Talker</span><b>–</b></div></div>'+
+          '<div class="allscan-bridge-detail-wrap"><button class="allscan-bridge-detail-title allscan-bridge-detail-toggle"><span>Connected Clients</span><b>0</b></button></div>'+
+          '<div class="allscan-bridge-detail-wrap allscan-bridge-recent"><button class="allscan-bridge-detail-title allscan-bridge-detail-toggle"><span>Recent Activity</span><b>0</b></button></div>';
+        const net=document.createElement('article');
+        net.className='allscan-bridge-card allscan-net-bridge-card';
+        for(const mode of ['dmr','ysf','p25','nxdn','m17']) {
+          const m17=mode==='m17';
+          const buttons='<div class="allscan-bridge-link-buttons'+(m17?' allscan-m17-link-buttons':'')+'"><button class="allscan-action-button">Connect</button><button class="allscan-action-button">Disconnect</button></div>';
+          net.innerHTML=base.querySelector('.allscan-bridge-head').outerHTML+
+            '<div class="allscan-bridge-body"><div class="allscan-bridge-row allscan-bridge-status-row"><span>Current Reflector</span><b>–</b></div><div class="allscan-bridge-row allscan-bridge-status-row"><span>Talking</span><b>–</b></div></div>'+
+            '<div class="allscan-bridge-controls allscan-net-bridge-controls allscan-net-bridge-'+mode+'"><div class="allscan-bridge-tune allscan-net-bridge-mode-row"><label>Mode</label><select><option>'+mode.toUpperCase()+'</option></select>'+(!m17?buttons:'')+'</div>'+
+            '<div class="allscan-bridge-tune allscan-net-bridge-destination-row'+(m17?' allscan-m17-net-tune':'')+'"><label>'+(m17?'Ref':mode==='ysf'?'Reflector':mode==='dmr'?'TG':'Target')+'</label><input value="'+(m17?'M17-WIL':'12345')+'">'+(m17?'<label>Mod</label><input class="allscan-m17-module-input" value="A">':'')+'</div>'+(m17?buttons:'')+'</div>';
+          grid.replaceChildren(standard,net);
+          const sr=standard.getBoundingClientRect(),nr=net.getBoundingClientRect();
+          const fields=[...net.querySelectorAll('.allscan-net-bridge-controls :is(label,input,select)')].map(e=>e.getBoundingClientRect());
+          const oneLine=fields.every(r=>Math.abs((r.top+r.bottom-fields[0].top-fields[0].bottom)/2)<=2);
+          const controls=[...net.querySelectorAll('.allscan-net-bridge-controls :is(label,input,select,button)')].map(e=>e.getBoundingClientRect());
+          const inside=controls.every(r=>r.left>=nr.left-1&&r.right<=nr.right+1&&r.width>0);
+          if(Math.abs(sr.height-nr.height)>2||!oneLine||!inside) return {ok:false,mode,standardHeight:sr.height,netHeight:nr.height,oneLine,inside,width:nr.width,bands:[...standard.children].map(e=>[e.className,e.getBoundingClientRect().height]),netBands:[...net.children].map(e=>[e.className,e.getBoundingClientRect().height])};
+        }
         return {ok:true};
       }finally{grid.remove()}
     })()`)
