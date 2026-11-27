@@ -151,7 +151,7 @@ TIMED_ACTIVE = '''        record = sessions.get(name)
         if clear and name in sessions and not active:'''
 assert LEGACY_ACTIVE in LEGACY_HELPERS and TIMED_ACTIVE in HELPERS and HOLD_BLOCK in HELPERS
 
-def patch_text(text: str) -> str:
+def _patch_kick_text(text: str) -> str:
     if "def _ke7wil_zello_is_kicked(user):" in text:
         if "ZELLO_KICK_HOLD_SECONDS" in text:
             return text
@@ -182,6 +182,51 @@ def patch_text(text: str) -> str:
     if text.count(stop_anchor) != 1:
         raise RuntimeError("unsupported Zello source: stream-stop anchor changed")
     return text.replace(stop_anchor, stop_replacement, 1)
+
+
+EXACT_BAN_HELPER = r'''
+# #319: exact Zello-only identity enforcement; radio policy stays separate.
+ZELLO_EXACT_BANS = os.path.join(
+    os.path.dirname(globals().get("ZELLO_GLOBAL_BANS") or ZELLO_SESSION_KICKS),
+    "asr-zello-exact-bans.json",
+)
+
+
+def _ke7wil_zello_is_exact_banned(user):
+    name = _ke7wil_clean_talker_name(user).upper()
+    if not name:
+        return False
+    try:
+        with open(ZELLO_EXACT_BANS, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict) or payload.get("schema") != 1:
+            return False
+        rules = payload.get("rules")
+        record = rules.get(name) if isinstance(rules, dict) else None
+        if not isinstance(record, dict) or set(record) != {"createdAt", "expiresAt"}:
+            return False
+        created, expires = record["createdAt"], record["expiresAt"]
+        return (type(created) is int and type(expires) is int and created >= 0
+                and (expires == 0 or (expires > created and time.time() < expires)))
+    except (OSError, ValueError):
+        return False
+'''
+
+
+def patch_text(text: str) -> str:
+    text = _patch_kick_text(text)
+    if "def _ke7wil_zello_is_exact_banned(user):" in text:
+        return text
+    anchor = "\n# KE7WIL safe Zello stream debug export\n"
+    if text.count(anchor) != 1:
+        raise RuntimeError("unsupported Zello source: exact-ban insertion anchor changed")
+    for value in ("user", "self._talk_user"):
+        old = f"if _ke7wil_zello_is_banned({value}) or _ke7wil_zello_is_kicked({value}):"
+        new = old[:-1] + f" or _ke7wil_zello_is_exact_banned({value}):"
+        if text.count(old) != 1:
+            raise RuntimeError("unsupported Zello source: exact-ban suppression anchor changed")
+        text = text.replace(old, new, 1)
+    return text.replace(anchor, "\n" + EXACT_BAN_HELPER + anchor, 1)
 
 
 def patch_file(path: Path) -> bool:

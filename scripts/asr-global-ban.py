@@ -25,6 +25,7 @@ ADMIN_LOCK = str(GLOBAL_BAN_ROOT / ".asr-global-ban.lock")
 CONFIG = "/etc/allscan-reimagined/config.json"
 ZELLO_TALKERS = "/var/www/html/allscan/zello-talkers.json"
 ZELLO_KICKS = str(GLOBAL_BAN_ROOT / "asr-zello-kicks.json")
+ZELLO_EXACT_BANS = str(GLOBAL_BAN_ROOT / "asr-zello-exact-bans.json")
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
 TGIF_SESSION_HELPER = os.environ.get("ASR_TGIF_SESSION_HELPER", "/usr/local/sbin/allscan-reimagined-tgif-user-session")
@@ -370,6 +371,84 @@ def ban_payload(rules, timed, now=None):
         }
         for rule in sorted(set(rules))
     ]
+
+
+# #319: independent exact-name policy storage. Never send these keys to
+# radio adapters or store them as whitespace-delimited callsign rules.
+# This data layer is intentionally not exposed through the API until
+# runtime enforcement, management and per-rule scope reporting are ready.
+def normalize_zello_exact_ban(value):
+    name = str(value).strip().upper()
+    if not ZELLO_NAME_RE.fullmatch(name) or RULE_RE.fullmatch(name):
+        raise ValueError("Expected an exact Zello name outside the existing radio-rule alphabet.")
+    assert_ban_allowed(name)
+    return name
+
+
+def read_zello_exact_bans():
+    try:
+        with open(ZELLO_EXACT_BANS, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Exact Zello ban policy is unreadable.") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != 1 or not isinstance(payload.get("rules"), dict):
+        raise RuntimeError("Exact Zello ban policy is unreadable.")
+    rules = payload["rules"]
+    for name, record in rules.items():
+        if (name != name.strip().upper() or not ZELLO_NAME_RE.fullmatch(name)
+                or RULE_RE.fullmatch(name) or not isinstance(record, dict)
+                or set(record) != {"createdAt", "expiresAt"}
+                or type(record["createdAt"]) is not int or type(record["expiresAt"]) is not int
+                or record["createdAt"] < 0 or record["expiresAt"] < 0
+                or (record["expiresAt"] and record["expiresAt"] <= record["createdAt"])):
+            raise RuntimeError("Exact Zello ban policy is unreadable.")
+    return rules
+
+
+def write_zello_exact_bans(rules):
+    directory = os.path.dirname(ZELLO_EXACT_BANS)
+    fd, tmp = tempfile.mkstemp(prefix=".asr-zello-exact-bans.", dir=directory, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"schema": 1, "rules": rules}, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, ZELLO_EXACT_BANS)
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def change_zello_exact_ban(rules, verb, value, duration="permanent", now=None):
+    """Pure mutation: caller owns admin lock, audit and commit."""
+    name = normalize_zello_exact_ban(value)
+    records = dict(rules)
+    current = int(time.time()) if now is None else int(now)
+    if verb == "ban":
+        if duration not in BAN_DURATIONS:
+            raise ValueError("Invalid ban duration.")
+        seconds = BAN_DURATIONS[duration]
+        records[name] = {"createdAt": current, "expiresAt": current + seconds if seconds else 0}
+    elif verb == "unban":
+        records.pop(name, None)
+    else:
+        raise ValueError("Invalid exact Zello ban action.")
+    return records
+
+
+def active_zello_exact_bans(rules, now=None):
+    current = int(time.time()) if now is None else int(now)
+    return {name: record for name, record in rules.items()
+            if not record["expiresAt"] or record["expiresAt"] > current}
 
 
 def write_zello_kick(callsign, actor="system"):

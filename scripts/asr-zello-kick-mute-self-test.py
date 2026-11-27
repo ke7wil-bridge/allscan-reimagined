@@ -124,4 +124,33 @@ with tempfile.TemporaryDirectory() as tmp:
     namespace["_ke7wil_zello_clear_kick"]("Taurus 78")
     check(namespace["_ke7wil_zello_is_kicked"]("Taurus 78"), "rekey ended hold")
     check(not namespace["_ke7wil_zello_is_kicked"]("TAURUS"), "prefix neighbor incorrectly muted")
+# #319: exact-name ban checks are independent of the Kick hold and radio rules.
+with tempfile.TemporaryDirectory() as tmp:
+    policy.CONFIG = str(Path(tmp) / "missing-config.json")
+    policy.ZELLO_EXACT_BANS = str(Path(tmp) / "asr-zello-exact-bans.json")
+    os.environ["ZELLO_SESSION_KICKS"] = str(Path(tmp) / "kicks.json")
+    now = int(time.time())
+    rules = policy.change_zello_exact_ban({}, "ban", "TAURUS 78", "15m", now)
+    policy.write_zello_exact_bans(rules)
+    namespace = {}
+    exec(compile(fresh, "patched-zello-bridge", "exec"), namespace)
+    exact = namespace["_ke7wil_zello_is_exact_banned"]
+    check(exact("Taurus 78"), "exact Zello name was not banned")
+    check(not exact("TAURUS"), "radio identity was accidentally banned")
+    check(not exact("TAURUS 79"), "neighboring name was accidentally banned")
+    check(namespace["on_start"]("Taurus 78") == "suppressed", "exact ban failed at stream start")
+    from types import SimpleNamespace
+    check(namespace["on_audio"](SimpleNamespace(_talk_user="Taurus 78")) == "suppressed", "exact ban failed during stream")
+    check(namespace["on_audio"](SimpleNamespace(_talk_user="Taurus 79")) is None, "unrelated stream blocked")
+    policy.write_zello_exact_bans({"TAURUS 78": {"createdAt": now-901, "expiresAt": now-1}})
+    check(not exact("Taurus 78"), "expired exact-name ban still suppresses audio")
+    policy.write_zello_exact_bans(policy.change_zello_exact_ban(rules, "unban", "TAURUS 78"))
+    check(not exact("Taurus 78"), "exact-name unban did not take effect")
+    # A source with the prior timed Kick patch upgrades without adding duplicate helpers.
+    previous = fresh.replace(patch.EXACT_BAN_HELPER, "", 1)
+    for target in ("user", "self._talk_user"):
+        previous = previous.replace(f" or _ke7wil_zello_is_exact_banned({target})", "")
+    upgraded_exact = patch.patch_text(previous)
+    check(upgraded_exact.count("def _ke7wil_zello_is_exact_banned(user):") == 1, "exact-ban upgrade failed")
+    check(patch.patch_text(upgraded_exact) == upgraded_exact, "exact-ban upgrade not idempotent")
 print("Zello Kick one-minute mute self-test: ok")
