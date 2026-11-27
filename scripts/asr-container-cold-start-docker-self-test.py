@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Opt-in, isolated Docker smoke test for late host broker startup.
 
-Uses the actual layered entrypoint and current reapply script with a local
-release image, no external networking, no real host sockets or bridge state.
+Uses the actual layered entrypoint with either a local release image and
+current reapply script or the unmodified reapply script from a packaged image.
+No external networking, real host sockets or bridge state.
 The socket peer is a read-only protocol fixture, not a privileged broker.
 """
 from __future__ import annotations
@@ -36,8 +37,10 @@ def main():
         raise SystemExit("Run as the Docker-authorized development user, not root")
     parser = argparse.ArgumentParser()
     parser.add_argument("--browser", action="store_true", help="also test the actual browser and PHP authorization boundary")
+    parser.add_argument("--packaged-image", help="use the exact locally built release image, without a reapply override")
     args_cli = parser.parse_args()
-    docker("image", "inspect", BASE)
+    image = args_cli.packaged_image or BASE
+    docker("image", "inspect", image)
     name = f"asr316-cold-{os.getpid()}"
     network = name + "-isolated"
     volumes = [f"{name}-{key}" for key in ("web", "allscan", "config", "state")]
@@ -55,9 +58,6 @@ def main():
             (path / "sentinel").write_text(mode)
             info = path.stat()
             before[mode] = (info.st_uid, info.st_gid, info.st_mode)
-        script = root / "layered-reapply.sh"
-        script.write_bytes((ROOT / "docker/layered-reapply.sh").read_bytes())
-        script.chmod(0o755)
         seed = root / "config.seed.json"
         config = json.loads((ROOT / "personalization/config.seed.json").read_text())
         config.update(node="100001", callsign="N0CALL", bridges=[], requireLogin=True)
@@ -69,8 +69,14 @@ def main():
                 "-e", "ASR_AMI_HOST=127.0.0.1", "-e", "ASR_AMI_PASS=offline-qa-only",
                 "-e", "ASR_REQUIRE_LOGIN=1",
                 "-v", f"{db}:/var/lib/asterisk:ro",
-                "-v", f"{script}:/usr/local/sbin/allscan-reimagined-docker-reapply:ro",
                 "-v", f"{seed}:/opt/asr-source/personalization/config.seed.json:ro"]
+        if not args_cli.packaged_image:
+            script = root / "layered-reapply.sh"
+            script.write_bytes((ROOT / "docker/layered-reapply.sh").read_bytes())
+            script.chmod(0o755)
+            args += ["-v", f"{script}:/usr/local/sbin/allscan-reimagined-docker-reapply:ro"]
+        else:
+            print(f"Testing packaged image {image} without a reapply override", flush=True)
         for mode in RUNTIME:
             args += ["-v", f"{root / mode}:/run/allscan-reimagined-{mode}:ro"]
         for volume, dest in zip(volumes, ("/var/www/html", "/etc/allscan",
@@ -79,7 +85,7 @@ def main():
         try:
             if args_cli.browser:
                 docker("network", "create", "--internal", network)
-            docker(*args, BASE)
+            docker(*args, image)
             for _ in range(60):
                 result = docker("exec", name, "php", "-r",
                     '$v=@file_get_contents("http://127.0.0.1/asr/");exit(is_string($v)&&str_contains($v,"assets/index-")?0:1);',
