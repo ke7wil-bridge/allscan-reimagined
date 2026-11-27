@@ -32,6 +32,7 @@ for version in ("1.02", "1.03", "1.04", "1.05", "1.06"):
         "writeSharedStatus($sharedCache", "filesize($messagePath) > 1048576",
         "$currentInode !== $messageInode", "$messageOffset = 0",
         "$cacheStale", "asrStatusForAmiAvailability($cleanCurrent, $unavailable)",
+        "talker_source_instance", "talker_event_sequence", "origin_events",
     ):
         assert required in server, (version, required)
 
@@ -52,12 +53,19 @@ with tempfile.TemporaryDirectory() as directory:
                "started_epoch": now - 2, "duration": 2}
     short = {"node": "54341", "info": "W2ABC", "source": "EchoLink",
              "started_epoch": now - 3, "event_epoch": now - 2, "duration": 1}
-    cache.write_text(json.dumps({"updated": time.time(), "current": {"641894": {
+    origin = {"sequence": 7, "node": "54341", "source": "AllStar",
+              "started_epoch": now - 3, "event_epoch": now - 2}
+    cache.write_text(json.dumps({"updated": time.time(),
+        "talker_source_instance": "a" * 64, "talker_event_sequence": 7,
+        "origin_events": [origin], "current": {"641894": {
         "current_talker": current, "last_talkers": [short]}}}))
     config = {"node": "641894", "authoritativeTalkerCache": str(cache)}
     snapshot = agent.read_asr_talkers(config)
     assert snapshot["current_talker"] == current
     assert snapshot["last_talkers"] == [short]
+    assert snapshot["watcher_instance"] == "a" * 64
+    assert snapshot["talker_sequence"] == 7
+    assert snapshot["origin_events"] == [origin]
 
     payload = {"hub": "phoenix", "node": "641894", "generated_epoch": now,
                "connections": [], "bridges": {}, "talker_authority": "asr",

@@ -136,7 +136,17 @@ def read_asr_talkers(config: dict) -> dict:
         if 0 <= time.time() - float(cache.get("updated", 0)) <= 10:
             local = cache.get("current", {}).get(str(config["node"]))
             if isinstance(local, dict):
-                return {"talker_source_epoch": float(cache["updated"]), "current_talker": local.get("current_talker") or {}, "last_talkers": local.get("last_talkers") or []}
+                instance = str(cache.get("talker_source_instance") or "")
+                sequence = cache.get("talker_event_sequence")
+                events = cache.get("origin_events")
+                telemetry = {}
+                if (re.fullmatch(r"[a-f0-9]{64}", instance) and type(sequence) is int
+                        and sequence >= 0 and isinstance(events, list) and len(events) <= 100):
+                    telemetry = {"watcher_instance": instance, "talker_sequence": sequence,
+                                 "origin_events": events}
+                return {"talker_source_epoch": float(cache["updated"]),
+                        "current_talker": local.get("current_talker") or {},
+                        "last_talkers": local.get("last_talkers") or []} | telemetry
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     return {}

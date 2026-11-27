@@ -133,6 +133,9 @@ if($enrichedTalkerHistory !== $asrTalkerHistory) {
 	writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
 }
 $asrCurrentTalker = null;
+$asrTalkerSourceInstance = hash('sha256', $asteriskBootId . ':' . getmypid() . ':' . microtime(true));
+$asrTalkerEventSequence = 0;
+$asrOriginEvents = [];
 //$n = 0;
 while(!empty($fp[$node])) {
 	$nodeResult = getNode($fp[$node], $node);
@@ -186,12 +189,27 @@ while(!empty($fp[$node])) {
 	if($nextCurrentTalker !== null) {
 		$nextCurrentTalker = asrEnrichBridgeTalker($nextCurrentTalker, [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
 	}
+	$completedTalker = is_array($asrCurrentTalker)
+		&& (string)($asrCurrentTalker['node'] ?? '') !== ''
+		&& (string)($asrCurrentTalker['node'] ?? '') !== (string)($nextCurrentTalker['node'] ?? '');
 	// History is transmission-event history, not unique-station history.
 	// If the same node keys three separate times, keep all three events.
 	$talkerState = asrAdvanceTalkerState($asrCurrentTalker, $nextCurrentTalker, $asrTalkerHistory);
 	$asrCurrentTalker = $talkerState['current'];
 	$asrTalkerHistory = $talkerState['history'];
 	if($talkerState['history_changed']) writeTalkerHistory($talkerHistoryPath, $asrTalkerHistory);
+	if($completedTalker && is_array($asrTalkerHistory[0] ?? null)) {
+		$finished = $asrTalkerHistory[0];
+		$asrTalkerEventSequence++;
+		$asrOriginEvents[] = [
+			'sequence' => $asrTalkerEventSequence,
+			'node' => (string)($finished['node'] ?? ''),
+			'source' => (string)($finished['source'] ?? ''),
+			'started_epoch' => (int)($finished['started_epoch'] ?? 0),
+			'event_epoch' => (int)($finished['event_epoch'] ?? 0),
+		];
+		$asrOriginEvents = array_slice($asrOriginEvents, -100);
+	}
 	$current[$node]['current_talker'] = $asrCurrentTalker;
 	$current[$node]['last_talkers'] = $asrTalkerHistory;
 
@@ -207,7 +225,8 @@ while(!empty($fp[$node])) {
 	// adaptive AMI polling delay and shared feed still provide the load savings.
 	sendData($nodeTime, 'nodetimes');
 	if($sharedLeader)
-		writeSharedStatus($sharedCache, $current, $nodeTime);
+		writeSharedStatus($sharedCache, $current, $nodeTime, $asrTalkerSourceInstance,
+			$asrTalkerEventSequence, $asrOriginEvents);
 	if(connection_aborted())
 		break;
 	usleep(asrPollDelayUs($current, $node));
@@ -412,11 +431,14 @@ function writeTalkerHistory($path, $rows) {
 	} else @unlink($tmp);
 }
 
-function writeSharedStatus($path, $current, $nodeTime) {
+function writeSharedStatus($path, $current, $nodeTime, $sourceInstance = '', $eventSequence = 0, $originEvents = []) {
 	$payload = json_encode([
 		'updated' => microtime(true),
 		'current' => $current,
 		'nodeTime' => $nodeTime,
+		'talker_source_instance' => (string)$sourceInstance,
+		'talker_event_sequence' => max(0, (int)$eventSequence),
+		'origin_events' => array_slice(array_values((array)$originEvents), -100),
 	]);
 	if($payload === false)
 		return;

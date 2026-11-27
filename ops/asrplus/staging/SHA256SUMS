@@ -1,5 +1,5 @@
 045a3953b48eb63c269eb1abe73f7f3585136b5acaa32f8a9a8c344bc221beac  ./README.md
-c9cfabeed48c3e6130d83bc7d9f0b949f13a184a1c3c690be182201e61a5eea7  ./ky2/asrplus-ky-agent
+ce25c3523f70304937128695d130beb061b4db6e221a48f793ed489be5499372  ./ky2/asrplus-ky-agent
 6680fb7a4a830e9afdfa115c11963e61929dfb7451ecb230f1e9d8f68d214ae0  ./ky2/asrplus-ky-control.json
 d0e8a81ccd798033e4a10f8559e0ec3cb7391860ee03fb2211ebef7f37c6010f  ./ky2/asrplus-ky-control.service.d/security-hardening.conf
 8b8484850a4b01a2e071e65c88505269be59417463f97fa5ba60268ad5da3f85  ./ky2/asrplus-ky.json
@@ -8,7 +8,7 @@ bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392  ./ky2/asrplus_
 656c09ef2a1743c1798c47aa115ae30e71b3ff1e4f49d68b5c7d8d37a36daaae  ./masterhub/asrplus-remote-endpoint.py
 bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392  ./masterhub/asrplus_command_integrity.py
 12842a2ddce2c4ba5d01853589b0bff0c1e4e86a85c6b312c249766975572c81  ./masterhub/command-integrity.json
-c9cfabeed48c3e6130d83bc7d9f0b949f13a184a1c3c690be182201e61a5eea7  ./phoenix/asrplus-agent
+ce25c3523f70304937128695d130beb061b4db6e221a48f793ed489be5499372  ./phoenix/asrplus-agent
 19dde5ac74137c24f064380f75f0406f47b19cd541159b714ab55a54bf69a1a3  ./phoenix/asrplus-agent.json
 1a85390761288e9b0b163473ee7426a6ada799115f544f21c20b3ca4d95b5a84  ./phoenix/asrplus-agent.service.d/command-integrity.conf
 bdd5c10dbce8d65255640495db22a151cd490694734c3ba1ddd0ce6247744392  ./phoenix/asrplus_command_integrity.py
