@@ -158,10 +158,12 @@ while(!empty($fp[$node])) {
 	$current[$node]['node'] = $node;
 	$current[$node]['info'] = $info;
 	// Save remote nodes
+	$nodeTime[$node]['remote_nodes'] = [];
 	$current[$node]['remote_nodes'] = [];
 	$i = 0;
 	foreach($sortedConnectedNodes as $arr) {
 		// Store remote nodes time values
+		$nodeTime[$node]['remote_nodes'][$i]['node'] = $arr['node'] ?? '';
 		$nodeTime[$node]['remote_nodes'][$i]['elapsed'] = $arr['elapsed'] ?? 0;
 		$nodeTime[$node]['remote_nodes'][$i]['last_keyed'] = $arr['last_keyed'];
 		// Store remote nodes other than time values
