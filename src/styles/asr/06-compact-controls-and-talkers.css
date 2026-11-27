@@ -936,3 +936,54 @@ html[data-asr-mode="light"] .asr-bridge-activity-label[data-event="TX"] { color:
 .asr-zello-moderation-status[data-status="banned"] { color: #c3a09b; }
 html[data-asr-mode="light"] .asr-zello-moderation-status[data-status="banned"] { color: #875a55; }
 .asr-zello-moderation-status[data-status="unavailable"] { opacity: .65; }
+
+/* #320: match the compact ASRPlus moderation footprint; retain native
+   duration selection and allow long identities to wrap rather than disappear. */
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-client-user {
+  flex-basis: 94px;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .asr-client-duration {
+  font-size: 10px;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions {
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions > :is(button,select) {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 20px;
+  height: 20px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 750;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions > button {
+  width: 32px;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions > select {
+  width: 50px;
+  padding-inline: 2px;
+}
+.allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .asr-zello-moderation-status {
+  width: 58px;
+  flex-basis: 58px;
+  min-height: 20px;
+  font-size: 9px;
+}
+/* Zello has only TX events: do not reserve the width of CONN/DISC. */
+.allscan-bridge-grid > .allscan-bridge-card[data-bridge-mode="zello"] .asr-bridge-activity-list > .allscan-bridge-client:not(.is-empty) {
+  grid-template-columns: auto max-content minmax(0,1fr);
+  gap: 3px;
+}
+@media (max-width: 1199px) {
+  .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .allscan-bridge-inline-client-actions > :is(button,select),
+  .allscan-bridge-grid > .allscan-bridge-card .asr-bridge-roster .asr-zello-moderation-status {
+    min-height: 24px;
+    height: 24px;
+  }
+}
