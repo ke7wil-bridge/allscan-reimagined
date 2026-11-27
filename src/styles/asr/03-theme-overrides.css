@@ -898,14 +898,12 @@ html[data-asr-theme="lcars-frame"] .allscan-bridge-client-meta {
 
 @media (max-width: 900px) and (orientation: portrait) {
   .allscan-controls-section {
-    width: 100%;
     margin-right: auto;
     margin-left: auto;
   }
 
   .allscan-controls-shell {
     width: fit-content;
-    max-width: 100%;
     padding: 6px;
   }
 
