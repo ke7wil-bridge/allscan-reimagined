@@ -118,10 +118,11 @@ async function runBrowser(unauthorized = false) {
         const row = dmrLink.filter({has:page.getByRole('button',{name:'Disconnect',exact:true})})
         const geometry = await row.evaluate(el => {
           const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()
+          const dot=el.querySelector('.allscan-standard-link-dot').getBoundingClientRect(), node=el.querySelector('span').getBoundingClientRect(), status=el.querySelector('b').getBoundingClientRect()
           const peers=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')].map(row=>row.getBoundingClientRect().height)
-          return {height:r.height, peers, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
+          return {height:r.height, peers, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===3 && dot.height===3 && dot.left-node.right>=0 && dot.left-node.right<=6 && status.left-dot.right>=0 && status.left-dot.right<=6, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
         })
-        assert(geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        assert(geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
         console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }
@@ -129,15 +130,15 @@ async function runBrowser(unauthorized = false) {
     await page.setViewportSize({width:1440,height:1000})
     await page.evaluate(() => { for (const el of [document.documentElement,document.body]) { el.dataset.asrTheme='standard'; el.dataset.asrMode='dark' } })
     await dmrLink.getByRole('button',{name:'Disconnect',exact:true}).click()
-    await dmrLink.getByText('Manually disconnected',{exact:true}).waitFor()
+    await dmrLink.locator('b[title="Manually disconnected"]').filter({hasText:/^Unlinked$/}).waitFor()
     assert(await ysfLink.getByText('Linked',{exact:true}).isVisible(), 'DMR hold changed an unrelated YSF bridge')
-    assert(await p25Link.getByText('Manually disconnected · control unavailable',{exact:true}).isVisible(), 'unavailable persistent hold is not visible')
+    assert(await p25Link.locator('b[title="Manually disconnected · control unavailable"]').filter({hasText:/^Unlinked$/}).isVisible(), 'unavailable persistent hold is not visible')
     assert(await p25Link.getByRole('button').count() === 0, 'unavailable held bridge exposes generic reconnect')
     rejectLink = true
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
     await page.getByText('Fixture link operation rejected',{exact:false}).first().waitFor()
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).waitFor()
-    assert(await dmrLink.getByText('Manually disconnected',{exact:true}).isVisible(), 'failed reconnect cleared the saved hold')
+    assert(await dmrLink.locator('b[title="Manually disconnected"]').filter({hasText:/^Unlinked$/}).isVisible(), 'failed reconnect cleared the saved hold')
     rejectLink = false
     await page.setViewportSize({width:390,height:844})
     await dmrLink.getByRole('button',{name:'Reconnect',exact:true}).click()
