@@ -375,8 +375,7 @@ def ban_payload(rules, timed, now=None):
 
 # #319: independent exact-name policy storage. Never send these keys to
 # radio adapters or store them as whitespace-delimited callsign rules.
-# This data layer is intentionally not exposed through the API until
-# runtime enforcement, management and per-rule scope reporting are ready.
+# Never claim cross-protocol enforcement for an unmapped Zello identity.
 def normalize_zello_exact_ban(value):
     name = str(value).strip().upper()
     if not ZELLO_NAME_RE.fullmatch(name) or RULE_RE.fullmatch(name):
@@ -449,6 +448,47 @@ def active_zello_exact_bans(rules, now=None):
     current = int(time.time()) if now is None else int(now)
     return {name: record for name, record in rules.items()
             if not record["expiresAt"] or record["expiresAt"] > current}
+
+
+def zello_exact_ban_payload(rules, now=None):
+    current = int(time.time()) if now is None else int(now)
+    return [{**record, "rule": name, "scope": "zello-only",
+             "remainingSeconds": max(0, record["expiresAt"] - current) if record["expiresAt"] else 0,
+             "verified": False}
+            for name, record in sorted(active_zello_exact_bans(rules, current).items())]
+
+
+def expire_zello_exact_bans(actor="system"):
+    rules = read_zello_exact_bans()
+    active = active_zello_exact_bans(rules)
+    expired = sorted(set(rules) - set(active))
+    if expired:
+        write_zello_exact_bans(active)
+        for name in expired:
+            append_audit_event("expire", actor, rule=name, protocol="ZELLO", scope="zello-only")
+    return active
+
+
+def execute_zello_exact_ban(verb, token=None, duration="permanent", actor="system"):
+    """Caller holds the same lock as the shared global administration helper."""
+    if verb == "list":
+        rules = read_zello_exact_bans()
+    elif verb in {"ban", "unban"}:
+        if not token or not token.startswith(ZELLO_KICK_TOKEN_PREFIX):
+            raise ValueError("An encoded exact Zello identity is required.")
+        name = normalize_zello_exact_ban(decode_zello_kick_identity(token))
+        rules = change_zello_exact_ban(read_zello_exact_bans(), verb, name, duration)
+        write_zello_exact_bans(rules)
+        if read_zello_exact_bans() != rules:
+            raise RuntimeError("Exact Zello ban policy write could not be verified.")
+        append_audit_event(verb, actor, rule=name, protocol="ZELLO", scope="zello-only",
+                           expiresAt=rules.get(name, {}).get("expiresAt"))
+    else:
+        raise ValueError("Invalid exact Zello ban action.")
+    return dict(ok=True, scope="zello-only", verified=False,
+                enforcement="saved_policy_runtime_unverified",
+                bans=zello_exact_ban_payload(rules),
+                serverEpoch=int(time.time()))
 
 
 def write_zello_kick(callsign, actor="system"):
@@ -589,12 +629,26 @@ def fan_out_to_hubs(verb, kind, value, duration="", actor="system"):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire"])
+    parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire", "zello-ban", "zello-unban", "zello-ban-list"])
     parser.add_argument("rule", nargs="?")
     parser.add_argument("protocol", nargs="?")
     parser.add_argument("--actor", default="system")
     args = parser.parse_args()
 
+    if args.action in {"zello-ban", "zello-unban", "zello-ban-list"}:
+        verb = {"zello-ban": "ban", "zello-unban": "unban", "zello-ban-list": "list"}[args.action]
+        if (verb == "list" and (args.rule is not None or args.protocol is not None)
+                or verb == "unban" and args.protocol is not None
+                or verb == "ban" and args.protocol not in BAN_DURATIONS):
+            raise ValueError("Invalid exact Zello ban arguments.")
+        emit(**execute_zello_exact_ban(verb, args.rule, args.protocol or "permanent", args.actor))
+        return
+    zello_expiry_error = None
+    if args.action == "expire":
+        try:
+            expire_zello_exact_bans(args.actor)
+        except (OSError, RuntimeError, ValueError) as exc:
+            zello_expiry_error = str(exc)
     if args.action == "kick":
         # Native bridge Kick is per bridge (standalone administration helper).
         # Only Zello, which has no remote disconnect, is kicked here.
@@ -612,7 +666,7 @@ def main():
         verified = global_enforcement_verified(asl, standalone)
         enforcement = "immediate_global" if verified else "partial_pending_enforcement"
         if args.action == "expire":
-            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, rules=sorted(set(rules)),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, zelloExactExpiryError=zello_expiry_error, rules=sorted(set(rules)),
                  bans=ban_payload(rules, timed), standalone=standalone, tgif=reconcile_tgif_bans(),
                  serverEpoch=int(time.time()))
         else:

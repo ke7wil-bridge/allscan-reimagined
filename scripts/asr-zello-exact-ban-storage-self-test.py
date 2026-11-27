@@ -2,6 +2,7 @@
 """#319: lossless exact Zello-name policy storage; no production access."""
 import importlib.util
 import json
+import time
 import tempfile
 from pathlib import Path
 
@@ -39,6 +40,23 @@ with tempfile.TemporaryDirectory() as temp:
             pass
         else:
             raise AssertionError("invalid or legacy radio-rule identity accepted: " + repr(target))
+    policy.AUDIT_LOG = str(root / "asr-admin-audit.jsonl")
+    policy.write_zello_exact_bans({})
+    token = policy.ZELLO_KICK_TOKEN_PREFIX + "TAURUS 78".encode().hex().upper()
+    saved = policy.execute_zello_exact_ban("ban", token, "15m", "fixture")
+    assert saved["scope"] == "zello-only" and saved["verified"] is False
+    assert saved["bans"][0]["rule"] == "TAURUS 78"
+    assert saved["bans"][0]["remainingSeconds"] > 0
+    listed = policy.execute_zello_exact_ban("list")["bans"][0]
+    assert listed["rule"] == saved["bans"][0]["rule"] and listed["expiresAt"] == saved["bans"][0]["expiresAt"]
+    assert policy.execute_zello_exact_ban("unban", token, actor="fixture")["bans"] == []
+    assert [event["action"] for event in policy.read_audit_events()] == ["ban", "unban"]
+    now = int(time.time())
+    policy.write_zello_exact_bans({"TAURUS 78": {"createdAt": now-901, "expiresAt": now-1}})
+    assert policy.expire_zello_exact_bans() == {}
+    assert policy.read_audit_events()[-1]["action"] == "expire"
+    assert policy.read_audit_events()[-1]["scope"] == "zello-only"
+    assert radio_before == (Path(policy.BLACKLIST).read_bytes(), Path(policy.TIMED_BANS).read_bytes())
     Path(policy.ZELLO_EXACT_BANS).write_text(json.dumps({"schema": 1, "rules": {"TAURUS 78": {"createdAt": 1000, "expiresAt": -1}}}))
     try:
         policy.read_zello_exact_bans()
