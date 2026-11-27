@@ -28,7 +28,8 @@ now = int(time.time())
 for version in ("1.02", "1.03", "1.04", "1.05", "1.06"):
     server = (ROOT / f"compat/allscan-v{version}/astapi/server.php").read_text()
     for required in (
-        "--asr-collector", "flock($sharedHandle, LOCK_EX | LOCK_NB)",
+        "--asr-collector",
+        "flock($sharedHandle, $asrHeadless ? LOCK_EX : LOCK_EX | LOCK_NB)",
         "writeSharedStatus($sharedCache", "filesize($messagePath) > 1048576",
         "$currentInode !== $messageInode", "$messageOffset = 0",
         "$cacheStale", "asrStatusForAmiAvailability($cleanCurrent, $unavailable)",
