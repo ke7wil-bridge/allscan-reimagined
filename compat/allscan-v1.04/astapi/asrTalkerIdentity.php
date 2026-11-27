@@ -147,6 +147,7 @@ function asrEnrichAllStarTalker($row, $astdb) {
 		elseif(($row['source'] ?? '') === 'EchoLink' && ($row['identity_provenance'] ?? '') === 'echolink_label'
 			&& preg_match('/^[A-Z0-9*][A-Z0-9*\/-]{1,10}$/iD', $info) && preg_match('/[A-Z*]/i', $info)) $label = strtoupper($info);
 		$row['source'] = 'EchoLink';
+		$row['network_node'] = $echoNumber;
 		$row['info'] = $label !== '' ? $label : 'Unknown EchoLink';
 		$row['description'] = 'EchoLink ' . $echoNumber;
 		$row['location'] = '';

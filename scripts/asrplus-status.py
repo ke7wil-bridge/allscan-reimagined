@@ -541,6 +541,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
     def render_asr(row, current):
         seconds = max(0, int(row.get("duration") or row.get("duration_seconds") or 0))
         return {"node": text(row.get("node"), 16),
+                "displayNode": text(row.get("network_node") or row.get("node"), 16),
                 "callsign": text(row.get("info") or row.get("callsign"), 140),
                 "description": text(row.get("description"), 80),
                 "location": text(row.get("location"), 80),

@@ -22,7 +22,7 @@ $nodeDatabase = [
 $echo = asrSelectCurrentTalker([
     ['node'=>'3069556', 'info'=>'*HAM* [EchoLink 69556]', 'keyed'=>'yes'],
 ], '674982', '', ['3069556'=>['3069556','WRONG','Wrong','Wrong']], 100);
-check($echo['info'] === '*HAM*' && $echo['source'] === 'EchoLink' && $echo['description'] === 'EchoLink 69556', 'EchoLink conference attribution failed');
+check($echo['info'] === '*HAM*' && $echo['source'] === 'EchoLink' && $echo['network_node'] === '69556' && $echo['description'] === 'EchoLink 69556', 'EchoLink conference attribution failed');
 check(asrEnrichAllStarTalker($echo, []) === $echo, 'EchoLink enrichment is not idempotent');
 $unknownEcho = asrEnrichAllStarTalker(['node'=>'3069556','info'=>'WRONG [EchoLink 123]','source'=>'AllStar'], []);
 check($unknownEcho['info'] === 'Unknown EchoLink', 'unverified EchoLink identity accepted');

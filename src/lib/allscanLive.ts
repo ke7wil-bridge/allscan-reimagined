@@ -112,6 +112,7 @@ export type LiveConnectionRow = {
 
 export type TalkerFeedEntry = {
   node: string
+  networkNode?: string
   info: string
   description: string
   location: string
@@ -569,8 +570,8 @@ type FeedPayload = Record<
     node: string
     info: string
     remote_nodes: FeedNode[]
-    current_talker?: { node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; started_epoch?: number } | null
-    last_talkers?: Array<{ node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
+    current_talker?: { node?: string; network_node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; started_epoch?: number } | null
+    last_talkers?: Array<{ node?: string; network_node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
   }
 >
 
@@ -684,7 +685,7 @@ export function talkerInfoParts(html: string, node: string) {
   const echoNumber = /^3(\d{6})$/.exec(node)
   if (echoNumber && Number(echoNumber[1]) > 0) {
     const number = String(Number(echoNumber[1]))
-    const label = identity.match(/^([A-Z0-9*][A-Z0-9*\/-]{1,10})\s+\[EchoLink (\d+)\]$/i)
+    const label = identity.match(/^([A-Z0-9*][A-Z0-9*/-]{1,10})\s+\[EchoLink (\d+)\]$/i)
     const verified = label && label[2] === number && /[A-Z*]/i.test(label[1])
     return { callsign: verified ? label[1].toUpperCase() : 'Unknown EchoLink', description: 'EchoLink ' + number, location: '', sourceOverride: 'EchoLink' }
   }
@@ -876,6 +877,7 @@ function buildSnapshot(
     const parts = talkerInfoParts(String(entry.info || entry.node || ''), node)
     return {
     node,
+    networkNode: String(entry.network_node || '').trim() || undefined,
     info: parts.callsign,
     description: String(entry.description || '').trim() || parts.description,
     location: String(entry.location || '').trim() || parts.location,
