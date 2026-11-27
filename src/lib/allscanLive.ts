@@ -112,6 +112,7 @@ export type LiveConnectionRow = {
 
 export type TalkerFeedEntry = {
   node: string
+  networkNode?: string
   info: string
   description: string
   location: string
@@ -569,8 +570,8 @@ type FeedPayload = Record<
     node: string
     info: string
     remote_nodes: FeedNode[]
-    current_talker?: { node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; started_epoch?: number } | null
-    last_talkers?: Array<{ node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
+    current_talker?: { node?: string; network_node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; started_epoch?: number } | null
+    last_talkers?: Array<{ node?: string; network_node?: string; info?: string; description?: string; location?: string; source?: string; duration?: string | number; event_epoch?: number; started_epoch?: number }>
   }
 >
 
@@ -681,6 +682,13 @@ export function talkerInfoParts(html: string, node: string) {
   // AllStar callsigns may include an operating suffix such as /R, /P, /M,
   // /MM, or /QRP. Keep the suffix as part of the station identity instead of
   // rejecting the callsign and falling back to the numeric node number.
+  const echoNumber = /^3(\d{6})$/.exec(node)
+  if (echoNumber && Number(echoNumber[1]) > 0) {
+    const number = String(Number(echoNumber[1]))
+    const label = identity.match(/^([A-Z0-9*][A-Z0-9*/-]{1,10})\s+\[EchoLink (\d+)\]$/i)
+    const verified = label && label[2] === number && /[A-Z*]/i.test(label[1])
+    return { callsign: verified ? label[1].toUpperCase() : 'Unknown EchoLink', description: 'EchoLink ' + number, location: '', sourceOverride: 'EchoLink' }
+  }
   const parsedCallsign = identity.match(/^[A-Z0-9]{3,10}(?:\/[A-Z0-9]{1,6})?(?=\s|$)/i)?.[0] || ''
   const iaxClient = /^(?:IAX(?:RPT)?|WEB\s*TRANSCEIVER)(?:\s|\/|$)/i.test(identity)
   const nodeCallsign = /^(?=[A-Z0-9]{3,10}$)(?=.*\d)[A-Z0-9]+$/i.test(node) ? node.toUpperCase() : ''
@@ -869,6 +877,7 @@ function buildSnapshot(
     const parts = talkerInfoParts(String(entry.info || entry.node || ''), node)
     return {
     node,
+    networkNode: String(entry.network_node || '').trim() || undefined,
     info: parts.callsign,
     description: String(entry.description || '').trim() || parts.description,
     location: String(entry.location || '').trim() || parts.location,

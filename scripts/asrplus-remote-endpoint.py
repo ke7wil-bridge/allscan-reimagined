@@ -95,6 +95,9 @@ def sanitize_status(hub: str, payload: dict) -> dict:
         node = str(row.get("node", ""))[:16]
         if not re.fullmatch(r"[A-Za-z0-9*#-]{1,16}", node):
             return {}
+        network_node = str(row.get("network_node", ""))[:16]
+        if network_node and not re.fullmatch(r"[A-Za-z0-9*#-]{1,16}", network_node):
+            network_node = ""
         event = int(row.get("event_epoch") or 0)
         started = int(row.get("started_epoch") or row.get("keyed_started_epoch") or 0)
         if current and (started <= 0 or abs(generated - started) > 86400):
@@ -102,7 +105,8 @@ def sanitize_status(hub: str, payload: dict) -> dict:
         if not current and (event <= 0 or event > generated + 30 or generated - event > 86400):
             return {}
         return {
-            "node": node, "label": str(row.get("label", ""))[:140],
+            "node": node, "network_node": network_node,
+            "label": str(row.get("label", ""))[:140],
             "callsign": str(row.get("callsign", ""))[:80],
             "info": str(row.get("info", ""))[:140],
             "source": str(row.get("source", ""))[:32],

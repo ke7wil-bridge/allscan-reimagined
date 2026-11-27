@@ -104,6 +104,9 @@ try {
   assert(isNodeMessageAuthNotice('Login required for TGIF client tracking.'), 'scoped login notice was not recognized')
   assert(!isNodeMessageAuthNotice('Login with node-control permission required.'), 'an actionable role notice was mistaken for stale login state')
 
+  const echo = talkerInfoParts('*HAM* [EchoLink 69556]', '3069556')
+  assert(echo.callsign === '*HAM*' && echo.sourceOverride === 'EchoLink' && echo.description === 'EchoLink 69556', 'EchoLink conference attribution failed')
+  assert(talkerInfoParts('WRONG [EchoLink 123]', '3069556').callsign === 'Unknown EchoLink', 'unverified EchoLink identity accepted')
   const iaxTalker = talkerInfoParts('IaxRpt / Web Transceiver client\u00a0\u00a0Goodyear, AZ', 'KM7GHS')
   assert(iaxTalker.callsign === 'KM7GHS', 'IaxRpt transport label replaced the Web Transceiver callsign')
   assert(iaxTalker.sourceOverride === 'VoIP App', 'Web Transceiver source label was not normalized')

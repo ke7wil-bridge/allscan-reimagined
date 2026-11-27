@@ -68,7 +68,7 @@ $sharedLock = $sharedDir . '/astapi-' . $node . '.lock';
 $sharedCache = $sharedDir . '/astapi-' . $node . '.json';
 $guardPath = $sharedDir . '/astapi-' . $node . '.breaker';
 $sharedHandle = is_dir($sharedDir) ? @fopen($sharedLock, 'c') : false;
-$sharedLeader = $sharedHandle !== false && @flock($sharedHandle, LOCK_EX | LOCK_NB);
+$sharedLeader = $sharedHandle !== false && @flock($sharedHandle, $asrHeadless ? LOCK_EX : LOCK_EX | LOCK_NB);
 if($sharedHandle !== false && !$sharedLeader) {
 	if ($asrHeadless) exit(0);
 	$sharedLeader = streamSharedStatus($sharedHandle, $sharedCache);
