@@ -208,6 +208,7 @@ python3 "$ROOT/scripts/asr-dmr-roster-stability-self-test.py"
 node "$ROOT/scripts/asr-favorites-placement-self-test.mjs"
 node --experimental-strip-types "$ROOT/scripts/asr-favorite-connection-names-self-test.mjs"
 node --experimental-strip-types "$ROOT/scripts/asr-dashboard-interaction-self-test.mjs"
+node "$ROOT/scripts/asr-fast-card-api-self-test.mjs"
 node "$ROOT/scripts/asr-favorite-connection-names-browser-self-test.mjs"
 node "$ROOT/scripts/asr-favorites-recovery-self-test.mjs"
 python3 "$ROOT/scripts/asr-protected-config-metadata.py" --self-test
