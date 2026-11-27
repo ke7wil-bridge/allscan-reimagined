@@ -1558,44 +1558,28 @@ function App({ config }: { config: RuntimeConfig }) {
 
   useEffect(() => {
     if (!authStatus.canRead) return
-    let cancelled = false
-    const refreshCustomCommands = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchCustomCommands()
-        if (cancelled) return
+        if (!isActive()) return
         setCustomCommandsEnabled(next.enabled)
         setCustomCommands(next.commands)
       } catch (error) {
-        if (!cancelled) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
+        if (isActive()) setCustomCommandsStatus(error instanceof Error ? error.message : 'Custom commands could not be loaded.')
       }
-    }
-    void refreshCustomCommands()
-    window.addEventListener('focus', refreshCustomCommands)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', refreshCustomCommands)
-    }
+    }, { onFocus: true })
   }, [authStatus.canRead])
 
   useEffect(() => {
     if (!authStatus.loggedIn || !config.tgifSessionRequired) return
-    let cancelled = false
-    const refreshTgifStatus = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchTgifUserStatus()
-        if (!cancelled) setTgifUserStatus(next)
+        if (isActive()) setTgifUserStatus(next)
       } catch {
         // A transient status request failure is not proof that another login is required.
       }
-    }
-    void refreshTgifStatus()
-    window.addEventListener('focus', refreshTgifStatus)
-    const timer = window.setInterval(refreshTgifStatus, 60000)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', refreshTgifStatus)
-      window.clearInterval(timer)
-    }
+    }, { onFocus: true, intervalMs: 60000 })
   }, [authStatus.loggedIn, config.tgifSessionRequired])
 
   useEffect(() => {
@@ -1655,34 +1639,26 @@ function App({ config }: { config: RuntimeConfig }) {
   }, [config.node, netBridgeMode])
 
   useEffect(() => {
-    let cancelled = false
     let failureNotified = false
 
-    const refreshCpu = async () => {
+    return startReadRefresh(async (isActive) => {
       try {
         const next = await fetchCpuTemp()
-        if (!cancelled && next) {
+        if (isActive() && next) {
           setCpuValue(next.value)
           setCpuBgColor(next.bgColor)
           clearNodeMessage('CPU temperature request failed.')
           failureNotified = false
         }
       } catch {
-        if (!cancelled) {
+        if (isActive()) {
           setCpuValue('--°F / --°C')
           setCpuBgColor('#59461c')
           if (!failureNotified) appendNodeMessage('CPU temperature request failed.')
           failureNotified = true
         }
       }
-    }
-
-    void refreshCpu()
-    const timer = window.setInterval(refreshCpu, effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
+    }, { intervalMs: effectiveThemeSettings.reduceBrowserActivity ? 120000 : 60000 })
   }, [effectiveThemeSettings.reduceBrowserActivity])
 
   useEffect(() => {
