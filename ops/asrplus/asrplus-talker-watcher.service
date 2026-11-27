@@ -1,7 +1,7 @@
 [Unit]
-Description=Track verified app_rpt talker activity for ASR Plus
-After=asterisk.service
-Requires=asterisk.service
+Description=Relay authoritative ASR talker activity for ASR Plus
+After=allscan-reimagined-astapi.service
+Wants=allscan-reimagined-astapi.service
 
 [Service]
 Type=simple
@@ -26,7 +26,8 @@ ProtectKernelTunables=true
 LockPersonality=true
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus /etc/asterisk/manager.conf /var/lib/asterisk/astdb.txt
+ReadOnlyPaths=/etc/asrplus-agent.json /etc/asrplus -/run/allscan-reimagined
+InaccessiblePaths=/etc/asterisk/manager.conf
 ReadWritePaths=/run/asrplus /var/lib/asrplus-agent
 
 [Install]

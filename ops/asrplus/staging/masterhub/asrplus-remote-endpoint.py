@@ -96,18 +96,22 @@ def sanitize_status(hub: str, payload: dict) -> dict:
         if not re.fullmatch(r"[A-Za-z0-9*#-]{1,16}", node):
             return {}
         event = int(row.get("event_epoch") or 0)
-        started = int(row.get("keyed_started_epoch") or 0)
+        started = int(row.get("started_epoch") or row.get("keyed_started_epoch") or 0)
         if current and (started <= 0 or abs(generated - started) > 86400):
             return {}
         if not current and (event <= 0 or event > generated + 30 or generated - event > 86400):
             return {}
         return {
             "node": node, "label": str(row.get("label", ""))[:140],
-            "callsign": str(row.get("callsign", ""))[:32],
+            "callsign": str(row.get("callsign", ""))[:80],
+            "info": str(row.get("info", ""))[:140],
+            "source": str(row.get("source", ""))[:32],
+            "identity_provenance": str(row.get("identity_provenance", ""))[:64],
+            "started_epoch": started,
             "description": str(row.get("description", ""))[:80],
             "location": str(row.get("location", ""))[:80],
             "event_epoch": event, "keyed_started_epoch": started,
-            "duration_seconds": max(0, min(86400, int(row.get("duration_seconds") or 0))),
+            "duration_seconds": max(0, min(86400, int(row.get("duration") or row.get("duration_seconds") or 0))),
             "last_keyed": str(row.get("last_keyed", ""))[:24],
             "originated_locally": row.get("originated_locally") is True,
         }
@@ -129,6 +133,8 @@ def sanitize_status(hub: str, payload: dict) -> dict:
     }
     return {
         "generated_epoch": generated,
+        "talker_source_epoch": int(payload.get("talker_source_epoch") or 0),
+        "talker_authority": "asr" if payload.get("talker_authority") == "asr" else "unknown",
         "connection_status": {"connected_node_count": len(rows), "direct_link_count": len(rows),
             "adjacent_link_count": 0, "current_talker": current_talker,
             "last_talkers": last_talkers, "nodes": rows},

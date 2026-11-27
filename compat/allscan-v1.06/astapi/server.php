@@ -5,7 +5,23 @@ header('Cache-Control: no-cache');
 header('X-Accel-Buffering: no');
 date_default_timezone_set('America/New_York');
 
-require_once(__DIR__ . '/../include/apiInit.php');
+// The local service shares the same collector and lock as browser clients.
+$asrHeadless = PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--asr-collector';
+if ($asrHeadless) {
+    chdir(__DIR__);
+    set_include_path(__DIR__ . "/../include" . PATH_SEPARATOR . get_include_path());
+    $_SERVER['DOCUMENT_ROOT'] = dirname(__DIR__, 2);
+    $_SERVER['SCRIPT_NAME'] = '/' . basename(dirname(__DIR__)) . '/astapi/server.php';
+    require_once(__DIR__ . '/../include/common.php');
+    $msg = [];
+    asInit($msg);
+    $db = dbInit();
+    $cfgModel = new CfgModel($db);
+    if (!getAmiCfg($msg)) exit(1);
+    $_GET['nodes'] = (string) $amicfg->node;
+} else {
+    require_once(__DIR__ . '/../include/apiInit.php');
+}
 require_once(__DIR__ . '/../include/scheduleUtils.php');
 require_once(__DIR__ . '/AMI.php');
 require_once(__DIR__ . '/nodeInfo.php');
@@ -13,7 +29,7 @@ require_once(__DIR__ . '/asrEchoLink.php');
 require_once(__DIR__ . '/asrAmiGuard.php');
 require_once(__DIR__ . '/asrTalkerIdentity.php');
 
-if(!readOk()) {
+if(!$asrHeadless && !readOk()) {
 	statErr('Insufficient user permission to retrieve data.');
 	exit();
 }
@@ -54,9 +70,11 @@ $guardPath = $sharedDir . '/astapi-' . $node . '.breaker';
 $sharedHandle = is_dir($sharedDir) ? @fopen($sharedLock, 'c') : false;
 $sharedLeader = $sharedHandle !== false && @flock($sharedHandle, LOCK_EX | LOCK_NB);
 if($sharedHandle !== false && !$sharedLeader) {
+	if ($asrHeadless) exit(0);
 	$sharedLeader = streamSharedStatus($sharedHandle, $sharedCache);
 }
 
+if ($asrHeadless && !$sharedLeader) exit(1);
 $ami = new AMI();
 $asrEchoLinkOfficialCache = [];
 $fp = [];
@@ -367,11 +385,13 @@ function streamGuardedStatus($cachePath, $guardPath, $bootId, $host, $port, $use
 }
 
 function sendData($data, $event='errMsg') {
-	global $sharedLeader, $sharedCache;
+	global $sharedLeader, $sharedCache, $asrHeadless;
+	if (!$asrHeadless) {
 	echo "event: $event\n";
 	echo 'data: ' . json_encode($data) . "\n\n";
 	ob_flush();
 	flush();
+	}
 	if($sharedLeader && in_array($event, ['connection', 'errMsg'], true))
 		writeSharedMessage($sharedCache, $event, $data);
 }
@@ -385,8 +405,16 @@ function writeSharedMessage($path, $event, $data) {
 		'event' => $event,
 		'data' => $data,
 	]);
-	if($record !== false)
-		@file_put_contents($messagePath, $record . "\n", FILE_APPEND | LOCK_EX);
+	if($record !== false) {
+        clearstatcache(true, $messagePath);
+        if(is_file($messagePath) && @filesize($messagePath) > 1048576) {
+            $tmp = $messagePath . '.' . getmypid() . '.tmp';
+            if(@file_put_contents($tmp, $record . "\n", LOCK_EX) !== false) {
+                @chmod($tmp, 0644);
+                @rename($tmp, $messagePath);
+            } else @unlink($tmp);
+        } else @file_put_contents($messagePath, $record . "\n", FILE_APPEND | LOCK_EX);
+    }
 }
 
 
@@ -432,10 +460,11 @@ function writeSharedStatus($path, $current, $nodeTime) {
 function streamSharedStatus($lockHandle, $cachePath) {
 	$lastUpdate = '';
 	$lastCurrent = '';
-	$lastGuarded = null;
+	$lastUnavailable = null;
 	$guardFile = dirname($cachePath) . '/' . basename($cachePath, '.json') . '.breaker';
 	$messagePath = $cachePath . '.messages';
 	$messageOffset = is_file($messagePath) ? (int) @filesize($messagePath) : 0;
+	$messageInode = is_file($messagePath) ? (int) @fileinode($messagePath) : 0;
 	sendData(['status' => 'Shared Asterisk status feed connected'], 'connection');
 	while(true) {
 		$payload = [];
@@ -447,10 +476,12 @@ function streamSharedStatus($lockHandle, $cachePath) {
 		$updated = isset($payload['updated']) ? (string) $payload['updated'] : '';
 		$guarded = asrAmiGuardBlocks(asrAmiGuardLoad($guardFile), '');
 		$cacheChanged = $updated !== '' && $updated !== $lastUpdate;
-		$guardOpened = $lastGuarded === false && $guarded;
-		if($cacheChanged || ($guardOpened && $updated !== '')) {
+		$cacheStale = $updated === '' || microtime(true) - (float) $updated > 10;
+		$unavailable = $guarded || $cacheStale;
+		$availabilityChanged = $lastUnavailable !== null && $lastUnavailable !== $unavailable;
+		if($cacheChanged || $availabilityChanged) {
 			$cleanCurrent = asrSanitizeTalkerFeed($payload['current'] ?? [], [], '/var/lib/asterisk/astdb.txt', asrBridgeTalkerEvidence());
-			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $guarded);
+			$cleanCurrent = asrStatusForAmiAvailability($cleanCurrent, $unavailable);
 			$currentHash = md5(json_encode($cleanCurrent));
 			if($currentHash !== $lastCurrent) {
 				sendData($cleanCurrent, 'nodes');
@@ -459,10 +490,15 @@ function streamSharedStatus($lockHandle, $cachePath) {
 			sendData($payload['nodeTime'] ?? [], 'nodetimes');
 			if($cacheChanged) $lastUpdate = $updated;
 		}
-		$lastGuarded = $guarded;
+		$lastUnavailable = $unavailable;
 		if(is_readable($messagePath)) {
 			$messages = @fopen($messagePath, 'r');
 			if($messages !== false) {
+				$messageStat = fstat($messages);
+				$currentInode = (int) ($messageStat['ino'] ?? 0);
+				if(($messageInode > 0 && $currentInode !== $messageInode)
+					|| $messageOffset > (int) ($messageStat['size'] ?? 0)) $messageOffset = 0;
+				$messageInode = $currentInode;
 				if($messageOffset > 0)
 					@fseek($messages, $messageOffset);
 				while(($line = fgets($messages)) !== false) {

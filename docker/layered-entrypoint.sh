@@ -282,6 +282,14 @@ install -o root -g root -m 755 /opt/asr-source/scripts/asr-node-db-link.sh /usr/
   done
 ) &
 
+# Run the same ASR collector without requiring an open browser.
+(
+  while :; do
+    runuser -u www-data -- php "$ASR_DIR/astapi/server.php" --asr-collector || true
+    sleep 5
+  done
+) &
+
 echo "Layered install ready: stock at /allscan and ASR overlay at /asr"
 
 exec "$@"
