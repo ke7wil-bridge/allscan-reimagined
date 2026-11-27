@@ -750,7 +750,7 @@ html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-s
 /* #307: equal visible bands and typography on Standard Bridges and Net Bridge information rows only.
    Each band includes its leading divider. The body no longer adds a separate one. */
 .allscan-bridge-grid > .allscan-bridge-card {
-  --asr-bridge-info-height: 27px;
+  --asr-bridge-info-height: 38px;
   --asr-bridge-info-font: 13px;
 }
 .allscan-bridge-grid > .allscan-bridge-card > .allscan-bridge-body {
@@ -777,7 +777,9 @@ html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-s
 }
 @media (max-width:360px) {
   .allscan-bridge-grid > .allscan-bridge-card:not(.allscan-net-bridge-card) > .allscan-standard-link-row:has(> button) {
-    height: auto;
-    padding-block: 2px;
+    height: var(--asr-bridge-info-height);
+    grid-template-rows: 12px 24px;
+    row-gap: 1px;
+    padding-block: 0;
   }
 }
