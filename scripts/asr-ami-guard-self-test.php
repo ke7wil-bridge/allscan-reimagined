@@ -120,8 +120,8 @@ foreach(['v1.02', 'v1.03', 'v1.04', 'v1.05', 'v1.06'] as $compatVersion) {
 	$server = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/server.php");
 	$guard = file_get_contents(dirname(__DIR__) . "/compat/allscan-$compatVersion/astapi/asrAmiGuard.php");
 	asrAmiGuardTest(str_contains($server, 'writeSharedStatus($cachePath, $payload[\'current\']'), "$compatVersion does not publish AMI unavailability to the shared cache.");
-	asrAmiGuardTest(str_contains($server, '$guardOpened = $lastGuarded === false && $guarded;'), "$compatVersion shared viewers do not observe breaker transitions.");
-	asrAmiGuardTest(str_contains($server, 'asrStatusForAmiAvailability($cleanCurrent, $guarded)'), "$compatVersion shared viewers do not preserve healthy AMI state.");
+	asrAmiGuardTest(str_contains($server, '$availabilityChanged = $lastUnavailable !== null && $lastUnavailable !== $unavailable;'), "$compatVersion shared viewers do not observe authoritative availability transitions.");
+	asrAmiGuardTest(str_contains($server, 'asrStatusForAmiAvailability($cleanCurrent, $unavailable)'), "$compatVersion shared viewers do not fail closed for stale or guarded authoritative state.");
 	asrAmiGuardTest(str_contains($guard, 'function asrStatusForAmiAvailability'), "$compatVersion does not expose the guarded AMI status projection.");
 	asrAmiGuardTest(str_contains($guard, 'function asrAmiGuardClassifyRecoveryAttempt'), "$compatVersion does not expose pure recovery-attempt classification.");
 	asrAmiGuardTest(str_contains($server, '$probeDue = asrAmiGuardRecoveryDue($state);'), "$compatVersion does not capture whether each recovery attempt is due.");
