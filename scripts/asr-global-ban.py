@@ -25,6 +25,7 @@ ADMIN_LOCK = str(GLOBAL_BAN_ROOT / ".asr-global-ban.lock")
 CONFIG = "/etc/allscan-reimagined/config.json"
 ZELLO_TALKERS = "/var/www/html/allscan/zello-talkers.json"
 ZELLO_KICKS = str(GLOBAL_BAN_ROOT / "asr-zello-kicks.json")
+ZELLO_EXACT_BANS = str(GLOBAL_BAN_ROOT / "asr-zello-exact-bans.json")
 STANDALONE_ADMIN_HELPER = "/usr/local/sbin/allscan-reimagined-standalone-admin"
 ASL_BAN_HELPER = "/usr/local/sbin/allscan-reimagined-asl-ban"
 TGIF_SESSION_HELPER = os.environ.get("ASR_TGIF_SESSION_HELPER", "/usr/local/sbin/allscan-reimagined-tgif-user-session")
@@ -38,6 +39,30 @@ def normalize(value: str) -> str:
     if not RULE_RE.fullmatch(rule):
         raise ValueError("Global Ban rule must be an identity/prefix using A-Z, 0-9, _, /, . or -, with optional trailing *.")
     return rule
+
+
+# Zello Kick is an exact identity in the existing JSON session store,
+# not a global policy token. Encode whitespace across the sudo boundary.
+ZELLO_KICK_TOKEN_PREFIX = "ZELLO_EXACT_HEX_"
+ZELLO_NAME_RE = re.compile(r"^[A-Z0-9 @._#/+:-]{1,48}$")
+
+
+def decode_zello_kick_identity(value):
+    if value.startswith(ZELLO_KICK_TOKEN_PREFIX):
+        encoded = value[len(ZELLO_KICK_TOKEN_PREFIX):]
+        if not re.fullmatch(r"[A-F0-9]{2,96}", encoded) or len(encoded) % 2:
+            raise ValueError("Invalid encoded Zello identity.")
+        try:
+            name = bytes.fromhex(encoded).decode("ascii")
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError("Invalid encoded Zello identity.") from exc
+        if name != name.strip().upper() or not ZELLO_NAME_RE.fullmatch(name):
+            raise ValueError("Invalid exact Zello identity.")
+        return name
+    name = normalize(value)
+    if name.endswith("*"):
+        raise ValueError("Kick requires one exact callsign, not a prefix.")
+    return name
 
 
 def protected_identities():
@@ -348,6 +373,124 @@ def ban_payload(rules, timed, now=None):
     ]
 
 
+# #319: independent exact-name policy storage. Never send these keys to
+# radio adapters or store them as whitespace-delimited callsign rules.
+# Never claim cross-protocol enforcement for an unmapped Zello identity.
+def normalize_zello_exact_ban(value):
+    name = str(value).strip().upper()
+    if not ZELLO_NAME_RE.fullmatch(name) or RULE_RE.fullmatch(name):
+        raise ValueError("Expected an exact Zello name outside the existing radio-rule alphabet.")
+    assert_ban_allowed(name)
+    return name
+
+
+def read_zello_exact_bans():
+    try:
+        with open(ZELLO_EXACT_BANS, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Exact Zello ban policy is unreadable.") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != 1 or not isinstance(payload.get("rules"), dict):
+        raise RuntimeError("Exact Zello ban policy is unreadable.")
+    rules = payload["rules"]
+    for name, record in rules.items():
+        if (name != name.strip().upper() or not ZELLO_NAME_RE.fullmatch(name)
+                or RULE_RE.fullmatch(name) or not isinstance(record, dict)
+                or set(record) != {"createdAt", "expiresAt"}
+                or type(record["createdAt"]) is not int or type(record["expiresAt"]) is not int
+                or record["createdAt"] < 0 or record["expiresAt"] < 0
+                or (record["expiresAt"] and record["expiresAt"] <= record["createdAt"])):
+            raise RuntimeError("Exact Zello ban policy is unreadable.")
+    return rules
+
+
+def write_zello_exact_bans(rules):
+    directory = os.path.dirname(ZELLO_EXACT_BANS)
+    fd, tmp = tempfile.mkstemp(prefix=".asr-zello-exact-bans.", dir=directory, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"schema": 1, "rules": rules}, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, ZELLO_EXACT_BANS)
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def change_zello_exact_ban(rules, verb, value, duration="permanent", now=None):
+    """Pure mutation: caller owns admin lock, audit and commit."""
+    name = normalize_zello_exact_ban(value)
+    records = dict(rules)
+    current = int(time.time()) if now is None else int(now)
+    if verb == "ban":
+        if duration not in BAN_DURATIONS:
+            raise ValueError("Invalid ban duration.")
+        seconds = BAN_DURATIONS[duration]
+        records[name] = {"createdAt": current, "expiresAt": current + seconds if seconds else 0}
+    elif verb == "unban":
+        records.pop(name, None)
+    else:
+        raise ValueError("Invalid exact Zello ban action.")
+    return records
+
+
+def active_zello_exact_bans(rules, now=None):
+    current = int(time.time()) if now is None else int(now)
+    return {name: record for name, record in rules.items()
+            if not record["expiresAt"] or record["expiresAt"] > current}
+
+
+def zello_exact_ban_payload(rules, now=None):
+    current = int(time.time()) if now is None else int(now)
+    return [{**record, "rule": name, "scope": "zello-only",
+             "remainingSeconds": max(0, record["expiresAt"] - current) if record["expiresAt"] else 0,
+             "verified": False}
+            for name, record in sorted(active_zello_exact_bans(rules, current).items())]
+
+
+def expire_zello_exact_bans(actor="system"):
+    rules = read_zello_exact_bans()
+    active = active_zello_exact_bans(rules)
+    expired = sorted(set(rules) - set(active))
+    if expired:
+        write_zello_exact_bans(active)
+        for name in expired:
+            append_audit_event("expire", actor, rule=name, protocol="ZELLO", scope="zello-only")
+    return active
+
+
+def execute_zello_exact_ban(verb, token=None, duration="permanent", actor="system"):
+    """Caller holds the same lock as the shared global administration helper."""
+    if verb == "list":
+        rules = read_zello_exact_bans()
+    elif verb in {"ban", "unban"}:
+        if not token or not token.startswith(ZELLO_KICK_TOKEN_PREFIX):
+            raise ValueError("An encoded exact Zello identity is required.")
+        name = normalize_zello_exact_ban(decode_zello_kick_identity(token))
+        rules = change_zello_exact_ban(read_zello_exact_bans(), verb, name, duration)
+        write_zello_exact_bans(rules)
+        if read_zello_exact_bans() != rules:
+            raise RuntimeError("Exact Zello ban policy write could not be verified.")
+        append_audit_event(verb, actor, rule=name, protocol="ZELLO", scope="zello-only",
+                           expiresAt=rules.get(name, {}).get("expiresAt"))
+    else:
+        raise ValueError("Invalid exact Zello ban action.")
+    return dict(ok=True, scope="zello-only", verified=False,
+                enforcement="saved_policy_runtime_unverified",
+                bans=zello_exact_ban_payload(rules),
+                serverEpoch=int(time.time()))
+
+
 def write_zello_kick(callsign, actor="system"):
     """Mute a recent Zello talker on this bridge for one minute (#134)."""
     try:
@@ -486,20 +629,32 @@ def fan_out_to_hubs(verb, kind, value, duration="", actor="system"):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire"])
+    parser.add_argument("action", choices=["list", "ban", "unban", "kick", "expire", "zello-ban", "zello-unban", "zello-ban-list"])
     parser.add_argument("rule", nargs="?")
     parser.add_argument("protocol", nargs="?")
     parser.add_argument("--actor", default="system")
     args = parser.parse_args()
 
+    if args.action in {"zello-ban", "zello-unban", "zello-ban-list"}:
+        verb = {"zello-ban": "ban", "zello-unban": "unban", "zello-ban-list": "list"}[args.action]
+        if (verb == "list" and (args.rule is not None or args.protocol is not None)
+                or verb == "unban" and args.protocol is not None
+                or verb == "ban" and args.protocol not in BAN_DURATIONS):
+            raise ValueError("Invalid exact Zello ban arguments.")
+        emit(**execute_zello_exact_ban(verb, args.rule, args.protocol or "permanent", args.actor))
+        return
+    zello_expiry_error = None
+    if args.action == "expire":
+        try:
+            expire_zello_exact_bans(args.actor)
+        except (OSError, RuntimeError, ValueError) as exc:
+            zello_expiry_error = str(exc)
     if args.action == "kick":
         # Native bridge Kick is per bridge (standalone administration helper).
         # Only Zello, which has no remote disconnect, is kicked here.
         if not args.rule or (args.protocol or "").strip().upper() != "ZELLO":
             raise ValueError("Kick requires CALLSIGN ZELLO; other bridges use their own Kick.")
-        callsign = normalize(args.rule)
-        if callsign.endswith("*"):
-            raise ValueError("Kick requires one exact callsign, not a prefix.")
+        callsign = decode_zello_kick_identity(args.rule)
         write_zello_kick(callsign, args.actor)
         return
     rules = read_rules()
@@ -511,7 +666,7 @@ def main():
         verified = global_enforcement_verified(asl, standalone)
         enforcement = "immediate_global" if verified else "partial_pending_enforcement"
         if args.action == "expire":
-            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, rules=sorted(set(rules)),
+            emit(ok=True, asl=asl, verified=verified, enforcement=enforcement, action="expire", expired=expired, zelloExactExpiryError=zello_expiry_error, rules=sorted(set(rules)),
                  bans=ban_payload(rules, timed), standalone=standalone, tgif=reconcile_tgif_bans(),
                  serverEpoch=int(time.time()))
         else:

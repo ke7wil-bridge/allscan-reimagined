@@ -1246,9 +1246,10 @@ function asr_zello_kick_command(string $callsign): array {
     global $user;
     if (!is_executable(ASR_GLOBAL_BAN_HELPER)) asr_error('Zello client administration helper is unavailable.', 503);
     $callsign = strtoupper(trim($callsign));
-    if (!preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign)) asr_error('Invalid Zello client identity.');
+    if (!preg_match('/^[A-Z0-9 @._#\/+:-]{1,48}$/D', $callsign)) asr_error('Invalid Zello client identity.');
+    $target = preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $callsign) ? $callsign : 'ZELLO_EXACT_HEX_' . strtoupper(bin2hex($callsign));
     $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
-    $command = 'sudo -n ' . escapeshellarg(ASR_GLOBAL_BAN_HELPER) . ' kick ' . escapeshellarg($callsign)
+    $command = 'sudo -n ' . escapeshellarg(ASR_GLOBAL_BAN_HELPER) . ' kick ' . escapeshellarg($target)
         . ' ZELLO --actor ' . escapeshellarg($actor ?: 'unknown');
     $output = []; $code = 0; exec($command . ' 2>/dev/null', $output, $code);
     $payload = json_decode((string) end($output), true);
@@ -4301,6 +4302,34 @@ if ($action === 'global-ban-control') {
     if (!in_array($verb, ['ban', 'unban'], true)) asr_error('Invalid Global Ban action.');
     if ($verb === 'ban' && !in_array($duration, ['15m', '1h', '1w', '30d', 'permanent'], true)) asr_error('Invalid Global Ban duration.');
     asr_json(asr_global_ban_command($verb, $rule, $verb === 'ban' ? $duration : ''));
+}
+// #319: exact-name policy is explicitly scoped to Zello. No global
+// callsign rule is manufactured from an unverified display identity.
+if ($action === 'zello-exact-ban-list' || $action === 'zello-exact-ban-control') {
+    asr_require_admin();
+    if (!is_executable(ASR_GLOBAL_BAN_HELPER)) asr_error('Zello policy helper unavailable.', 503);
+    $command = 'sudo -n ' . escapeshellarg(ASR_GLOBAL_BAN_HELPER);
+    if ($action === 'zello-exact-ban-list') {
+        $command .= ' zello-ban-list';
+    } else {
+        asr_require_post();
+        asr_require_same_origin();
+        if ((string) ($_SERVER['HTTP_X_ASR_REQUESTED_WITH'] ?? '') !== 'zello-exact-ban-control') asr_error('Invalid Zello policy request.', 403);
+        $verb = strtolower(trim((string) ($_POST['verb'] ?? '')));
+        $name = strtoupper(trim((string) ($_POST['identity'] ?? '')));
+        $duration = strtolower(trim((string) ($_POST['duration'] ?? 'permanent')));
+        if (!in_array($verb, ['ban', 'unban'], true)) asr_error('Invalid Zello policy action.');
+        if (!preg_match('/^[A-Z0-9 @._#\/+:-]{1,48}$/D', $name) || preg_match('/^[A-Z0-9][A-Z0-9_.\/-]{0,14}$/D', $name)) asr_error('Invalid exact Zello identity.');
+        if ($verb === 'ban' && !in_array($duration, ['15m', '1h', '1w', '30d', 'permanent'], true)) asr_error('Invalid ban duration.');
+        $command .= ' zello-' . $verb . ' ' . escapeshellarg('ZELLO_EXACT_HEX_' . strtoupper(bin2hex($name)));
+        if ($verb === 'ban') $command .= ' ' . escapeshellarg($duration);
+    }
+    $actor = substr(preg_replace('/[^A-Za-z0-9_.@+-]/', '_', (string) ($user->name ?? 'unknown')), 0, 80);
+    $command .= ' --actor ' . escapeshellarg($actor ?: 'unknown');
+    $lines = []; $code = 1; exec($command . ' 2>&1', $lines, $code);
+    $result = json_decode((string) end($lines), true);
+    if ($code !== 0 || !is_array($result) || empty($result['ok']) || ($result['scope'] ?? '') !== 'zello-only') asr_error('Exact Zello policy operation failed.', 502);
+    asr_json($result);
 }
 if ($action === 'zello-client-kick') {
     asr_require_post();

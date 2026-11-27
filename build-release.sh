@@ -156,6 +156,7 @@ python3 "$ROOT/scripts/asr-tgif-user-session.py" self-test
 python3 "$ROOT/scripts/bridge-relays/asr-tgif-standalone-relay.py" --self-test
 python3 "$ROOT/scripts/asr-dmr-admin-lock-self-test.py"
 python3 "$ROOT/scripts/asr-zello-kick-mute-self-test.py"
+python3 "$ROOT/scripts/asr-zello-exact-ban-storage-self-test.py"
 python3 "$ROOT/scripts/asr-bridge-recent-activity-labels-self-test.py"
 python3 "$ROOT/scripts/asr-install-preflight-self-test.py"
 python3 "$ROOT/scripts/asr-install-diagnostics-self-test.py"

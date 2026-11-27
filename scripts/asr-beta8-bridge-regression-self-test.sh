@@ -40,6 +40,7 @@ python3 scripts/asr-tgif-user-session.py self-test
 python3 scripts/asr-tgif-persistent-monitor-self-test.py
 python3 scripts/bridge-relays/asr-tgif-standalone-relay.py --self-test
 python3 scripts/asr-zello-kick-mute-self-test.py
+python3 scripts/asr-zello-exact-ban-storage-self-test.py
 python3 scripts/asr-bridge-recent-activity-labels-self-test.py  # CONN / DISC / TX
 node scripts/asr-bridge-recent-activity-self-test.mjs           # real dashboard code
 python3 scripts/asr-deployment-source-consistency-self-test.py
