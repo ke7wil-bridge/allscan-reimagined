@@ -4365,7 +4365,7 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
                       <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <i className="allscan-standard-link-dot" aria-hidden="true" />
-                      <b title={card.manualDisconnect ? (bridgeLinked ? 'Hold conflict · linked' : 'Manually disconnected') : (bridgeLinked ? 'Linked' : 'Unlinked')}>{bridgeLinked ? 'Linked' : 'Unlinked'}</b>
+                      <b data-link-state={bridgeLinked ? 'linked' : 'unlinked'} title={card.manualDisconnect ? (bridgeLinked ? 'Hold conflict · linked' : 'Manually disconnected') : (bridgeLinked ? 'Linked' : 'Unlinked')}>{bridgeLinked ? 'Linked' : 'Unlinked'}</b>
                       <button type="button" className="allscan-action-button" disabled={busy || Boolean(bridgeControlBusy)}
                         onClick={() => void controlStandardLink(card, bridgeLinked ? 'disconnect' : 'connect')}>
                         {bridgeControlBusy === `standard-link-${card.id}` ? 'Working…' : bridgeLinked ? 'Disconnect' : 'Reconnect'}
@@ -4375,13 +4375,13 @@ function App({ config }: { config: RuntimeConfig }) {
                     <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
                       <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <i className="allscan-standard-link-dot" aria-hidden="true" />
-                      <b title="Manually disconnected · control unavailable">Unlinked</b>
+                      <b data-link-state="unlinked" title="Manually disconnected · control unavailable">Unlinked</b>
                     </div>
                   ) : standardLinkMissing && authStatus.canModify ? (
                     <div className="allscan-bridge-row allscan-bridge-status-row allscan-standard-link-row">
                       <span title={`AllStar link · Node ${card.node}`}>Node {card.node}</span>
                       <i className="allscan-standard-link-dot" aria-hidden="true" />
-                      <b title="Unlinked">Unlinked</b>
+                      <b data-link-state="unlinked" title="Unlinked">Unlinked</b>
                       <button type="button" className="allscan-action-button" disabled={busy}
                         title={`Reconnect ${card.title} using AllStar node ${card.node}`}
                         onClick={() => void runCommandForNode('connect', card.node, false, false)}>

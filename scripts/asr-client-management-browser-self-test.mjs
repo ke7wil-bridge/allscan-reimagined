@@ -119,10 +119,19 @@ async function runBrowser(unauthorized = false) {
         const geometry = await row.evaluate(el => {
           const r=el.getBoundingClientRect(), b=el.querySelector('button').getBoundingClientRect()
           const dot=el.querySelector('.allscan-standard-link-dot').getBoundingClientRect(), node=el.querySelector('span').getBoundingClientRect(), status=el.querySelector('b').getBoundingClientRect()
+          const label=el.querySelector('b'), button=el.querySelector('button')
+          const oldLabel=label.textContent, oldButton=button.textContent, oldState=label.dataset.linkState
+          const green=getComputedStyle(label).color
+          label.textContent='Unlinked'; label.dataset.linkState='unlinked'; button.textContent='Reconnect'
+          const red=getComputedStyle(label).color
+          const unlinkedWidths=[label.scrollWidth,label.clientWidth,button.getBoundingClientRect().width]
+          const unlinkedFits=label.scrollWidth<=label.clientWidth+1 && button.getBoundingClientRect().right<=r.right+1
+          label.textContent=oldLabel; label.dataset.linkState=oldState; button.textContent=oldButton
+          const colorOK=green=== (document.documentElement.dataset.asrMode==='light'?'rgb(21, 128, 61)':'rgb(74, 222, 128)') && red===(document.documentElement.dataset.asrMode==='light'?'rgb(185, 28, 28)':'rgb(248, 113, 113)')
           const peers=[...el.closest('.allscan-bridge-card').querySelectorAll('.allscan-bridge-body .allscan-bridge-status-row')].map(row=>row.getBoundingClientRect().height)
-          return {height:r.height, peers, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===3 && dot.height===3 && dot.left-node.right>=0 && dot.left-node.right<=6 && status.left-dot.right>=0 && status.left-dot.right<=6, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
+          return {height:r.height, peers, unlinkedFits, unlinkedWidths, colorOK, green, red, fits:b.left>=r.left-1 && b.right<=r.right+1 && b.bottom<=r.bottom+1, buttonHeight:b.height, width:r.width, dotFits:dot.width===4 && dot.height===4 && dot.left-node.right>=4 && dot.left-node.right<=7 && status.left-dot.right>=4 && status.left-dot.right<=7, placement:el.nextElementSibling?.classList.contains('allscan-bridge-body') && el.previousElementSibling?.classList.contains('allscan-bridge-head'), noWrap:[...el.children].every(x=>getComputedStyle(x).whiteSpace==='nowrap'), labelFits:el.querySelector('b').scrollWidth<=el.querySelector('b').clientWidth+1, children:[...el.children].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,height:x.getBoundingClientRect().height,font:getComputedStyle(x).fontSize}))}
         })
-        assert(geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
+        assert(geometry.unlinkedFits && geometry.colorOK && geometry.dotFits && geometry.placement && geometry.fits && geometry.noWrap && geometry.labelFits && geometry.buttonHeight>=24 && (width===320 || geometry.peers.every(h=>Math.abs(h-geometry.height)<=1)), `#307 control overflow or small target: ${theme}/${mode}/${width}: ${JSON.stringify(geometry)}`)
         console.log('LAYOUT',theme,mode,width,JSON.stringify(geometry))
         if (process.env.ASR_LAYOUT_EVIDENCE) await standardCard('DMR').screenshot({path:`${process.env.ASR_LAYOUT_EVIDENCE}-${theme}-${mode}-${width}.png`})
       }

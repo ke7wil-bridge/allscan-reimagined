@@ -681,9 +681,10 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 }
 .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-dot {
   display: block;
-  flex: 0 0 3px;
-  width: 3px;
-  height: 3px;
+  flex: 0 0 4px;
+  width: 4px;
+  height: 4px;
+  margin-inline: 2px;
   border-radius: 50%;
   background: currentColor;
   opacity: .65;
@@ -713,16 +714,16 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 }
 @media (max-width: 1199px) {
   .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row {
-    gap: 2px 3px;
+    gap: 2px 2px;
     min-height: 26px;
-    padding-inline: 3px;
+    padding-inline: 2px;
   }
   .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > span,
   .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b {
     font-size: 10px;
   }
   .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > button {
-    padding-inline: 3px;
+    padding-inline: 1px;
     font-size: 10px;
   }
 }
@@ -731,7 +732,7 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
 @media (max-width: 360px) {
   .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row:has(> button) {
     display: grid;
-    grid-template-columns: auto 3px minmax(0, 1fr);
+    grid-template-columns: auto 8px minmax(0, 1fr);
     gap: 2px 4px;
     padding-block: 2px;
   }
@@ -740,3 +741,8 @@ html[data-asr-theme="standard"][data-asr-mode="dark"] .allscan-favorites-options
     justify-self: end;
   }
 }
+
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="linked"] { color: #4ade80; }
+.allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #f87171; }
+html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="linked"] { color: #15803d; }
+html[data-asr-mode="light"] .allscan-bridge-grid .allscan-bridge-card .allscan-standard-link-row > b[data-link-state="unlinked"] { color: #b91c1c; }
