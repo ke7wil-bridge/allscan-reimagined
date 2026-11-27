@@ -129,18 +129,11 @@
     flex-wrap: nowrap;
     justify-content: flex-start !important;
     gap: 6px;
-    padding-right: 102px;
   }
 
   .allscan-controls-shell .allscan-node-field,
   .allscan-controls-shell .allscan-action-field {
     flex: 0 0 auto;
-    gap: 5px;
-  }
-
-  .allscan-controls-shell .allscan-control-label {
-    font-size: 12px;
-    line-height: 1;
   }
 
   .allscan-controls-shell .allscan-node-input,
@@ -148,11 +141,6 @@
   .allscan-controls-shell .allscan-action-button,
   .allscan-controls-shell .allscan-custom-commands-button {
     box-sizing: border-box;
-    height: 29px;
-    border-radius: 6px;
-    padding: 3px 6px;
-    font-size: 14px;
-    line-height: 1;
   }
 
   .allscan-controls-shell .allscan-node-input {
@@ -173,94 +161,34 @@
   }
 
   .allscan-checks-grid > .allscan-custom-commands {
-    top: 5px;
     right: 7px;
   }
 
   .allscan-checks-grid > .allscan-custom-commands .allscan-custom-commands-button {
     width: var(--node-controls-commands-width);
     min-width: var(--node-controls-commands-width);
-    gap: 3px;
-    padding-inline: 5px;
-  }
-
-  .allscan-controls-shell .allscan-custom-commands-button svg {
-    width: 12px;
-    height: 12px;
   }
 
   .allscan-controls-lower-row {
     flex-wrap: nowrap;
     justify-content: flex-start;
-    gap: 6px;
-    margin-top: 5px;
   }
 
   .allscan-controls-action-group {
     flex: 0 0 auto;
-    gap: 5px;
   }
 
   .allscan-controls-shell .allscan-action-select {
     width: var(--node-controls-action-width);
     min-width: var(--node-controls-action-width);
     max-width: var(--node-controls-action-width);
-    padding-right: 18px;
-    padding-left: 7px;
-    background-position: right 3px center;
-  }
-
-  .allscan-controls-shell .allscan-go-button {
-    width: 42px;
-    min-width: 42px;
   }
 
   .allscan-controls-shell .allscan-kicks-bans-button {
     flex: 0 0 var(--node-controls-manage-width);
     width: var(--node-controls-manage-width);
     min-width: var(--node-controls-manage-width);
-    padding-inline: 5px;
-    white-space: nowrap;
     margin-left: auto;
-  }
-
-  .allscan-controls-shell > .allscan-checks-row.allscan-checks-grid {
-    justify-content: space-between;
-    column-gap: 5px !important;
-    min-height: 19px;
-    margin-top: 5px !important;
-    padding: 0;
-    font-size: 12px;
-    line-height: 1;
-  }
-
-  .allscan-controls-shell .allscan-checks-grid > label {
-    gap: 4px;
-  }
-
-  .allscan-controls-shell .allscan-checks-row .allscan-checkbox {
-    flex: 0 0 13px;
-    width: 13px;
-    height: 13px;
-    margin-right: 0;
-    background-size: 10px 10px;
-  }
-
-  .allscan-controls-shell > .allscan-node-messages {
-    margin-top: 5px !important;
-  }
-
-  .allscan-controls-shell .allscan-node-messages-summary {
-    min-height: 24px;
-    height: 24px;
-    gap: 10px;
-    padding: 2px 7px;
-    font-size: 10.5px;
-    line-height: 1;
-  }
-
-  .allscan-controls-shell .allscan-node-messages-summary::after {
-    font-size: 10px;
   }
 }
 
