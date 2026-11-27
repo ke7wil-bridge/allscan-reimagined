@@ -1755,7 +1755,7 @@ function formatBridgeRecentRows(entry: BridgeEntry | undefined, mode: string): B
   }
   rows.sort((a, b) => b.epoch - a.epoch)
   if (!rows.length) return [{ key: `${mode}-recent-empty`, label: `No recent ${bridgeModeLabel(mode)} activity`, meta: '', empty: true }]
-  return rows.slice(0, 100).map(({ epoch: _epoch, ...row }) => row)
+  return rows.slice(0, 100).map(({ key, label, meta, activityType, activityTime, activityDuration }) => ({ key, label, meta, activityType, activityTime, activityDuration }))
 }
 
 export function safeAudioMeterLevel(value: unknown): number {
