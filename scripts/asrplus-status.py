@@ -79,6 +79,29 @@ def text(value: object, limit: int = 120) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+def callsign_connection(value: object) -> bool:
+    node = text(value, 32).upper().removesuffix("-IAX")
+    return (any(character.isalpha() for character in node)
+        and re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{1,7}(?:-[A-Z0-9]+)?", node) is not None)
+
+
+def iax_connection(node: object, label: object, active_iax: set[str] | None = None) -> bool:
+    normalized = text(node, 32).upper()
+    return (normalized in (active_iax or set())
+        or text(label, 140).lower() == "iaxrpt / web transceiver client"
+        or callsign_connection(normalized))
+
+
+def talker_hub_label(hub: dict) -> str:
+    explicit = text(hub.get("talkerLabel"), 80)
+    if explicit:
+        return explicit
+    name = text(hub.get("name"), 80)
+    if hub.get("id") == "masterhub":
+        return text(hub.get("location"), 80) or re.sub(r"\s+Hub$", "", name, flags=re.I)
+    return re.sub(r"\s+Hub$", "", name, flags=re.I) or text(hub.get("location"), 80)
+
+
 def bridge_recent_activity(runtime: dict, now: int, mode: str) -> list[dict]:
     """Use the same authenticated connection and incoming-TX evidence as ASR."""
     rows = []
@@ -243,6 +266,29 @@ def same_active_transmission(left: dict, right: dict) -> bool:
     return bool(left_start and right_start and abs(left_start - right_start) <= 3)
 
 
+def authoritative_relay_origins(active: dict, hubs: list[dict],
+                                current_candidates: list[dict]) -> list[dict]:
+    """Trace fresh ASR hub-current rows to their authoritative origin."""
+    hubs_by_node = {str(hub.get("node", "")): hub for hub in hubs
+        if not hub.get("stale") and hub.get("node")}
+    upstream_node = str(active.get("node", ""))
+    visited = set()
+    while upstream_node in hubs_by_node and upstream_node not in visited:
+        visited.add(upstream_node)
+        upstream = hubs_by_node[upstream_node]
+        upstream_active = next((row for row in upstream.get("talkers", [])
+            if isinstance(row, dict) and row.get("current")), None)
+        if not upstream_active:
+            return []
+        direct = [candidate for candidate in current_candidates
+            if candidate.get("hubId") == upstream.get("id")
+            and str(candidate.get("node", "")) == str(upstream_active.get("node", ""))]
+        if direct:
+            return direct
+        upstream_node = str(upstream_active.get("node", ""))
+    return []
+
+
 def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
     hub_nodes = {str(hub.get("node", "")) for hub in hubs}
     verified, relays = [], []
@@ -254,7 +300,7 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
                 continue
             talker = dict(source)
             talker.update({"hubId": hub.get("id", ""), "hubName": hub.get("name", ""),
-                "hubNode": hub.get("node", ""), "heardOn": hub.get("location") or hub.get("name", "")})
+                "hubNode": hub.get("node", ""), "heardOn": talker_hub_label(hub)})
             if str(talker.get("node", "")) in hub_nodes and not talker.get("originatedLocally"):
                 relays.append(talker)
             else:
@@ -321,7 +367,8 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
         active = next((row for row in hub.get("talkers", []) if row.get("current")), None)
         if not active:
             continue
-        if any(same_active_transmission(active, relay)
+        chain_matches = authoritative_relay_origins(active, hubs, current_candidates)
+        if not chain_matches and any(same_active_transmission(active, relay)
                and str(active.get("node")) == str(relay.get("node"))
                for relay in suppressed_relays):
             continue
@@ -332,6 +379,8 @@ def aggregate_talkers(hubs: list[dict], now: int) -> list[dict]:
                    if same_active_transmission(active, candidate)
                    and (hub.get("id") == candidate.get("hubId")
                         or str(active.get("node", "")) in hub_nodes)]
+        if not matches and len(chain_matches) == 1:
+            matches = chain_matches
         if not matches and str(active.get("node", "")) in hub_nodes and len(current_candidates) == 1:
             candidate = current_candidates[0]
             if abs(int(active.get("startedEpoch") or 0) - int(candidate.get("startedEpoch") or 0)) <= 12:
@@ -517,7 +566,7 @@ def build_hub(hub: dict, state: dict, astdb: dict[str, str],
         # Do not reuse old keyed flags from the slower connection snapshot.
         # Only a fresh event watcher may mark a connection as transmitting.
         keyed = live_fresh and str(live_node.get("keyed", "")).lower() == "yes"
-        iax_client = node.upper() in active_iax or text(row.get("label"), 140).strip().lower() == "iaxrpt / web transceiver client"
+        iax_client = iax_connection(node, row.get("label"), active_iax)
         connections.append({
             "node": node,
             "label": "IaxRpt / Web Transceiver client" if iax_client else text(
