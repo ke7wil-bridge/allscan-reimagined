@@ -88,6 +88,12 @@ paths. No sudo rule is installed. If the actual Texas Asterisk socket cannot be
 made group-accessible, stop and obtain an operator decision; do not weaken the
 unit or grant a shell.
 
+## Host UDP buffer tuning
+
+Before Texas carries traffic, install `ops/hubs/99-netoholics-voip.conf` as
+described in `ops/hubs/README.md`. Without it, Asterisk drops inbound IAX audio
+during busy nets (#346). Restart Asterisk only in an approved off-air window.
+
 ## Post-install verification
 
 Before enabling telemetry, verify all hashes and modes, `sshd -T`, the exact
